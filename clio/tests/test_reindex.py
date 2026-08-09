@@ -20,6 +20,7 @@ from clio.tasks.reindex import (
     auto_reindex_if_needed,
     run_reindex,
 )
+from clio.vmeta import SplitInfo, VideoIndex
 
 
 @pytest.fixture
@@ -142,6 +143,88 @@ class TestRunReindex:
 
         assert result == 1
         mock_find.assert_called_once_with("GL010683", config.project_dir)
+
+    def test_whole_files_do_not_get_average_offsets(
+        self, config: AppConfig, compressed_dir: Path, input_dir: Path
+    ) -> None:
+        """Same-stem whole-file clips must not be spread across a fabricated source timeline."""
+        for name in ["001_GL010683.mp4", "002_GL010683.mp4"]:
+            (compressed_dir / name).write_text("fake")
+        (input_dir / "GL010683.mp4").write_text("fake")
+
+        with (
+            patch("clio.tasks.reindex.VideoMeta.read", return_value=None),
+            patch("clio.tasks.reindex.VideoMeta.build") as mock_build,
+            patch("clio.tasks.reindex.get_duration_sec", return_value=60.0),
+            patch("clio.tasks.reindex.resolve_binary", return_value="ffprobe"),
+        ):
+            mock_meta = MagicMock()
+            mock_meta.target_duration_sec = 30.0
+            mock_meta.split_info = None
+            mock_build.return_value = mock_meta
+
+            run_reindex(config)
+
+        index = VideoIndex.read("GL010683", compressed_dir)
+        assert index is not None
+        assert [s.offset_sec for s in index.segments] == [0.0, 0.0]
+        assert [s.segment_number for s in index.segments] == [1, 1]
+
+    def test_stale_split_meta_not_trusted(self, config: AppConfig, compressed_dir: Path, input_dir: Path) -> None:
+        """A stale .vmeta declaring split offsets must be rebuilt, not trusted."""
+        (compressed_dir / "001_GL010683.mp4").write_text("fake0")
+        src = input_dir / "GL010683.mp4"
+        src.write_text("fake")
+
+        stale = MagicMock()
+        stale.source_path_obj.return_value = src
+        stale.is_stale.return_value = True  # source/target changed since it was stamped
+        stale.target_duration_sec = 30.0
+        stale.split_info = SplitInfo("GL010683", 1, 2, 0.0, 30.0)
+
+        with (
+            patch("clio.tasks.reindex.VideoMeta.read", return_value=stale),
+            patch("clio.tasks.reindex.VideoMeta.build") as mock_build,
+            patch("clio.tasks.reindex.get_duration_sec", return_value=60.0),
+            patch("clio.tasks.reindex.resolve_binary", return_value="ffprobe"),
+        ):
+            mock_meta = MagicMock()
+            mock_meta.target_duration_sec = 30.0
+            mock_meta.split_info = None
+            mock_build.return_value = mock_meta
+
+            run_reindex(config)
+
+        # Stale meta was replaced (build called) and its offsets were NOT reused.
+        assert mock_build.call_count == 1
+        index = VideoIndex.read("GL010683", compressed_dir)
+        assert index is not None
+        assert index.segments[0].offset_sec == 0.0
+
+    def test_fresh_split_meta_offsets_kept(self, config: AppConfig, compressed_dir: Path, input_dir: Path) -> None:
+        """A fresh .vmeta with split offsets is kept verbatim (no averaging)."""
+        (compressed_dir / "001_GL010683.mp4").write_text("fake0")
+        src = input_dir / "GL010683.mp4"
+        src.write_text("fake")
+
+        fresh = MagicMock()
+        fresh.source_path_obj.return_value = src
+        fresh.is_stale.return_value = False
+        fresh.target_duration_sec = 10.0
+        fresh.split_info = SplitInfo("GL010683", 1, 2, 10.0, 10.0)
+
+        with (
+            patch("clio.tasks.reindex.VideoMeta.read", return_value=fresh),
+            patch("clio.tasks.reindex.VideoMeta.build") as mock_build,
+            patch("clio.tasks.reindex.get_duration_sec", return_value=60.0),
+            patch("clio.tasks.reindex.resolve_binary", return_value="ffprobe"),
+        ):
+            run_reindex(config)
+
+        assert mock_build.call_count == 0
+        index = VideoIndex.read("GL010683", compressed_dir)
+        assert index is not None
+        assert index.segments[0].offset_sec == 10.0
 
     def test_strips_seg_suffix(self, config: AppConfig, compressed_dir: Path, input_dir: Path) -> None:
         (compressed_dir / "001_GL010683_seg01.mp4").write_text("fake")

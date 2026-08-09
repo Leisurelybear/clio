@@ -150,21 +150,37 @@ def run_reindex(config: AppConfig, ffprobe: str | None = None) -> int:
         except Exception:
             pass
 
-        for i, cp in enumerate(comp_files):
+        for cp in comp_files:
             idx_str = cp.stem.split("_", 1)[0]
-            si = None
-            tgt_dur = 0.0
             meta = VideoMeta.read(cp)
-            if meta is not None:
-                tgt_dur = meta.target_duration_sec
-                if meta.split_info:
-                    si = meta.split_info
-            else:
+            if meta is not None and not (
+                source_path.resolve() == meta.source_path_obj().resolve() and not meta.is_stale(source_path, cp)
+            ):
+                # Stale or mismatched sidecar: rebuild it from scratch below.
+                meta = None
+            if meta is not None and meta.split_info:
+                # Verified legacy split slice (same source, fresh metadata):
+                # trust its declared offsets, do not re-derive from position.
+                si = meta.split_info
+                seg_entries.append(
+                    SegmentEntry(
+                        index=idx_str,
+                        filename=cp.name,
+                        offset_sec=si.offset_sec,
+                        duration_sec=meta.target_duration_sec,
+                        segment_number=si.segment_index,
+                        total_segments=si.total_segments,
+                    )
+                )
+                continue
+            # No verified split identity: a whole-file (or unverifiable) clip.
+            # Never fabricate average offsets across same-stem files.
+            tgt_dur = meta.target_duration_sec if meta is not None else 0.0
+            if meta is None:
                 try:
                     tgt_dur = get_duration_sec(cp, ffprobe)
                 except Exception:
                     pass
-                # Write missing .vmeta
                 meta = VideoMeta.build(
                     source=source_path,
                     target=cp,
@@ -172,19 +188,14 @@ def run_reindex(config: AppConfig, ffprobe: str | None = None) -> int:
                     target_duration=tgt_dur,
                 )
                 meta.write(cp)
-
             seg_entries.append(
                 SegmentEntry(
                     index=idx_str,
                     filename=cp.name,
-                    offset_sec=si.offset_sec
-                    if si
-                    else round(i * (source_dur / len(comp_files)), 3)
-                    if source_dur > 0 and len(comp_files) > 1
-                    else 0.0,
+                    offset_sec=0.0,
                     duration_sec=tgt_dur,
-                    segment_number=si.segment_index if si else i + 1,
-                    total_segments=si.total_segments if si else len(comp_files),
+                    segment_number=1,
+                    total_segments=1,
                 )
             )
 
