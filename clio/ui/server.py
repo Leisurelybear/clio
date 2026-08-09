@@ -195,7 +195,12 @@ def _parse_json_content_length(
 
 
 def make_handler(
-    config: AppConfig, config_path: Path | None = None, api_token: str = ""
+    config: AppConfig,
+    config_path: Path | None = None,
+    api_token: str = "",
+    bound_host: str = "127.0.0.1",
+    bound_port: int = 0,
+    enforce_local_session: bool = False,
 ) -> type[BaseHTTPRequestHandler]:
     output_dir = config.paths.output_dir
     project_dir = config.project_dir or Path.cwd()
@@ -239,6 +244,9 @@ def make_handler(
         output_dir: Path
         config_path: Path | None
         _api_token: str | None
+        _allowed_hosts: tuple[str, ...]
+        _enforce_local_session: bool
+        _enforce_json_ct: bool
 
         def _get_state(self, project_key: str) -> _ServerState:
             states = self.__class__._project_states
@@ -271,12 +279,43 @@ def make_handler(
             self._send_json({"error": "未授权访问，需要有效的 API Token"}, 401)
             return False
 
+        def _require_local_session(self) -> bool:
+            """Enforce a real local bound for the desktop/local-OI server.
+
+            Desktop runs with a fresh per-launch token and the frontend auto-carries
+            it on API calls (already enforced on /api routes by ``_require_auth``).
+            This gate additionally rejects requests whose Host header or Origin /
+            Referer belong to a non-loopback source (CSRF / DNS-rebinding guard).
+            """
+            if not self.__class__._enforce_local_session:
+                return True
+            expected = self.__class__._allowed_hosts
+            hostname = _hostname_no_port(self.headers.get("Host", ""))
+            if hostname and hostname not in expected and hostname != "localhost":
+                self._send_json({"error": "非法主机名"}, 403)
+                return False
+            origin = self.headers.get("Origin", "") or self.headers.get("Referer", "")
+            if origin:
+                try:
+                    o = urlparse(origin)
+                except ValueError:
+                    o = urlparse("")
+                oh = (o.hostname or "").lower()
+                if oh and oh not in expected and oh != "localhost":
+                    self._send_json({"error": "非法来源"}, 403)
+                    return False
+            return True
+
         def _read_json_body(self) -> tuple[dict | None, int | None]:
             """Parse JSON object body. Returns (obj, None) or (None, http_status).
 
             Caller must send the error response for non-None status (except invalid
             JSON, which is already written).
             """
+            if self.__class__._enforce_json_ct and self.headers.get("Content-Type", ""):
+                ct = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+                if ct and ct != "application/json":
+                    return None, 415
             length, err_status = _parse_json_content_length(self.headers.get("Content-Length", "0"))
             if err_status is not None:
                 return None, err_status
@@ -354,6 +393,8 @@ def make_handler(
         # ---- HTTP method dispatchers ----
 
         def do_GET(self):
+            if not self._require_local_session():
+                return
             url = urlparse(self.path)
             qs = parse_qs(url.query)
             path = url.path
@@ -378,6 +419,8 @@ def make_handler(
             return handler_fn(self, qs)
 
         def do_PUT(self):
+            if not self._require_local_session():
+                return
             url = urlparse(self.path)
             qs = parse_qs(url.query)
             path = url.path
@@ -390,6 +433,8 @@ def make_handler(
                 return self._send_json({"ok": False, "error": "request body too large"}, 413)
             if err_status == 400:
                 return self._send_json({"ok": False, "error": "invalid Content-Length"}, 400)
+            if err_status == 415:
+                return self._send_json({"ok": False, "error": "unsupported media type, expected application/json"}, 415)
             if err_status is not None:
                 return
 
@@ -402,6 +447,8 @@ def make_handler(
             return handler_fn(self, qs, obj)
 
         def do_POST(self):
+            if not self._require_local_session():
+                return
             url = urlparse(self.path)
             qs = parse_qs(url.query)
             path = url.path
@@ -414,6 +461,8 @@ def make_handler(
                 return self._send_json({"ok": False, "error": "request body too large"}, 413)
             if err_status == 400:
                 return self._send_json({"ok": False, "error": "invalid Content-Length"}, 400)
+            if err_status == 415:
+                return self._send_json({"ok": False, "error": "unsupported media type, expected application/json"}, 415)
             if err_status is not None:
                 return
 
@@ -432,6 +481,8 @@ def make_handler(
             return handler_fn(self, **call_kwargs)
 
         def do_DELETE(self):
+            if not self._require_local_session():
+                return
             url = urlparse(self.path)
             qs = parse_qs(url.query)
             path = url.path
@@ -553,7 +604,39 @@ def make_handler(
     Handler.project_dir = project_dir
     Handler.output_dir = output_dir
     Handler.config_path = config_path
+    Handler._allowed_hosts = _loopback_hosts(bound_host, bound_port)
+    Handler._enforce_local_session = enforce_local_session
+    Handler._enforce_json_ct = enforce_local_session
     return Handler
+
+
+def _loopback_hosts(host: str, port: int) -> tuple[str, ...]:
+    """Hostname(s) accepted as local by the desktop session gate.
+
+    The desktop webview is served from ``127.0.0.1:<port>``; webview/preview
+    tools may also use ``localhost``. Port 0 (auto-bind) is not yet known, so a
+    port-agnostic loopback list is returned alongside the configured host.
+    """
+    base: set[str] = {"127.0.0.1", "localhost", "::1"}
+    if host:
+        h = host.strip()
+        if h.startswith("["):  # IPv6 literal [::1] -> ::1
+            h = h[1:].split("]", 1)[0]
+        elif h.count(":") == 1:  # host:port
+            h = h.split(":", 1)[0]
+        if h and h not in base:
+            base.add(h)
+    return tuple(sorted(base))
+
+
+def _hostname_no_port(h: str) -> str:
+    """Normalize a Host/Origin hostname, stripping brackets and port."""
+    h = h.strip().lower()
+    if h.startswith("["):
+        return h[1:].split("]", 1)[0]
+    if h.count(":") == 1:
+        return h.split(":", 1)[0]
+    return h
 
 
 def _startup_ms(t0: float) -> str:
@@ -581,7 +664,12 @@ def run(
     print(f"[startup] hooks installed ({_startup_ms(t)})")
 
     TOKEN = api_token
-    _is_local = host in ("127.0.0.1", "localhost", "")
+    # A *blank* host previously bound 0.0.0.0 (all NICs) while being treated as
+    # local/loopback, i.e. no token — silently exposing the API to the LAN.
+    # Blank host is now normalized to 127.0.0.1; explicit 0.0.0.0 keeps LAN
+    # exposure but with the auto-generated token above.
+    host = host or "127.0.0.1"
+    _is_local = host in ("127.0.0.1", "localhost", "::1")
     if TOKEN is None:
         if _is_local:
             TOKEN = ""
@@ -604,7 +692,14 @@ def run(
     print(f"[startup] index check done ({'rebuilt' if did_reindex else 'ok'}, {_startup_ms(t)})")
 
     t = time.perf_counter()
-    handler = make_handler(active_config, config_path, api_token=TOKEN)
+    handler = make_handler(
+        active_config,
+        config_path,
+        api_token=TOKEN,
+        bound_host=host,
+        bound_port=port,
+        enforce_local_session=_is_local,
+    )
     print(f"[startup] HTTP handler ready ({_startup_ms(t)})")
 
     t = time.perf_counter()

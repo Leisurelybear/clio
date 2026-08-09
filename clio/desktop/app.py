@@ -86,6 +86,7 @@ def _show_window_start_error(error: Exception) -> None:
 def _handle_closing(
     host: str,
     port: int,
+    token: str = "",
     confirm_quit: Callable[[], bool] | None = None,
 ) -> bool:
     """Close policy: abort close while a run is active unless the user confirms.
@@ -94,11 +95,11 @@ def _handle_closing(
     """
     if confirm_quit is None:
         confirm_quit = _confirm_quit
-    status = fetch_run_status(host, port)
+    status = fetch_run_status(host, port, token)
     if status.get("running"):
         if not confirm_quit():
             return False
-        request_run_cancel(host, port)
+        request_run_cancel(host, port, token)
     return True
 
 
@@ -184,7 +185,9 @@ def main(
         port=0,
         api_token=None,
     )
-    url = f"http://{handle.host}:{handle.port}/"
+    # Inject the per-launch token so the webview page auto-captures it
+    # (clio/ui/static/src/main.js reads ?token= into sessionStorage).
+    url = f"http://{handle.host}:{handle.port}/?token={handle.token}"
     try:
         import webview
 
@@ -212,7 +215,7 @@ def main(
 
         # Close policy (Task 12): cancel active run before closing the window.
         def _on_closing() -> bool:
-            return _handle_closing(handle.host, handle.port)
+            return _handle_closing(handle.host, handle.port, handle.token)
 
         def _on_closed() -> None:
             """Closed event: stop the server.

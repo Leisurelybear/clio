@@ -23,10 +23,13 @@ def test_start_server_binds_loopback_and_serves(loaded_config: AppConfig, monkey
     try:
         assert handle.host == "127.0.0.1"
         assert handle.port > 0
+        assert handle.token and len(handle.token) >= 16
         url = f"http://{handle.host}:{handle.port}/"
         with urllib.request.urlopen(url, timeout=3) as resp:
             assert resp.status == 200
             body = resp.read()
             assert b"html" in body.lower() or b"<!doctype" in body.lower() or len(body) > 0
+        with urllib.request.urlopen(f"{url}api/run/status?token={handle.token}", timeout=3) as resp:
+            assert resp.status == 200
     finally:
         stop_server(handle)

@@ -18,27 +18,31 @@ from clio.desktop.server_host import (
 
 
 def test_handle_closing_idle_allows_close(monkeypatch):
-    monkeypatch.setattr(app_mod, "fetch_run_status", lambda host, port: {"status": "idle", "running": False})
+    monkeypatch.setattr(app_mod, "fetch_run_status", lambda host, port, token="": {"status": "idle", "running": False})
     confirmed = []
-    monkeypatch.setattr(app_mod, "request_run_cancel", lambda host, port: confirmed.append(port))
+    monkeypatch.setattr(app_mod, "request_run_cancel", lambda host, port, token="": confirmed.append(port))
     assert app_mod._handle_closing("127.0.0.1", 1234) is True
     assert confirmed == []
 
 
 def test_handle_closing_running_confirmed_cancels(monkeypatch):
-    monkeypatch.setattr(app_mod, "fetch_run_status", lambda host, port: {"status": "running", "running": True})
+    monkeypatch.setattr(
+        app_mod, "fetch_run_status", lambda host, port, token="": {"status": "running", "running": True}
+    )
     monkeypatch.setattr(app_mod, "_confirm_quit", lambda: True)
     cancelled = []
-    monkeypatch.setattr(app_mod, "request_run_cancel", lambda host, port: cancelled.append(port))
+    monkeypatch.setattr(app_mod, "request_run_cancel", lambda host, port, token="": cancelled.append(port))
     assert app_mod._handle_closing("127.0.0.1", 1234) is True
     assert cancelled == [1234]
 
 
 def test_handle_closing_running_declined_aborts_close(monkeypatch):
-    monkeypatch.setattr(app_mod, "fetch_run_status", lambda host, port: {"status": "running", "running": True})
+    monkeypatch.setattr(
+        app_mod, "fetch_run_status", lambda host, port, token="": {"status": "running", "running": True}
+    )
     monkeypatch.setattr(app_mod, "_confirm_quit", lambda: False)
     cancelled = []
-    monkeypatch.setattr(app_mod, "request_run_cancel", lambda host, port: cancelled.append(port))
+    monkeypatch.setattr(app_mod, "request_run_cancel", lambda host, port, token="": cancelled.append(port))
     assert app_mod._handle_closing("127.0.0.1", 1234) is False
     assert cancelled == []
 
@@ -56,10 +60,10 @@ def test_fetch_run_status_and_cancel_roundtrip(loaded_config: AppConfig, monkeyp
         api_token=None,
     )
     try:
-        status = fetch_run_status(handle.host, handle.port)
+        status = fetch_run_status(handle.host, handle.port, handle.token)
         assert isinstance(status, dict)
         assert "status" in status and "running" in status
-        request_run_cancel(handle.host, handle.port)  # no exception while idle
+        request_run_cancel(handle.host, handle.port, handle.token)  # no exception while idle
     finally:
         stop_server(handle)
 
@@ -80,6 +84,7 @@ def test_request_run_cancel_unreachable_silent():
 class _FakeHandle:
     host = "127.0.0.1"
     port = 9999
+    token = "fake-token"
 
 
 class _EventList(list):
@@ -159,6 +164,20 @@ def test_main_creates_window_with_text_selection_enabled(monkeypatch, tmp_path):
     assert rv == 0
     kwargs = fake_webview.create_window.call_args.kwargs
     assert kwargs.get("text_select") is True
+
+
+def test_main_injects_token_into_window_url(monkeypatch, tmp_path):
+    """The webview URL must carry ?token= so the frontend auto-captures it into
+    sessionStorage (real session boundary, R-04 desktop security)."""
+    monkeypatch.setattr(app_mod, "is_web_running", MagicMock(return_value=False))
+    monkeypatch.setattr(app_mod, "read_lock", MagicMock(return_value=None))
+    monkeypatch.setattr(app_mod, "write_lock", MagicMock())
+    monkeypatch.setattr(app_mod, "set_desktop_focus_callback", MagicMock())
+    rv, fake_webview = _run_main(monkeypatch, tmp_path)
+    assert rv == 0
+    url = fake_webview.create_window.call_args.args[1]
+    assert f"?token={_FakeHandle.token}" in url
+    assert url.startswith(f"http://{_FakeHandle.host}:{_FakeHandle.port}/")
 
 
 def test_main_focuses_existing_instance_and_exits(monkeypatch, tmp_path):

@@ -24,6 +24,7 @@ class ServerHandle:
     port: int
     server: ThreadingHTTPServer
     thread: threading.Thread
+    token: str
 
 
 def start_server(
@@ -37,21 +38,27 @@ def start_server(
 
     Mirrors ``clio.ui.server.run`` startup (token, project resolve, reindex,
     handler) but never opens a browser and never blocks the caller.
+
+    The desktop always runs a fresh random per-launch token, even on loopback,
+    so the UI has a real session boundary (a browser tab on the same machine
+    cannot drive the desktop API via CSRF).
     """
     install_hooks()
 
-    token = api_token
-    is_local = host in ("127.0.0.1", "localhost", "")
-    if token is None:
-        if is_local:
-            token = ""
-        else:
-            token = secrets.token_urlsafe(32)
+    host = host or "127.0.0.1"
+    token = api_token if api_token is not None else secrets.token_urlsafe(32)
 
     active_config = resolve_last_project_config(config, config_path)
     auto_reindex_if_needed(active_config)
 
-    handler = make_handler(active_config, config_path, api_token=token)
+    handler = make_handler(
+        active_config,
+        config_path,
+        api_token=token,
+        bound_host=host,
+        bound_port=port,
+        enforce_local_session=True,
+    )
     server = ThreadingHTTPServer((host, port), handler)
     bound_host, bound_port = server.server_address[:2]
 
@@ -67,6 +74,7 @@ def start_server(
         port=int(bound_port),
         server=server,
         thread=thread,
+        token=token,
     )
 
 
@@ -80,23 +88,27 @@ def stop_server(handle: ServerHandle, timeout: float = 5.0) -> None:
         before_stop()
 
 
-def fetch_run_status(host: str, port: int) -> dict:
+def fetch_run_status(host: str, port: int, token: str = "") -> dict:
     """Probe GET /api/run/status on the local UI server.
 
     Returns parsed JSON, or ``{}`` when the server is unreachable / malformed.
     """
     try:
         url = f"http://{host}:{port}/api/run/status"
+        if token:
+            url = f"{url}?token={token}"
         with urllib.request.urlopen(url, timeout=3) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except (OSError, ValueError, json.JSONDecodeError):
         return {}
 
 
-def request_run_cancel(host: str, port: int) -> None:
-    """POST /api/run/cancel on the local UI server (best-effort, no auth on desktop)."""
+def request_run_cancel(host: str, port: int, token: str = "") -> None:
+    """POST /api/run/cancel on the local UI server (best-effort, authed on desktop)."""
     try:
         url = f"http://{host}:{port}/api/run/cancel"
+        if token:
+            url = f"{url}?token={token}"
         req = urllib.request.Request(
             url,
             data=b"{}",

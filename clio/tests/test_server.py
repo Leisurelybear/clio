@@ -1007,6 +1007,104 @@ class TestAuth:
             mock_fn.assert_called_once()
 
 
+class TestLocalSession:
+    """Desktop loopback session gate (Host/Origin) + JSON content-type enforcement.
+
+    The gate is off by default in ``make_handler`` (legacy ``serve`` tests) and is
+    enabled by the desktop ``start_server`` and by ``run()`` on loopback binds.
+    """
+
+    @pytest.fixture
+    def enforce_cls(self, handler_cls):
+        handler_cls._enforce_local_session = True
+        handler_cls._enforce_json_ct = True
+        handler_cls._allowed_hosts = ("127.0.0.1", "localhost", "::1")
+        yield handler_cls
+        handler_cls._enforce_local_session = False
+        handler_cls._enforce_json_ct = False
+        handler_cls._allowed_hosts = ()
+
+    def test_loopback_host_accepts_api(self, enforce_cls):
+        """Host: 127.0.0.1:<port> is accepted for API GET."""
+        with patch("clio.ui.server.handle_get_env") as mock_fn:
+            handler = _build_handler(enforce_cls, path="/api/env")
+            handler.headers.get.side_effect = lambda k, d=None: "127.0.0.1:8765" if k == "Host" else "0"
+            handler.do_GET()
+            mock_fn.assert_called_once()
+
+    def test_localhost_host_accepted(self, enforce_cls):
+        with patch("clio.ui.server.handle_get_env") as mock_fn:
+            handler = _build_handler(enforce_cls, path="/api/env")
+            handler.headers.get.side_effect = lambda k, d=None: "localhost:8765" if k == "Host" else "0"
+            handler.do_GET()
+            mock_fn.assert_called_once()
+
+    def test_foreign_host_rejected_403(self, enforce_cls):
+        """Host: evil.example.com is rejected even with a valid token."""
+        handler = _build_handler(enforce_cls, path="/api/env?token=test-token-789")
+        handler.headers.get.side_effect = lambda k, d=None: "evil.example.com" if k == "Host" else "0"
+        handler.do_GET()
+        handler.send_response.assert_called_once_with(403)
+
+    def test_foreign_origin_rejected_403(self, enforce_cls):
+        """Origin: https://evil.example.com is rejected."""
+        handler = _build_handler(enforce_cls, path="/api/env?token=test-token-789")
+        handler.headers.get.side_effect = lambda k, d=None: (
+            "127.0.0.1:8765" if k == "Host" else "https://evil.example.com" if k == "Origin" else "0"
+        )
+        handler.do_GET()
+        handler.send_response.assert_called_once_with(403)
+
+    def test_loopback_origin_accepted(self, enforce_cls):
+        with patch("clio.ui.server.handle_get_env") as mock_fn:
+            handler = _build_handler(enforce_cls, path="/api/env")
+            handler.headers.get.side_effect = lambda k, d=None: (
+                "127.0.0.1:8765" if k == "Host" else "http://127.0.0.1:8765" if k == "Origin" else "0"
+            )
+            handler.do_GET()
+            mock_fn.assert_called_once()
+
+    def test_empty_host_accepted(self, enforce_cls):
+        """An absent Host header (rare in tests/HTTP1.0) must not be fatal."""
+        with patch("clio.ui.server.handle_get_env") as mock_fn:
+            handler = _build_handler(enforce_cls, path="/api/env")
+            handler.headers.get.side_effect = lambda k, d=None: "" if k == "Host" else "0"
+            handler.do_GET()
+            mock_fn.assert_called_once()
+
+    def test_wrong_content_type_rejected_415(self, enforce_cls):
+        """PUT/POST with a non-JSON Content-Type gets 415."""
+        handler = _build_handler(enforce_cls, path="/api/plan", method="PUT")
+        handler.headers.get.side_effect = lambda k, d=None: (
+            "127.0.0.1:8765" if k == "Host" else "text/plain" if k == "Content-Type" else "2"
+        )
+        handler.do_PUT()
+        handler.send_response.assert_called_once_with(415)
+
+    def test_json_content_type_accepted(self, enforce_cls):
+        body = b'{"video": "x"}'
+        with patch("clio.ui.server.handle_put_plan") as mock_fn:
+            handler = _build_handler(enforce_cls, path="/api/plan", method="PUT")
+            handler.headers.get.side_effect = lambda k, d=None: (
+                "127.0.0.1:8765"
+                if k == "Host"
+                else "application/json; charset=utf-8"
+                if k == "Content-Type"
+                else str(len(body))
+            )
+            handler.rfile = io.BytesIO(body)
+            handler.do_PUT()
+            mock_fn.assert_called_once()
+
+    def test_gate_off_by_default_allows_any_host(self, handler_cls):
+        """Default handlers (no desktop session) accept any Host the token passes."""
+        with patch("clio.ui.server.handle_get_env") as mock_fn:
+            handler = _build_handler(handler_cls, path="/api/env")
+            handler.headers.get.side_effect = lambda k, d=None: "whatever.example.com" if k == "Host" else "0"
+            handler.do_GET()
+            mock_fn.assert_called_once()
+
+
 class TestParseJsonContentLength:
     def test_missing_is_zero(self):
         assert _parse_json_content_length(None) == (0, None)
