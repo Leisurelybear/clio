@@ -407,6 +407,80 @@ class TestRunCompressAll:
         mp4s = sorted(p.name for p in cfg.compressed_dir.glob("*.mp4"))
         assert mp4s == ["002_test.mp4"], mp4s
 
+    def test_overwrite_reuses_same_slot_and_prunes_siblings(self, monkeypatch, tmp_path: Path):
+        """overwrite:true must re-compress IN PLACE (same index/name), not grow the
+        compressed dir with new index files each run, and must not leave stale
+        siblings behind."""
+        cfg = _cfg(tmp_path)
+        _add_video(cfg, "test.mp4")
+
+        monkeypatch.setattr("clio.tasks.compress.resolve_binary", lambda *a: "ffmpeg")
+        monkeypatch.setattr("clio.tasks.compress.get_duration_sec", lambda *a, **kw: 10.0)
+
+        call_count = [0]
+
+        def _mock_compress(inp, outp, c, **kw):
+            call_count[0] += 1
+            outp.write_bytes(b"\x00" * 60_000)
+            return outp
+
+        monkeypatch.setattr("clio.tasks.compress.compress_video", _mock_compress)
+
+        cfg.analyze.skip_existing = True
+        run_compress_all(cfg)
+        assert call_count[0] == 1
+        first = cfg.compressed_dir / "001_test.mp4"
+        assert first.exists()
+        assert first.with_suffix(".vmeta").exists()
+
+        run_compress_all(cfg, overwrite=True)
+        assert call_count[0] == 2, "overwrite must force re-compress"
+
+        single = sorted(p.name for p in cfg.compressed_dir.glob("*.mp4"))
+        assert single == ["001_test.mp4"], f"must overwrite in place, got {single}"
+        assert (cfg.compressed_dir / "001_test.vmeta").exists()
+
+    def test_overwrite_only_prunes_its_own_source(self, monkeypatch, tmp_path: Path):
+        """overwrite of one same-basename source must not delete the compressed
+        output belonging to a different source sharing the basename."""
+        cfg = _cfg(tmp_path)
+        dir1 = tmp_path / "cam1"
+        dir2 = tmp_path / "cam2"
+        dir1.mkdir(parents=True, exist_ok=True)
+        dir2.mkdir(parents=True, exist_ok=True)
+        src1 = dir1 / "IMG_0001.MP4"
+        src2 = dir2 / "IMG_0001.MP4"
+        for s in (src1, src2):
+            s.write_bytes(b"\x00" * 1000)
+        from clio.tasks._video_loader import load_selected_videos, save_selected_videos
+
+        cfg.project_dir.mkdir(parents=True, exist_ok=True)
+        existing = load_selected_videos(cfg.project_dir)
+        for s in (src1, src2):
+            if s.resolve() not in {p.resolve() for p in existing}:
+                existing.append(s)
+        save_selected_videos(cfg.project_dir, existing)
+
+        monkeypatch.setattr("clio.tasks.compress.resolve_binary", lambda *a: "ffmpeg")
+        monkeypatch.setattr("clio.tasks.compress.get_duration_sec", lambda *a, **kw: 10.0)
+
+        def _mock_compress(inp, outp, c, **kw):
+            outp.write_bytes(b"\x00" * 60_000)
+            return outp
+
+        monkeypatch.setattr("clio.tasks.compress.compress_video", _mock_compress)
+
+        cfg.analyze.skip_existing = True
+        run_compress_all(cfg)
+        mp4s = sorted(p.name for p in cfg.compressed_dir.glob("*.mp4"))
+        assert len(mp4s) == 2, mp4s
+
+        # Overwrite a single stale source: the OTHER same-basename source's
+        # compressed output must survive.
+        run_compress_all(cfg, single_file=src1, overwrite=True)
+        still = sorted(p.name for p in cfg.compressed_dir.glob("*.mp4"))
+        assert len(still) == 2, f"other source output must survive overwrite: {still}"
+
     def test_find_reusable_prefers_fresh_over_stale(self, monkeypatch, tmp_path: Path):
         """A stale candidate scanned before a fresh one sharing the key must not
         win: _find_reusable must return the fresh output regardless of order."""

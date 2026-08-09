@@ -98,13 +98,19 @@ def _prune_stale_siblings(
     committed: Path,
     existing_map: dict[str, list[tuple[int, Path, VideoMeta | None]]],
     config: AppConfig,
+    force: bool = False,
 ) -> None:
     """Drop stale same-source compressed files once a fresh one is committed.
 
     Mirrors analyze.py: a stale candidate with the same cache key must not
-    shadow the fresh output on the next run (setdefault used to keep whichever
-    the OS iterated first, so stale-first order re-encoded every run and the
+    shadow the fresh output on re-run (setdefault used to keep whichever the OS
+    iterated first, so stale-first order re-encoded every run and the
     compressed dir grew without bound).
+
+    `force=True` (overwrite mode) additionally drops every other candidate that
+    provably belongs to the same source, keeping exactly one compressed output
+    per source. Candidates without a sidecar (legacy) or recording a different
+    source are never removed, so a same-basename video stays untouched.
     """
     resolved = str(source.resolve())
     refreshed: dict[str, list[tuple[int, Path, VideoMeta | None]]] = {}
@@ -113,13 +119,43 @@ def _prune_stale_siblings(
             if path.resolve() == committed.resolve():
                 refreshed.setdefault(key, []).append((idx, path, meta))
                 continue
-            if meta is not None and (meta.is_stale(source, path) or not _meta_matches_settings(meta, config)):
+            if force:
+                same_source = (
+                    meta is not None
+                    and meta.source_path is not None
+                    and Path(meta.source_path).resolve() == Path(resolved)
+                )
+                if same_source:
+                    print(f"[清理] 移除旧压缩 {path.name}（overwrite 已重新生成）")
+                    path.unlink(missing_ok=True)
+                    path.with_suffix(VMETA_EXT).unlink(missing_ok=True)
+                    continue
+            elif meta is not None and (meta.is_stale(source, path) or not _meta_matches_settings(meta, config)):
                 print(f"[清理] 移除旧压缩 {path.name}（已被新压缩替代）")
                 path.unlink(missing_ok=True)
                 path.with_suffix(VMETA_EXT).unlink(missing_ok=True)
                 continue
             refreshed.setdefault(key, []).append((idx, path, meta))
     existing_map.update(refreshed)
+
+
+def _find_existing_slot(
+    source: Path,
+    existing_map: dict[str, list[tuple[int, Path, VideoMeta | None]]],
+) -> tuple[int, Path] | None:
+    """Return the current (index, output) for `source`, if any.
+
+    Used by overwrite mode so a re-compress lands on the SAME slot instead of
+    allocating a new index each run (which grew the dir with duplicate files).
+    Resolves the deterministic earliest index for a stable name.
+    """
+    resolved = str(source.resolve())
+    for key in (f"src:{resolved}", f"stem:{source.stem}"):
+        candidates = existing_map.get(key)
+        if candidates:
+            idx, out, _ = min(candidates, key=lambda c: c[0])
+            return idx, out
+    return None
 
 
 def _write_vindex(records: list[ClipRecord], config: AppConfig, ffprobe: str) -> None:
@@ -201,7 +237,7 @@ def run_compress_all(
     # sharing a basename never collide on the same existing file.
     MIN_VALID_SIZE = 50 * 1024
     existing_map: dict[str, list[tuple[int, Path, VideoMeta | None]]] = {}
-    if not overwrite and config.analyze.skip_existing and config.compressed_dir.is_dir():
+    if config.analyze.skip_existing and config.compressed_dir.is_dir():
         for f in config.compressed_dir.iterdir():
             if not f.is_file() or f.suffix.lower() not in VIDEO_EXTS:
                 continue
@@ -234,24 +270,34 @@ def run_compress_all(
         for i, (original, source) in enumerate(items, start=1):
             label_name = source.name if source == original else f"{original.name} → {source.name}"
 
-            # Reuse existing compressed file if it is fresh and still matches.
-            use_idx, use_out, use_meta, reject_reason = _find_reusable(source, existing_map, config, ffprobe)
-            if use_out is not None:
-                if tracker:
-                    tracker.update(phase="compress", current=i, total=len(items), message=f"压缩 {source.name}...")
-                    tracker.log(f"⏭️ 跳过 {label_name}（已存在 {use_out.name}）")
-                state.mark(original.stem, "compress", "skipped")
-                print(f"[跳过压缩] {label_name} (已存在: {use_out.name})")
-                records.append(
-                    ClipRecord(index=use_idx, stem=use_out.stem, source_path=original, compressed_path=use_out)
-                )
-                continue
+            # Reuse existing compressed file if it is fresh and still matches
+            # (only in skip mode; overwrite mode always forces a re-compress).
+            if not overwrite:
+                use_idx, use_out, use_meta, reject_reason = _find_reusable(source, existing_map, config, ffprobe)
+                if use_out is not None:
+                    if tracker:
+                        tracker.update(phase="compress", current=i, total=len(items), message=f"压缩 {source.name}...")
+                        tracker.log(f"⏭️ 跳过 {label_name}（已存在 {use_out.name}）")
+                    state.mark(original.stem, "compress", "skipped")
+                    print(f"[跳过压缩] {label_name} (已存在: {use_out.name})")
+                    records.append(
+                        ClipRecord(index=use_idx, stem=use_out.stem, source_path=original, compressed_path=use_out)
+                    )
+                    continue
+            else:
+                reject_reason = "overwrite 模式强制重新压缩"
 
             # Leftover *_segNN files do NOT satisfy whole-file compress; continue to create
             # a new non-segment compressed file so the project can migrate forward.
 
-            use_idx = next_idx + completed
-            use_out = config.compressed_dir / f"{format_index(use_idx, config.naming.index_width)}_{source.stem}.mp4"
+            overwrite_slot = _find_existing_slot(source, existing_map) if overwrite else None
+            if overwrite_slot is not None:
+                use_idx, use_out = overwrite_slot
+            else:
+                use_idx = next_idx + completed
+                use_out = (
+                    config.compressed_dir / f"{format_index(use_idx, config.naming.index_width)}_{source.stem}.mp4"
+                )
             if reject_reason:
                 print(f"[重新压缩] {source.stem} {reject_reason}")
             if tracker:
@@ -294,7 +340,7 @@ def run_compress_all(
             )
             meta.write(use_out)
 
-            _prune_stale_siblings(source, use_out, existing_map, config)
+            _prune_stale_siblings(source, use_out, existing_map, config, force=overwrite)
 
             records.append(
                 ClipRecord(
