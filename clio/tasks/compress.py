@@ -25,6 +25,70 @@ def _safe_duration(path: Path, ffprobe: str) -> float:
         return 0.0
 
 
+def _compress_settings_fingerprint(config: AppConfig) -> dict:
+    return {
+        "max_width": config.compress.max_width,
+        "fps": config.compress.fps,
+        "target_size_mb": config.compress.target_size_mb,
+    }
+
+
+def _meta_matches_settings(meta: VideoMeta, config: AppConfig) -> bool:
+    """True when the stored compress settings still match the current config.
+
+    A legacy vmeta without dropped settings is treated as matching (keeps old
+    skip-behavior); any present key that differs forces a re-compress.
+    """
+    stored = meta.compress_settings or {}
+    return all(stored.get(k, v) == v for k, v in _compress_settings_fingerprint(config).items())
+
+
+def _meta_source_key(stem_part: str, meta: VideoMeta | None) -> str:
+    """Distinct cache key for one compressed file's source identity.
+
+    Prefer the resolved source path recorded in the .vmeta sidecar so videos
+    that share a basename resolve to different entries; fall back to the
+    bare basename only when no sidecar exists (legacy files).
+    """
+    if meta and meta.source_path:
+        return f"src:{meta.source_path}"
+    return f"stem:{stem_part}"
+
+
+def _find_reusable(
+    source: Path,
+    existing_map: dict[str, tuple[int, Path, VideoMeta | None]],
+    config: AppConfig,
+    ffprobe: str,
+) -> tuple[int | None, Path | None, VideoMeta | None]:
+    """Look up an existing compressed file for `source`.
+
+    Returns (index, path, meta) when a fresh, settings-matching output exists,
+    otherwise (None, None, None) so the caller re-compresses.
+    """
+    resolved = str(source.resolve())
+    for key in (f"src:{resolved}", f"stem:{source.stem}"):
+        hit = existing_map.get(key)
+        if hit is None:
+            continue
+        use_idx, use_out, meta = hit
+        if meta is not None:
+            if meta.is_stale(source, use_out):
+                print(f"[重新压缩] {source.stem} 源文件已变更，忽略旧压缩 {use_out.name}")
+                continue
+            if not _meta_matches_settings(meta, config):
+                print(f"[重新压缩] {source.stem} 压缩参数已变更，忽略旧压缩 {use_out.name}")
+                continue
+        # No sidecar: legacy file, only trust it if ffprobe can still read it.
+        try:
+            if get_duration_sec(use_out, ffprobe) <= 0:
+                continue
+        except Exception:
+            continue
+        return use_idx, use_out, meta
+    return None, None, None
+
+
 def _write_vindex(records: list[ClipRecord], config: AppConfig, ffprobe: str) -> None:
     from collections import defaultdict
 
@@ -98,10 +162,12 @@ def run_compress_all(
     # Phase 1: one compressed file per original.
     items: list[tuple[Path, Path]] = [(video, video) for video in videos]
 
-    # Phase 2: build existing lookup (source_stem -> (index, Path))
+    # Phase 2: build existing lookup (source path or stem -> (index, Path, VideoMeta))
     # Only include files >= 50KB to skip partially-written files from interrupted runs.
+    # Match by resolved source path recorded in the .vmeta sidecar so two videos
+    # sharing a basename never collide on the same existing file.
     MIN_VALID_SIZE = 50 * 1024
-    existing_map: dict[str, tuple[int, Path]] = {}
+    existing_map: dict[str, tuple[int, Path, VideoMeta | None]] = {}
     if not overwrite and config.analyze.skip_existing and config.compressed_dir.is_dir():
         for f in config.compressed_dir.iterdir():
             if not f.is_file() or f.suffix.lower() not in VIDEO_EXTS:
@@ -119,7 +185,10 @@ def run_compress_all(
             if "_" in f.stem:
                 prefix, stem_part = f.stem.split("_", 1)
                 if prefix.isdigit():
-                    existing_map[stem_part] = (int(prefix), f)
+                    meta = VideoMeta.read(f)
+                    key = _meta_source_key(stem_part, meta)
+                    if key:
+                        existing_map.setdefault(key, (int(prefix), f, meta))
 
     # Phase 3: assign indices and compress each
     next_idx = _next_index(config.compressed_dir, config.naming.index_width)
@@ -132,9 +201,9 @@ def run_compress_all(
         for i, (original, source) in enumerate(items, start=1):
             label_name = source.name if source == original else f"{original.name} → {source.name}"
 
-            # Reuse existing compressed file if skip_existing matches by stem
-            if source.stem in existing_map:
-                use_idx, use_out = existing_map[source.stem]
+            # Reuse existing compressed file if it is fresh and still matches.
+            use_idx, use_out, use_meta = _find_reusable(source, existing_map, config, ffprobe)
+            if use_out is not None:
                 if tracker:
                     tracker.update(phase="compress", current=i, total=len(items), message=f"压缩 {source.name}...")
                     tracker.log(f"⏭️ 跳过 {label_name}（已存在 {use_out.name}）")

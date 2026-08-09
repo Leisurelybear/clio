@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -128,6 +130,124 @@ class TestRunCompressAll:
         records2 = run_compress_all(cfg)
         assert len(records2) == 1
         assert call_count == 1  # still 1 — no new compress calls
+
+    def test_recompress_when_source_changes(self, monkeypatch, tmp_path: Path):
+        """Changing the source file (mtime/size) must re-compress, not reuse the old output."""
+        cfg = _cfg(tmp_path)
+        src = _add_video(cfg, "test.mp4")
+
+        monkeypatch.setattr("clio.tasks.compress.resolve_binary", lambda *a: "ffmpeg")
+
+        def _mock_compress(inp, outp, c, **kw):
+            outp.write_bytes(b"\x00" * 60_000)
+            return outp
+
+        monkeypatch.setattr("clio.tasks.compress.compress_video", _mock_compress)
+        monkeypatch.setattr("clio.tasks.compress.get_duration_sec", lambda *a, **kw: 10.0)
+        monkeypatch.setattr("clio.tasks.compress._safe_duration", lambda *a, **k: 10.0)
+
+        call_count = [0]
+
+        def _counting_compress(inp, outp, c, **kw):
+            call_count[0] += 1
+            outp.write_bytes(b"\x00" * 60_000)
+            return outp
+
+        monkeypatch.setattr("clio.tasks.compress.compress_video", _counting_compress)
+        cfg.analyze.skip_existing = False
+        run_compress_all(cfg)
+        assert call_count[0] == 1
+
+        # Modify the source file so vmeta is_stale() triggers.
+        time.sleep(1.1)
+        src.write_bytes(b"\x00" * 2000)
+        os.utime(src, (src.stat().st_atime, src.stat().st_mtime + 2))
+
+        cfg.analyze.skip_existing = True
+        monkeypatch.setattr("clio.tasks.compress._next_index", lambda *a: 1)
+        run_compress_all(cfg)
+        assert call_count[0] == 2, "source changed -> must re-compress"
+
+    def test_recompress_when_settings_change(self, monkeypatch, tmp_path: Path):
+        """Changing compress settings must re-compress, not reuse the old output."""
+        cfg = _cfg(tmp_path)
+        _add_video(cfg, "test.mp4")
+
+        monkeypatch.setattr("clio.tasks.compress.resolve_binary", lambda *a: "ffmpeg")
+
+        def _mock_compress(inp, outp, c, **kw):
+            outp.write_bytes(b"\x00" * 60_000)
+            return outp
+
+        monkeypatch.setattr("clio.tasks.compress.compress_video", _mock_compress)
+        monkeypatch.setattr("clio.tasks.compress.get_duration_sec", lambda *a, **kw: 10.0)
+        monkeypatch.setattr("clio.tasks.compress._safe_duration", lambda *a, **k: 10.0)
+
+        call_count = [0]
+
+        def _counting_compress(inp, outp, c, **kw):
+            call_count[0] += 1
+            outp.write_bytes(b"\x00" * 60_000)
+            return outp
+
+        monkeypatch.setattr("clio.tasks.compress.compress_video", _counting_compress)
+        cfg.analyze.skip_existing = False
+        run_compress_all(cfg)
+        assert call_count[0] == 1
+
+        # Change a setting the fingerprint tracks.
+        cfg.compress.max_width = 480
+        cfg.analyze.skip_existing = True
+        monkeypatch.setattr("clio.tasks.compress._next_index", lambda *a: 1)
+        run_compress_all(cfg)
+        assert call_count[0] == 2, "settings changed -> must re-compress"
+
+    def test_same_basename_videos_do_not_collide(self, monkeypatch, tmp_path: Path):
+        """Two sources sharing a basename in different dirs must each keep their
+        own compressed file when skipping existing."""
+        cfg = _cfg(tmp_path)
+        dir1 = tmp_path / "cam1"
+        dir2 = tmp_path / "cam2"
+        dir1.mkdir(parents=True, exist_ok=True)
+        dir2.mkdir(parents=True, exist_ok=True)
+        src1 = dir1 / "IMG_0001.MP4"
+        src2 = dir2 / "IMG_0001.MP4"
+        src1.write_bytes(b"\x00" * 1000)
+        src2.write_bytes(b"\x00" * 1000)
+
+        from clio.tasks._video_loader import load_selected_videos, save_selected_videos
+
+        proj = cfg.project_dir
+        proj.mkdir(parents=True, exist_ok=True)
+        existing = load_selected_videos(proj)
+        for s in (src1, src2):
+            if s.resolve() not in {p.resolve() for p in existing}:
+                existing.append(s)
+        save_selected_videos(proj, existing)
+
+        monkeypatch.setattr("clio.tasks.compress.resolve_binary", lambda *a: "ffmpeg")
+
+        def _mock_compress(inp, outp, c, **kw):
+            outp.write_bytes(b"\x00" * 60_000)
+            return outp
+
+        monkeypatch.setattr("clio.tasks.compress.compress_video", _mock_compress)
+        monkeypatch.setattr("clio.tasks.compress.get_duration_sec", lambda *a, **kw: 10.0)
+        monkeypatch.setattr("clio.tasks.compress._safe_duration", lambda *a, **k: 10.0)
+
+        cfg.analyze.skip_existing = False
+        records1 = run_compress_all(cfg)
+        assert len(records1) == 2
+        stems1 = {r.stem for r in records1}
+        assert len(stems1) == 2
+
+        # Second run must reuse BOTH distinct outputs (not map both to one).
+        cfg.analyze.skip_existing = True
+        monkeypatch.setattr("clio.tasks.compress._next_index", lambda *a: 1)
+        records2 = run_compress_all(cfg)
+        assert len(records2) == 2
+        stems2 = {r.stem for r in records2}
+        assert stems2 == stems1, f"each same-basename source must reuse its own output: {stems2}"
 
     def test_skip_existing_does_not_treat_segs_as_whole_file(self, monkeypatch, tmp_path: Path):
         """Leftover _segNN files must not block creating a whole-file compress."""
