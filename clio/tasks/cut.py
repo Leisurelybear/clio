@@ -20,6 +20,7 @@ from clio.tasks._helpers import _eta_line
 from clio.utils import (
     get_duration_sec,
     resolve_binary,
+    safe_basename,
     sanitize_name,
     write_json_atomic,
     write_text_atomic,
@@ -56,7 +57,8 @@ def resolve_cut_output_dir(config: AppConfig, day_label: str, output_dir: Path |
         except ValueError as e:
             raise ValueError(f"output_dir outside project output: {out}") from e
         return out
-    return (root / "cuts" / day_label).resolve()
+    day_dir = safe_basename(day_label)
+    return (root / "cuts" / day_dir).resolve()
 
 
 def list_existing_cut_videos(out_root: Path) -> list[str]:
@@ -244,7 +246,7 @@ def run_cut_all(
     overwrite=False 时若输出目录已有视频则抛 FileExistsError（不改写）。
     overwrite=True 时对每个目标文件先备份再写，成功后删备份。
     """
-    plan_path = config.plans_dir / f"{day_label}_plan.json"
+    plan_path = config.plans_dir / f"{safe_basename(day_label, max_len=60)}_plan.json"
     if not plan_path.is_file():
         raise FileNotFoundError(f"规划文件不存在: {plan_path}")
 
@@ -372,7 +374,7 @@ def run_cut_all(
                     start += offset
                     end += offset
 
-            clip_stem = f"{idx}_{sanitize_name(title, max_len=30)}_seg_{i:03d}"
+            clip_stem = f"{safe_basename(idx, max_len=30)}_{sanitize_name(title, max_len=30)}_seg_{i:03d}"
             clip_path = out_root / f"{clip_stem}.mp4"
 
             print(_eta_line("裁剪", i, len(seq), clip_stem, completed, elapsed_total))

@@ -13,7 +13,7 @@ from clio.config import apply_run_paths, load_config
 from clio.doctor import is_virtualenv_python, run_doctor
 from clio.log import setup_logging
 from clio.shutdown import before_stop, install_hooks
-from clio.utils import discover_ffmpeg_bin
+from clio.utils import discover_ffmpeg_bin, safe_basename
 
 PLACEHOLDER_KEYS = {"your_api_key_here", "YOUR_API_KEY", ""}
 
@@ -495,7 +495,7 @@ def main(argv: list[str] | None = None) -> int:
             from clio.tasks.reindex import auto_reindex_if_needed
 
             auto_reindex_if_needed(config)
-            plan_path = config.plans_dir / f"{args.day}_plan.json"
+            plan_path = config.plans_dir / f"{safe_basename(args.day, max_len=60)}_plan.json"
             if not plan_path.is_file():
                 print(f"错误: 规划文件不存在: {plan_path}", file=sys.stderr)
                 return 1
@@ -562,7 +562,7 @@ def main(argv: list[str] | None = None) -> int:
                 readiness_block_payload,
             )
 
-            plan_path = config.plans_dir / f"{args.day}_plan.json"
+            plan_path = config.plans_dir / f"{safe_basename(args.day, max_len=60)}_plan.json"
             if not plan_path.is_file():
                 print(f"错误: 规划文件不存在: {plan_path}", file=sys.stderr)
                 return 1
