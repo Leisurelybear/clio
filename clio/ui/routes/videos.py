@@ -104,6 +104,42 @@ def _resolve_original_video_path(root: Path, requested: str) -> Path | None:
     return candidate
 
 
+def _find_selected_original_for_request(proj_dir: Path, requested: str) -> Path | None:
+    """Resolve an original video request against the selected video allowlist."""
+    candidate = _resolve_original_video_path(proj_dir, requested)
+    if candidate is not None and candidate.is_file() and candidate.suffix.lower() in VIDEO_EXTENSIONS:
+        return candidate
+
+    requested_path = Path(requested)
+    if requested_path.is_absolute() or ".." in requested_path.parts:
+        return None
+    requested_name = requested_path.name.lower()
+    requested_stem = requested_path.stem
+    if "_" in requested_stem:
+        prefix, suffix = requested_stem.split("_", 1)
+        if prefix.isdigit():
+            requested_stem = suffix
+    requested_stem = re.sub(r"_(?:seg|part|pt|chunk)\d+$", "", requested_stem, flags=re.IGNORECASE).lower()
+
+    selected = load_selected_videos(proj_dir)
+    exact_name = [
+        path
+        for path in selected
+        if path.name.lower() == requested_name and path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS
+    ]
+    if len(exact_name) == 1:
+        return exact_name[0].resolve()
+
+    stem_matches = [
+        path
+        for path in selected
+        if path.stem.lower() == requested_stem and path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS
+    ]
+    if len(stem_matches) == 1:
+        return stem_matches[0].resolve()
+    return None
+
+
 def _selection_stems(selected_set: set[Path]) -> set[str]:
     return {p.stem.lower() for p in selected_set}
 
@@ -222,8 +258,15 @@ def _file_fingerprint(path: Path) -> tuple[Any, ...]:
 def _videos_cache_signature(proj_dir: Path, proj_out: Path, comp_dir: Path, cfg: Any) -> tuple[Any, ...]:
     text_dirs = tuple(_find_texts_dirs(proj_out))
     videos_json = proj_dir / "videos.json"
+    selected_videos = load_selected_videos(proj_dir)
+    selected_fingerprints: list[tuple[str, tuple[Any, ...]]] = []
+    for video in selected_videos:
+        # Source files may live outside the project (including on a NAS), so
+        # project-dir fingerprints alone cannot invalidate an offline payload.
+        selected_fingerprints.append((str(video), _file_fingerprint(video)))
     return (
         _file_fingerprint(videos_json),  # must invalidate when selection changes
+        tuple(selected_fingerprints),  # must invalidate when external media returns
         _dir_fingerprint(proj_dir, video_only=True),
         _dir_fingerprint(comp_dir),
         tuple((str(td), _dir_fingerprint(td, json_only=True)) for td in text_dirs),
@@ -596,7 +639,7 @@ def handle_get_video(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
             if vp not in allowed:
                 return handler.send_error(HTTPStatus.FORBIDDEN)
         else:
-            vp = _resolve_original_video_path(proj_dir, fname)
+            vp = _find_selected_original_for_request(proj_dir, fname)
             if vp is None:
                 return handler.send_error(HTTPStatus.FORBIDDEN)
     else:

@@ -335,6 +335,44 @@ class TestHandleGetVideos:
             handle_get_videos(handler2, {"source": ["compressed"]})
         assert mock_build2.call_count == 1, "signature change must force rebuild"
 
+    def test_disk_cache_rebuilds_when_external_original_returns(self, tmp_path: Path):
+        """An external source changing from offline to online must refresh the payload."""
+        import json
+
+        proj_dir = tmp_path / "input"
+        proj_dir.mkdir()
+        original = tmp_path / "external" / "GL010695.MP4"
+        original.parent.mkdir()
+        (proj_dir / "videos.json").write_text(json.dumps([str(original)]), encoding="utf-8")
+        proj_out = tmp_path / "output"
+        proj_out.mkdir()
+        (proj_out / "compressed").mkdir()
+
+        def _make_handler():
+            handler = MagicMock()
+            handler._resolve_project_dir.return_value = proj_dir
+            handler._get_project_output.return_value = proj_out
+            handler._get_config.return_value = SimpleNamespace(
+                whisper=SimpleNamespace(transcripts_subdir="transcripts"),
+                paths=SimpleNamespace(ffprobe="ffprobe"),
+            )
+            handler._send_json = MagicMock()
+            return handler
+
+        handle_get_videos(_make_handler(), {"source": ["original"]})
+        _clear_videos_cache()
+
+        original.write_bytes(b"restored")
+        handler2 = _make_handler()
+        with patch(
+            "clio.ui.routes.videos._build_videos_payload",
+            wraps=__import__("clio.ui.routes.videos", fromlist=["_build_videos_payload"])._build_videos_payload,
+        ) as mock_build2:
+            handle_get_videos(handler2, {"source": ["original"]})
+
+        assert mock_build2.call_count == 1
+        assert handler2._send_json.call_args[0][0]["videos"][0].get("missing") is not True
+
     def test_selected_set_includes_video_with_vmeta(self, tmp_path: Path):
         """Compressed view + selected_set: include video whose .vmeta.source_path
         matches a path in videos.json (original outside proj_dir)."""
@@ -588,6 +626,26 @@ class TestHandleGetVideo:
 
         handle_get_video(handler, {"file": [""], "source": ["original"], "abspath": [str(tmp_path / "missing.mp4")]})
         handler.send_error.assert_called_once_with(HTTPStatus.NOT_FOUND)
+
+    def test_indexed_original_request_resolves_external_selected_video(self, tmp_path: Path):
+        import json
+
+        handler = MagicMock()
+        proj_dir = tmp_path / "input"
+        proj_dir.mkdir()
+        proj_out = tmp_path / "output"
+        proj_out.mkdir()
+        original = tmp_path / "nas" / "GX010681.MP4"
+        original.parent.mkdir()
+        original.write_bytes(b"video data")
+        (proj_dir / "videos.json").write_text(json.dumps([str(original)]), encoding="utf-8")
+        handler._resolve_project_dir.return_value = proj_dir
+        handler._get_project_output.return_value = proj_out
+        handler._send_video_range = MagicMock()
+
+        handle_get_video(handler, {"file": ["002_GX010681.mp4"], "source": ["original"]})
+
+        handler._send_video_range.assert_called_once_with(original)
 
 
 class TestVideosJsonCacheInvalidation:
