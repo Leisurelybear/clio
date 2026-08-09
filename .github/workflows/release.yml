@@ -34,15 +34,27 @@ jobs:
     steps:
       - name: Compute release version
         id: version
+        env:
+          VERSION_INPUT: ${{ github.event.inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          VER="${{ github.event.inputs.version }}"
+          VER="$VERSION_INPUT"
           if [ -z "$VER" ]; then
-            if [ "${{ github.event_name }}" = "push" ]; then
-              VER="${{ github.ref_name }}"
+            if [ "$EVENT_NAME" = "push" ]; then
+              VER="$REF_NAME"
               VER="${VER#v}"
             else
               VER="0.0.0-dev"
             fi
+          fi
+          # Strict semver guard: the manual-run version is user input and must
+          # never be interpolated into shell scripts (command substitution / bad
+          # artifacts). Pass it to consumers only via output plus env, never by
+          # embedding it in a run: script.
+          if ! echo "$VER" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'; then
+            echo "release version is not valid semver: $VER" >&2
+            exit 1
           fi
           echo "version=$VER" >> "$GITHUB_OUTPUT"
 
@@ -158,8 +170,43 @@ jobs:
             echo "static assets missing"
             exit 1
           fi
-          lipo -info "dist/clio.app/Contents/MacOS/clio" | grep -q "universal2" || { echo "not a universal2 binary"; exit 1; }
+          # lipo -info never prints "universal2" (it lists the actual archs), so
+          # assert BOTH archs explicitly present via lipo -archs.
+          archs="$(lipo -archs "dist/clio.app/Contents/MacOS/clio")"
+          echo "binary archs: $archs"
+          case "$archs" in
+            *x86_64*arm64*|*arm64*x86_64*) echo "universal2 OK" ;;
+            *) echo "not a universal2 binary (missing x86_64 or arm64)"; exit 1 ;;
+          esac
           echo "app OK"
+
+      - name: Smoke test packaged app startup
+        timeout-minutes: 5
+        run: |
+          set -e
+          work="$(mktemp -d)"
+          cp config.example.yaml "$work/config.yaml"
+          "$PWD/dist/clio.app/Contents/MacOS/clio" -c "$work/config.yaml" >/tmp/clio-smoke.log 2>&1 &
+          pid=$!
+          ok=
+          for _ in $(seq 1 60); do
+            port="$(lsof -nP -iTCP:127.0.0.1 -sTCP:LISTEN -a -p "$pid" 2>/dev/null | awk 'NR>1{print $9}' | cut -d: -f2 | head -n1)"
+            if [ -n "$port" ]; then
+              if curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/" | grep -q 200; then
+                ok=1
+                break
+              fi
+            fi
+            sleep 0.5
+          done
+          kill "$pid" 2>/dev/null || true
+          wait "$pid" 2>/dev/null || true
+          if [ -z "$ok" ]; then
+            echo "desktop app did not serve index"
+            cat /tmp/clio-smoke.log
+            exit 1
+          fi
+          echo "launch smoke OK"
 
       - name: Package app as zip (app + README)
         run: |
