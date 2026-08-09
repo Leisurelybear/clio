@@ -26,7 +26,9 @@ MAX_CONCURRENT_JOBS = 2
 _MIN_BINS, _MAX_BINS = 400, 2000
 
 _jobs_lock = threading.Lock()
-_active_jobs = 0
+# BoundedSemaphore now owns concurrency accounting: waiting threads block
+# without holding _jobs_lock, so a finishing job can always release a slot.
+_job_slots = threading.BoundedSemaphore(MAX_CONCURRENT_JOBS)
 # Keys with a live job thread in *this* process (orphan recovery after restart).
 _active_job_keys: set[str] = set()
 _key_locks: dict[str, threading.Lock] = {}
@@ -366,11 +368,7 @@ def ensure_waveform(
         started_at = time.time()
 
         def _job() -> None:
-            global _active_jobs
-            with _jobs_lock:
-                while _active_jobs >= MAX_CONCURRENT_JOBS:
-                    time.sleep(0.2)
-                _active_jobs += 1
+            _job_slots.acquire()
             try:
                 payload = extract_peaks_for_video(
                     source_path,
@@ -390,7 +388,7 @@ def ensure_waveform(
                 clear_lock(project_output, key)
                 with _jobs_lock:
                     _active_job_keys.discard(key)
-                    _active_jobs = max(0, _active_jobs - 1)
+                _job_slots.release()
 
         # Register key before spawn so concurrent GETs see pending (not same-pid stale).
         with _jobs_lock:

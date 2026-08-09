@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import struct
+import threading
 import time
 from pathlib import Path
 from unittest.mock import patch
@@ -153,6 +154,68 @@ class TestLockAndReadWrite:
             assert out2["peaks"] == [0.1, 0.9]
         else:
             assert out["peaks"] == [0.1, 0.9]
+
+
+class TestConcurrentSlots:
+    """Third+ job must not deadlock while waiting for a slot (P0-P02).
+
+    The old implementation slept on _jobs_lock while holding it, so a finishing
+    job could never acquire the lock to decrement _active_jobs and the third
+    wave job hung forever.
+    """
+
+    def test_third_job_completes_when_two_slots_occupied(self, tmp_path: Path, monkeypatch):
+        import clio.tasks.waveform as wf_mod
+
+        tiny = threading.BoundedSemaphore(2)
+        monkeypatch.setattr(wf_mod, "_job_slots", tiny)
+
+        src = tmp_path / "v.mp4"
+        src.write_bytes(b"v")
+
+        def _fake_extract(video_path, ffmpeg, duration_sec=None, audio_source="original", ffprobe=""):
+            return {
+                "version": 1,
+                "source_path": str(video_path),
+                "audio_source": audio_source,
+                "duration_sec": 1.0,
+                "bin_count": 400,
+                "peaks": [0.1, 0.2],
+                "status": "ready",
+            }
+
+        deps_ok = {
+            "ok": True,
+            "ffmpeg": "C:/fake/ffmpeg.exe",
+            "ffprobe": "C:/fake/ffprobe.exe",
+            "missing": [],
+            "detail": "",
+        }
+        # Acquire both slots to simulate two in-flight jobs.
+        tiny.acquire()
+        tiny.acquire()
+        with (
+            patch("clio.utils.probe_ffmpeg_deps", return_value=deps_ok),
+            patch.object(wf, "extract_peaks_for_video", side_effect=_fake_extract),
+        ):
+            # Use the real _spawn_job so the job thread blocks on the semaphore
+            # without deadlocking the caller.
+            out = wf.ensure_waveform(tmp_path, src, ffmpeg="")
+        assert out["status"] == "pending"
+
+        # Release one slot: the job thread may now proceed and finish.
+        tiny.release()
+        deadline = time.time() + 10
+        key = wf.cache_key(src)
+        while time.time() < deadline:
+            if wf.read_peaks(tmp_path, key) is not None:
+                break
+            time.sleep(0.05)
+        assert wf.read_peaks(tmp_path, key) is not None
+        # Job released its slot in finally; a fresh acquire must succeed.
+        assert tiny.acquire(blocking=True, timeout=5)
+        tiny.release()
+        assert wf.lock_status(tmp_path, key) == "none"
 
 
 class TestErrorCooldown:
