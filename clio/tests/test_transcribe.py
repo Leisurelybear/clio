@@ -104,9 +104,10 @@ class TestGetModel:
             mock_whisper_cls.assert_called_once()
 
     @patch("clio.transcribe.WhisperModel", None)
+    @patch("clio.transcribe._reload_whisper_import", return_value=False)
     @patch("clio.transcribe._resolve_cache_dir")
     @patch("clio.transcribe._resolve_device", return_value="cpu")
-    def test_get_model_import_error(self, mock_dev, mock_cache):
+    def test_get_model_import_error(self, mock_dev, mock_cache, mock_reload):
         """WhisperModel 未安装时抛 ImportError"""
         with pytest.raises(ImportError):
             _get_model(MagicMock(whisper=WhisperConfig(model_size="small")))
@@ -280,7 +281,7 @@ class TestTranscribeAudio:
 
 class TestRunTranscribeAll:
     def test_transcribe_enabled_check_no_deps(self):
-        """当 faster-whisper 不可导入时，run_transcribe_all 打印警告并返回 0"""
+        """当 faster-whisper 不可导入时，run_transcribe_all 打印警告并返回 1（错误退出码）"""
         config = AppConfig(
             global_cfg=GlobalConfig(),
             project_cfg=ProjectConfig(
@@ -293,7 +294,7 @@ class TestRunTranscribeAll:
             patch("builtins.print"),
         ):
             result = run_transcribe_all(config)
-            assert result == 0
+            assert result == 1
 
     def test_transcribe_skipped_when_disabled(self):
         """whisper.enabled=False 时跳过转录"""

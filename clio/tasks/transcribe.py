@@ -142,7 +142,7 @@ def run_transcribe_all(
         print(f"警告：{msg}")
         if tracker:
             tracker.error(msg)
-        return 0
+        return 1
 
     transcripts_dir = config.transcripts_dir
     transcripts_dir.mkdir(parents=True, exist_ok=True)
@@ -292,7 +292,7 @@ def run_transcribe_all(
         if tracker:
             tracker.log(msg)
             tracker.update(message=msg)
-    return 0
+    return 1 if error_count > 0 else 0
 
 
 def run_transcribe_one(

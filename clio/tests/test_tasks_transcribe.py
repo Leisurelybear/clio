@@ -237,7 +237,7 @@ class TestRunTranscribeAll:
 
         tracker = MagicMock()
         result = run_transcribe_all(cfg, tracker)
-        assert result == 0
+        assert result == 1
 
     def test_files_filter(self, cfg, tmp_path):
         from clio.tasks._video_loader import save_selected_videos

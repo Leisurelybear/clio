@@ -369,8 +369,7 @@ def main(argv: list[str] | None = None) -> int:
 
         config = _prepare_config(config_path, args)
         config.analyze.skip_existing = not getattr(args, "force", False)
-        run_transcribe_all(config)
-        return 0
+        return run_transcribe_all(config)
 
     elif args.command == "whisper":
         from clio.whisper_cli import run_whisper_check, run_whisper_install
@@ -525,7 +524,7 @@ def main(argv: list[str] | None = None) -> int:
                 print("错误:")
                 for err in errors:
                     print(f"  - {err}")
-            return 0
+            return 1 if errors else 0
         elif args.command == "migrate":
             from clio.tasks.migrate import run_migrate
 
@@ -533,7 +532,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"已迁移 {updated} 个项目")
             for err in errors:
                 print(f"  错误: {err}")
-            return 0 if not errors or updated else 1
+            return 1 if errors else 0
         elif args.command == "serve":
             import time as _time
 
