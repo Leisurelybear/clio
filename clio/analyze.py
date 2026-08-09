@@ -5,6 +5,7 @@ import json
 import threading
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from clio.ai.base import AIResponse, TaskName
 from clio.ai.factory import get_task_provider, get_video_provider
@@ -57,8 +58,29 @@ def _read_trip_context(project_dir: str) -> str:
     return ""
 
 
+def _coerce_str(value: Any, default: str) -> tuple[str, bool]:
+    if isinstance(value, str):
+        return value, True
+    return default, False
+
+
+def _coerce_number(value: Any, default: float) -> tuple[float, bool]:
+    if isinstance(value, bool):
+        return default, False
+    try:
+        return float(value), True
+    except (TypeError, ValueError):
+        return default, False
+
+
+def _coerce_list(value: Any, default: float) -> tuple[list, bool]:
+    if isinstance(value, list):
+        return value, True
+    return [], False
+
+
 def _validate_analysis(data: dict, source: str) -> dict:
-    """校验 AI 分析结果，缺失字段补默认值并告警。"""
+    """校验 AI 分析结果，缺失字段补默认值并对错误类型告警归一。"""
     data = copy.deepcopy(data)
     required = {"title", "summary", "timeline"}
     missing = required - data.keys()
@@ -73,6 +95,28 @@ def _validate_analysis(data: dict, source: str) -> dict:
     data.setdefault("suggested_use", "")
     data.setdefault("cover_timestamp", "")
     data.setdefault("_confidence", 0.0)
+
+    for key, default in (
+        ("title", Path(source).stem),
+        ("summary", ""),
+        ("location", "未知"),
+        ("mood", ""),
+        ("suggested_use", ""),
+        ("cover_timestamp", ""),
+    ):
+        value, ok = _coerce_str(data[key], default)
+        if not ok:
+            print(f"  [警告] {source}: 字段 {key} 类型非法（{type(data[key]).__name__}），重置为默认值")
+        data[key] = value
+    for key, default in (("timeline", []), ("highlights", [])):
+        value, ok = _coerce_list(data[key], default)
+        if not ok:
+            print(f"  [警告] {source}: 字段 {key} 类型非法（{type(data[key]).__name__}），重置为空列表")
+        data[key] = value
+    value, ok = _coerce_number(data["_confidence"], 0.0)
+    if not ok:
+        print(f"  [警告] {source}: 字段 _confidence 类型非法，重置为 0.0")
+    data["_confidence"] = value
     return data
 
 
@@ -88,6 +132,20 @@ def _validate_voiceover(data: dict, source: str) -> dict:
     data.setdefault("duration_hint_sec", 20)
     data.setdefault("edit_tip", "")
     data.setdefault("_confidence", 0.0)
+
+    for key, default in (("title", Path(source).stem), ("voiceover", ""), ("edit_tip", "")):
+        value, ok = _coerce_str(data[key], default)
+        if not ok:
+            print(f"  [警告] {source}: 字段 {key} 类型非法，重置为默认值")
+        data[key] = value
+    value, ok = _coerce_number(data["duration_hint_sec"], 20)
+    if not ok:
+        print(f"  [警告] {source}: 字段 duration_hint_sec 类型非法，重置为 20")
+    data["duration_hint_sec"] = value
+    value, ok = _coerce_number(data["_confidence"], 0.0)
+    if not ok:
+        print(f"  [警告] {source}: 字段 _confidence 类型非法，重置为 0.0")
+    data["_confidence"] = value
     return data
 
 
@@ -105,6 +163,24 @@ def _validate_plan(data: dict, source: str) -> dict:
     data.setdefault("opening_tip", "")
     data.setdefault("ending_tip", "")
     data.setdefault("_confidence", 0.0)
+
+    for key, default in (("day_title", source), ("theme", ""), ("opening_tip", ""), ("ending_tip", "")):
+        value, ok = _coerce_str(data[key], default)
+        if not ok:
+            print(f"  [警告] {source}: 字段 {key} 类型非法，重置为默认值")
+        data[key] = value
+    sequence, ok = _coerce_list(data["sequence"], [])
+    if not ok:
+        print(f"  [警告] {source}: 字段 sequence 类型非法，重置为空列表")
+    data["sequence"] = [s for s in sequence if isinstance(s, dict)]
+    value, ok = _coerce_number(data["total_estimated_sec"], 180)
+    if not ok:
+        print(f"  [警告] {source}: 字段 total_estimated_sec 类型非法，重置为 180")
+    data["total_estimated_sec"] = value
+    value, ok = _coerce_number(data["_confidence"], 0.0)
+    if not ok:
+        print(f"  [警告] {source}: 字段 _confidence 类型非法，重置为 0.0")
+    data["_confidence"] = value
     return data
 
 

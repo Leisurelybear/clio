@@ -138,6 +138,79 @@ def test_validate_plan_defaults_confidence():
     assert result["_confidence"] == 0.0
 
 
+def test_validate_analysis_rejects_wrong_typed_fields():
+    """Wrong-typed fields must be reset to defaults, not silently merged."""
+    result = _validate_analysis(
+        {
+            "title": 123,
+            "summary": ["not a string"],
+            "timeline": "not-a-list",
+            "highlights": {"oops": 1},
+            "_confidence": "abc",
+        },
+        "clip.mp4",
+    )
+    assert result["title"] == "clip"
+    assert result["summary"] == ""
+    assert result["timeline"] == []
+    assert result["highlights"] == []
+    assert result["_confidence"] == 0.0
+
+
+def test_validate_analysis_keeps_valid_types():
+    result = _validate_analysis(
+        {"title": "A", "summary": "s", "timeline": [{"start": "00:01", "text": "x"}], "_confidence": 0.8},
+        "clip.mp4",
+    )
+    assert result["title"] == "A"
+    assert result["timeline"] == [{"start": "00:01", "text": "x"}]
+    assert result["_confidence"] == 0.8
+
+
+def test_validate_plan_rejects_wrong_typed_fields():
+    result = _validate_plan(
+        {
+            "day_title": 99,
+            "theme": ["x"],
+            "total_estimated_sec": "oops",
+            "sequence": "not-a-list",
+            "opening_tip": 1.5,
+        },
+        "day1",
+    )
+    assert result["day_title"] == "day1"
+    assert result["theme"] == ""
+    assert result["total_estimated_sec"] == 180.0
+    assert result["sequence"] == []
+    assert result["opening_tip"] == ""
+
+
+def test_validate_plan_filters_non_dict_sequence_items():
+    result = _validate_plan(
+        {
+            "day_title": "day1",
+            "sequence": [
+                {"index": "001", "title": "A"},
+                42,
+                "bad",
+                {"index": "002", "title": "B"},
+            ],
+        },
+        "day1",
+    )
+    assert [s.get("index") for s in result["sequence"]] == ["001", "002"]
+
+
+def test_validate_voiceover_rejects_wrong_typed_fields():
+    result = _validate_voiceover(
+        {"title": 1, "voiceover": None, "duration_hint_sec": "long", "_confidence": []}, "clip.mp4"
+    )
+    assert result["title"] == "clip"
+    assert result["voiceover"] == ""
+    assert result["duration_hint_sec"] == 20.0
+    assert result["_confidence"] == 0.0
+
+
 class TestPlanDailyVlog:
     def test_filter_valid_indices(self, monkeypatch):
         """Valid indices should be kept, invalid ones filtered."""
