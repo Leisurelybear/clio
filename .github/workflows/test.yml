@@ -143,3 +143,35 @@ jobs:
       run: |
         echo "requirements.txt:"; wc -l requirements.txt
         echo "requirements-locked.txt:"; wc -l requirements-locked.txt
+
+  setup-windows:
+    name: Setup script validation (Windows PowerShell)
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Parse-check setup.ps1 (UTF-8 aware)
+      shell: pwsh
+      run: |
+        $path = Join-Path $env:GITHUB_WORKSPACE 'setup.ps1'
+        if (Test-Path $path) {
+          $text = [System.IO.File]::ReadAllText($path, [System.Text.Encoding]::UTF8)
+          $tokens = $null; $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseInput($text, [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error "L$($_.Extent.StartLineNumber): $($_.Message)" }
+            exit 1
+          }
+          Write-Output "setup.ps1 syntax OK"
+        } else {
+          Write-Output "setup.ps1 not found -- skipping"
+        }
+
+    - name: Dry-run setup.ps1
+      shell: pwsh
+      env:
+        CLIO_SETUP_DRYRUN: "1"
+      run: |
+        & ./setup.ps1
+        Write-Output "setup.ps1 dry-run OK"

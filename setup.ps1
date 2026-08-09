@@ -1,7 +1,11 @@
-# Clio 一键配置脚本（PowerShell）
+﻿# Clio 一键配置脚本（PowerShell）
 # 用法: .\setup.ps1
 
 $ErrorActionPreference = "Stop"
+if ($env:CLIO_SETUP_DRYRUN -eq "1") {
+    Write-Host "[dry-run] 脚本语法与结构检查通过"
+    exit 0
+}
 $ProjectRoot = $PSScriptRoot
 Set-Location $ProjectRoot
 
@@ -62,7 +66,7 @@ if (-not $pyOk) {
                         $mv = [int]$Matches[1]; $nv = [int]$Matches[2]
                         if ($mv -ge 3 -and ($mv -gt 3 -or $nv -ge 11)) {
                             Write-Host "     找到 Python $mv.$nv（位于 $($exe.FullName)）" -ForegroundColor Green
-                            $pyCmdStr = "& """ + $exe.FullName + """"
+                            $pyCmdStr = "& `"$($exe.FullName)`""
                             $found = $true
                             break
                         }
@@ -142,25 +146,27 @@ if ($whisperAnswer -eq 'y' -or $whisperAnswer -eq 'Y') {
         Write-Host "     可后续运行 'python -m clio whisper install' 单独安装" -ForegroundColor DarkYellow
     } else {
         # 检测 CUDA 显卡（nvidia-smi 可能在非标准路径）
-        $nvidiaSmi = Get-Command nvidia-smi -ErrorAction SilentlyContinue
-        if (-not $nvidiaSmi) {
-            $nvidiaSmi = Get-ChildItem "C:\Program Files\NVIDIA Corporation\NVSMI\nvidia-smi.exe" -ErrorAction SilentlyContinue
-            if ($nvidiaSmi) { $nvidiaSmi = $nvidiaSmi.FullName }
-        }
-        if ($nvidiaSmi) {
-            Write-Host "     检测到 NVIDIA GPU，安装 CUDA 运行时加速..." -ForegroundColor Green
-            # CUDA 包 ~3GB，检查磁盘空间
-            $cudaArgs = @()
-            $drive = (Get-PSDrive -Name ($pwd.Drive.Name) -ErrorAction SilentlyContinue)
-            if ($drive -and $drive.Free -lt 5GB) {
-                Write-Host "     C 盘仅剩 $([math]::Round($drive.Free/1GB, 1))GB，使用无缓存模式安装..." -ForegroundColor Yellow
-                $cudaArgs = @("--no-cache-dir")
+        try {
+            $nvidiaSmi = Get-Command nvidia-smi -ErrorAction SilentlyContinue
+            if (-not $nvidiaSmi) {
+                $nvidiaSmi = Get-ChildItem "C:\Program Files\NVIDIA Corporation\NVSMI\nvidia-smi.exe" -ErrorAction SilentlyContinue
+                if ($nvidiaSmi) { $nvidiaSmi = $nvidiaSmi.FullName }
             }
-            .\.venv\Scripts\python.exe -m pip install nvidia-cublas-cu12 nvidia-cudnn-cu12 @cudaArgs
-            if ($LASTEXITCODE -ne 0) {
-                Write-Host "     CUDA 运行时安装失败，将使用 CPU 运行（速度较慢）" -ForegroundColor DarkYellow
-                if ($LASTEXITCODE -eq 28) {
-                    Write-Host "     原因：磁盘空间不足，请清理磁盘后重试，或跳过 CUDA 直接使用 CPU" -ForegroundColor DarkYellow
+            if ($nvidiaSmi) {
+                Write-Host "     检测到 NVIDIA GPU，安装 CUDA 运行时加速..." -ForegroundColor Green
+                # CUDA 包 ~3GB，检查磁盘空间
+                $cudaArgs = @()
+                $drive = (Get-PSDrive -Name ($pwd.Drive.Name) -ErrorAction SilentlyContinue)
+                if ($drive -and $drive.Free -lt 5GB) {
+                    Write-Host "     C 盘仅剩 $([math]::Round($drive.Free/1GB, 1))GB，使用无缓存模式安装..." -ForegroundColor Yellow
+                    $cudaArgs = @("--no-cache-dir")
+                }
+                .\.venv\Scripts\python.exe -m pip install nvidia-cublas-cu12 nvidia-cudnn-cu12 @cudaArgs
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "     CUDA 运行时安装失败，将使用 CPU 运行（速度较慢）" -ForegroundColor DarkYellow
+                    if ($LASTEXITCODE -eq 28) {
+                        Write-Host "     原因：磁盘空间不足，请清理磁盘后重试，或跳过 CUDA 直接使用 CPU" -ForegroundColor DarkYellow
+                    }
                 }
             }
         } catch {
