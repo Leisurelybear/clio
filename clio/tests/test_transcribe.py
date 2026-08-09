@@ -278,6 +278,45 @@ class TestTranscribeAudio:
         _, kwargs = mock_model.transcribe.call_args
         assert kwargs["language"] is None
 
+    @patch("clio.transcribe._get_model")
+    def test_cuda_failure_during_generation_triggers_cpu_fallback(self, mock_get_model):
+        """A cublas/cuda error surfaced while iterating the lazy segment stream
+        (not during the transcribe() setup call) must still trigger the CPU
+        retry. For a lazy iterator the error is raised at generation time, which
+        is outside the original try; the fallback boundary must cover it."""
+        seg = MagicMock(
+            start=0.0,
+            end=1.0,
+            text="ok",
+            avg_logprob=-0.1,
+            no_speech_prob=0.01,
+        )
+
+        def _boom():
+            raise RuntimeError("Library cublas64_12.dll or its variants are not present on machine")
+            yield  # pragma: no cover - makes _boom a lazy generator
+
+        def _transcribe(*args, **kwargs):
+            calls = _transcribe.calls
+            _transcribe.calls = calls + 1
+            info = MagicMock(language="en", language_probability=0.9, duration=10.0)
+            if calls == 0:
+                return (_boom(), info)
+            return ([seg], info)
+
+        _transcribe.calls = 0
+        mock_model = MagicMock()
+        mock_model.transcribe.side_effect = _transcribe
+        mock_get_model.return_value = mock_model
+
+        result = transcribe_audio(
+            Path("/fake.wav"),
+            MagicMock(whisper=WhisperConfig(language="en", device="auto")),
+        )
+        assert result == [{"start": 0.0, "end": 1.0, "text": "ok", "avg_logprob": -0.1}]
+        assert mock_get_model.call_count >= 2
+        assert _transcribe.calls == 2
+
 
 class TestRunTranscribeAll:
     def test_transcribe_enabled_check_no_deps(self):

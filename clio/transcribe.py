@@ -237,7 +237,7 @@ def transcribe_audio(
     if progress_callback:
         progress_callback(0)
 
-    try:
+    def _transcribe_once(device_override: str | None = None) -> list[dict]:
         model = _get_model(config)
         segments_iter, info = model.transcribe(
             str(audio_path),
@@ -249,63 +249,57 @@ def transcribe_audio(
             best_of=5,
             temperature=0.0,
         )
+        # faster-whisper returns a lazy stream: real engine errors (e.g. broken
+        # cuBLAS) surface here while iterating, not during the setup call. Keep
+        # the whole iteration inside the fallback boundary.
+        total_duration = info.duration
+        last_pct = 0
+        result = []
+        for seg in segments_iter:
+            pct = int(seg.end / total_duration * 100) if total_duration > 0 else 0
+            if pct >= last_pct + 5:
+                print(f"  [whisper] 转录进度: {seg.end:.1f}s / {total_duration:.0f}s ({pct}%)")
+                if progress_callback:
+                    progress_callback(pct)
+                last_pct = pct
+            is_low = seg.avg_logprob < -0.8 or seg.no_speech_prob > 0.1
+            entry = {
+                "start": round(seg.start, 2),
+                "end": round(seg.end, 2),
+                "text": seg.text.strip(),
+                "avg_logprob": round(seg.avg_logprob, 3),
+            }
+            if is_low:
+                entry["low_confidence"] = True
+            result.append(entry)
+        if progress_callback:
+            progress_callback(100)
+        return result
+
+    try:
+        return _transcribe_once()
     except (RuntimeError, OSError) as e:
         err = str(e)
-        if "cublas" in err.lower() or "cuda" in err.lower() or "library" in err.lower():
-            print(f"  [警告] CUDA 模型加载/推理失败 ({e})，回退到 CPU 重试")
-            _clear_model_cache()
-            _orig_device = config.whisper.device
+        if not ("cublas" in err.lower() or "cuda" in err.lower() or "library" in err.lower()):
+            raise
+        print(f"  [警告] CUDA 模型加载/推理失败 ({e})，回退到 CPU 重试")
+        _clear_model_cache()
+        _orig_device = config.whisper.device
+        try:
+            config.whisper.device = "cpu"
+        except AttributeError:
+            if config.whisper._project is not None:
+                config.whisper._project.device = "cpu"
+        try:
+            return _transcribe_once()
+        except (RuntimeError, OSError):
+            print("  [错误] CPU 回退也失败，可能是 cuBLAS 库缺失")
+            print("  [提示] 请在配置中设置 whisper.device: cpu，或安装 CUDA 运行时:")
+            print("         pip install nvidia-cublas-cu12 nvidia-cudnn-cu12")
+            raise
+        finally:
             try:
-                config.whisper.device = "cpu"
+                config.whisper.device = _orig_device
             except AttributeError:
                 if config.whisper._project is not None:
-                    config.whisper._project.device = "cpu"
-            try:
-                model = _get_model(config)
-                segments_iter, info = model.transcribe(
-                    str(audio_path),
-                    language=None if lang == "auto" else lang,
-                    word_timestamps=False,
-                    vad_filter=True,
-                    vad_parameters=dict(min_silence_duration_ms=300),
-                    beam_size=5,
-                    best_of=5,
-                    temperature=0.0,
-                )
-            except (RuntimeError, OSError):
-                print("  [错误] CPU 回退也失败，可能是 cuBLAS 库缺失")
-                print("  [提示] 请在配置中设置 whisper.device: cpu，或安装 CUDA 运行时:")
-                print("         pip install nvidia-cublas-cu12 nvidia-cudnn-cu12")
-                raise
-            finally:
-                try:
-                    config.whisper.device = _orig_device
-                except AttributeError:
-                    if config.whisper._project is not None:
-                        config.whisper._project.device = _orig_device
-        else:
-            raise
-
-    total_duration = info.duration
-    last_pct = 0
-    result = []
-    for seg in segments_iter:
-        pct = int(seg.end / total_duration * 100) if total_duration > 0 else 0
-        if pct >= last_pct + 5:
-            print(f"  [whisper] 转录进度: {seg.end:.1f}s / {total_duration:.0f}s ({pct}%)")
-            if progress_callback:
-                progress_callback(pct)
-            last_pct = pct
-        is_low = seg.avg_logprob < -0.8 or seg.no_speech_prob > 0.1
-        entry = {
-            "start": round(seg.start, 2),
-            "end": round(seg.end, 2),
-            "text": seg.text.strip(),
-            "avg_logprob": round(seg.avg_logprob, 3),
-        }
-        if is_low:
-            entry["low_confidence"] = True
-        result.append(entry)
-    if progress_callback:
-        progress_callback(100)
-    return result
+                    config.whisper._project.device = _orig_device
