@@ -38,6 +38,57 @@ export function safeColor(v) {
   return v == null ? null : String(v);
 }
 
+/**
+ * Serialize async writes so the newest payload always wins. Older concurrent
+ * writes still run to completion in order, but a stale payload can never land
+ * after a newer one (avoids out-of-order overwrite of project config).
+ * @param {(payload: object) => Promise|any} onWrite
+ * @returns {(payload: object) => Promise}
+ */
+/**
+ * Serialize async writes so the newest payload always wins. Older concurrent
+ * writes still run to completion in order, but a stale payload can never land
+ * after a newer one (avoids out-of-order overwrite of project config), and a
+ * burst of rapid calls coalesces to the latest pending payload.
+ * @param {(payload: object) => Promise|any} onWrite
+ * @returns {(payload: object) => Promise}
+ */
+export function serializeLatestWrites(onWrite) {
+  let tail = Promise.resolve();
+  let queued = null; // { payload, waiters: [resolve] }
+  let running = false;
+
+  const drain = () => {
+    if (running || !queued) return;
+    running = true;
+    const entry = queued;
+    queued = null;
+    const run = Promise.resolve()
+      .then(() => onWrite(entry.payload))
+      .then(
+        () => entry.waiters.forEach((r) => r()),
+        () => entry.waiters.forEach((r) => r()),
+      );
+    tail = tail
+      .then(() => run)
+      .finally(() => {
+        running = false;
+        if (queued) drain();
+      });
+  };
+
+  return (payload) => new Promise((resolve) => {
+    if (queued) {
+      // Coalesce a burst: supersede the pending payload, keep every waiter.
+      queued.payload = payload;
+      queued.waiters.push(resolve);
+    } else {
+      queued = { payload, waiters: [resolve] };
+    }
+    drain();
+  });
+}
+
 const NUMERIC_KEYS = ['font_size', 'min_font_size', 'max_lines', 'max_len_per_line'];
 const STRING_KEYS = ['font_color', 'background', 'outline', 'font_family', 'mode'];
 

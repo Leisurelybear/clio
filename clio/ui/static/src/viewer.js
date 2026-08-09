@@ -28,10 +28,12 @@ import {
 import {
   renderSubtitleSettingsPanel,
   mergeSubtitleSettings,
+  serializeLatestWrites,
 } from './subtitle-settings.js';
 import { phaseNewSource } from './video-fade.js';
 
 let _fadeCancel = null;
+let _subtitleSettingsFrame = 0;
 
 function isGlobalTimelineUi() {
   return state.currentEntity === 'plan'
@@ -380,17 +382,26 @@ function _renderPlanSubtitleSettings() {
   const wrap = $('subtitle-settings-wrap');
   if (!wrap) return;
   if (state.currentEntity !== 'plan') { wrap.innerHTML = ''; return; }
+  _subtitleSettingsFrame += 1;
+  const frame = _subtitleSettingsFrame;
   const project = state.configProject || {};
+  // Latest-write-wins serializer: concurrent/pending saves cannot land out of
+  // order, and only the freshest panel render may update UI after completion.
+  const save = serializeLatestWrites((merged) => api('PUT', '/api/config/project', merged));
   renderSubtitleSettingsPanel(wrap, {
     config: project,
     onChange: (updates) => {
       const merged = mergeSubtitleSettings(state.configProject, updates);
       state.configProject = merged;
-      api('PUT', '/api/config/project', merged).then(() => {
-        setStatus('字幕样式已保存', 'ok');
-        renderPlanSubtitleFromState();
+      save(merged).then(() => {
+        if (frame === _subtitleSettingsFrame && state.currentEntity === 'plan') {
+          setStatus('字幕样式已保存', 'ok');
+          renderPlanSubtitleFromState();
+        }
       }).catch(() => {
-        setStatus('字幕样式保存失败', 'warn');
+        if (frame === _subtitleSettingsFrame && state.currentEntity === 'plan') {
+          setStatus('字幕样式保存失败', 'warn');
+        }
       });
     },
   });

@@ -4,6 +4,7 @@ import {
   mergeSubtitleSettings,
   safeColor,
   renderSubtitleSettingsPanel,
+  serializeLatestWrites,
 } from '../subtitle-settings.js';
 
 describe('subtitleControlsModel', () => {
@@ -76,6 +77,39 @@ describe('safeColor', () => {
     expect(safeColor('#fff')).toBe('#fff');
     expect(safeColor('')).toBe('');
     expect(safeColor(null)).toBe(null);
+  });
+});
+
+describe('serializeLatestWrites', () => {
+  it('serializes out-of-order payloads and writes newest last', async () => {
+    const written = [];
+    let releaseFirst;
+    const firstGate = new Promise((r) => { releaseFirst = r; });
+    const write = (payload) => {
+      if (payload === 'first') return firstGate.then(() => written.push(payload));
+      written.push(payload);
+      return undefined;
+    };
+    const enqueue = serializeLatestWrites(write);
+
+    // Two rapid calls.  The second must be written only after the first
+    // completes, so 'second' can never be overwritten by 'first'.
+    const p1 = enqueue('first');
+    const p2 = enqueue('second');
+    releaseFirst();
+    await Promise.all([p1, p2]);
+    expect(written).toEqual(['first', 'second']);
+  });
+
+  it('coalesces bursts so only the latest pending payload is flushed', async () => {
+    const writes = [];
+    const write = (payload) => { writes.push(payload); };
+    const enqueue = serializeLatestWrites(write);
+
+    enqueue('a');
+    enqueue('b');
+    await enqueue('c');
+    expect(writes).toEqual(['a', 'c']);
   });
 });
 
