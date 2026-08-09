@@ -201,8 +201,11 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
         pre_tracker = ProgressTracker(cfg.paths.output_dir)
         pre_tracker.update(phase="启动", current=0, total=0, message="流水线启动中...")
 
+        # Clear the cancel signal BEFORE spawning the worker. The worker never
+        # clears it, so a cancel arriving right after start is not wiped out.
+        state.cancel_event.clear()
+
         def _run():
-            state.cancel_event.clear()
             tracker = ProgressTracker(cfg.paths.output_dir)
             try:
                 run_pipeline_steps(
@@ -367,7 +370,6 @@ def handle_post_rerun(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -
         proj_out=proj_out,
         cancel_event=state.cancel_event,
     ):
-        cancel_event.clear()
         # Deep-copy config, force redo (user clicked rerun => regenerate everything)
         cfg = copy.deepcopy(cfg)
         cfg.analyze.skip_existing = False
@@ -452,6 +454,7 @@ def handle_post_rerun(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -
     with state.run_lock:
         if state.run_thread is not None and state.run_thread.is_alive():
             return handler._send_json({"ok": False, "error": "a task is already running"}, 409)
+        state.cancel_event.clear()
         state.run_thread = threading.Thread(target=_rerun_worker, daemon=True)
         state.run_thread.start()
     handler._send_json({"ok": True, "message": f"started rerun {task} ({video_basename})"})
