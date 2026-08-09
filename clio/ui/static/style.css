@@ -570,7 +570,7 @@ body.editor-collapsed .resize-handle[data-side="editor"]:hover::after {
 }
 #editor #project-list.project-list-icons {
   list-style: none; margin: 0; padding: 4px 0;
-  display: flex; gap: 4px; flex: 1; min-width: 0;
+  display: flex; flex-wrap: wrap; gap: 4px; flex: 1; min-width: 0;
 }
 #project-list.project-list-icons .project-item {
   flex: 1; min-width: 34px; min-height: 30px;
@@ -579,9 +579,6 @@ body.editor-collapsed .resize-handle[data-side="editor"]:hover::after {
 #project-list.project-list-icons .project-item .name { display: none; }
 #project-list.project-list-icons .project-item .shortcut { font-size: 8px; padding: 0 3px; }
 #project-list.project-list-icons .project-item .icon { width: 16px; height: 16px; }
-#editor .editor-header-row .sidebar-project {
-  position: relative; margin-left: auto; display: flex; gap: 4px; align-items: center;
-}
 
 /* Video filter bar */
 .video-filter-bar { padding: 4px 8px 6px; }
