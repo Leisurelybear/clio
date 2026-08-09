@@ -15,6 +15,18 @@ _called = False
 _called_lock = threading.Lock()
 
 
+def _sprint(msg: str) -> None:
+    """Print that never raises UnicodeEncodeError (e.g. Windows cp1252 console)."""
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        enc = getattr(sys.stdout, "encoding", None) or "utf-8"
+        try:
+            print(msg.encode(enc, errors="replace").decode(enc))
+        except Exception:
+            pass
+
+
 def register_process(proc: subprocess.Popen) -> None:
     with _processes_lock:
         _running_processes.append(proc)
@@ -35,7 +47,7 @@ def before_stop() -> None:
             return
         _called = True
 
-    print("  [beforeStop] 开始清理资源...")
+    _sprint("  [beforeStop] 开始清理资源...")
 
     procs: list[subprocess.Popen] = []
     with _processes_lock:
@@ -45,26 +57,26 @@ def before_stop() -> None:
     if procs:
         alive = [p for p in procs if p.poll() is None]
         if alive:
-            print(f"  [beforeStop] 终止 {len(alive)} 个运行中的 ffmpeg 子进程...")
+            _sprint(f"  [beforeStop] 终止 {len(alive)} 个运行中的 ffmpeg 子进程...")
         for proc in alive:
             pid = proc.pid
             try:
                 proc.terminate()
                 proc.wait(timeout=5)
-                print(f"  [beforeStop]   ffmpeg (pid={pid}) 已终止")
+                _sprint(f"  [beforeStop]   ffmpeg (pid={pid}) 已终止")
             except Exception:
                 try:
                     proc.kill()
                     proc.wait()
-                    print(f"  [beforeStop]   ffmpeg (pid={pid}) 已强制终止")
+                    _sprint(f"  [beforeStop]   ffmpeg (pid={pid}) 已强制终止")
                 except Exception:
-                    print(f"  [beforeStop]   ffmpeg (pid={pid}) 终止失败（可能已退出）")
+                    _sprint(f"  [beforeStop]   ffmpeg (pid={pid}) 终止失败（可能已退出）")
 
     from clio.ai.factory import _clear_provider_cache
 
     try:
         _clear_provider_cache()
-        print("  [beforeStop] AI 连接池已关闭")
+        _sprint("  [beforeStop] AI 连接池已关闭")
     except Exception:
         pass
 
@@ -77,7 +89,7 @@ def before_stop() -> None:
     except Exception:
         pass
 
-    print("  [beforeStop] 清理完成")
+    _sprint("  [beforeStop] 清理完成")
 
 
 def _signal_handler(signum, frame) -> None:

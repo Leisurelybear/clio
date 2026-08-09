@@ -179,3 +179,26 @@ def test_before_stop_ignores_clear_cache_error():
         shutdown_mod.before_stop()
 
     proc.terminate.assert_called_once()
+
+
+def test_sprint_falls_back_when_print_raises_unicode_error(capsys):
+    """Chinese messages printed at interpreter exit must not raise on cp1252 consoles."""
+    calls = []
+    cp1252_stream = type("Stream", (), {"encoding": "cp1252"})()
+
+    def _raising_print(msg):
+        calls.append(msg)
+        if any(ord(c) > 127 for c in str(msg)):
+            raise UnicodeEncodeError("cp1252", str(msg), 0, 1, "characters map to <undefined>")
+
+    with patch("builtins.print", side_effect=_raising_print), patch.object(shutdown_mod.sys, "stdout", cp1252_stream):
+        shutdown_mod._sprint("开始清理资源...")
+
+    assert len(calls) == 2
+    assert calls[0] == "开始清理资源..."
+    assert all(ord(c) < 128 for c in str(calls[1]))
+
+
+def test_sprint_prints_normally_when_encodable(capsys):
+    shutdown_mod._sprint("[beforeStop] ok")
+    assert capsys.readouterr().out == "[beforeStop] ok\n"
