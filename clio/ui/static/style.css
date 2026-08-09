@@ -538,7 +538,7 @@ body.editor-collapsed .resize-handle[data-side="editor"]:hover::after {
   gap: 2px;
 }
 
-/* Sticky header: project dropdown in the panel bar */
+/* Sidebar header: slim collapse row (project menu moved to the editor panel) */
 #sidebar .panel-header { position: relative; }
 .sidebar-project { position: relative; margin-left: auto; display: flex; gap: 4px; align-items: center; }
 #btn-collapse-sidebar,
@@ -558,13 +558,19 @@ body.editor-collapsed .resize-handle[data-side="editor"]:hover::after {
 }
 .project-menu-item:hover { background: var(--bg-hover); }
 
-/* Sidebar top: compact sticky nav row */
-#project-list.project-list-icons {
-  list-style: none; margin: 0; padding: 6px 6px 4px;
-  display: flex; gap: 4px; flex-wrap: wrap;
-  position: sticky; top: 0; z-index: 20;
-  background: var(--bg-surface);
+/* Editor header row: compact entity nav icon row
+   (relocated from the left sidebar; sits above the tabs) */
+#editor .editor-header-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+#editor #project-list.project-list-icons {
+  list-style: none; margin: 0; padding: 4px 0;
+  display: flex; gap: 4px; flex: 1; min-width: 0;
 }
 #project-list.project-list-icons .project-item {
   flex: 1; min-width: 34px; min-height: 30px;
@@ -573,6 +579,9 @@ body.editor-collapsed .resize-handle[data-side="editor"]:hover::after {
 #project-list.project-list-icons .project-item .name { display: none; }
 #project-list.project-list-icons .project-item .shortcut { font-size: 8px; padding: 0 3px; }
 #project-list.project-list-icons .project-item .icon { width: 16px; height: 16px; }
+#editor .editor-header-row .sidebar-project {
+  position: relative; margin-left: auto; display: flex; gap: 4px; align-items: center;
+}
 
 /* Video filter bar */
 .video-filter-bar { padding: 4px 8px 6px; }
