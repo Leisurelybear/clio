@@ -361,3 +361,78 @@ class TestRunCompressAll:
         outs = list(cfg.compressed_dir.glob("*.mp4"))
         assert len(outs) == 1
         assert outs[0].read_bytes() == b"good-content"
+
+    def test_recompress_prunes_stale_sibling(self, monkeypatch, tmp_path: Path):
+        """When a source change forces a re-compress, the stale sibling and its
+        .vmeta must be removed so the compressed dir never accumulates dead files."""
+        cfg = _cfg(tmp_path)
+        src = _add_video(cfg, "test.mp4")
+
+        monkeypatch.setattr("clio.tasks.compress.resolve_binary", lambda *a: "ffmpeg")
+
+        call_count = [0]
+
+        def _counting_compress(inp, outp, c, **kw):
+            call_count[0] += 1
+            outp.write_bytes(b"\x00" * 60_000)
+            return outp
+
+        monkeypatch.setattr("clio.tasks.compress.compress_video", _counting_compress)
+        monkeypatch.setattr("clio.tasks.compress.get_duration_sec", lambda *a, **kw: 10.0)
+        monkeypatch.setattr("clio.tasks.compress._safe_duration", lambda *a, **k: 10.0)
+
+        cfg.analyze.skip_existing = False
+        run_compress_all(cfg)
+        assert call_count[0] == 1
+        first = cfg.compressed_dir / "001_test.mp4"
+        assert first.exists()
+        assert first.with_suffix(".vmeta").exists()
+
+        # Modify the source so its recorded meta goes stale.
+        time.sleep(1.1)
+        src.write_bytes(b"\x00" * 2000)
+        os.utime(src, (src.stat().st_atime, src.stat().st_mtime + 2))
+
+        cfg.analyze.skip_existing = True
+        run_compress_all(cfg)
+        assert call_count[0] == 2, "source changed -> must re-compress"
+
+        assert (cfg.compressed_dir / "002_test.mp4").exists()
+        assert not first.exists(), "stale sibling must be pruned after fresh commit"
+        assert not first.with_suffix(".vmeta").exists(), "stale sibling vmeta must be pruned"
+
+        # Next run must re-use the single fresh file, not grow the dir again.
+        run_compress_all(cfg)
+        assert call_count[0] == 2
+        mp4s = sorted(p.name for p in cfg.compressed_dir.glob("*.mp4"))
+        assert mp4s == ["002_test.mp4"], mp4s
+
+    def test_find_reusable_prefers_fresh_over_stale(self, monkeypatch, tmp_path: Path):
+        """A stale candidate scanned before a fresh one sharing the key must not
+        win: _find_reusable must return the fresh output regardless of order."""
+        from clio.tasks.compress import _find_reusable
+        from clio.vmeta import VideoMeta
+
+        cfg = _cfg(tmp_path)
+        src = tmp_path / "cam" / "clip.mp4"
+        src.parent.mkdir(parents=True, exist_ok=True)
+        src.write_bytes(b"\x00" * 1000)
+
+        stale_path = cfg.compressed_dir / "001_clip.mp4"
+        fresh_path = cfg.compressed_dir / "002_clip.mp4"
+        for p in (stale_path, fresh_path):
+            p.write_bytes(b"\x00" * 60_000)
+
+        monkeypatch.setattr("clio.tasks.compress.get_duration_sec", lambda *a, **kw: 10.0)
+
+        stale_meta = VideoMeta.build(src, stale_path, 10.0, 10.0)
+        stale_meta.source_modifyTime = stale_meta.source_modifyTime - 10
+        stale_meta.source_size = stale_meta.source_size - 1
+        fresh_meta = VideoMeta.build(src, fresh_path, 10.0, 10.0)
+
+        existing = {f"src:{src.resolve()}": [(1, stale_path, stale_meta), (2, fresh_path, fresh_meta)]}
+        idx, path, meta, reason = _find_reusable(src, existing, cfg, "ffprobe")
+        assert path == fresh_path
+        assert idx == 2
+        assert meta == fresh_meta
+        assert reason is None

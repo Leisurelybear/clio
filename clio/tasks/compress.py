@@ -15,7 +15,7 @@ from clio.processing_state import ProcessingState
 from clio.progress import ProgressTracker
 from clio.tasks._helpers import ClipRecord, _eta_line, _matches_selected_stem, _next_index, _selected_stems
 from clio.utils import format_index, get_duration_sec, resolve_binary
-from clio.vmeta import SegmentEntry, VideoIndex, VideoMeta
+from clio.vmeta import VMETA_EXT, SegmentEntry, VideoIndex, VideoMeta
 
 
 def _safe_duration(path: Path, ffprobe: str) -> float:
@@ -57,36 +57,69 @@ def _meta_source_key(stem_part: str, meta: VideoMeta | None) -> str:
 
 def _find_reusable(
     source: Path,
-    existing_map: dict[str, tuple[int, Path, VideoMeta | None]],
+    existing_map: dict[str, list[tuple[int, Path, VideoMeta | None]]],
     config: AppConfig,
     ffprobe: str,
-) -> tuple[int | None, Path | None, VideoMeta | None]:
+) -> tuple[int | None, Path | None, VideoMeta | None, str | None]:
     """Look up an existing compressed file for `source`.
 
-    Returns (index, path, meta) when a fresh, settings-matching output exists,
-    otherwise (None, None, None) so the caller re-compresses.
+    Iterates every candidate sharing the key so a stale file scanned first on
+    disk can never hide a fresh sibling (iterdir order is not guaranteed).
+    Returns (index, path, meta, reason) when a fresh, settings-matching output
+    exists (reason is None), otherwise (None, None, None, reason) so the caller
+    re-compresses, with the reason from the first rejected candidate.
     """
     resolved = str(source.resolve())
+    first_reason: str | None = None
     for key in (f"src:{resolved}", f"stem:{source.stem}"):
-        hit = existing_map.get(key)
-        if hit is None:
-            continue
-        use_idx, use_out, meta = hit
-        if meta is not None:
-            if meta.is_stale(source, use_out):
-                print(f"[重新压缩] {source.stem} 源文件已变更，忽略旧压缩 {use_out.name}")
+        for use_idx, use_out, meta in existing_map.get(key, ()):
+            reason: str | None = None
+            if meta is not None:
+                if meta.is_stale(source, use_out):
+                    reason = f"源文件已变更，忽略旧压缩 {use_out.name}"
+                elif not _meta_matches_settings(meta, config):
+                    reason = f"压缩参数已变更，忽略旧压缩 {use_out.name}"
+            # No sidecar: legacy file, only trust it if ffprobe can still read it.
+            if reason is None:
+                try:
+                    if get_duration_sec(use_out, ffprobe) <= 0:
+                        reason = f"{use_out.name} 无法读取时长，忽略旧压缩"
+                except Exception:
+                    reason = f"{use_out.name} 无法读取时长，忽略旧压缩"
+            if reason is None:
+                return use_idx, use_out, meta, None
+            if first_reason is None:
+                first_reason = reason
+    return None, None, None, first_reason
+
+
+def _prune_stale_siblings(
+    source: Path,
+    committed: Path,
+    existing_map: dict[str, list[tuple[int, Path, VideoMeta | None]]],
+    config: AppConfig,
+) -> None:
+    """Drop stale same-source compressed files once a fresh one is committed.
+
+    Mirrors analyze.py: a stale candidate with the same cache key must not
+    shadow the fresh output on the next run (setdefault used to keep whichever
+    the OS iterated first, so stale-first order re-encoded every run and the
+    compressed dir grew without bound).
+    """
+    resolved = str(source.resolve())
+    refreshed: dict[str, list[tuple[int, Path, VideoMeta | None]]] = {}
+    for key in (f"src:{resolved}", f"stem:{source.stem}"):
+        for idx, path, meta in existing_map.get(key, ()):
+            if path.resolve() == committed.resolve():
+                refreshed.setdefault(key, []).append((idx, path, meta))
                 continue
-            if not _meta_matches_settings(meta, config):
-                print(f"[重新压缩] {source.stem} 压缩参数已变更，忽略旧压缩 {use_out.name}")
+            if meta is not None and (meta.is_stale(source, path) or not _meta_matches_settings(meta, config)):
+                print(f"[清理] 移除旧压缩 {path.name}（已被新压缩替代）")
+                path.unlink(missing_ok=True)
+                path.with_suffix(VMETA_EXT).unlink(missing_ok=True)
                 continue
-        # No sidecar: legacy file, only trust it if ffprobe can still read it.
-        try:
-            if get_duration_sec(use_out, ffprobe) <= 0:
-                continue
-        except Exception:
-            continue
-        return use_idx, use_out, meta
-    return None, None, None
+            refreshed.setdefault(key, []).append((idx, path, meta))
+    existing_map.update(refreshed)
 
 
 def _write_vindex(records: list[ClipRecord], config: AppConfig, ffprobe: str) -> None:
@@ -167,7 +200,7 @@ def run_compress_all(
     # Match by resolved source path recorded in the .vmeta sidecar so two videos
     # sharing a basename never collide on the same existing file.
     MIN_VALID_SIZE = 50 * 1024
-    existing_map: dict[str, tuple[int, Path, VideoMeta | None]] = {}
+    existing_map: dict[str, list[tuple[int, Path, VideoMeta | None]]] = {}
     if not overwrite and config.analyze.skip_existing and config.compressed_dir.is_dir():
         for f in config.compressed_dir.iterdir():
             if not f.is_file() or f.suffix.lower() not in VIDEO_EXTS:
@@ -188,7 +221,7 @@ def run_compress_all(
                     meta = VideoMeta.read(f)
                     key = _meta_source_key(stem_part, meta)
                     if key:
-                        existing_map.setdefault(key, (int(prefix), f, meta))
+                        existing_map.setdefault(key, []).append((int(prefix), f, meta))
 
     # Phase 3: assign indices and compress each
     next_idx = _next_index(config.compressed_dir, config.naming.index_width)
@@ -202,7 +235,7 @@ def run_compress_all(
             label_name = source.name if source == original else f"{original.name} → {source.name}"
 
             # Reuse existing compressed file if it is fresh and still matches.
-            use_idx, use_out, use_meta = _find_reusable(source, existing_map, config, ffprobe)
+            use_idx, use_out, use_meta, reject_reason = _find_reusable(source, existing_map, config, ffprobe)
             if use_out is not None:
                 if tracker:
                     tracker.update(phase="compress", current=i, total=len(items), message=f"压缩 {source.name}...")
@@ -219,6 +252,8 @@ def run_compress_all(
 
             use_idx = next_idx + completed
             use_out = config.compressed_dir / f"{format_index(use_idx, config.naming.index_width)}_{source.stem}.mp4"
+            if reject_reason:
+                print(f"[重新压缩] {source.stem} {reject_reason}")
             if tracker:
                 tracker.update(phase="compress", current=i, total=len(items), message=f"压缩 {source.name}...")
                 tracker.log(f"▶ 压缩 {label_name}")
@@ -258,6 +293,8 @@ def run_compress_all(
                 split_info=None,
             )
             meta.write(use_out)
+
+            _prune_stale_siblings(source, use_out, existing_map, config)
 
             records.append(
                 ClipRecord(
