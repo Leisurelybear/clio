@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 import time
@@ -31,6 +32,8 @@ from clio.identity import (
 from clio.log import format_duration, timed
 from clio.processing_state import ProcessingState
 from clio.progress import ProgressTracker
+from clio.prompt_overrides import resolve_prompt_template
+from clio.prompts import ANALYZE_PROMPT
 from clio.schema import add_schema_version
 from clio.tasks._helpers import (
     ClipRecord,
@@ -46,6 +49,36 @@ from clio.tasks.cover import extract_cover_frame
 from clio.tasks.transcript_align import attach_transcript_to_analysis
 from clio.utils import get_duration_sec, resolve_binary, write_json_atomic
 from clio.vmeta import VideoIndex
+
+
+def _analysis_lineage_fingerprint(config: AppConfig, task_prompts: dict[str, str] | None = None) -> str:
+    """Fingerprint of everything that can change a cached analysis result.
+
+    Changing the analyze prompt (builtin, override file, or runtime task prompt)
+    or the video_analyze provider/model invalidates the skip_existing cache so
+    users never silently keep results produced under an older lineage.
+    """
+    try:
+        task = config.ai.tasks.get("video_analyze")
+        provider = getattr(task, "provider", "") if task else ""
+        model = getattr(task, "model", "") if task else ""
+    except Exception:
+        provider, model = "", ""
+    try:
+        prompt = resolve_prompt_template("video_analyze", ANALYZE_PROMPT, config, task_prompts=task_prompts)
+    except Exception:
+        prompt = ANALYZE_PROMPT
+    payload = json.dumps(
+        {
+            "provider": provider,
+            "model": model,
+            "prompt": prompt,
+            "max_analyze_duration_min": getattr(config.analyze, "max_analyze_duration_min", 0),
+            "max_tokens": getattr(config.ai, "max_tokens", None),
+        },
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _build_stem_to_path(project_dir: Path | None = None) -> dict[str, Path]:
@@ -191,17 +224,33 @@ def _process_video_item(
     existing = sorted(config.texts_dir.glob(f"{idx_str}_*.json"))
     json_path = None
     analysis = None
+    # Lineage or source mismatches: keep the old files until a fresh analysis
+    # has been committed, so a failed re-run never loses the previous result.
+    stale_candidates: list[Path] = []
     if not overwrite and config.analyze.skip_existing and existing:
         candidate = existing[0]
         try:
             existing_data = json.loads(candidate.read_text(encoding="utf-8"))
             if existing_data.get("source_file", "") == original.name:
-                json_path = candidate
-                analysis = existing_data
+                lineage_ok = existing_data.get("_lineage") == _analysis_lineage_fingerprint(config, task_prompts)
+                if lineage_ok:
+                    json_path = candidate
+                    analysis = existing_data
+                elif existing_data.get("_lineage") is None:
+                    # Pre-lineage cache: accept and stamp the current lineage so
+                    # future prompt/model changes invalidate it.
+                    json_path = candidate
+                    analysis = existing_data
+                    analysis["_lineage"] = _analysis_lineage_fingerprint(config, task_prompts)
+                    write_json_atomic(candidate, analysis)
+                    if tracker:
+                        tracker.log(f"✓ {candidate.name} 血缘未记录，已标记当前版本")
+                else:
+                    print(f"  [覆盖] 提示词/模型已变更，将重新分析 {candidate.name}")
+                    stale_candidates.append(candidate)
             else:
                 print(f"  [覆盖] {candidate.name} 的 source_file 不匹配，将重新分析")
-                candidate.unlink()
-                candidate.with_suffix(".txt").unlink(missing_ok=True)
+                stale_candidates.append(candidate)
         except (json.JSONDecodeError, OSError):
             pass
     if json_path:
@@ -294,6 +343,7 @@ def _process_video_item(
     analysis["compressed_file"] = compressed.name  # stable lookup key for videos.py
     identity = resolve_identity(compressed, idx_str, project_dir=config.project_dir)
     add_schema_version(analysis)
+    analysis["_lineage"] = _analysis_lineage_fingerprint(config, task_prompts)
     analysis["media_identity"] = _identity_to_dict(identity)
     attach_transcript_to_analysis(config, analysis)
 
@@ -305,6 +355,13 @@ def _process_video_item(
         analysis["cover_file"] = str(cover_path.relative_to(config.paths.output_dir))
     _write_text_file(final_text, analysis, original, compressed)
     write_json_atomic(json_path, analysis)
+
+    # Old results were only kept until here; drop them now that fresh output
+    # is committed, so the next glob still resolves this video's own JSON.
+    for stale in stale_candidates:
+        if stale.name != json_path.name:
+            stale.with_suffix(".txt").unlink(missing_ok=True)
+            stale.unlink(missing_ok=True)
 
     state.mark(original.stem, "analyze", "done")
     if tracker:

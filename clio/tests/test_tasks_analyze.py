@@ -114,6 +114,57 @@ class TestRunAnalyzeAll:
         assert len(records) == 1
         assert analyze_called is False
 
+    def test_skip_invalidated_when_lineage_changes(self, monkeypatch, tmp_path: Path):
+        """Changing the prompt/model grants a new _lineage and re-analyzes."""
+        cfg = _cfg(tmp_path)
+        _add_original(cfg, "GL010695.mp4")
+        comp = cfg.compressed_dir / "001_GL010695.mp4"
+        comp.write_bytes(b"\x00" * 100)
+
+        from clio.tasks.analyze import _analysis_lineage_fingerprint
+
+        stale_lineage = {"title": "Old", "source_file": "GL010695.mp4", "_lineage": "stale-old-lineage"}
+        existing_json = cfg.texts_dir / "001_Old.json"
+        existing_json.write_text(json.dumps(stale_lineage), encoding="utf-8")
+
+        _common_mocks(monkeypatch)
+        monkeypatch.setattr("clio.tasks.analyze.get_duration_sec", lambda *a, **kw: 60.0)
+
+        def _analyze(*a, **kw):
+            return {
+                "title": "Fresh",
+                "summary": "re-analyzed",
+                "location": "Tokyo",
+                "source_file": "GL010695.mp4",
+            }
+
+        monkeypatch.setattr("clio.tasks.analyze.analyze_video", _analyze)
+
+        cfg.analyze.skip_existing = True
+        records = run_analyze_all(cfg)
+        assert len(records) == 1
+        assert records[0].analysis["title"] == "Fresh"
+
+        # Old stale files are removed after the fresh one is committed.
+        assert not existing_json.exists()
+
+        saved = sorted(cfg.texts_dir.glob("*.json"))
+        assert len(saved) == 1
+        assert saved[0].name != existing_json.name
+        assert json.loads(saved[0].read_text(encoding="utf-8"))["_lineage"] == _analysis_lineage_fingerprint(cfg)
+
+        # Second run now skips (lineage matches).
+        analyze_calls: list = []
+
+        def _analyze2(*a, **kw):
+            analyze_calls.append(a)
+            return {"title": "Fresh2", "source_file": "GL010695.mp4"}
+
+        monkeypatch.setattr("clio.tasks.analyze.analyze_video", _analyze2)
+        records2 = run_analyze_all(cfg)
+        assert len(records2) == 1
+        assert analyze_calls == []
+
     def test_duration_gate_skips_long_legacy_segment(self, monkeypatch, tmp_path: Path):
         cfg = _cfg(tmp_path)
         _add_original(cfg, "GL010695.mp4")
