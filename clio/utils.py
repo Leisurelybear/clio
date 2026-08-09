@@ -412,6 +412,20 @@ def sanitize_name(text: str, max_len: int = 40) -> str:
     return text[:max_len] or "clip"
 
 
+def safe_basename(text: str, max_len: int = 40) -> str:
+    """Sanitize *text* into a single, traversal-free basename.
+
+    Like sanitize_name but additionally rejects absolute/`..` segments so the
+    result can never escape a parent directory when joined into a path.
+    """
+    name = sanitize_name(text, max_len=max_len)
+    if not name or name in {".", ".."}:
+        raise ValueError(f"非法的文件名: {text!r}")
+    if ".." in name.split("_"):
+        raise ValueError(f"非法的文件名: {text!r}")
+    return name
+
+
 def format_index(index: int, width: int) -> str:
     return str(index).zfill(width)
 
