@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -168,6 +169,10 @@ def main(
     setup_logging(cfg.paths.logs_dir)
 
     # Single instance: if another instance is already running, focus it and exit.
+    # The lock payload carries a per-launch random token so only the owning
+    # instance can remove it after its server and worker threads have stopped
+    # (a stale takeover must not delete a lock that now belongs to a live app).
+    instance_token = secrets.token_hex(16)
     lock = read_lock(config_dir)
     if lock and focus_first_instance("127.0.0.1", lock.get("port")):
         print("Clio 已在运行，已聚焦原窗口")
@@ -211,7 +216,7 @@ def main(
             window.show()
 
         set_desktop_focus_callback(_focus_window)
-        write_lock(config_dir, handle.port, os.getpid())
+        write_lock(config_dir, handle.port, os.getpid(), token=instance_token)
 
         # Close policy (Task 12): cancel active run before closing the window.
         def _on_closing() -> bool:
@@ -238,6 +243,6 @@ def main(
             _show_window_start_error(e)
             return 1
     finally:
-        remove_lock(config_dir)
         stop_server(handle)
+        remove_lock(config_dir, token=instance_token)
     return 0

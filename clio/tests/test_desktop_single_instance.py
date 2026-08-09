@@ -9,6 +9,7 @@ from clio.desktop.single_instance import (
     focus_first_instance,
     is_web_running,
     lock_path,
+    owns_lock,
     read_lock,
     remove_lock,
     write_lock,
@@ -35,6 +36,34 @@ def test_write_then_read_roundtrip(tmp_path):
     assert data["pid"] == 12345
 
 
+def test_write_lock_generates_owner_token(tmp_path):
+    token = write_lock(tmp_path, port=4321, pid=12345)
+    assert token
+    assert owns_lock(tmp_path, token) is True
+    data = read_lock(tmp_path)
+    assert data["token"] == token
+
+
+def test_write_lock_accepts_explicit_token(tmp_path):
+    token = write_lock(tmp_path, port=4321, pid=12345, token="abc")
+    assert token == "abc"
+    assert owns_lock(tmp_path, token) is True
+
+
+def test_write_lock_is_atomic_tmp_cleaned(tmp_path):
+    """write_lock must not leave scratch temp files behind after os.replace."""
+    write_lock(tmp_path, port=4321, pid=12345, token="t")
+    leftovers = [p.name for p in tmp_path.iterdir() if p.name.startswith(".clio.lock.")]
+    assert leftovers == []
+
+
+def test_owns_lock_false_for_foreign_token(tmp_path):
+    write_lock(tmp_path, port=4321, pid=12345, token="owner")
+    assert owns_lock(tmp_path, "owner") is True
+    assert owns_lock(tmp_path, "other") is False
+    assert owns_lock(tmp_path, "") is False
+
+
 def test_read_lock_corrupt_returns_none(tmp_path):
     (tmp_path / "clio.lock").write_text("not-json{{{", encoding="utf-8")
     assert read_lock(tmp_path) is None
@@ -55,15 +84,30 @@ def test_read_lock_non_int_port_returns_none(tmp_path):
     assert read_lock(tmp_path) is None
 
 
-def test_remove_lock_deletes_file(tmp_path):
-    write_lock(tmp_path, port=4321, pid=1)
+def test_read_lock_missing_token_still_valid(tmp_path):
+    """Legacy lock without a token remains readable (P1-23 backward compat)."""
+    (tmp_path / "clio.lock").write_text(json.dumps({"port": 8765, "pid": 999}), encoding="utf-8")
+    assert read_lock(tmp_path) is not None
+
+
+def test_remove_lock_deletes_owned_file(tmp_path):
+    token = write_lock(tmp_path, port=4321, pid=1)
     assert (tmp_path / "clio.lock").is_file()
-    remove_lock(tmp_path)
+    assert remove_lock(tmp_path, token=token) is True
     assert not (tmp_path / "clio.lock").exists()
 
 
+def test_remove_lock_keeps_foreign_lock(tmp_path):
+    """P1-023: an instance must not delete a lock it does not own (a newer
+    launch may have taken it over after a stale-read race)."""
+    write_lock(tmp_path, port=4321, pid=1, token="owner")
+    assert remove_lock(tmp_path, token="other") is False
+    assert (tmp_path / "clio.lock").is_file()
+    assert read_lock(tmp_path)["token"] == "owner"
+
+
 def test_remove_lock_missing_is_silent(tmp_path):
-    remove_lock(tmp_path)  # must not raise
+    assert remove_lock(tmp_path, token="t") is False  # must not raise
 
 
 # ---------------------------------------------------------------------------

@@ -152,6 +152,7 @@ def test_main_continues_when_web_running_and_user_accepts(monkeypatch, tmp_path)
     assert app_mod.write_lock.call_args.args[0].resolve() == cfg_file.parent.resolve()
     assert app_mod.write_lock.call_args.args[1] == _FakeHandle.port
     assert app_mod.write_lock.call_args.args[2] == os.getpid()
+    assert "token" in app_mod.write_lock.call_args.kwargs
 
 
 def test_main_creates_window_with_text_selection_enabled(monkeypatch, tmp_path):

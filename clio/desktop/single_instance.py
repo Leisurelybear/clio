@@ -11,6 +11,8 @@ deliberately avoided because os.kill(pid, 0) is unreliable on Windows.
 from __future__ import annotations
 
 import json
+import os
+import secrets
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -40,21 +42,56 @@ def read_lock(config_dir: Path) -> dict | None:
     return data
 
 
-def write_lock(config_dir: Path, port: int, pid: int) -> None:
+def write_lock(config_dir: Path, port: int, pid: int, token: str | None = None) -> str:
+    """Atomically write the single-instance lock owned by this launch.
+
+    ``token`` is a per-launch random secret. When omitted one is generated and
+    returned so the caller can later remove *only its own* lock (see
+    ``remove_lock``). Direct ``os.replace`` makes the write atomic: a second
+    instance either reads the old payload or the new one, never a truncation
+    mid-write.
+    """
     config_dir = Path(config_dir)
     config_dir.mkdir(parents=True, exist_ok=True)
-    payload = {"port": int(port), "pid": int(pid)}
-    lock_path(config_dir).write_text(
-        json.dumps(payload, ensure_ascii=False) + "\n",
-        encoding="utf-8",
+    token = token or secrets.token_hex(16)
+    payload = (
+        json.dumps(
+            {"port": int(port), "pid": int(pid), "token": token},
+            ensure_ascii=False,
+        )
+        + "\n"
     )
 
+    tmp = lock_path(config_dir).with_name(f".{LOCK_FILENAME}.{os.getpid()}.tmp")
+    tmp.write_text(payload, encoding="utf-8")
+    os.replace(tmp, lock_path(config_dir))
+    return token
 
-def remove_lock(config_dir: Path) -> None:
+
+def owns_lock(config_dir: Path, token: str) -> bool:
+    """True when the on-disk lock was created by the launch that owns ``token``."""
+    data = read_lock(config_dir)
+    return bool(data) and data.get("token") == token
+
+
+def remove_lock(config_dir: Path, token: str | None = None) -> bool:
+    """Remove the lock file, but only when the caller owns it.
+
+    ``token`` must be the instance id returned by ``write_lock``. Without a
+    matching token the current lock (possibly belonging to a *newer* launch
+    after a stale takeover) is left untouched. Returns True when the file was
+    actually removed.
+    """
+    p = lock_path(config_dir)
+    if not p.exists():
+        return False
+    if token is not None and not owns_lock(config_dir, token):
+        return False
     try:
-        lock_path(config_dir).unlink()
+        p.unlink()
+        return True
     except OSError:
-        pass
+        return False
 
 
 def focus_first_instance(host: str, port: int, timeout: float = 3.0) -> bool:
