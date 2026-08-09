@@ -33,6 +33,34 @@ describe('planSubtitleBatches', () => {
     expect(b[0]).toEqual(['一很长段。二很长段。']);
   });
 
+  it('auto keeps a long sentence intact (does not split across batches)', () => {
+    // 长句被 maxLen 拆成两行，auto 必须保持同一句完整，不跨 batch 拆散。
+    const b = planSubtitleBatches('今天天气真好。感谢大家的到来我们下次再见吧。', {
+      mode: 'auto', maxLines: 2, maxLen: 8,
+    });
+    expect(b.some((batch) => batch.some((l) => l.includes('感谢大家')))).toBe(true);
+    const longLines = b.find((batch) => batch.some((l) => l.includes('感谢大家')));
+    expect(longLines.join('')).toContain('感谢大家的到来');
+    expect(longLines.join('')).toContain('下次再见');
+  });
+
+  it('multi splits flat lines at maxLines even across a long sentence', () => {
+    const b = planSubtitleBatches('今天天气真好。第二句很长很长的句子内容。', {
+      mode: 'multi', maxLines: 2, maxLen: 6,
+    });
+    // 拆句后第二句占两行，多行模式按最大行数直接切分
+    const lines = b.flat();
+    expect(lines.length).toBeGreaterThan(2);
+  });
+
+  it('auto and multi differ when a sentence spans multiple lines', () => {
+    const opts = { maxLines: 2, maxLen: 6 };
+    const text = '今天天气真好。第二句很长很长的句子内容。';
+    const auto = planSubtitleBatches(text, { ...opts, mode: 'auto' });
+    const multi = planSubtitleBatches(text, { ...opts, mode: 'multi' });
+    expect(JSON.stringify(auto)).not.toBe(JSON.stringify(multi));
+  });
+
   it('empty text → []', () => {
     expect(planSubtitleBatches('   ', { mode: 'auto' })).toEqual([]);
   });
@@ -142,6 +170,30 @@ describe('renderPlanSubtitle (style + batched)', () => {
       textFor: async () => 'x',
     });
     expect(el.hidden).toBe(true);
+  });
+
+  it('scroll mode sets scroll speed and marquee vars', async () => {
+    const el = mount();
+    await renderPlanSubtitle({
+      ctx: { ...ctx, config: { preview: { subtitles: { mode: 'scroll', scroll_speed: 60, font_size: 18 } } } },
+      textFor: async () => '一很长段。二很长段。三。',
+    });
+    expect(el.dataset.mode).toBe('scroll');
+    expect(el.style.getPropertyValue('--st-scroll-speed')).toBe('60px/s');
+    expect(el.style.getPropertyValue('--st-scroll-duration')).toMatch(/s$/);
+    // 滚动必须保留整段文本，而不是逐句小字
+    expect(el.querySelector('.plan-subtitle-text').textContent).toContain('一很长段');
+    expect(el.querySelector('.plan-subtitle-text').textContent).toContain('三');
+  });
+
+  it('auto mode does not set scroll vars', async () => {
+    const el = mount();
+    await renderPlanSubtitle({
+      ctx: { ...ctx, config: { preview: { subtitles: { mode: 'auto' } } } },
+      textFor: async () => '一行字幕。',
+    });
+    expect(el.dataset.mode).toBe('auto');
+    expect(el.style.getPropertyValue('--st-scroll-speed')).toBe('');
   });
 });
 

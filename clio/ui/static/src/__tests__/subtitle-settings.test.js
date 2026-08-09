@@ -16,6 +16,7 @@ describe('subtitleControlsModel', () => {
           background: 'rgba(0,0,0,.8)', outline: '2px solid #000',
           font_family: 'sans-serif', mode: 'scroll',
           max_lines: 3, max_len_per_line: 20,
+          scroll_speed: 80,
         },
       },
     });
@@ -24,6 +25,7 @@ describe('subtitleControlsModel', () => {
       background: 'rgba(0,0,0,.8)', outline: '2px solid #000',
       font_family: 'sans-serif', mode: 'scroll',
       max_lines: 3, max_len_per_line: 20,
+      scroll_speed: 80,
     });
   });
 
@@ -35,6 +37,7 @@ describe('subtitleControlsModel', () => {
     expect(m.mode).toBe('auto');
     expect(m.max_lines).toBe(2);
     expect(m.max_len_per_line).toBe(16);
+    expect(m.scroll_speed).toBe(40);
   });
 });
 
@@ -175,5 +178,22 @@ describe('renderSubtitleSettingsPanel', () => {
     color.value = '#abcdef';
     color.dispatchEvent(new Event('change', { bubbles: true }));
     expect(changed[0].font_color).toBe('#abcdef');
+  });
+
+  it('renders scroll_speed control and emits as a number', () => {
+    const changed = [];
+    const wrap = document.createElement('div');
+    wrap.className = 'test-subs-wrap';
+    document.body.appendChild(wrap);
+    renderSubtitleSettingsPanel(wrap, {
+      config: mountConfig({ scroll_speed: 66 }),
+      onChange: (u) => changed.push(u),
+    });
+    const speed = wrap.querySelector('[data-subtle="scroll_speed"]');
+    expect(speed).toBeTruthy();
+    expect(speed.value).toBe('66');
+    speed.value = '90';
+    speed.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(changed[0].scroll_speed).toBe(90);
   });
 });

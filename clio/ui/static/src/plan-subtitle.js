@@ -46,10 +46,51 @@ export function splitSubtitleLines(text, maxLen = 16) {
 }
 
 /**
+ * Group text into sentences, each expanded into its wrapped lines.
+ * @param {string} text
+ * @param {number} maxLen
+ * @returns {string[][]} one entry per sentence (its wrapped lines)
+ */
+function groupWrappedSentences(text, maxLen) {
+  const normalized = String(text || '').trim();
+  if (!normalized) return [];
+  const sentences = [];
+  let buf = '';
+  for (const ch of normalized) {
+    buf += ch;
+    if (BREAK_SET.has(ch) || ch === '\n') {
+      const t = buf.trim();
+      if (t) sentences.push(t);
+      buf = '';
+    }
+  }
+  const t = buf.trim();
+  if (t) sentences.push(t);
+
+  const groups = [];
+  for (const sentence of sentences) {
+    if (sentence.length <= maxLen + MAX_PLUS_CARRY) {
+      groups.push([sentence]);
+      continue;
+    }
+    const lines = [];
+    let start = 0;
+    while (start < sentence.length) {
+      lines.push(sentence.slice(start, start + maxLen));
+      start += maxLen;
+    }
+    groups.push(lines);
+  }
+  return groups;
+}
+
+/**
  * Segment narration into display batches based on mode.
- * auto  => short sentences single-line batch; long text packed up to maxLines lines.
- * multi => each batch = maxLines lines fed in order.
- * scroll=> single batch with the joined full text on one (long) line.
+ *  auto => each sentence stays intact; batches hold up to maxLines lines,
+ *          breaking before a sentence only when it would overflow the limit.
+ *  multi=> flat wrapped lines chunked strictly at maxLines (can split a long
+ *          sentence across batches).
+ *  scroll=> single batch with the joined full text on one (long) line.
  * @param {string} text
  * @param {{mode?:string, maxLines?:number, maxLen?:number}} [opts]
  * @returns {string[][]} batches of line strings
@@ -58,25 +99,32 @@ export function planSubtitleBatches(text, opts = {}) {
   const mode = opts.mode || 'auto';
   const maxLines = Math.max(1, opts.maxLines || 2);
   const maxLen = Math.max(1, opts.maxLen || 16);
-  const sentences = splitSubtitleLines(text, maxLen);
-  if (!sentences.length) return [];
+  const groups = groupWrappedSentences(text, maxLen);
+  if (!groups.length) return [];
 
   if (mode === 'multi') {
+    const flat = groups.flat();
     const batches = [];
-    for (let i = 0; i < sentences.length; i += maxLines) {
-      batches.push(sentences.slice(i, i + maxLines));
+    for (let i = 0; i < flat.length; i += maxLines) {
+      batches.push(flat.slice(i, i + maxLines));
     }
     return batches;
   }
   if (mode === 'scroll') {
-    return [[sentences.join('')]];
+    return [[groups.flat().join('')]];
   }
   // auto
   const batches = [];
   let cur = [];
-  for (const s of sentences) {
-    if (cur.length >= maxLines) { batches.push(cur); cur = []; }
-    cur.push(s);
+  let curLines = 0;
+  for (const lines of groups) {
+    if (curLines > 0 && curLines + lines.length > maxLines) {
+      batches.push(cur);
+      cur = [];
+      curLines = 0;
+    }
+    cur.push(...lines);
+    curLines += lines.length;
   }
   if (cur.length) batches.push(cur);
   return batches;
@@ -256,6 +304,7 @@ export function subtitleSettings(config) {
     maxLen: Math.max(1, Number(s.max_len_per_line) || 16),
     fontPx: Number(s.font_size) || 22,
     fontSizeMinPx: Number(s.min_font_size) || 14,
+    scrollSpeed: Math.max(1, Number(s.scroll_speed) || 40),
   };
 }
 
@@ -358,11 +407,24 @@ export async function renderPlanSubtitle(opts = {}) {
   applySubtitleStyle(el, st, cfg);
 
   // Shrink font to fit very long lines (scroll mode especially).
-  const longest = Math.max(...lines.map((l) => l.length), 1);
   const effectiveFont = st.mode === 'scroll'
     ? computeFontShrink(content, st.fontPx, st.maxLen * st.maxLines + 12, st.fontSizeMinPx)
     : st.fontPx;
   el.style.setProperty('--st-font-size', `${effectiveFontPx(effectiveFont)}px`);
+
+  // Mode flag + scroll animation vars. The marquee translates the text track
+  // by its own width, so its --st-scroll-duration paces scroll speed roughly
+  // proportional to the text length.
+  el.dataset.mode = st.mode;
+  if (st.mode === 'scroll') {
+    el.style.setProperty('--st-scroll-speed', `${st.scrollSpeed}px/s`);
+    const scrollChars = content.length * effectiveFontPx(effectiveFont) * 0.6;
+    const duration = Math.max(4, Math.round((scrollChars / st.scrollSpeed) * 10) / 10);
+    el.style.setProperty('--st-scroll-duration', `${duration}s`);
+  } else {
+    el.style.setProperty('--st-scroll-speed', '');
+    el.style.setProperty('--st-scroll-duration', '');
+  }
 
   const key = String(batchIdx);
   if (el.dataset.line === key && !el.hidden && (textEl?.textContent || '') === content) {

@@ -14,6 +14,7 @@ export function subtitleControlsModel(config) {
     mode: s.mode || 'auto',
     max_lines: Math.max(1, num(s.max_lines, 2)),
     max_len_per_line: Math.max(1, num(s.max_len_per_line, 16)),
+    scroll_speed: Math.max(1, num(s.scroll_speed, 40)),
   };
 }
 
@@ -89,7 +90,7 @@ export function serializeLatestWrites(onWrite) {
   });
 }
 
-const NUMERIC_KEYS = ['font_size', 'min_font_size', 'max_lines', 'max_len_per_line'];
+const NUMERIC_KEYS = ['font_size', 'min_font_size', 'max_lines', 'max_len_per_line', 'scroll_speed'];
 const STRING_KEYS = ['font_color', 'background', 'outline', 'font_family', 'mode'];
 
 export function renderSubtitleSettingsPanel(container, opts = {}) {
@@ -114,6 +115,7 @@ export function renderSubtitleSettingsPanel(container, opts = {}) {
         </label>
         <label>最多行数 <input type="number" min="1" max="6" data-subtle="max_lines" value="${m.max_lines}"></label>
         <label>每行字数 <input type="number" min="1" max="60" data-subtle="max_len_per_line" value="${m.max_len_per_line}"></label>
+        <label>滚动速度(px/s) <input type="number" min="1" max="300" data-subtle="scroll_speed" value="${m.scroll_speed}"></label>
       </div>
     </details>
   `;

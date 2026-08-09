@@ -882,6 +882,21 @@ button.match-badge:focus-visible { outline: 2px solid var(--border-focus); outli
 }
 .plan-subtitle-handle:hover { opacity: 1; }
 .plan-subtitle-text { white-space: pre-wrap; }
+.plan-subtitle[data-mode='scroll'] {
+  overflow: hidden;
+  max-width: none;
+  width: min(96%, 1200px);
+}
+.plan-subtitle[data-mode='scroll'] .plan-subtitle-text {
+  display: inline-block;
+  white-space: nowrap;
+  padding-left: 100%;
+  animation: plan-subtitle-marquee var(--st-scroll-duration, 8s) linear infinite;
+}
+@keyframes plan-subtitle-marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-100%); }
+}
 
 .subtitle-settings {
   margin-top: var(--space-2);
