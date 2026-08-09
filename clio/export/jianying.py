@@ -376,6 +376,12 @@ def export_plan_to_jianying(
     )
     tracks = _build_tracks(plan_data, index_to_material_id, seq_text_ids, index_to_offset)
 
+    if sequence and not materials["videos"]:
+        raise RuntimeError(
+            f"[导出失败] plan 有 {len(sequence)} 个片段，但没有任何视频素材可解析"
+            "（压缩文件缺失或 videos.json 未匹配），已阻止生成空草稿"
+        )
+
     total_duration_us = 0
     for track in tracks:
         for seg in track.get("segments", []):

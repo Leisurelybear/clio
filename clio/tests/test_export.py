@@ -306,3 +306,37 @@ class TestExportPlanToJianying:
         assert len(draft["materials"]["texts"]) == 1
         assert len(draft["tracks"]) >= 1
         assert draft["tracks"][0]["type"] == "video"
+
+    def test_raises_when_no_video_material_resolves(self, tmp_path: Path) -> None:
+        """A plan with segments but zero resolvable videos must NOT export an
+        empty draft — it must raise instead of silently producing an empty file."""
+        plan_path = tmp_path / "plan.json"
+        plan_path.write_text(
+            json.dumps(
+                {
+                    "day_title": "Day 1",
+                    "sequence": [{"index": "001", "use_timeline": "00:00-00:10"}],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        input_dir = tmp_path / "input"
+        input_dir.mkdir()
+        unused = input_dir / "SOMETHING.mp4"
+        unused.write_text("fake")
+
+        texts_dir = tmp_path / "texts"
+        texts_dir.mkdir()
+        (texts_dir / "001.json").write_text(json.dumps({"index": 1, "source_file": "GL010683.mp4"}), encoding="utf-8")
+
+        output_dir = tmp_path / "output"
+
+        with (
+            patch("clio.utils.find_videos", return_value=[unused]),
+            patch("clio.export.jianying.get_duration_sec", return_value=60.0),
+        ):
+            with pytest.raises(RuntimeError, match="没有任何视频素材可解析"):
+                export_plan_to_jianying(plan_path, output_dir, input_dir, "day1", "ffprobe", texts_dir)
+
+        assert not (output_dir / "draft_content.json").exists()
