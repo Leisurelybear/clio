@@ -187,7 +187,7 @@ class TestResolveIdentityWithVindex:
     def test_vindex_provides_segment_info(self, tmp_path: Path):
         src = tmp_path / "GL010683.mp4"
         src.write_bytes(b"\x00" * 1000)
-        compressed = tmp_path / "001_GL010683_seg02.mp4"
+        compressed = tmp_path / "002_GL010683_seg02.mp4"
         compressed.write_bytes(b"\x00" * 500)
         segs = [
             SegmentEntry(
@@ -210,11 +210,39 @@ class TestResolveIdentityWithVindex:
         vindex = VideoIndex.build(source=src, source_duration=80.0, segments=segs)
         vindex.write(tmp_path)
 
-        identity = resolve_identity(compressed, tmp_path, "001")
+        identity = resolve_identity(compressed, tmp_path, "002")
         assert identity.original_stem == "GL010683"
         assert identity.segment_index == 2
         assert identity.segment_offset_sec == 40.0
         assert identity.segment_duration_sec == 40.0
+
+    def test_unrelated_vindex_not_accepted(self, tmp_path: Path):
+        """P1-P1-10: a fallback vindex that does not list the current file must
+        not be used; resolution falls through to filename parsing (offset 0).
+        """
+        src = tmp_path / "GL010683.mp4"
+        src.write_bytes(b"\x00" * 1000)
+        compressed = tmp_path / "001_GL010683_seg02.mp4"
+        compressed.write_bytes(b"\x00" * 500)
+        # Vindex only lists 002_* segments, never 001_GL010683_seg02.mp4.
+        segs = [
+            SegmentEntry(
+                index="002",
+                filename="002_GL010683_seg02.mp4",
+                offset_sec=40.0,
+                duration_sec=40.0,
+                segment_number=2,
+                total_segments=2,
+            ),
+        ]
+        vindex = VideoIndex.build(source=src, source_duration=80.0, segments=segs)
+        vindex.write(tmp_path)
+
+        identity = resolve_identity(compressed, tmp_path, "001")
+        assert identity.original_stem == "GL010683"
+        assert identity.segment_index == 2
+        assert identity.segment_offset_sec == 0.0
+        assert identity.segment_duration_sec is None
 
 
 class TestIdentityToDict:

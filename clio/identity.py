@@ -172,8 +172,10 @@ def resolve_identity(
     if not _vindex_contains(vindex, compressed_path):
         original_stem = SEGMENT_SUFFIX_RE.sub("", indexed_stem)
         vindex = VideoIndex.read(original_stem, compressed_path.parent)
+    # A candidate index is only usable when it actually lists this file.
+    if not _vindex_contains(vindex, compressed_path):
+        vindex = None
     if vindex is not None:
-        assert vindex is not None
         seg_num = None
         offset_sec = 0.0
         seg_dur = None
