@@ -201,17 +201,18 @@ class TestConcurrentSlots:
             # Use the real _spawn_job so the job thread blocks on the semaphore
             # without deadlocking the caller.
             out = wf.ensure_waveform(tmp_path, src, ffmpeg="")
-        assert out["status"] == "pending"
+            assert out["status"] == "pending"
 
-        # Release one slot: the job thread may now proceed and finish.
-        tiny.release()
-        deadline = time.time() + 10
-        key = wf.cache_key(src)
-        while time.time() < deadline:
-            if wf.read_peaks(tmp_path, key) is not None:
-                break
-            time.sleep(0.05)
-        assert wf.read_peaks(tmp_path, key) is not None
+            # Release one slot: the job thread may now proceed and finish.
+            # Keep the fake extractor patched until the job writes its payload.
+            tiny.release()
+            deadline = time.time() + 10
+            key = wf.cache_key(src)
+            while time.time() < deadline:
+                if wf.read_peaks(tmp_path, key) is not None:
+                    break
+                time.sleep(0.05)
+            assert wf.read_peaks(tmp_path, key) is not None
         # Job released its slot in finally; a fresh acquire must succeed.
         assert tiny.acquire(blocking=True, timeout=5)
         tiny.release()
