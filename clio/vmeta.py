@@ -200,6 +200,15 @@ class VideoIndex:
             if (compressed_dir / s.filename).is_file()
         ]
 
+    def declared_paths(self, compressed_dir: Path) -> list[Path]:
+        """All declared segment paths, whether or not they exist.
+
+        Unlike compressed_paths() this never filters missing entries; used by
+        verification so a removed segment is reported instead of silently
+        passing.
+        """
+        return [compressed_dir / s.filename for s in sorted(self.segments, key=lambda x: x.segment_number)]
+
     def is_stale(self, source: Path) -> bool:
         try:
             st = source.stat()

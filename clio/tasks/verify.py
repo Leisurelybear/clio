@@ -43,13 +43,19 @@ def run_verify(config: AppConfig) -> int:
             stale_count += 1
             continue
 
+        declared = vindex.declared_paths(compressed_dir)
+        if not declared:
+            print(f"✗ NO_SEGMENTS ({vindex.source_stem})")
+            stale_count += 1
+            continue
+
         all_segments_ok = True
-        for seg_path in vindex.compressed_paths(compressed_dir):
+        for seg_path in declared:
             if not seg_path.is_file():
                 print(f"✗ SEGMENT_MISSING ({seg_path.name})")
                 all_segments_ok = False
                 missing_count += 1
-                break
+                continue
 
             meta = VideoMeta.read(seg_path)
             if meta is None:
