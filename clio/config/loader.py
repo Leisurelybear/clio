@@ -145,6 +145,21 @@ def _resolve_field_default(fd: dataclasses.Field):
     return _MISSING
 
 
+def _is_plain_yaml_value(val: Any) -> bool:
+    """A scalar/list/dict we can serialize without python-object tags.
+
+    Dataclass instances must never be written back into config.yaml. Only
+    accept none/str/int/float/bool and (deeply) plain dicts/lists.
+    """
+    if val is None or isinstance(val, (str, int, float, bool)):
+        return True
+    if isinstance(val, dict):
+        return all(isinstance(k, str) and _is_plain_yaml_value(v) for k, v in val.items())
+    if isinstance(val, list):
+        return all(_is_plain_yaml_value(v) for v in val)
+    return False
+
+
 def _upgrade_config_file(yaml_path: Path, *, section_map: dict[str, type]) -> None:
     if not yaml_path.is_file():
         return
@@ -170,7 +185,7 @@ def _upgrade_config_file(yaml_path: Path, *, section_map: dict[str, type]) -> No
             val = _resolve_field_default(fd)
             if val is _MISSING:
                 continue
-            if isinstance(val, dict):
+            if not _is_plain_yaml_value(val):
                 continue
             if isinstance(val, Path):
                 val = str(val)
@@ -214,9 +229,37 @@ def _upgrade_config_file(yaml_path: Path, *, section_map: dict[str, type]) -> No
         return
 
     text = yaml.dump(raw, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    # Validate the generated text is plain YAML we can load back before touching
+    # the original file (backup-first, atomic replace with rollback tolerance).
+    try:
+        reloaded = yaml.safe_load(text)
+    except Exception:
+        return
+    if not isinstance(reloaded, dict):
+        return
+    try:
+        with yaml_path.open(encoding="utf-8") as f:
+            previous = f.read()
+    except Exception:
+        previous = None
+    if previous is not None:
+        bak = yaml_path.with_name(yaml_path.name + ".bak")
+        if not bak.exists():
+            try:
+                bak.write_text(previous, encoding="utf-8")
+            except Exception:
+                pass
     tmp = yaml_path.with_suffix(".yaml.tmp")
-    tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, yaml_path)
+    unique_tmp = tmp.with_name(tmp.name + f".{os.getpid()}.{id(raw) % 100000}")
+    try:
+        with unique_tmp.open("w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(unique_tmp, yaml_path)
+    except Exception:
+        unique_tmp.unlink(missing_ok=True)
+        return
     print(f"[config] {yaml_path.name} auto-added {len(added)} new field(s): {', '.join(added)}")
 
 
