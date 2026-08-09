@@ -37,46 +37,12 @@
     <div class="panel-header">
       <div class="panel-header-left">
         <span class="panel-header-icon"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></span>
-        <span id="proj-name-sidebar" class="value" title="当前项目名">加载中...</span>
       </div>
       <div class="sidebar-project">
         <button id="btn-collapse-sidebar" class="sidebar-btn" type="button" title="折叠侧边栏 (Ctrl+B)">‹</button>
-        <button id="btn-project-menu" class="sidebar-btn" type="button" title="项目操作: 打开 / 新建 / 打开当前目录">项目 ▾</button>
-        <div id="project-menu" class="project-menu" hidden>
-          <button id="btn-open-project" class="project-menu-item" type="button" title="打开已有项目">打开项目</button>
-          <button id="btn-new-project" class="project-menu-item" type="button" title="新建项目">新建项目</button>
-          <button id="btn-reveal-project-sidebar" class="project-menu-item" type="button" title="在资源管理器中打开当前项目目录">打开目录</button>
-        </div>
       </div>
     </div>
     <div class="sidebar-scroll">
-      <ul id="project-list" class="project-list-icons">
-        <li class="project-item" data-entity="plan" title="打开编排 (plan) 面板">
-          <span class="icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg></span>
-          <span class="name">编排</span>
-          <span class="shortcut">1</span>
-        </li>
-        <li class="project-item" data-entity="config" title="编辑 config.yaml 配置">
-          <span class="icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg></span>
-          <span class="name">设置</span>
-          <span class="shortcut">2</span>
-        </li>
-        <li class="project-item" data-entity="run" title="运行流水线: 压缩→分析→口播→vlog 剪辑规划→标号">
-          <span class="icon"><svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg></span>
-          <span class="name">运行</span>
-          <span class="shortcut">3</span>
-        </li>
-        <li class="project-item" data-entity="logs" title="查看服务运行日志">
-          <span class="icon"><svg viewBox="0 0 24 24"><polyline points="1 12 1 19 23 19 23 12"/><polyline points="22 8 12 3 2 8 2 8"/><rect x="12" y="15" width="2" height="2"/><rect x="8" y="15" width="2" height="2"/><rect x="4" y="15" width="2" height="2"/></svg></span>
-          <span class="name">日志</span>
-          <span class="shortcut">4</span>
-        </li>
-        <li class="project-item" data-entity="tokens" title="AI token 使用统计">
-          <span class="icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg></span>
-          <span class="name">统计</span>
-          <span class="shortcut">5</span>
-        </li>
-      </ul>
       <h3>视频 <span id="video-count" class="muted"></span></h3>
       <div class="video-list-actions">
         <button id="btn-add-videos" class="sidebar-btn" title="从文件夹选择视频文件添加到项目">
@@ -156,6 +122,43 @@
       </div>
       <div class="panel-header-actions">
         <button id="btn-collapse-editor" class="sidebar-btn" type="button" title="折叠编辑器 (Ctrl+\)">»</button>
+      </div>
+    </div>
+    <div class="editor-header-row">
+      <ul id="project-list" class="project-list-icons">
+        <li class="project-item" data-entity="plan" title="打开编排 (plan) 面板">
+          <span class="icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg></span>
+          <span class="name">编排</span>
+          <span class="shortcut">1</span>
+        </li>
+        <li class="project-item" data-entity="config" title="编辑 config.yaml 配置">
+          <span class="icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg></span>
+          <span class="name">设置</span>
+          <span class="shortcut">2</span>
+        </li>
+        <li class="project-item" data-entity="run" title="运行流水线: 压缩→分析→口播→vlog 剪辑规划→标号">
+          <span class="icon"><svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg></span>
+          <span class="name">运行</span>
+          <span class="shortcut">3</span>
+        </li>
+        <li class="project-item" data-entity="logs" title="查看服务运行日志">
+          <span class="icon"><svg viewBox="0 0 24 24"><polyline points="1 12 1 19 23 19 23 12"/><polyline points="22 8 12 3 2 8 2 8"/><rect x="12" y="15" width="2" height="2"/><rect x="8" y="15" width="2" height="2"/><rect x="4" y="15" width="2" height="2"/></svg></span>
+          <span class="name">日志</span>
+          <span class="shortcut">4</span>
+        </li>
+        <li class="project-item" data-entity="tokens" title="AI token 使用统计">
+          <span class="icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg></span>
+          <span class="name">统计</span>
+          <span class="shortcut">5</span>
+        </li>
+      </ul>
+      <div class="sidebar-project">
+        <button id="btn-project-menu" class="sidebar-btn" type="button" title="项目操作: 打开 / 新建 / 打开当前目录">项目 ▾</button>
+        <div id="project-menu" class="project-menu" hidden>
+          <button id="btn-open-project" class="project-menu-item" type="button" title="打开已有项目">打开项目</button>
+          <button id="btn-new-project" class="project-menu-item" type="button" title="新建项目">新建项目</button>
+          <button id="btn-reveal-project-sidebar" class="project-menu-item" type="button" title="在资源管理器中打开当前项目目录">打开目录</button>
+        </div>
       </div>
     </div>
     <div class="tabs">
