@@ -1,5 +1,54 @@
 # Changelog
 
+## 2026-08-09
+
+Review remediation batch for `E:\Downloads\clio-review-20260808.csv` (P0 3 + P1 15
+items, all verified with tests; full regression 1432 pytest + 435 Vitest).
+
+### Security & data safety
+- fix(config): plain-safe YAML upgrade and atomic replace — break `!python/object`
+  tags from user-written `config.yaml`, write via unique temp file + `os.replace`
+- fix(cut): constrain plan dir and clip names with `safe_basename`; new
+  `clio/utils.py:safe_basename` traversal-free name helper
+- fix(identity): reject a vindex that does not actually list the clip, so stale
+  sidecars can never re-associate a clip with the wrong video
+
+### Cache correctness (fingerprint + invalidation)
+- fix(compress): fingerprint source and settings for cache reuse (P1-02/P1-04) —
+  reuse only when the recorded source path/settings still match; a source or
+  compression-setting change now re-compresses instead of silently reusing
+- fix(compress): prune stale same-source candidates after commit — `setdefault`
+  used to keep whichever file the OS iterated first per key, so a stale output
+  could win the slot and force a re-encode every run (unbounded dir growth); now
+  all same-key candidates are searched and stale siblings (file + `.vmeta`) are
+  removed once a fresh output is committed
+- fix(analyze): invalidate the skip cache when the analysis lineage (prompt/model)
+  changes; fix(plan)/scripts: invalidate plan and voiceover caches the same way
+- fix(analyze): coerce AI-returned fields with strict validators (index/title),
+  and fix(identity): legacy/vindex mismatch no longer mislabels videos
+
+### Verify / reindex / export hardening
+- fix(verify): report missing and undeclared segments instead of silently
+  passing; fix(readiness): treat an empty discovered index as missing media
+- fix(reindex): trust only fresh split metadata, drop average-offset guessing
+- fix(export): refuse to write an empty draft when no video materials resolve
+
+### CLI & concurrency
+- fix(cli): propagate `transcribe` and `migrate` exit codes so failures fail the
+  caller; fix(whisper): reload module binding after in-process pip install
+- fix(waveform): bounded semaphore instead of busy-wait job counter (P0-02);
+  fix(run): clear the cancel event before worker spawn so a fresh run starts
+  clean (P0-03) — cancel/failover behavior documented with tests
+- fix(subtitle): serialize settings saves latest-write-wins, so a burst of quick
+  edits cannot write stale project config last
+
+### Tests / Docs
+- New regression tests: compress stale-sibling pruning + fresh-over-stale
+  lookup, vindex mismatch, verify missing segments, reindex fresh-metadata-only,
+  ready empty-index, export empty draft, run cancel reset, subtitle settings
+  ordering. Backend 1432 passed / 1 skipped; Vitest 435 passed (39 files).
+- Updated `E:\Downloads\clio-review-20260808.csv` (状态 column: 18 items 已完成)
+
 ## 2026-08-08
 
 ### Added

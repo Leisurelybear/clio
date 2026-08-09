@@ -137,6 +137,31 @@ Review: `docs/analysis/2026-07-25-full-project-review-and-fixes.md`
 | R-031b | Plan preview: prefer cut / concat media on the global timeline | Medium | Medium |
 | R-032 | **Desktop app packaging** (Windows-first shell around local serve) | Large | High |
 
+### Recently completed (2026-08-09)
+
+Review remediation batch for `E:\Downloads\clio-review-20260808.csv` (P0 3 + P1 15).
+
+| ID | Item | Notes |
+| --- | --- | --- |
+| P0-01 | Config YAML `!python/object` + atomic replace | Plain-safe dump, unique temp + `os.replace` |
+| P0-02 | Waveform busy-wait/read path | Bounded semaphore instead of `_jobs_lock` sleep loop |
+| P0-03 | Verify silently passing on missing segments | Reports missing/undeclared segments |
+| P1-01 | Path traversal in cut/compress names | `safe_basename` helper (traversal-free) |
+| P1-02/P1-04 | Compress cache reuse/fragmentation + same-basename collision | Source/settings fingerprint; stale sibling pruning |
+| P1-05/P1-06 | Analyze/plan/scripts skip cache not invalidated on prompt change | Lineage fingerprints (`_lineage`) + legacy stamping |
+| P1-07 | AI returns wrong index/title | Strict validators coerce fields |
+| P1-08 | Empty discovered index treated as ok | Readiness tier reports missing media |
+| P1-09 | Export writes empty draft | Refuses without video materials |
+| P1-10 | Vindex not listing the clip accepted | Rejected (no orphan association) |
+| P1-11 | Reindex uses average offsets/stale metadata | Trusts only fresh split metadata |
+| P1-12 | In-process whisper install stale module | Rebound after install |
+| P1-14 | transcribe/migrate exit code swallowed | Propagated to CLI caller |
+| P1-15 | Cancel event stale between runs | Cleared before worker spawn |
+| P1-16 | Plu-subtitle stale request guard | Electron frontend ordering (verified no-op) |
+| P1-17 | Subtitle settings race writes | Serialize latest-write-wins |
+
+Full regression: 1432 pytest passed / 1 skipped, 435 Vitest (39 files). 18 items 已完成 in the CSV tracker.
+
 ### Recently completed (2026-07-26)
 
 | ID | Item | Notes |
