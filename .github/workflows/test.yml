@@ -175,3 +175,41 @@ jobs:
       run: |
         & ./setup.ps1
         Write-Output "setup.ps1 dry-run OK"
+
+  packaging:
+    name: Package build + install verify
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Build wheel
+      run: |
+        python -m pip install --upgrade pip
+        pip install build
+        python -m build --wheel
+
+    - name: Install wheel into clean venv
+      run: |
+        python -m venv "$RUNNER_TEMP/verify-venv"
+        "$RUNNER_TEMP/verify-venv/bin/python" -m pip install --upgrade pip
+        "$RUNNER_TEMP/verify-venv/bin/python" -m pip install dist/clio-*.whl
+
+    - name: Verify installed package (import + static assets)
+      run: |
+        "$RUNNER_TEMP/verify-venv/bin/python" -c "
+        import clio
+        from clio.ui.server import STATIC_DIR
+        from clio.config import load_config
+        assert STATIC_DIR.is_dir(), 'static dir missing from wheel'
+        assert (STATIC_DIR / 'index.html').is_file(), 'index.html missing from wheel'
+        print('import OK, static assets OK')
+        "

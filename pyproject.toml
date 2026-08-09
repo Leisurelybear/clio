@@ -3,13 +3,33 @@ name = "clio"
 version = "0.1.0"
 description = "AI preprocessing pipeline for travel vlog editing"
 requires-python = ">=3.11"
+dependencies = [
+    "google-genai>=2.7.0",
+    "httpx[socks]>=0.28.1",
+    "pyyaml>=6.0.3",
+    "pywebview>=5.0",
+]
 
 [project.scripts]
 clio = "clio.main:main"
 
 [build-system]
-requires = ["setuptools>=75"]
-build-backend = "setuptools.build_meta:__legacy__"
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+# Single flat-layout package `clio`; exclude tests and repo-level helpers so
+# setuptools does not mistake them for top-level packages.
+[tool.setuptools]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["clio", "clio.*"]
+exclude = ["clio.tests*", "clio*.tests", "packaging*"]
+
+# Static UI assets must travel inside the wheel: the HTTP server resolves
+# them via `Path(__file__).parent / "static"` at runtime.
+[tool.setuptools.package-data]
+clio = ["ui/static/**/*", "ui/static/**/.*"]
 
 [tool.pytest.ini_options]
 testpaths = ["clio/tests"]

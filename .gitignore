@@ -42,6 +42,9 @@ htmlcov/
 /build/
 /dist/
 
+# Python packaging artifacts
+*.egg-info/
+
 # Test mock artifacts
 MagicMock/
 
