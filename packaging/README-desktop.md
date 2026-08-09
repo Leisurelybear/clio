@@ -40,7 +40,10 @@ together; do not move the exe alone).
 Launch:
 
 ```powershell
-.\dist\clio\clio.exe          # uses ./config.yaml in the current directory
+.\dist\clio\clio.exe          # uses ./config.yaml in the current directory, or
+                             # falls back to the platform config dir when absent
+                             # (Windows: %APPDATA%\Clio, macOS: ~/Library/Application
+                             # Support/Clio, Linux: ~/.config/clio)
 .\dist\clio\clio.exe -c .\project\config.yaml
 ```
 

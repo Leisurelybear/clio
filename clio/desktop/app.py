@@ -102,17 +102,53 @@ def _handle_closing(
     return True
 
 
+def resolve_desktop_config_path(argv: list[str] | None, config_path: str | Path | None) -> Path:
+    """Resolve the config file for a desktop launch.
+
+    Precedence:
+    1. explicit ``config_path`` (CLI ``desktop`` subcommand already parsed ``-c``)
+    2. ``-c/--config`` in raw argv (details: double-click / Finder / shortcut launches
+       pass undocumented args; README-desktop documents ``clio.exe -c path``)
+    3. ``config.yaml`` in the process CWD when it already exists (dev-tree behavior)
+    4. platform-standard config dir (Windows ``%APPDATA%\\Clio``, macOS
+       ``~/Library/Application Support/Clio``, Linux ``~/.config/clio``) — so a
+       launch from Finder / install dir never scatters config into an arbitrary
+       or read-only working directory.
+    """
+    if config_path is not None and str(config_path).strip():
+        return Path(config_path)
+
+    args = list(argv or [])
+    for i, arg in enumerate(args):
+        if arg in ("-c", "--config") and i + 1 < len(args):
+            return Path(args[i + 1])
+        if arg.startswith("--config="):
+            return Path(arg.split("=", 1)[1])
+
+    cwd_cfg = Path("config.yaml")
+    if cwd_cfg.is_file():
+        return cwd_cfg
+
+    return platform_config_dir() / "config.yaml"
+
+
+def platform_config_dir() -> Path:
+    """Platform-standard user config dir where Clio keeps config.yaml by default."""
+    if sys.platform == "win32":
+        base = Path(os.environ.get("APPDATA") or (Path.home() / "AppData" / "Roaming"))
+        return base / "Clio"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "Clio"
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    return Path(xdg) / "clio" if xdg else (Path.home() / ".config" / "clio")
+
+
 def main(
     argv: list[str] | None = None,
     config_path: str | Path | None = None,
 ) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    # Optional argv/--config parsing refined later; v1 uses config_path or cwd default.
-    _ = argv
-    if config_path is None:
-        config_path = Path("config.yaml")
-    else:
-        config_path = Path(config_path)
+    config_path = resolve_desktop_config_path(argv, config_path)
 
     from clio.config import load_config
     from clio.desktop.api import DesktopApi

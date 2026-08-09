@@ -356,3 +356,64 @@ def test_main_shows_webview2_error_when_create_window_raises(monkeypatch, tmp_pa
     assert len(error_shown) == 1 and isinstance(error_shown[0], RuntimeError)
     app_mod.write_lock.assert_not_called()
     app_mod.remove_lock.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# config path resolution (R-044: desktop must not scatter config into CWD)
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_config_prefers_explicit_param():
+    p = app_mod.resolve_desktop_config_path([], "/x/y.yaml")
+    assert p == Path("/x/y.yaml")
+
+
+def test_resolve_config_parses_short_c_arg(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    p = app_mod.resolve_desktop_config_path(["-c", "proj/cfg.yaml"], None)
+    assert p == Path("proj/cfg.yaml")
+
+
+def test_resolve_config_parses_long_config_arg(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    p = app_mod.resolve_desktop_config_path(["--config", "proj/cfg.yaml"], None)
+    assert p == Path("proj/cfg.yaml")
+
+
+def test_resolve_config_parses_equals_form(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    p = app_mod.resolve_desktop_config_path(["--config=proj/cfg.yaml"], None)
+    assert p == Path("proj/cfg.yaml")
+
+
+def test_resolve_config_keeps_cwd_when_present(monkeypatch, tmp_path):
+    (tmp_path / "config.yaml").write_text("k: v\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    p = app_mod.resolve_desktop_config_path([], None)
+    assert p.resolve() == (tmp_path / "config.yaml").resolve()
+
+
+def test_resolve_config_falls_back_to_platform_dir_when_no_cwd(monkeypatch, tmp_path):
+    """Double-click/Finder launch without -c and no CWD config.yaml: fall back
+    to the platform-standard config dir instead of littering the launch dir."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(app_mod, "platform_config_dir", lambda: Path("/virtual/clio-config"))
+    p = app_mod.resolve_desktop_config_path([], None)
+    assert p == Path("/virtual/clio-config/config.yaml")
+
+
+def test_platform_config_dir_windows(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setenv("APPDATA", "C:/Users/u/AppData/Roaming")
+    assert app_mod.platform_config_dir() == Path("C:/Users/u/AppData/Roaming") / "Clio"
+
+
+def test_platform_config_dir_macos(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "darwin")
+    assert app_mod.platform_config_dir() == Path.home() / "Library" / "Application Support" / "Clio"
+
+
+def test_platform_config_dir_linux(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    assert app_mod.platform_config_dir() == Path.home() / ".config" / "clio"
