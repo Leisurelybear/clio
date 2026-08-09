@@ -10,6 +10,7 @@ from clio.transcribe import (
     PROJECT_ROOT,
     _clear_model_cache,
     _get_model,
+    _reload_whisper_import,
     _resolve_cache_dir,
     check_cublas,
     pip_mirror_for_config,
@@ -66,6 +67,8 @@ def run_whisper_install(config_path: str | Path = "config.yaml") -> int:
         print("安装失败:", result.stderr)
         return 1
     print("faster-whisper 安装完成")
+    # Reload the module binding so this same process can import the new install.
+    _reload_whisper_import()
 
     import platform
 

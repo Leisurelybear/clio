@@ -96,6 +96,25 @@ _whisper_cache_key: str | None = None
 _env_lock = threading.Lock()
 
 
+def _reload_whisper_import() -> bool:
+    """Re-import faster_whisper after an in-process install.
+
+    The module-level import binding stays None until faster-whisper is actually
+    available; a same-process install needs a fresh import to pick it up.
+    """
+    global WhisperModel
+    import importlib
+
+    try:
+        faster_whisper = importlib.import_module("faster_whisper")
+        importlib.reload(faster_whisper)
+        WhisperModel = faster_whisper.WhisperModel
+        return True
+    except ImportError:
+        WhisperModel = None
+        return False
+
+
 def _clear_model_cache() -> None:
     global _whisper_model, _whisper_cache_key
     _whisper_model = None
@@ -127,6 +146,8 @@ def _resolve_compute_types(device: str) -> list[str]:
 
 def _get_model(config: AppConfig):
     global _whisper_model, _whisper_cache_key
+    if WhisperModel is None:
+        _reload_whisper_import()
     if WhisperModel is None:
         raise ImportError("faster-whisper is not installed. Run: pip install faster-whisper")
 

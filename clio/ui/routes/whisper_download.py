@@ -18,6 +18,7 @@ from clio.transcribe import (
     PROJECT_ROOT,
     _clear_model_cache,
     _get_model,
+    _reload_whisper_import,
     _resolve_cache_dir,
     check_cublas,
     pip_mirror_for_config,
@@ -392,6 +393,7 @@ def _run_install(handler: HandlerProtocol, qs: dict[str, Any], progress_path: Pa
                 },
             )
             return
+        _reload_whisper_import()
 
     _write_install_progress(
         progress_path,

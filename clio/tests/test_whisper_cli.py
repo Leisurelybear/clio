@@ -124,6 +124,7 @@ class TestRunWhisperInstall:
             patch("clio.whisper_cli._snapshot_download", mock_dl),
             patch("clio.whisper_cli.check_cublas", return_value=True),
             patch("clio.whisper_cli._get_model", return_value=MagicMock()),
+            patch("clio.whisper_cli._reload_whisper_import", return_value=True) as mock_reload,
             patch("ctranslate2.get_cuda_device_count", return_value=0),
         ):
             mock_cache.return_value = config_file.parent / "models"
@@ -132,6 +133,7 @@ class TestRunWhisperInstall:
             result = run_whisper_install(str(config_file))
             assert result == 0
             mock_dl.assert_called_once()
+            mock_reload.assert_called_once()
             args, kwargs = mock_dl.call_args
             assert "Systran/faster-whisper-small" in str(kwargs["repo_id"])
 
