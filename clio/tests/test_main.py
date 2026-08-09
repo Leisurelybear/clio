@@ -76,7 +76,8 @@ def config_path(tmp_path):
     return cfg
 
 
-def test_transcribe_subcommand(cli_runner, config_path):
+@patch("clio.tasks.transcribe.check_whisper", return_value=True)
+def test_transcribe_subcommand(mock_check_whisper, cli_runner, config_path):
     result = cli_runner(["--config", str(config_path), "transcribe"])
     assert result == 0
 
