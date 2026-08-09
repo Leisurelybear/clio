@@ -94,10 +94,11 @@ def check_plan_export_readiness(
     if tes > 1800:
         result.warnings.append(PlanIssue(level="warning", code="duration_long", message=f"预估总时长过长（{tes} 秒）"))
 
-    # Expand known/offline so "1" and "001" compare equal.
-    # None OR empty set → skip index_missing checks (legacy: empty discovery = unknown).
+    # Distinguish "not scanned" (None) from "scanned and found nothing" (empty
+    # set). An empty discovery means every referenced index is missing media; a
+    # None discovery means we simply don't know yet and must not guess.
     known: set[str] | None
-    if not known_indices:
+    if known_indices is None:
         known = None
     else:
         known = set()

@@ -201,6 +201,11 @@ class TestHandlePostCut:
             "sequence": [{"index": "001", "title": "A", "use_timeline": "00:00-00:05", "reason": "r"}],
         }
         (plans / "day1_plan.json").write_text(json.dumps(plan), encoding="utf-8")
+        # Provide a compressed video so index 001 is discoverable (empty scan now
+        # means "media missing" and would 400 before reaching the overwrite check).
+        comp_dir = tmp_path / "compressed"
+        comp_dir.mkdir()
+        (comp_dir / "001_A.mp4").write_bytes(b"x")
         cuts = tmp_path / "cuts" / "day1"
         cuts.mkdir(parents=True)
         (cuts / "old.mp4").write_bytes(b"\x00")

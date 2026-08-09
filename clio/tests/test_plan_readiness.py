@@ -50,17 +50,18 @@ def test_bad_timeline_error():
     assert any(i.code == "timeline_invalid" for i in r.errors)
 
 
-def test_empty_known_indices_skips_index_missing():
-    """When project index discovery finds nothing, do not mark every plan index missing."""
+def test_empty_known_indices_reports_missing_media():
+    """A scanned-but-empty project means every referenced index is missing media."""
     r = check_plan_export_readiness(
         _plan([{"index": "001", "use_timeline": "00:00-00:05", "title": "t", "reason": "r"}]),
         known_indices=set(),
     )
-    assert r.ok
-    assert not any(i.code == "index_missing" for i in r.errors)
+    assert not r.ok
+    assert any(i.code == "index_missing" for i in r.errors)
 
 
 def test_none_known_indices_skips_index_missing():
+    """None means the discovery simply hasn't run — do not guess missing."""
     r = check_plan_export_readiness(
         _plan([{"index": "001", "use_timeline": "00:00-00:05", "title": "t", "reason": "r"}]),
         known_indices=None,
