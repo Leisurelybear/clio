@@ -215,3 +215,22 @@ class TestPlanSourceInputs:
         mock_plan.assert_not_called()
         assert result is not None
         assert "source_inputs" not in result
+
+    def test_plan_regenerates_when_inputs_change(self, cfg: AppConfig):
+        """Same-stem different analysis content must invalidate the cached plan (P1-P1-06)."""
+        from clio.tasks.plan import run_plan_vlog
+
+        _write_text(cfg, "001_A.json", "A", 1)
+        with patch("clio.tasks.plan.plan_daily_vlog", side_effect=_fake_plan_payload):
+            run_plan_vlog(cfg, day_label="day1", files=None, overwrite=True)
+
+        # Re-analyze: same index/stem but different title+summary content.
+        (cfg.texts_dir / "001_A.json").write_text(
+            json.dumps({"index": 1, "title": "A2", "summary": "changed", "source_file": "A.mp4"}),
+            encoding="utf-8",
+        )
+
+        with patch("clio.tasks.plan.plan_daily_vlog", side_effect=_fake_plan_payload) as mock_plan:
+            run_plan_vlog(cfg, day_label="day1", files=None, overwrite=False)
+
+        mock_plan.assert_called_once()

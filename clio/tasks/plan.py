@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import threading
@@ -15,9 +16,11 @@ from clio.identity import legacy_segment_offset_sec, load_identity
 from clio.log import timed
 from clio.processing_state import ProcessingState
 from clio.progress import ProgressTracker
+from clio.prompt_overrides import resolve_prompt_template
+from clio.prompts import PLAN_PROMPT
 from clio.schema import add_schema_version
 from clio.tasks._helpers import _matches_selected_artifact, _selected_stems
-from clio.utils import format_index, write_json_atomic, write_text_atomic
+from clio.utils import format_index, safe_basename, write_json_atomic, write_text_atomic
 
 
 def _analysis_day_label(data: dict) -> str:
@@ -35,6 +38,44 @@ def _source_inputs_from_clips(clips: list[dict]) -> list[dict[str, str]]:
         }
         for c in clips
     ]
+
+
+def _plan_lineage_fingerprint(config: AppConfig, clips: list[dict], task_prompts: dict[str, str] | None = None) -> str:
+    """Fingerprint everything that can change a cached plan result.
+
+    Changing the vlog_plan prompt, its provider/model, the clip inputs, or the
+    transcripts toggle invalidates the skip_existing cache so users never
+    silently keep a plan generated under an older lineage.
+    """
+    try:
+        task = config.ai.tasks.get("vlog_plan")
+        provider = getattr(task, "provider", "") if task else ""
+        model = getattr(task, "model", "") if task else ""
+    except Exception:
+        provider, model = "", ""
+    try:
+        prompt = resolve_prompt_template("vlog_plan", PLAN_PROMPT, config, task_prompts=task_prompts)
+    except Exception:
+        prompt = PLAN_PROMPT
+    payload = json.dumps(
+        {
+            "provider": provider,
+            "model": model,
+            "prompt": prompt,
+            "use_transcripts": getattr(config.plan, "use_transcripts", False),
+            "max_tokens": getattr(config.ai, "max_tokens", None),
+            "clips": [
+                {
+                    "index": c.get("index", ""),
+                    "source_stem": c.get("source_stem", ""),
+                    "title": c.get("title", ""),
+                }
+                for c in clips
+            ],
+        },
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _discover_day_labels(config: AppConfig) -> list[str]:
@@ -61,22 +102,14 @@ def run_plan_vlog(
 ) -> dict[str, Any] | None:
     config.plans_dir.mkdir(parents=True, exist_ok=True)
     token_store = FileTokenUsageStore(str(config.paths.output_dir))
+    safe_day = safe_basename(day_label, max_len=60)
 
     selected = _selected_stems(files) if files is not None else None
     if selected is not None:
         print(f"[规划] 按选片过滤素材（{len(selected)} 个 stem）")
 
-    out_json = config.plans_dir / f"{day_label}_plan.json"
-    out_md = config.plans_dir / f"{day_label}_plan.md"
-    # files= means a selection-scoped plan; never short-circuit with a prior full plan (I1).
-    if files is None and not overwrite and config.analyze.skip_existing and out_json.exists() and out_md.exists():
-        try:
-            json.loads(out_json.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            print(f"  [重新规划] {day_label} (已有规划文件损坏)")
-        else:
-            print(f"[跳过] {day_label} 计划 (已存在)")
-            return json.loads(out_json.read_text(encoding="utf-8"))
+    out_json = config.plans_dir / f"{safe_day}_plan.json"
+    out_md = config.plans_dir / f"{safe_day}_plan.md"
 
     clips = []
     for json_file in sorted(config.texts_dir.glob("*.json")):
@@ -124,6 +157,28 @@ def run_plan_vlog(
         print("[规划] 无可用素材（选片过滤后为空或尚未 analyze）")
         return None
 
+    # files= means a selection-scoped plan; never short-circuit with a prior full plan (I1).
+    if files is None and not overwrite and config.analyze.skip_existing and out_json.exists() and out_md.exists():
+        try:
+            existing = json.loads(out_json.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            print(f"  [重新规划] {day_label} (已有规划文件损坏)")
+        else:
+            stored = existing.get("_lineage")
+            current = _plan_lineage_fingerprint(config, clips, task_prompts)
+            if stored == current:
+                print(f"[跳过] {day_label} 计划 (已存在)")
+                return existing
+            print(f"  [重新规划] {day_label} (缓存血缘变化)")
+            if stored is None:
+                # Legacy cache without lineage: accept it (best effort) by stamping
+                # a fresh marker so only genuinely-new inputs invalidate it.
+                existing["_lineage"] = current
+                write_json_atomic(out_json, existing)
+                print(f"[跳过] {day_label} 计划 (已存在)")
+                return existing
+            # Mismatched/newer lineage: recompute below.
+
     transcripts_map: dict[str, dict] = {}
     trans_dir = config.transcripts_dir
     if trans_dir.is_dir() and config.whisper.enabled and config.plan.use_transcripts:
@@ -168,6 +223,7 @@ def run_plan_vlog(
     if config.plan.use_transcripts:
         plan["_transcripts_missing"] = not transcripts_map
     plan = add_schema_version(plan)
+    plan["_lineage"] = _plan_lineage_fingerprint(config, clips, task_prompts)
     write_json_atomic(out_json, plan)
     if tracker:
         tracker.log(f"规划 {day_label} ✓")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 import time
@@ -15,9 +16,45 @@ from clio.config import AppConfig
 from clio.log import timed
 from clio.processing_state import ProcessingState
 from clio.progress import ProgressTracker
+from clio.prompts import SCRIPT_PROMPT
 from clio.schema import add_schema_version
 from clio.tasks._helpers import _matches_selected_artifact, _selected_stems
 from clio.utils import write_json_atomic, write_text_atomic
+
+
+def _voiceover_lineage_fingerprint(
+    config: AppConfig, data: dict, template: str, task_prompts: dict[str, str] | None = None
+) -> str:
+    """Fingerprint of everything that can change a cached voiceover script.
+
+    Changing the voiceover prompt (builtin template, override, or runtime task
+    prompt) or provider/model invalidates the skip_existing cache so users
+    never silently keep a script generated under an older lineage.
+    """
+    try:
+        task = config.ai.tasks.get("voiceover")
+        provider = getattr(task, "provider", "") if task else ""
+        model = getattr(task, "model", "") if task else ""
+    except Exception:
+        provider, model = "", ""
+    from clio.prompt_overrides import resolve_prompt_template
+
+    try:
+        prompt = resolve_prompt_template("voiceover", SCRIPT_PROMPT, config, task_prompts=task_prompts)
+    except Exception:
+        prompt = SCRIPT_PROMPT
+    payload = json.dumps(
+        {
+            "provider": provider,
+            "model": model,
+            "prompt": prompt,
+            "max_tokens": getattr(config.ai, "max_tokens", None),
+            "analysis": data,
+        },
+        sort_keys=True,
+        default=str,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _process_one_script(
@@ -41,11 +78,29 @@ def _process_one_script(
     orig_stem = Path(data.get("source_file") or json_file.stem).stem
     out = config.scripts_dir / f"{json_file.stem}_voiceover.json"
     if not overwrite and config.analyze.skip_existing and out.exists():
-        state.mark(orig_stem, "voiceover", "skipped")
-        if tracker:
-            tracker.next(message=f"跳过 {json_file.stem}")
-            tracker.log(f"跳过 {json_file.stem}（已存在）")
-        return False
+        try:
+            existing = json.loads(out.read_text(encoding="utf-8"))
+            current = _voiceover_lineage_fingerprint(config, data, template, task_prompts)
+        except (json.JSONDecodeError, OSError):
+            existing, current = None, None
+        else:
+            if existing.get("_lineage") == current:
+                state.mark(orig_stem, "voiceover", "skipped")
+                if tracker:
+                    tracker.next(message=f"跳过 {json_file.stem}")
+                    tracker.log(f"跳过 {json_file.stem}（已存在）")
+                return False
+            if existing.get("_lineage") is None:
+                # Legacy cache without lineage: accept it (best effort) by
+                # stamping a fresh marker so only input/prompt changes skip.
+                existing["_lineage"] = current
+                write_json_atomic(out, existing)
+                state.mark(orig_stem, "voiceover", "skipped")
+                if tracker:
+                    tracker.next(message=f"跳过 {json_file.stem}")
+                    tracker.log(f"跳过 {json_file.stem}（已存在）")
+                return False
+            # Mismatched provider/prompt: regenerate below.
 
     if tracker:
         tracker.next(message=f"生成口播 {json_file.stem}")
@@ -59,6 +114,7 @@ def _process_one_script(
         task_prompts=task_prompts,
     )
     add_schema_version(script)
+    script["_lineage"] = _voiceover_lineage_fingerprint(config, data, template, task_prompts)
     write_json_atomic(out, script)
     state.mark(orig_stem, "voiceover", "done")
     if tracker:

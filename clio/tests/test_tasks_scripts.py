@@ -110,6 +110,25 @@ class TestRunGenerateScripts:
         mock_gen.assert_not_called()
 
     @patch("clio.tasks.scripts.generate_voiceover")
+    def test_regenerates_when_analysis_changes(self, mock_gen, cfg):
+        """Different analysis content must invalidate the cached script (P1-P1-06)."""
+        data = {"title": "t"}
+        (cfg.texts_dir / "001.json").write_text(json.dumps(data))
+        mock_gen.return_value = {"title": "t", "voiceover": "v1", "edit_tip": ""}
+
+        from clio.tasks.scripts import run_generate_scripts
+
+        run_generate_scripts(cfg)
+        out = cfg.scripts_dir / "001_voiceover.json"
+        assert out.exists()
+        assert mock_gen.call_count == 1
+
+        # Re-analyze the same clip with different content.
+        (cfg.texts_dir / "001.json").write_text(json.dumps({"title": "t", "summary": "totally different"}))
+        run_generate_scripts(cfg)
+        assert mock_gen.call_count == 2
+
+    @patch("clio.tasks.scripts.generate_voiceover")
     def test_writes_md_file(self, mock_gen, cfg):
         data = {"title": "clip1", "scenes": []}
         (cfg.texts_dir / "001_test.json").write_text(json.dumps(data))
