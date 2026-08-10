@@ -61,9 +61,27 @@ staged = [f for f in result.stdout.splitlines() if f]
 if not staged:
     sys.exit(0)
 
+
+def _has_unstaged_changes(path: str) -> bool:
+    """True when the file has edits in the working tree that are NOT staged."""
+    return subprocess.run(["git", "diff", "--quiet", "--", path], cwd=REPO_ROOT).returncode == 1
+
+
+# P1-26: never rewrite the full working-tree file while only part of it is
+# staged. Running `ruff format <file>` then `git add <file>` would swallow any
+# unstaged hunks into the index, breaking partial staging.
+partial = [_f for _f in staged if _has_unstaged_changes(_f)]
+if partial:
+    print(
+        "[pre-commit] 检测到文件只有部分行暂存，自动格式化会覆盖未暂存改动：\n"
+        f"  {', '.join(partial)}\n"
+        "[pre-commit] 请先完整 git add 该文件，或用 --no-verify 提交后再手动格式化。"
+    )
+    sys.exit(1)
+
 print(f"ruff format: {', '.join(staged)}")
 
-# Format staged files
+# Format staged files (working tree already matches the index for these).
 fmt = subprocess.run([*RUFF, "format", *staged], cwd=REPO_ROOT)
 if fmt.returncode != 0:
     print("[pre-commit] ruff format failed, check output above")
