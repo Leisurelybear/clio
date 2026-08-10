@@ -17,6 +17,41 @@ _MAX_TIME_SEC = 86400  # 24h
 _SEG_SUFFIX_RE = re.compile(r"_seg\d+$")
 
 
+def _read_transcript(path: Path) -> tuple[dict[str, Any], int]:
+    """Load transcript JSON plus its optimistic-concurrency revision (_rev).
+
+    Returns (data, rev). Missing or non-numeric _rev is treated as 0 so legacy
+    Whisper files remain writable once.
+    """
+    data = json.loads(path.read_text(encoding="utf-8"))
+    rev = data.get("_rev", 0)
+    if not isinstance(rev, int) or rev < 0:
+        rev = 0
+    return data, rev
+
+
+def _require_revision(obj: dict[str, Any], current_rev: int, handler: HandlerProtocol) -> bool:
+    """Validate the client-issued revision; send 409 on mismatch.
+
+    Returns True when the write may proceed (revision matched).
+    """
+    client_rev = obj.get("revision")
+    if not isinstance(client_rev, int):
+        handler._send_json({"ok": False, "error": "revision must be an integer"}, 400)
+        return False
+    if client_rev != current_rev:
+        handler._send_json(
+            {
+                "ok": False,
+                "error": f"资源已更改 (revision {current_rev} != {client_rev})，请刷新后重试",
+                "revision": current_rev,
+            },
+            409,
+        )
+        return False
+    return True
+
+
 def _resolve_stem(file: str) -> str | None:
     safe = _is_safe_basename(file)
     if not safe:
@@ -104,9 +139,11 @@ def handle_get_transcripts(handler: HandlerProtocol, qs: dict[str, Any]) -> None
         return handler._send_json({"ok": False}, 404)
 
     try:
-        data = json.loads(tp.read_text(encoding="utf-8"))
+        data, rev = _read_transcript(tp)
+        if data is None:
+            data = {}
         data.pop("ok", None)
-        handler._send_json({"ok": True, **data})
+        handler._send_json({"ok": True, "revision": rev, **data})
     except Exception as e:
         handler._send_json({"ok": False, "error": str(e)}, 500)
 
@@ -125,8 +162,12 @@ def handle_put_transcripts(handler: HandlerProtocol, qs: dict[str, Any], obj: di
         return handler._send_json({"ok": False, "error": "transcript not found"}, 404)
 
     try:
-        data = json.loads(tp.read_text(encoding="utf-8"))
+        data, rev = _read_transcript(tp)
+        if not _require_revision(obj, rev, handler):
+            return
         segments = data.get("segments", [])
+        if not isinstance(segments, list):
+            return handler._send_json({"ok": False, "error": "segments is not a list"}, 400)
         if segment_index < 0 or segment_index >= len(segments):
             return handler._send_json({"ok": False, "error": f"segment_index {segment_index} out of range"}, 400)
 
@@ -145,20 +186,12 @@ def handle_put_transcripts(handler: HandlerProtocol, qs: dict[str, Any], obj: di
                 )
             segments[segment_index]["text"] = new_text
 
+        data["segments"] = segments
+        data["_rev"] = rev + 1
         _save_atomic(tp, json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"))
-        handler._send_json({"ok": True})
+        handler._send_json({"ok": True, "revision": rev + 1})
     except Exception as e:
         handler._send_json({"ok": False, "error": str(e)}, 500)
-
-
-def _create_transcript_file(handler: HandlerProtocol, qs: dict[str, Any], video: str) -> Path | None:
-    """Create a new empty transcript file for the given video and return its path."""
-    tp = _intended_transcript_path(handler, qs, video)
-    if tp:
-        tp.parent.mkdir(parents=True, exist_ok=True)
-        skeleton = {"segments": []}
-        _save_atomic(tp, json.dumps(skeleton, ensure_ascii=False, indent=2).encode("utf-8"))
-    return tp
 
 
 def handle_post_transcripts(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
@@ -167,9 +200,14 @@ def handle_post_transcripts(handler: HandlerProtocol, qs: dict[str, Any], obj: d
         return handler._send_json({"ok": False, "error": "missing video param"}, 400)
 
     if obj.get("create"):
-        tp = _create_transcript_file(handler, qs, video)
+        tp = _intended_transcript_path(handler, qs, video)
         if not tp:
-            return handler._send_json({"ok": False, "error": "cannot create transcript path"}, 500)
+            return handler._send_json({"ok": False, "error": "cannot create transcript path"}, 400)
+        if tp.is_file():
+            return handler._send_json({"ok": False, "error": "transcript already exists"}, 409)
+        tp.parent.mkdir(parents=True, exist_ok=True)
+        skeleton = {"segments": [], "_rev": 1}
+        _save_atomic(tp, json.dumps(skeleton, ensure_ascii=False, indent=2).encode("utf-8"))
         handler._send_json({"ok": True, "message": "transcript file created"})
         return
 
@@ -206,8 +244,12 @@ def handle_post_transcripts(handler: HandlerProtocol, qs: dict[str, Any], obj: d
         return handler._send_json({"ok": False, "error": "transcript not found"}, 404)
 
     try:
-        data = json.loads(tp.read_text(encoding="utf-8"))
+        data, rev = _read_transcript(tp)
+        if not _require_revision(obj, rev, handler):
+            return
         segments = data.get("segments", [])
+        if not isinstance(segments, list):
+            return handler._send_json({"ok": False, "error": "segments is not a list"}, 400)
 
         new_seg = {
             "start": round(start, 2),
@@ -224,8 +266,9 @@ def handle_post_transcripts(handler: HandlerProtocol, qs: dict[str, Any], obj: d
                 break
         segments.insert(insert_idx, new_seg)
         data["segments"] = segments
+        data["_rev"] = rev + 1
 
         _save_atomic(tp, json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"))
-        handler._send_json({"ok": True, "segment_index": insert_idx, "segment": new_seg})
+        handler._send_json({"ok": True, "segment_index": insert_idx, "revision": rev + 1, "segment": new_seg})
     except Exception as e:
         handler._send_json({"ok": False, "error": str(e)}, 500)

@@ -43,6 +43,7 @@ class TestHandleGetTranscripts:
         handler = _handler_with_config(tmp_path)
         (tmp_path / "transcripts").mkdir()
         transcript = {
+            "_rev": 3,
             "source_stem": "001_GL010683",
             "segments": [{"start": 0.0, "end": 2.0, "text": "hello"}],
         }
@@ -54,6 +55,7 @@ class TestHandleGetTranscripts:
         args = handler._send_json.call_args
         assert args[0][0]["ok"] is True
         assert args[0][0]["source_stem"] == "001_GL010683"
+        assert args[0][0]["revision"] == 3
 
     def test_not_found(self, tmp_path: Path):
         handler = _handler_with_config(tmp_path)
@@ -82,11 +84,56 @@ class TestHandlePutTranscripts:
             {
                 "segment_index": 0,
                 "text": "new text",
+                "revision": 0,
             },
         )
-        handler._send_json.assert_called_once_with({"ok": True})
+        handler._send_json.assert_called_once_with({"ok": True, "revision": 1})
         updated = json.loads(tf.read_text(encoding="utf-8"))
         assert updated["segments"][0]["text"] == "new text"
+        assert updated["_rev"] == 1
+
+    def test_segment_edit_rejected_on_stale_revision(self, tmp_path: Path):
+        """P1-30: writing with a stale revision returns 409 and preserves the file."""
+        handler = _handler_with_config(tmp_path)
+        (tmp_path / "transcripts").mkdir()
+        transcript = {
+            "_rev": 5,
+            "source_stem": "001_GL010683",
+            "segments": [{"start": 0.0, "end": 2.0, "text": "old text"}],
+        }
+        tf = tmp_path / "transcripts" / "001_GL010683_transcript.json"
+        tf.write_text(json.dumps(transcript), encoding="utf-8")
+
+        handler._send_json = MagicMock()
+        result = handle_put_transcripts(
+            handler,
+            {"video": ["001_GL010683.mp4"]},
+            {"segment_index": 0, "text": "new text", "revision": 4},
+        )
+        assert result is None
+        payload, status = handler._send_json.call_args[0]
+        assert status == 409
+        assert payload["ok"] is False
+        assert payload["revision"] == 5
+        updated = json.loads(tf.read_text(encoding="utf-8"))
+        assert updated["segments"][0]["text"] == "old text"
+        assert updated["_rev"] == 5
+
+    def test_missing_revision_rejected(self, tmp_path: Path):
+        handler = _handler_with_config(tmp_path)
+        (tmp_path / "transcripts").mkdir()
+        transcript = {"segments": [{"start": 0.0, "end": 2.0, "text": "old"}]}
+        tf = tmp_path / "transcripts" / "001_GL010683_transcript.json"
+        tf.write_text(json.dumps(transcript), encoding="utf-8")
+
+        handler._send_json = MagicMock()
+        handle_put_transcripts(
+            handler,
+            {"video": ["001_GL010683.mp4"]},
+            {"segment_index": 0, "text": "new text"},
+        )
+        payload, status = handler._send_json.call_args[0]
+        assert status == 400
 
     def test_invalid_index(self, tmp_path: Path):
         handler = MagicMock()
@@ -102,6 +149,85 @@ class TestHandlePutTranscripts:
         handler._send_json.assert_called_once()
         args = handler._send_json.call_args
         assert args[0][0]["ok"] is False
+
+
+class TestHandlePostTranscripts:
+    def test_add_segment(self, tmp_path: Path):
+        from clio.ui.routes.transcripts import handle_post_transcripts
+
+        handler = _handler_with_config(tmp_path)
+        (tmp_path / "transcripts").mkdir()
+        transcript = {"segments": []}
+        tf = tmp_path / "transcripts" / "001_GL010683_transcript.json"
+        tf.write_text(json.dumps(transcript), encoding="utf-8")
+
+        handler._send_json = MagicMock()
+        handle_post_transcripts(
+            handler,
+            {"video": ["001_GL010683.mp4"]},
+            {"start": 5.0, "end": 8.0, "text": "hello", "revision": 0},
+        )
+        args = handler._send_json.call_args[0]
+        assert args[0]["ok"] is True
+        assert args[0]["revision"] == 1
+        data = json.loads(tf.read_text(encoding="utf-8"))
+        assert data["_rev"] == 1
+        assert data["segments"][0]["text"] == "hello"
+
+    def test_add_segment_rejected_on_stale_revision(self, tmp_path: Path):
+        from clio.ui.routes.transcripts import handle_post_transcripts
+
+        handler = _handler_with_config(tmp_path)
+        (tmp_path / "transcripts").mkdir()
+        transcript = {"_rev": 2, "segments": []}
+        tf = tmp_path / "transcripts" / "001_GL010683_transcript.json"
+        tf.write_text(json.dumps(transcript), encoding="utf-8")
+
+        handler._send_json = MagicMock()
+        handle_post_transcripts(
+            handler,
+            {"video": ["001_GL010683.mp4"]},
+            {"start": 5.0, "end": 8.0, "text": "hello", "revision": 1},
+        )
+        payload, status = handler._send_json.call_args[0]
+        assert status == 409
+        assert json.loads(tf.read_text(encoding="utf-8"))["_rev"] == 2
+
+    def test_create_refuses_existing_file(self, tmp_path: Path):
+        from clio.ui.routes.transcripts import handle_post_transcripts
+
+        handler = _handler_with_config(tmp_path)
+        (tmp_path / "transcripts").mkdir()
+        tf = tmp_path / "transcripts" / "001_GL010683_transcript.json"
+        tf.write_text(json.dumps({"segments": []}), encoding="utf-8")
+
+        handler._send_json = MagicMock()
+        handle_post_transcripts(
+            handler,
+            {"video": ["001_GL010683.mp4"]},
+            {"create": True},
+        )
+        payload, status = handler._send_json.call_args[0]
+        assert status == 409
+        assert json.loads(tf.read_text(encoding="utf-8")) == {"segments": []}
+
+    def test_create_new_file(self, tmp_path: Path):
+        from clio.ui.routes.transcripts import handle_post_transcripts
+
+        handler = _handler_with_config(tmp_path)
+        (tmp_path / "transcripts").mkdir()
+
+        handler._send_json = MagicMock()
+        handle_post_transcripts(
+            handler,
+            {"video": ["001_GL010683.mp4"]},
+            {"create": True},
+        )
+        payload = handler._send_json.call_args[0][0]
+        assert payload["ok"] is True
+        data = json.loads((tmp_path / "transcripts" / "001_GL010683_transcript.json").read_text(encoding="utf-8"))
+        assert data["_rev"] == 1
+        assert data["segments"] == []
 
 
 class TestHandleGetWhisperCheck:

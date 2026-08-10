@@ -324,7 +324,7 @@ export function renderTranscript() {
     if (!v) { addMsg.textContent = '找不到当前视频'; addBtn.disabled = false; return; }
     try {
       const r = await api('POST', `/api/transcripts?video=${encodeURIComponent(v.file)}`, {
-        start, end, text,
+        start, end, text, revision: state.transcript && state.transcript.revision,
       });
       if (r.ok) {
         state.transcript = await api('GET', `/api/transcripts?video=${encodeURIComponent(v.file)}`);
@@ -339,8 +339,15 @@ export function renderTranscript() {
         addMsg.style.color = 'var(--error)';
       }
     } catch (e) {
-      addMsg.textContent = '添加失败: ' + e.message;
-      addMsg.style.color = 'var(--error)';
+      if (e.status === 409) {
+        addMsg.textContent = '内容已被其他窗口修改，已刷新: ' + (e.message || '');
+        addMsg.style.color = 'var(--error)';
+        state.transcript = await api('GET', `/api/transcripts?video=${encodeURIComponent(v.file)}`);
+        renderTranscript();
+      } else {
+        addMsg.textContent = '添加失败: ' + e.message;
+        addMsg.style.color = 'var(--error)';
+      }
     } finally {
       addBtn.disabled = false;
     }
@@ -393,6 +400,7 @@ export function renderTranscript() {
           const r = await api('PUT', `/api/transcripts?video=${encodeURIComponent(v.file)}`, {
             segment_index: i,
             text: newText,
+            revision: state.transcript && state.transcript.revision,
           });
           if (r.ok) {
             seg.text = newText;
@@ -401,7 +409,13 @@ export function renderTranscript() {
             setStatus('保存失败: ' + (r.error || '未知错误'), 'err');
           }
         } catch (e) {
-          setStatus('保存失败: ' + e.message, 'err');
+          if (e.status === 409) {
+            setStatus('内容已被其他窗口修改，已刷新', 'err');
+            state.transcript = await api('GET', `/api/transcripts?video=${encodeURIComponent(v.file)}`);
+            renderTranscript();
+          } else {
+            setStatus('保存失败: ' + e.message, 'err');
+          }
         }
         const newDiv = document.createElement('div');
         newDiv.className = 'seg-text';
@@ -422,7 +436,7 @@ export function renderTranscript() {
       if (!v) { setStatus('找不到当前视频', 'err'); return; }
       try {
         const r = await api('PUT', `/api/transcripts?video=${encodeURIComponent(v.file)}`, {
-          segment_index: i, delete: true,
+          segment_index: i, delete: true, revision: state.transcript && state.transcript.revision,
         });
         if (r.ok) {
           segments.splice(i, 1);
@@ -432,7 +446,13 @@ export function renderTranscript() {
           setStatus('删除失败: ' + (r.error || '未知错误'), 'err');
         }
       } catch (e) {
-        setStatus('删除失败: ' + e.message, 'err');
+        if (e.status === 409) {
+          setStatus('内容已被其他窗口修改，已刷新', 'err');
+          state.transcript = await api('GET', `/api/transcripts?video=${encodeURIComponent(v.file)}`);
+          renderTranscript();
+        } else {
+          setStatus('删除失败: ' + e.message, 'err');
+        }
       }
     };
     ol.appendChild(li);
