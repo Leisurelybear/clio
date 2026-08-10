@@ -5,7 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from clio.ui.services.project_service import (
+    ProjectResolutionError,
     _add_to_registry,
     _detect_steps,
     _list_projects,
@@ -217,9 +220,9 @@ class TestResolveProjectInput:
         arbitrary = tmp_path / "arbitrary"
         arbitrary.mkdir()
 
-        result = resolve_project_input({"input_dir": [str(arbitrary)]}, default_input, cfg)
-
-        assert result == default_input
+        with pytest.raises(ProjectResolutionError) as exc:
+            resolve_project_input({"input_dir": [str(arbitrary)]}, default_input, cfg)
+        assert exc.value.status == 404
 
     def test_accepts_registered_input_dir_query(self, tmp_path: Path):
         cfg = tmp_path / "config.yaml"

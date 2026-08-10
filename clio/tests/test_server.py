@@ -361,6 +361,26 @@ class TestDelegation:
         assert result == Path("/resolved/output")
         mock_pod.assert_called_once_with(Path("/my/proj"))
 
+    def test_invoke_handler_returns_result(self, handler_cls):
+        handler = _build_handler(handler_cls)
+        result = handler._invoke_handler(lambda h, qs: "ok", {"a": ["1"]})
+        assert result == "ok"
+
+    def test_invoke_handler_maps_resolution_error(self, handler_cls):
+        from clio.ui.services.project_service import ProjectResolutionError
+
+        handler = _build_handler(handler_cls)
+
+        def boom(h, qs):
+            raise ProjectResolutionError(404, "unknown project name: nope")
+
+        with patch.object(handler, "_send_json") as mock_send:
+            handler._invoke_handler(boom, {"a": ["1"]})
+        mock_send.assert_called_once()
+        payload, status = mock_send.call_args[0]
+        assert status == 404
+        assert payload == {"ok": False, "error": "unknown project name: nope"}
+
 
 # ===========================================================================
 # do_GET routing

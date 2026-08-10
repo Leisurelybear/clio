@@ -369,12 +369,31 @@ def is_under_root(path: Path, root: Path) -> bool:
         return False
 
 
+class ProjectResolutionError(ValueError):
+    """Raised when an explicit project selector cannot be resolved.
+
+    Carries the HTTP status a route should answer with: 400 (invalid input),
+    404 (unknown project) or 409 (ambiguous match). Callers that only want the
+    best-effort default fallback must not pass an explicit selector.
+    """
+
+    def __init__(self, status: int, message: str):
+        super().__init__(message)
+        self.status = status
+
+
 def resolve_project_input(qs: dict, input_dir: Path, config_path: Path | None) -> Path:
     """Resolve project directory from query params; default to current project_dir.
 
     Priority:
       1. project_dir / input_dir query param (direct path, unambiguous)
       2. project name query param (may be ambiguous)
+
+    P1-28: when the caller passes an *explicit* selector (project_dir/input_dir
+    or project name) that cannot be resolved, this raises ``ProjectResolutionError``
+    instead of silently falling back to the default — an invalid dir, an unknown
+    name or a duplicate name must surface as a clear 400/404/409, not run against
+    the wrong project.
     """
     input_dir_raw = qs.get("project_dir", [None])[0] or qs.get("input_dir", [None])[0]
     if input_dir_raw:
@@ -382,6 +401,10 @@ def resolve_project_input(qs: dict, input_dir: Path, config_path: Path | None) -
         allowed_paths = collect_allowed_project_paths(input_dir, config_path)
         if candidate.is_dir() and str(candidate) in allowed_paths:
             return candidate
+        raise ProjectResolutionError(
+            404 if candidate.is_dir() else 400,
+            f"project directory not allowed or missing: {input_dir_raw}",
+        )
 
     project_name = qs.get("project", [None])[0]
     if not project_name:
@@ -430,11 +453,11 @@ def resolve_project_input(qs: dict, input_dir: Path, config_path: Path | None) -
                 candidates.append(p)
 
     if not candidates:
-        return input_dir
+        raise ProjectResolutionError(404, f"unknown project name: {project_name}")
     if len(candidates) == 1:
         return candidates[0]
     candidates.sort(key=_score, reverse=True)
-    return candidates[0]
+    raise ProjectResolutionError(409, f"ambiguous project name: {project_name}")
 
 
 def resolve_last_project_config(config: AppConfig, config_path: Path | None) -> AppConfig:

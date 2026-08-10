@@ -120,6 +120,7 @@ from clio.ui.services.file_service import (
     send_video_range,
 )
 from clio.ui.services.project_service import (
+    ProjectResolutionError,
     _project_output_dir,
     resolve_last_project_config,
     resolve_project_dir,
@@ -367,6 +368,13 @@ def make_handler(
         def _get_config(self, project_input: Path | None = None) -> AppConfig:
             return self.__class__._config_cache.get(project_input)
 
+        def _invoke_handler(self, handler_fn, *args, **kwargs):
+            """Run a route handler; translate ProjectResolutionError into a JSON response."""
+            try:
+                return handler_fn(self, *args, **kwargs)
+            except ProjectResolutionError as e:
+                return self._send_json({"ok": False, "error": str(e)}, e.status)
+
         def _resolve_project_dir(self, qs: dict) -> Path:
             return resolve_project_dir(qs, project_dir, config_path)
 
@@ -415,8 +423,8 @@ def make_handler(
                 return
 
             if path_kwargs:
-                return handler_fn(self, qs, **path_kwargs)
-            return handler_fn(self, qs)
+                return self._invoke_handler(handler_fn, qs, **path_kwargs)
+            return self._invoke_handler(handler_fn, qs)
 
         def do_PUT(self):
             if not self._require_local_session():
@@ -443,8 +451,8 @@ def make_handler(
                 return self._send_json({"ok": False, "error": "unknown endpoint"}, 404)
 
             if path_kwargs:
-                return handler_fn(self, qs, obj, **path_kwargs)
-            return handler_fn(self, qs, obj)
+                return self._invoke_handler(handler_fn, qs, obj, **path_kwargs)
+            return self._invoke_handler(handler_fn, qs, obj)
 
         def do_POST(self):
             if not self._require_local_session():
@@ -478,7 +486,7 @@ def make_handler(
             if "obj" in params:
                 call_kwargs["obj"] = obj
             call_kwargs.update(path_kwargs)
-            return handler_fn(self, **call_kwargs)
+            return self._invoke_handler(handler_fn, **call_kwargs)
 
         def do_DELETE(self):
             if not self._require_local_session():
@@ -494,8 +502,8 @@ def make_handler(
                 return self._send_json({"ok": False, "error": "unknown endpoint"}, 404)
 
             if path_kwargs:
-                return handler_fn(self, qs, **path_kwargs)
-            return handler_fn(self, qs)
+                return self._invoke_handler(handler_fn, qs, **path_kwargs)
+            return self._invoke_handler(handler_fn, qs)
 
     def _resolve_handler(name: str):
         """Look up handler function from module namespace (supports @patch in tests)."""
