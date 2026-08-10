@@ -164,6 +164,39 @@ class TestHandlePostProjectCreate:
         assert data["name"] == "Paris"
         assert data["currentDay"] == "day1"
 
+    def test_does_not_clobber_existing_project(self, tmp_path: Path):
+        handler = MagicMock()
+        proj_dir = tmp_path / "existing"
+        proj_dir.mkdir()
+        (proj_dir / "project.json").write_text(json.dumps({"name": "Original"}), encoding="utf-8")
+        handler.config_path = tmp_path / "config.yaml"
+        handler.__class__._config_cache = MagicMock()
+        handler._send_json = MagicMock()
+
+        handle_post_project_create(handler, {"name": "Intruder", "project_dir": str(proj_dir)})
+
+        assert handler._send_json.call_args[0][1] == 409
+        data = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+        assert data["name"] == "Original"
+
+    def test_aborts_registration_when_project_yaml_fails(self, tmp_path: Path):
+        from unittest.mock import patch
+
+        handler = MagicMock()
+        proj_dir = tmp_path / "new_project"
+        proj_dir.mkdir()
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text("paths: {}\n", encoding="utf-8")
+        handler.config_path = cfg
+        handler.__class__._config_cache = MagicMock()
+        handler._send_json = MagicMock()
+
+        with patch("clio.ui.routes.projects._create_project_yaml", return_value=None):
+            handle_post_project_create(handler, {"name": "Paris", "input_dir": str(proj_dir)})
+
+        assert handler._send_json.call_args[0][1] == 500
+        assert not (tmp_path / "projects.json").is_file()
+
 
 class TestHandlePostProjectAdd:
     def test_missing_input_dir(self):

@@ -115,6 +115,9 @@ def handle_post_project_create(handler: HandlerProtocol, obj: dict) -> None:
     input_path = Path(project_dir_raw)
     if not input_path.is_dir():
         return handler._send_json({"ok": False, "error": f"project_dir not found: {project_dir_raw}"}, 400)
+    proj_file = input_path / "project.json"
+    if proj_file.is_file():
+        return handler._send_json({"ok": False, "error": f"目录已存在项目，请改用“打开项目”：{project_dir_raw}"}, 409)
     if output_dir_raw:
         proj_out = Path(output_dir_raw)
     else:
@@ -131,10 +134,12 @@ def handle_post_project_create(handler: HandlerProtocol, obj: dict) -> None:
         "createdAt": now,
         "updatedAt": now,
     }
-    proj_file = input_path / "project.json"
     _save_atomic(proj_file, json.dumps(proj_data, ensure_ascii=False, indent=2).encode("utf-8"))
-    # Auto-create project.yaml (silent failure is fine)
-    _create_project_yaml(input_path, config_path, proj_out)
+    # Auto-create project.yaml; a write against an existing global config must not
+    # silently fall through to registry registration (P1-29).
+    yaml_path = _create_project_yaml(input_path, config_path, proj_out)
+    if config_path and config_path.is_file() and yaml_path is None:
+        return handler._send_json({"ok": False, "error": f"创建 project.yaml 失败：{project_dir_raw}"}, 500)
     # New projects start with an empty selection (videos.json)
     from clio.tasks._video_loader import save_selected_videos
 
@@ -174,7 +179,9 @@ def handle_post_project_add(handler: HandlerProtocol, obj: dict) -> None:
             "updatedAt": now,
         }
         _save_atomic(proj_file, json.dumps(proj_data, ensure_ascii=False, indent=2).encode("utf-8"))
-        _create_project_yaml(input_path, config_path, proj_out)
+        # P1-29: don't proceed when a configured global exists but project.yaml can't be written.
+        if _create_project_yaml(input_path, config_path, proj_out) is None and config_path and config_path.is_file():
+            return handler._send_json({"ok": False, "error": f"创建 project.yaml 失败：{project_dir_raw}"}, 500)
         from clio.tasks._video_loader import save_selected_videos
 
         if not (input_path / "videos.json").is_file():

@@ -16,6 +16,7 @@ All functions take explicit parameters instead of relying on closure variables.
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,8 @@ import yaml
 
 from clio.config import AppConfig, load_config
 from clio.ui.services.file_service import _save_atomic
+
+_REGISTRY_LOCK = threading.RLock()
 
 
 def _resolve_project_output_path(project_dir: Path, value: str | Path | None) -> Path | None:
@@ -131,65 +134,67 @@ def _registry_project_paths(reg: dict[str, Any]) -> list[str]:
 
 def _remove_from_registry(dir_path: str, config_path: Path | None) -> None:
     """Remove a project from the registry."""
-    registry_file = _registry_path(config_path)
-    if not registry_file.is_file():
-        return
-    try:
-        reg = json.loads(registry_file.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return
-    try:
-        normalized = str(Path(dir_path).resolve())
-    except OSError:
-        normalized = str(Path(dir_path))
-    paths = _registry_project_paths(reg)
-    kept: list[str] = []
-    for p in paths:
+    with _REGISTRY_LOCK:
+        registry_file = _registry_path(config_path)
+        if not registry_file.is_file():
+            return
         try:
-            if str(Path(p).resolve()) == normalized:
-                continue
+            reg = json.loads(registry_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return
+        try:
+            normalized = str(Path(dir_path).resolve())
         except OSError:
-            if p == dir_path:
-                continue
-        kept.append(p)
-    if kept == paths:
-        return
-    data: dict[str, Any] = {"projects": kept}
-    last_project = reg.get("last_project")
-    if last_project:
-        last_name = last_project.get("name") if isinstance(last_project, dict) else last_project
-        if last_name in {Path(p).name for p in kept}:
-            data["last_project"] = last_project
-    _save_atomic(registry_file, json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"))
+            normalized = str(Path(dir_path))
+        paths = _registry_project_paths(reg)
+        kept: list[str] = []
+        for p in paths:
+            try:
+                if str(Path(p).resolve()) == normalized:
+                    continue
+            except OSError:
+                if p == dir_path:
+                    continue
+            kept.append(p)
+        if kept == paths:
+            return
+        data: dict[str, Any] = {"projects": kept}
+        last_project = reg.get("last_project")
+        if last_project:
+            last_name = last_project.get("name") if isinstance(last_project, dict) else last_project
+            if last_name in {Path(p).name for p in kept}:
+                data["last_project"] = last_project
+        _save_atomic(registry_file, json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"))
 
 
 def _add_to_registry(dir_path: str, config_path: Path | None) -> None:
-    registry_file = _registry_path(config_path)
-    paths: list[str] = []
-    last_project = None
-    if registry_file.is_file():
+    with _REGISTRY_LOCK:
+        registry_file = _registry_path(config_path)
+        paths: list[str] = []
+        last_project = None
+        if registry_file.is_file():
+            try:
+                reg = json.loads(registry_file.read_text(encoding="utf-8"))
+                paths = _registry_project_paths(reg)
+                last_project = reg.get("last_project")
+            except (json.JSONDecodeError, OSError):
+                paths = []
         try:
-            reg = json.loads(registry_file.read_text(encoding="utf-8"))
-            paths = _registry_project_paths(reg)
-            last_project = reg.get("last_project")
-        except (json.JSONDecodeError, OSError):
-            paths = []
-    try:
-        normalized = str(Path(dir_path).resolve())
-    except OSError:
-        normalized = str(Path(dir_path))
-    resolved_set = set()
-    for p in paths:
-        try:
-            resolved_set.add(str(Path(p).resolve()))
+            normalized = str(Path(dir_path).resolve())
         except OSError:
-            resolved_set.add(p)
-    if normalized not in resolved_set:
-        paths.append(normalized)
-    data: dict[str, Any] = {"projects": paths}
-    if last_project:
-        data["last_project"] = last_project
-    _save_atomic(registry_file, json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"))
+            normalized = str(Path(dir_path))
+        resolved_set = set()
+        for p in paths:
+            try:
+                resolved_set.add(str(Path(p).resolve()))
+            except OSError:
+                resolved_set.add(p)
+        if normalized not in resolved_set:
+            paths.append(normalized)
+        data: dict[str, Any] = {"projects": paths}
+        if last_project:
+            data["last_project"] = last_project
+        _save_atomic(registry_file, json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"))
 
 
 def _save_last_project(
@@ -199,18 +204,19 @@ def _save_last_project(
 
     Stores name + project_dir. `input_dir` remains a keyword alias for callers.
     """
-    registry_file = _registry_path(config_path)
-    paths: list[str] = []
-    if registry_file.is_file():
-        try:
-            reg = json.loads(registry_file.read_text(encoding="utf-8"))
-            paths = _registry_project_paths(reg)
-        except (json.JSONDecodeError, OSError):
-            paths = []
-    dir_value = project_dir or input_dir
-    last_project: str | dict[str, str] = {"name": name, "project_dir": dir_value} if dir_value else name
-    data: dict[str, Any] = {"projects": paths, "last_project": last_project}
-    _save_atomic(registry_file, json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"))
+    with _REGISTRY_LOCK:
+        registry_file = _registry_path(config_path)
+        paths: list[str] = []
+        if registry_file.is_file():
+            try:
+                reg = json.loads(registry_file.read_text(encoding="utf-8"))
+                paths = _registry_project_paths(reg)
+            except (json.JSONDecodeError, OSError):
+                paths = []
+        dir_value = project_dir or input_dir
+        last_project: str | dict[str, str] = {"name": name, "project_dir": dir_value} if dir_value else name
+        data: dict[str, Any] = {"projects": paths, "last_project": last_project}
+        _save_atomic(registry_file, json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"))
 
 
 def _list_projects(
