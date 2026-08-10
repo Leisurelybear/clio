@@ -39,6 +39,23 @@ describe('subtitleControlsModel', () => {
     expect(m.max_len_per_line).toBe(16);
     expect(m.scroll_speed).toBe(40);
   });
+
+  it('escapes attribute-breaking characters in string values', () => {
+    const m = subtitleControlsModel({
+      preview: {
+        subtitles: {
+          font_color: '" onfocus="alert(1)',
+          background: '<img src=x onerror=alert(1)>',
+          outline: 'red" autofocus"',
+          font_family: "' style=position:fixed",
+        },
+      },
+    });
+    expect(m.font_color).toBe('&quot; onfocus=&quot;alert(1)');
+    expect(m.background).toBe('&lt;img src=x onerror=alert(1)&gt;');
+    expect(m.outline).toBe('red&quot; autofocus&quot;');
+    expect(m.font_family).toBe('&#39; style=position:fixed');
+  });
 });
 
 describe('mergeSubtitleSettings', () => {

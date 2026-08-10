@@ -4,13 +4,16 @@ export function subtitleControlsModel(config) {
     const n = Number(v);
     return Number.isFinite(n) && n > 0 ? n : d;
   };
+  const attr = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
   return {
     font_size: num(s.font_size, 22),
     min_font_size: num(s.min_font_size, 14),
-    font_color: safeStr(s.font_color, '#fff'),
-    background: safeStr(s.background, 'rgba(0,0,0,.55)'),
-    outline: safeStr(s.outline, '0 0 2px rgba(0,0,0,.8)'),
-    font_family: safeStr(s.font_family, ''),
+    font_color: attr(safeStr(s.font_color, '#fff')),
+    background: attr(safeStr(s.background, 'rgba(0,0,0,.55)')),
+    outline: attr(safeStr(s.outline, '0 0 2px rgba(0,0,0,.8)')),
+    font_family: attr(safeStr(s.font_family, '')),
     mode: s.mode || 'auto',
     max_lines: Math.max(1, num(s.max_lines, 2)),
     max_len_per_line: Math.max(1, num(s.max_len_per_line, 16)),
