@@ -11,6 +11,7 @@ import pytest
 
 from clio.ui.routes.run import (
     _apply_run_input_dir_override,
+    _resolve_run_project_dir,
     handle_get_run_status,
     handle_post_rerun,
     handle_post_run_cancel,
@@ -74,6 +75,68 @@ class TestHandleGetRunStatus:
         assert payload["status"] == "running"
         assert payload["phase"] == "compress"
         assert payload["running"] is True
+
+
+class TestResolveRunProjectDir:
+    def test_none_keeps_query_dir(self, tmp_path: Path):
+        proj = tmp_path / "proj"
+        proj.mkdir()
+
+        result, error = _resolve_run_project_dir(proj, None)
+
+        assert result == proj
+        assert error is None
+
+    def test_valid_override_returns_resolved_dir(self, tmp_path: Path):
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        override = tmp_path / "override"
+        override.mkdir()
+
+        result, error = _resolve_run_project_dir(proj, str(override))
+
+        assert result == override.resolve()
+        assert error is None
+
+    def test_blank_override_keeps_query_dir(self, tmp_path: Path):
+        proj = tmp_path / "proj"
+        proj.mkdir()
+
+        result, error = _resolve_run_project_dir(proj, "   ")
+
+        assert result == proj
+        assert error is None
+
+    def test_non_string_override_error(self, tmp_path: Path):
+        proj = tmp_path / "proj"
+        proj.mkdir()
+
+        result, error = _resolve_run_project_dir(proj, 123)
+
+        assert result is proj
+        assert error == "project_dir must be a string"
+
+    def test_missing_override_error(self, tmp_path: Path):
+        proj = tmp_path / "proj"
+        proj.mkdir()
+
+        result, error = _resolve_run_project_dir(proj, str(tmp_path / "missing"))
+
+        assert result is proj
+        assert "project_dir not found" in error
+
+    def test_override_not_allowed_error(self, tmp_path: Path):
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        allowed_root = tmp_path / "allowed"
+        allowed_root.mkdir()
+        other = tmp_path / "other"
+        other.mkdir()
+
+        result, error = _resolve_run_project_dir(proj, str(other), allowed_paths={str(allowed_root.resolve())})
+
+        assert result is proj
+        assert "not allowed" in error
 
 
 class TestApplyRunInputDirOverride:
@@ -212,6 +275,33 @@ class TestHandlePostRunStart:
         assert cfg.plan.use_transcripts is True
         assert handler._send_json.call_args[0][0]["ok"] is True
 
+    def test_override_keeps_config_and_state_unified(self, tmp_path: Path, _handler, _no_thread, monkeypatch):
+        """A body project_dir override must not split config from state (P1-P31)."""
+        handler = _handler
+        query_dir = tmp_path / "query"
+        query_dir.mkdir()
+        override_dir = tmp_path / "override"
+        override_dir.mkdir()
+        handler._resolve_project_dir.return_value = query_dir
+        cfg = MagicMock()
+        cfg.paths.output_dir = tmp_path / "out"
+        handler._get_config.return_value = cfg
+        monkeypatch.setattr(
+            "clio.ui.routes.run.collect_allowed_project_paths",
+            lambda *a, **k: {str(query_dir.resolve()), str(override_dir.resolve())},
+        )
+        captured_keys = []
+        handler._get_state = MagicMock(
+            side_effect=lambda key: captured_keys.append(key) or handler.__class__._fake_state
+        )
+
+        handle_post_run_start(handler, {}, {"steps": ["compress"], "project_dir": str(override_dir)})
+
+        assert handler._send_json.call_args[0][0]["ok"] is True
+        assert handler._get_config.call_args[0][0] == override_dir.resolve()
+        assert captured_keys == [str(override_dir.resolve())]
+        assert handler._get_config.call_args[0][0].resolve() == Path(captured_keys[0])
+
 
 class TestHandlePostRunPreview:
     def test_builds_preview_from_request(self, tmp_path: Path, _handler, monkeypatch):
@@ -254,6 +344,36 @@ class TestHandlePostRunPreview:
         handle_post_run_preview(handler, {}, {"files": "A.mp4"})
 
         handler._send_json.assert_called_once_with({"ok": False, "error": "files must be a list of video names"}, 400)
+
+    def test_override_applies_to_preview(self, tmp_path: Path, _handler, monkeypatch):
+        """Preview must honor the same body project_dir override as run start (P1-P31)."""
+        handler = _handler
+        query_dir = tmp_path / "query"
+        query_dir.mkdir()
+        override_dir = tmp_path / "override"
+        override_dir.mkdir()
+        handler._resolve_project_dir.return_value = query_dir
+        cfg = MagicMock()
+        handler._get_config.return_value = cfg
+        expected = {"input": {}, "steps": [], "totals": {}}
+        build = MagicMock(return_value=expected)
+        monkeypatch.setattr("clio.ui.routes.run.build_run_preview", build)
+        monkeypatch.setattr(
+            "clio.ui.routes.run.collect_allowed_project_paths",
+            lambda *a, **k: {str(query_dir.resolve()), str(override_dir.resolve())},
+        )
+
+        handle_post_run_preview(handler, {}, {"steps": ["compress"], "project_dir": str(override_dir)})
+
+        assert handler._get_config.call_args[0][0] == override_dir.resolve()
+        build.assert_called_once_with(
+            cfg,
+            ["compress"],
+            force=False,
+            use_transcripts=True,
+            files=None,
+            day_label="day1",
+        )
 
 
 class TestHandlePostRerun:

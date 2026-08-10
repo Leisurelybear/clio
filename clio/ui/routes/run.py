@@ -26,30 +26,50 @@ if TYPE_CHECKING:
     from clio.ui.handler_protocol import HandlerProtocol
 
 
+def _resolve_run_project_dir(
+    proj_dir: Path,
+    project_dir_raw: str | None,
+    *,
+    allowed_paths: set[str] | None = None,
+) -> tuple[Path, str | None]:
+    """Resolve the single final project dir a run targets (P1-P31).
+
+    A body-level ``project_dir`` (legacy ``input_dir``) overrides the
+    query-resolved *proj_dir*; the final dir alone must feed config, output,
+    state, lock and tasks so they cannot split. When *allowed_paths* is set,
+    the override must be in that registry/serve allowlist (R-033a).
+    """
+    if project_dir_raw is None:
+        return proj_dir, None
+    if not isinstance(project_dir_raw, str):
+        return proj_dir, "project_dir must be a string"
+    project_dir_raw = project_dir_raw.strip()
+    if not project_dir_raw:
+        return proj_dir, None
+    project_dir = Path(project_dir_raw).expanduser()
+    if not project_dir.is_dir():
+        return proj_dir, f"project_dir not found: {project_dir_raw}"
+    resolved = project_dir.resolve()
+    if allowed_paths is not None and str(resolved) not in allowed_paths:
+        return proj_dir, f"project_dir not allowed: {project_dir_raw}"
+    return resolved, None
+
+
 def _apply_run_project_dir_override(
     cfg,
     project_dir_raw: str | None,
     *,
     allowed_paths: set[str] | None = None,
 ) -> tuple[Any, str | None]:
-    """Return a run-local config copy when the request overrides project_dir.
+    """Backward-compatible config-copy override (legacy callers/tests).
 
-    Accepts body.project_dir or legacy body.input_dir. When *allowed_paths* is set,
-    the path must be in that registry/serve allowlist (R-033a).
+    Prefer ``_resolve_run_project_dir`` + reloading the config for the final
+    dir; this helper only swaps ``_project_dir`` on a deep copy of *cfg*.
     """
-    if project_dir_raw is None:
-        return cfg, None
-    if not isinstance(project_dir_raw, str):
-        return cfg, "project_dir must be a string"
-    project_dir_raw = project_dir_raw.strip()
-    if not project_dir_raw:
-        return cfg, None
-    project_dir = Path(project_dir_raw).expanduser()
-    if not project_dir.is_dir():
-        return cfg, f"project_dir not found: {project_dir_raw}"
-    resolved = project_dir.resolve()
-    if allowed_paths is not None and str(resolved) not in allowed_paths:
-        return cfg, f"project_dir not allowed: {project_dir_raw}"
+    base = getattr(cfg, "_project_dir", None) or getattr(cfg, "project_dir", None) or Path()
+    resolved, error = _resolve_run_project_dir(base, project_dir_raw, allowed_paths=allowed_paths)
+    if error is not None or resolved == base:
+        return cfg, error
     run_cfg = copy.deepcopy(cfg)
     run_cfg._project_dir = resolved
     return run_cfg, None
@@ -168,18 +188,20 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
         return handler._send_json({"ok": False, "error": "invalid day_label"}, 400)
     steps = obj.get("steps")
     proj_dir = handler._resolve_project_dir(qs)
-    cfg = handler._get_config(proj_dir)
     config_path = getattr(handler, "config_path", None)
     if not isinstance(config_path, Path):
         config_path = None
     allowed = collect_allowed_project_paths(proj_dir, config_path)
-    cfg, cfg_error = _apply_run_project_dir_override(
-        cfg,
+    proj_dir, cfg_error = _resolve_run_project_dir(
+        proj_dir,
         obj.get("project_dir") if obj.get("project_dir") is not None else obj.get("input_dir"),
         allowed_paths=allowed,
     )
     if cfg_error:
         return handler._send_json({"ok": False, "error": cfg_error}, 400)
+    # Config, output, state, lock and tasks all derive from the single final
+    # project dir, so a body override can never split them (P1-P31).
+    cfg = handler._get_config(proj_dir)
     # Isolate run-local config so body flags never mutate the shared cache entry.
     cfg = copy.deepcopy(cfg)
     state = handler._get_state(str(proj_dir.resolve()))
@@ -243,6 +265,18 @@ def handle_post_run_preview(handler: HandlerProtocol, qs: dict[str, Any], obj: d
         return handler._send_json({"ok": False, "error": "files must be a list of video names"}, 400)
 
     proj_dir = handler._resolve_project_dir(qs)
+    config_path = getattr(handler, "config_path", None)
+    if not isinstance(config_path, Path):
+        config_path = None
+    allowed = collect_allowed_project_paths(proj_dir, config_path)
+    proj_dir, cfg_error = _resolve_run_project_dir(
+        proj_dir,
+        obj.get("project_dir") if obj.get("project_dir") is not None else obj.get("input_dir"),
+        allowed_paths=allowed,
+    )
+    if cfg_error:
+        return handler._send_json({"ok": False, "error": cfg_error}, 400)
+    # Preview must reflect the same final project dir as the actual run (P1-P31).
     cfg = handler._get_config(proj_dir)
     preview = build_run_preview(
         cfg,
