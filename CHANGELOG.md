@@ -1,5 +1,148 @@
 # Changelog
 
+## 2026-08-11
+
+Review remediation batch #2 for `E:\Downloads\clio-review-20260808.csv`
+(P1-P33…P1-P35, P2-P01…P2-P26, P2-P34…P2-P36, P2-P41…P2-P48, GAP-P1-01,
+GAP-P1-05, GAP-P2-03…GAP-P2-07, P3-GAP-P3-01…P3-GAP-02; full regression 1490
+pytest).
+
+### Whisper download isolation (P1-P33)
+- fix(ui): per-project download state (`_PROJECT_TASKS` keyed by project ID)
+  replaces global `_INSTALL_THREAD`/`_INSTALL_CANCEL`; cancel for project A no
+  longer affects project B
+- fix(ui): `_pip_install_streaming` and `_run_install` take a per-call `cancel`
+  event; environment variables are no longer mutated globally
+
+### Editor dirty-flag correctness (P1-P34)
+- fix(ui): `save()` captures a monotonic `_saveGeneration` before the async API
+  call; `clearDirty()` only fires when the response matches the latest snapshot,
+  preventing stale responses from clearing new unsaved edits
+
+### Time-base consistency (P1-P35)
+- fix(ui): `offset_sec` is now gated on `state.source === 'original'` in all
+  three viewer.js call sites (`seekToGlobal`, `_resyncPlanPreviewFromPlayer`,
+  `ontimeupdate`); compressed-split segments no longer seek to the wrong position
+
+### Analysis & waveform
+- fix(tasks): `run_analyze_all` always merges with existing `summary.csv`
+  (P2-P01) — failed/offline rows are no longer silently dropped
+- fix(tasks): `peaks_from_pcm_s16le` uses `struct.unpack_from` to avoid
+  allocating a full int array (P2-P03)
+- fix(tasks): waveform cache key includes file fingerprint (size + mtime +
+  head bytes); probe errors are not cached as valid (P2-P12)
+- fix(tasks): `extract_peaks_for_video` returns `probe_error: True` on ffmpeg
+  failure instead of crashing (P2-P12)
+
+### AI provider lifecycle (P2-P05, P2-P06)
+- feat(ai): `_CachedEntry` has a `closing` flag; TTL-expired entries are
+  marked closing and closed before replacement — new calls during the
+  closing window create a fresh provider instead of reusing a closing one
+- feat(ai): `provider_supports_video()` checks `capabilities` tag; video tasks
+  fail fast with a clear error when bound to a non-video provider
+
+### Config & validation
+- fix(config): `AppConfig.analyze/script/plan/export/preview` return a
+  per-instance mutable default (via `_default_project_cfg`) instead of sharing
+  the module-level `_EMPTY_PROJECT` singleton (P2-P10)
+- fix(config): setters on the same properties allow `config.analyze.X = Y` to
+  work correctly (needed by `--force` flag)
+- fix(config): `_require_finite()` rejects `NaN`/`INF` in all numeric
+  validators (GAP-P2-04)
+- fix(config): cross-field validation `font_size >= min_font_size` (P2-P20)
+- fix(config): `export.output_subdir != "export"` raises `NotImplementedError`
+  (P2-P16)
+
+### Security & input validation
+- fix(ui): `_send_static` uses `Path.is_relative_to()` instead of string
+  `startswith` (P2-P22)
+- fix(ui): `log_message` masks `token=` in URLs (P2-P23)
+- fix(ui): `_parse_int_param` safely parses integer query params with bounds
+  (P2-P48)
+- fix(ui): strict boolean validation for `force`/`overwrite`/`reencode` in
+  cut/export (GAP-P1-05)
+- fix(ui): `use_transcripts` and `steps` are validated as proper types
+  (P2-P24)
+- fix(ui): `_sync_env_to_environ` removes deleted keys from `os.environ`
+  (GAP-P2-06)
+- fix(ui): `_sanitize_url` strips credentials from proxy URLs in error
+  messages (GAP-P2-06)
+- fix(ui): `GET /api/project` no longer modifies the registry; use `POST
+  /api/project/select` instead (P2-P45)
+- fix(ui): `_read_transcript` sanitizes `avg_logprob` to prevent `toFixed`
+  crashes (P2-P42)
+- fix(ui): `handle_post_transcripts(create)` accepts initial segments (P2-P42)
+
+### Concurrency & lifecycle
+- fix(ui): `_get_state` uses double-checked locking (P2-P21)
+- fix(ui): `_ServerState` has `job_lock`/`job_thread`/`job_cancel_event` for
+  cut/export background jobs (P2-P34)
+- fix(ui): SSE stream sends heartbeat comments every 10s (P2-P36)
+- fix(ui): `run()` calls `server.shutdown()` before `server.server_close()`
+  (P2-P25)
+- fix(ui): desktop dialogs use `webview.confirm_dialog()` instead of Tk (P2-P26)
+
+### Subtitle & voiceover
+- fix(ui): `loadVoiceoverText` cache key includes `scriptJson` (P2-P17)
+- fix(ui): `renderPlanSubtitle` skips voiceover fetch when segment already has
+  a subtitle (P2-P18)
+- fix(ui): `_prefillSubtitle` updates `seg.subtitle` + `markDirty()` when
+  pre-filling from voiceover (P2-P19)
+
+### Infrastructure
+- fix(utils): `run_subprocess`/`popen_subprocess` force UTF-8 encoding
+  (P3-GAP-P3-01)
+- fix(utils): `run_probe` adds timeout/cancel/output-limit for ffprobe
+  (GAP-P2-07)
+- fix(utils): `run_ffmpeg` uses a reader thread + polling wait with ring buffer
+  (P2-P04)
+- fix(utils): `validate_within_root` rejects path traversal and symlinks
+  (GAP-P1-01)
+- fix(log): `teardown_logging` restores `sys.excepthook` (P2-P15)
+- fix(shutdown): `before_stop` is exception-safe with error tracking (P2-P15)
+- fix(session_log): monotonic `_sequence` cursor replaces list-index offset
+  (GAP-P2-03)
+- fix(processing_state): `_load` validates structure (dict + files) (P2-P14)
+- fix(vmeta): `_quick_hash` includes size + mtime_ns + multi-sample; declared
+  paths validate root containment (P2-P13)
+- fix(migrate): atomic tmp+rename writes + post-write verification (P2-P09)
+- fix(transcript_align): clears stale `transcript` fields when no match (P2-P11)
+- fix(whisper-install.sh): `if cmd; then ... fi` instead of `set -e` + `$?`
+  (P3-GAP-P3-02)
+
+### Tests
+- Updated mocks for `_PROJECT_TASKS`, `run_probe`, and `_ServerState`
+- Added tests: cancel isolation, model-load guard, enum-name rejection,
+  `is_model_loaded`, `avg_logprob` sanitization, init-segment validation
+
+## 2026-08-10
+
+UI review remediation batch for `E:\Downloads\clio-review-20260808.csv`
+(P1-28 … P1-31; full regression 1482 pytest).
+
+### Project selection & registry
+- fix(ui): `resolve_project_input` raises `ProjectResolutionError` (400/404/409)
+  when an explicit project selector cannot be resolved, instead of silently
+  falling back to the default project (P1-28)
+- fix(ui): serialize project-registry mutation with a module-level RLock; project
+  create refuses clobbering an existing `project.json` (409) and aborts
+  registration when the `project.yaml` write fails (P1-29)
+
+### Concurrency
+- feat(ui): optimistic-concurrency `_rev` on transcript files — revision-aware
+  GET/PUT/POST with 409 on stale writes and frontend refresh (P1-P30)
+
+### Run consistency
+- fix(ui): resolve the single final project dir (query selector + body-level
+  `project_dir`/`input_dir` override) before loading config, so config, output,
+  state, lock and tasks all derive from the same project and can never split.
+  `POST /api/run/preview` now honors and validates the same override (P1-P31)
+
+### Tests / Docs
+- New tests for selector resolution errors, registry-lock serialization,
+  transcript revisions, and run-override unify/preview. Updated
+  `E:\Downloads\clio-review-20260808.csv` (status column, P1-28..P1-31 done).
+
 ## 2026-08-09
 
 Review remediation batch for `E:\Downloads\clio-review-20260808.csv` (P0 3 + P1 15

@@ -222,10 +222,11 @@ function seekToGlobal(globalSec, opts = {}) {
     return;
   }
 
-  const seekSec = loc.planSec + (v.offset_sec || 0);
+  const offset = state.source === 'original' ? (v.offset_sec || 0) : 0;
+  const seekSec = loc.planSec + offset;
   const seg = tl.segments[loc.segIndex];
   state._previewEndTime = seg
-    ? seg.planEnd + (v.offset_sec || 0)
+    ? seg.planEnd + offset
     : null;
 
   _loadAndSeekSource(v, seekSec, wantPlay);
@@ -326,7 +327,7 @@ function _resyncPlanPreviewFromPlayer(player, opts = {}) {
       : null);
   if (!v) return false;
 
-  const offset = v.offset_sec || 0;
+  const offset = state.source === 'original' ? (v.offset_sec || 0) : 0;
   const planSec = Math.max(0, player.currentTime - offset);
   const loc = locateSegmentByPlanSec(tl, v.index, planSec);
   if (!loc) return false;
@@ -730,7 +731,7 @@ function setupPlayer() {
       const v = state.videos.find(
         (x) => String(x.index) === String(seg?.videoIndex),
       );
-      const offset = v?.offset_sec || 0;
+      const offset = state.source === 'original' ? (v?.offset_sec || 0) : 0;
       if (seg && seg.duration > 0) {
         const planSec = Math.max(0, player.currentTime - offset);
         const local = Math.min(seg.duration, Math.max(0, planSec - seg.planStart));

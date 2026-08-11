@@ -423,7 +423,11 @@ function _prefillSubtitle(li, seg) {
     .then((d) => {
       const text = typeof d?.voiceover === 'string' ? d.voiceover : '';
       subEl.placeholder = text ? '从口播文案预填，编辑将保存到规划' : '无口播文案';
-      if (subEl.value === '') subEl.value = text;
+      if (subEl.value === '') {
+        subEl.value = text;
+        seg.subtitle = text;
+        markDirty();
+      }
     })
     .catch(() => { subEl.placeholder = '加载失败'; });
 }
@@ -502,7 +506,6 @@ export function renderPlan() {
       + (state.previewActive && state.previewIndex === i ? ' preview-active' : '')
       + (expanded ? ' plan-seg-expanded' : '');
     li.dataset.previewIndex = String(i);
-    li.draggable = true;
     li.innerHTML = `
       <div class="plan-seg-header">
         <span class="plan-drag-handle" title="拖拽排序" aria-hidden="true">⠿</span>
@@ -630,26 +633,29 @@ export function renderPlan() {
       _expandedSegIndex = nextExpandedAfterDelete(_expandedSegIndex, i, nextSeq.length);
       applySequence(nextSeq);
     });
-    li.addEventListener('dragstart', (e) => {
-      _dragFromIndex = i;
-      _dropToIndex = null;
-      li.classList.add('plan-seg-dragging');
-      e.dataTransfer.effectAllowed = 'move';
-      try {
-        e.dataTransfer.setData('text/plain', String(i));
-      } catch { /* ignore */ }
-    });
-    li.addEventListener('dragend', () => {
-      li.classList.remove('plan-seg-dragging');
-      clearDropIndicator();
-      _dragFromIndex = null;
-      // Apply any expand change that was deferred while dragging
-      if (document.getElementById('plan-list')) {
-        const open = document.querySelector('#plan-list .plan-seg-expanded');
-        const openIdx = open ? parseInt(open.dataset.previewIndex, 10) : null;
-        if (openIdx !== _expandedSegIndex) renderPlan();
-      }
-    });
+    const dragHandle = li.querySelector('.plan-drag-handle');
+    if (dragHandle) {
+      dragHandle.draggable = true;
+      dragHandle.addEventListener('dragstart', (e) => {
+        _dragFromIndex = i;
+        _dropToIndex = null;
+        li.classList.add('plan-seg-dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        try {
+          e.dataTransfer.setData('text/plain', String(i));
+        } catch { /* ignore */ }
+      });
+      dragHandle.addEventListener('dragend', () => {
+        li.classList.remove('plan-seg-dragging');
+        clearDropIndicator();
+        _dragFromIndex = null;
+        if (document.getElementById('plan-list')) {
+          const open = document.querySelector('#plan-list .plan-seg-expanded');
+          const openIdx = open ? parseInt(open.dataset.previewIndex, 10) : null;
+          if (openIdx !== _expandedSegIndex) renderPlan();
+        }
+      });
+    }
     li.addEventListener('dragover', (e) => {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
@@ -872,8 +878,16 @@ export async function executeCut() {
 }
 
 
+let _saveGeneration = 0;
+
+function _bumpSaveGeneration() {
+  _saveGeneration += 1;
+  return _saveGeneration;
+}
+
 export async function save() {
   if (!state.dirty) { setStatus('没有改动需要保存', 'warn'); return; }
+  const generation = _bumpSaveGeneration();
   const entity = state.currentEntity;
   const day = state.currentDay;
   const tab = state.currentTab;
@@ -900,11 +914,11 @@ export async function save() {
         r = await api('PUT', '/api/config/project', state.configProject);
       }
       if (r.error) throw new Error(r.error);
+      if (generation !== _saveGeneration) return;
       clearDirty();
       const status = configSaveStatusForTab(ct);
       setStatus(status.message, status.level);
       addToast(status.message, status.level === 'ok' ? 'success' : 'warning');
-      // Re-probe ffmpeg + full banner (keeps orphan warnings) + menu re-render.
       try {
         if (typeof window.refreshFfmpegDepsUi === 'function') {
           await window.refreshFfmpegDepsUi();
@@ -930,6 +944,7 @@ export async function save() {
       setStatus('当前页无可保存内容', 'warn');
       return;
     }
+    if (generation !== _saveGeneration) return;
     clearDirty();
     setStatus('已保存', 'ok');
     addToast('已保存', 'success');

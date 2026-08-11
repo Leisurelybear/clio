@@ -106,7 +106,7 @@ class TestDiscoverFfmpegBin:
 
 class TestGetDurationSec:
     def test_returns_float(self):
-        with patch("clio.utils.run_subprocess") as mock_run:
+        with patch("clio.utils.run_probe") as mock_run:
             mock_run.return_value = subprocess.CompletedProcess(
                 args=[],
                 returncode=0,
@@ -116,13 +116,13 @@ class TestGetDurationSec:
             assert result == pytest.approx(5025.67, rel=0.01)
 
     def test_raises_on_ffprobe_failure(self):
-        with patch("clio.utils.run_subprocess") as mock_run:
+        with patch("clio.utils.run_probe") as mock_run:
             mock_run.side_effect = subprocess.CalledProcessError(1, "ffprobe")
             with pytest.raises(subprocess.CalledProcessError):
                 get_duration_sec(Path("/dummy.mp4"), "ffprobe")
 
     def test_raises_on_na_duration(self):
-        with patch("clio.utils.run_subprocess") as mock_run:
+        with patch("clio.utils.run_probe") as mock_run:
             mock_run.return_value = subprocess.CompletedProcess(
                 args=[],
                 returncode=0,
@@ -132,7 +132,7 @@ class TestGetDurationSec:
                 get_duration_sec(Path("/dummy.mp4"), "ffprobe")
 
     def test_raises_on_inf_duration(self):
-        with patch("clio.utils.run_subprocess") as mock_run:
+        with patch("clio.utils.run_probe") as mock_run:
             mock_run.return_value = subprocess.CompletedProcess(
                 args=[],
                 returncode=0,

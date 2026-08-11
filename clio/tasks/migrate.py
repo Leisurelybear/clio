@@ -155,7 +155,7 @@ def _migrate_one(old_dir: Path, config_path: Path, registry_file: Path) -> tuple
         except OSError as e:
             return False, f"{old_dir}: 备份 project.yaml 失败: {e}"
 
-    # 2. Write new project.yaml without input_dir/recursive
+    # 2. Write new project.yaml without input_dir/recursive (atomic via tmp+rename)
     new_raw = dict(old_raw)
     new_paths = dict(paths_raw)
     new_paths.pop("input_dir", None)
@@ -163,15 +163,19 @@ def _migrate_one(old_dir: Path, config_path: Path, registry_file: Path) -> tuple
     # Always store absolute output_dir so non-in-place moves keep artifacts
     new_paths["output_dir"] = str(abs_output)
     new_raw["paths"] = new_paths
+    new_yaml = new_dir / "project.yaml"
+    tmp_yaml = new_yaml.with_suffix(".yaml.migrate-tmp")
     try:
-        (new_dir / "project.yaml").write_text(
+        tmp_yaml.write_text(
             yaml.dump(new_raw, default_flow_style=False, allow_unicode=True, sort_keys=False),
             encoding="utf-8",
         )
+        tmp_yaml.replace(new_yaml)
     except Exception as e:
+        tmp_yaml.unlink(missing_ok=True)
         return False, f"{old_dir}: 写入 project.yaml 失败: {e}"
 
-    # 3. project.json
+    # 3. project.json (atomic via tmp+rename)
     new_json = new_dir / "project.json"
     data: dict[str, Any] = {}
     if old_json.is_file():
@@ -184,10 +188,26 @@ def _migrate_one(old_dir: Path, config_path: Path, registry_file: Path) -> tuple
     data["output_dir"] = str(abs_output)
     data.setdefault("currentDay", "day1")
     data.setdefault("source", "compressed")
+    tmp_json = new_json.with_suffix(".json.migrate-tmp")
     try:
-        new_json.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp_json.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp_json.replace(new_json)
     except OSError as e:
+        tmp_json.unlink(missing_ok=True)
         return False, f"{old_dir}: 写入 project.json 失败: {e}"
+
+    # Verify writes succeeded before proceeding
+    if not new_yaml.is_file() or not new_json.is_file():
+        return False, f"{old_dir}: 写入验证失败（文件未生成）"
+    try:
+        verify_raw = yaml.safe_load(new_yaml.read_text(encoding="utf-8"))
+        if not verify_raw or "paths" not in verify_raw:
+            return False, f"{old_dir}: project.yaml 内容验证失败"
+        verify_data = json.loads(new_json.read_text(encoding="utf-8"))
+        if verify_data.get("version") != 2:
+            return False, f"{old_dir}: project.json 版本验证失败"
+    except Exception as e:
+        return False, f"{old_dir}: 写入验证失败: {e}"
 
     # 4. videos.json — preserve curated list if the file already exists
     # (including intentional empty []). Only scan when the file is absent.

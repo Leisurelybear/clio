@@ -66,9 +66,26 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
+def _file_fingerprint(source_path: Path) -> str:
+    try:
+        st = source_path.stat()
+        size = st.st_size
+        mtime = int(st.st_mtime * 1000)
+    except OSError:
+        size, mtime = 0, 0
+    head = b""
+    try:
+        with open(source_path, "rb") as f:
+            head = f.read(1024)
+    except OSError:
+        pass
+    return f"{size}:{mtime}:{hashlib.md5(head).hexdigest()[:8]}"
+
+
 def cache_key(source_path: Path) -> str:
     resolved = str(Path(source_path).resolve()).replace("\\", "/").lower()
-    return hashlib.sha1(resolved.encode("utf-8")).hexdigest()[:16]
+    fp = _file_fingerprint(source_path)
+    return hashlib.sha1(f"{resolved}:{fp}".encode()).hexdigest()[:16]
 
 
 def waveforms_dir(project_output: Path) -> Path:
@@ -92,9 +109,10 @@ def peaks_from_pcm_s16le(pcm: bytes, *, bin_count: int) -> list[float]:
     n = len(pcm) // 2
     if n <= 0 or bin_count <= 0:
         return [0.0] * max(bin_count, 0)
-    samples = struct.unpack("<" + "h" * n, pcm[: n * 2])
     peaks = [0.0] * bin_count
-    for i, s in enumerate(samples):
+    fmt = struct.Struct("<h")
+    for i in range(n):
+        s = fmt.unpack_from(pcm, i * 2)[0]
         b = min(bin_count - 1, int(i * bin_count / n))
         a = abs(s) / 32768.0
         if a > peaks[b]:
@@ -114,6 +132,8 @@ def read_peaks(project_output: Path, key: str) -> dict[str, Any] | None:
     except (OSError, json.JSONDecodeError):
         return None
     if data.get("version") != WAVEFORM_VERSION or not isinstance(data.get("peaks"), list):
+        return None
+    if data.get("probe_error"):
         return None
     data.setdefault("status", "ready")
     return data
@@ -290,22 +310,35 @@ def extract_peaks_for_video(
     tmp.close()
     tmp_path = Path(tmp.name)
     try:
-        run_ffmpeg(
-            [
-                "-y",
-                "-i",
-                str(video_path),
-                "-vn",
-                "-ac",
-                "1",
-                "-ar",
-                "8000",
-                "-acodec",
-                "pcm_s16le",
-                str(tmp_path),
-            ],
-            ffmpeg_bin,
-        )
+        try:
+            run_ffmpeg(
+                [
+                    "-y",
+                    "-i",
+                    str(video_path),
+                    "-vn",
+                    "-ac",
+                    "1",
+                    "-ar",
+                    "8000",
+                    "-acodec",
+                    "pcm_s16le",
+                    str(tmp_path),
+                ],
+                ffmpeg_bin,
+            )
+        except Exception as e:
+            return {
+                "version": WAVEFORM_VERSION,
+                "source_path": str(video_path.resolve()),
+                "audio_source": audio_source,
+                "duration_sec": float(dur or 0.0),
+                "bin_count": bins,
+                "peaks": [],
+                "probe_error": True,
+                "probe_error_msg": str(e)[:200],
+                "status": "ready",
+            }
         raw = tmp_path.read_bytes()
         pcm = raw[44:] if len(raw) > 44 and raw[:4] == b"RIFF" else raw
         peaks = peaks_from_pcm_s16le(pcm, bin_count=bins)

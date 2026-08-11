@@ -131,6 +131,7 @@ from clio.utils import write_json_atomic
 STATIC_DIR = Path(__file__).parent / "static"
 
 _desktop_focus_callback: Callable[[], None] | None = None
+_STATE_CREATE_LOCK = threading.Lock()
 
 
 def set_desktop_focus_callback(callback: Callable[[], None] | None) -> None:
@@ -157,8 +158,20 @@ def handle_post_desktop_focus(handler, qs, obj) -> None:
     return handler._send_json({"ok": True})
 
 
+def _parse_int_param(qs: dict, key: str, default: int, min_val: int = 0, max_val: int = 10_000_000) -> int:
+    """Safely parse an integer query parameter with bounds checking."""
+    raw = qs.get(key, [None])[0]
+    if raw is None:
+        return default
+    try:
+        val = int(raw)
+    except (TypeError, ValueError):
+        return default
+    return max(min_val, min(max_val, val))
+
+
 def _handle_get_logs(handler, qs):
-    offset = int(qs.get("offset", ["0"])[0])
+    offset = _parse_int_param(qs, "offset", 0)
     return handler._send_json(read_session_log(offset))
 
 
@@ -172,6 +185,9 @@ class _ServerState:
     run_lock: threading.Lock = field(default_factory=threading.Lock)
     run_thread: threading.Thread | None = None
     cancel_event: threading.Event = field(default_factory=threading.Event)
+    job_lock: threading.Lock = field(default_factory=threading.Lock)
+    job_thread: threading.Thread | None = None
+    job_cancel_event: threading.Event = field(default_factory=threading.Event)
 
 
 # Max JSON body for PUT/POST (R-033d). Chunked bodies without Content-Length out of scope.
@@ -251,12 +267,18 @@ def make_handler(
 
         def _get_state(self, project_key: str) -> _ServerState:
             states = self.__class__._project_states
-            if project_key not in states:
-                states[project_key] = _ServerState()
-            return states[project_key]  # set by HTTPServer
+            if project_key in states:
+                return states[project_key]
+            with _STATE_CREATE_LOCK:
+                if project_key not in states:
+                    states[project_key] = _ServerState()
+                return states[project_key]
 
         def log_message(self, fmt, *args):
-            print(f"  [serve] {self.address_string()} - {fmt % args}")
+            msg = fmt % args
+            if "token=" in msg:
+                msg = msg.split("token=")[0] + "token=***"
+            print(f"  [serve] {self.address_string()} - {msg}")
 
         def _require_auth(self) -> bool:
             """Check Authorization header or ?token= query param against configured token.
@@ -350,7 +372,9 @@ def make_handler(
 
         def _send_static(self, rel: str) -> None:
             target = (static_dir / rel).resolve()
-            if not str(target).startswith(str(static_dir.resolve())):
+            try:
+                target.relative_to(static_dir.resolve())
+            except ValueError:
                 self.send_error(HTTPStatus.FORBIDDEN)
                 return
             if not target.is_file():
@@ -732,6 +756,7 @@ def run(
     except KeyboardInterrupt:
         print("\n  UI closed")
     finally:
+        server.shutdown()
         server.server_close()
         before_stop()
     return 0

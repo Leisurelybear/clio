@@ -60,14 +60,24 @@ class ProcessingState:
         _register_state(self)
 
     def _load(self) -> dict:
+        default = {
+            "_schema_version": ARTIFACT_SCHEMA_VERSION,
+            "version": 1,
+            "steps": list(_STEPS),
+            "files": {},
+        }
         if self._path.is_file():
             try:
                 data = json.loads(self._path.read_text(encoding="utf-8"))
-                data.setdefault("_schema_version", ARTIFACT_SCHEMA_VERSION)
-                return data
             except (json.JSONDecodeError, OSError):
-                pass
-        return {"_schema_version": ARTIFACT_SCHEMA_VERSION, "version": 1, "steps": list(_STEPS), "files": {}}
+                return default
+            if not isinstance(data, dict):
+                return default
+            if not isinstance(data.get("files"), dict):
+                return default
+            data.setdefault("_schema_version", ARTIFACT_SCHEMA_VERSION)
+            return data
+        return default
 
     def _flush_locked(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)

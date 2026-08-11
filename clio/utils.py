@@ -41,9 +41,10 @@ def run_subprocess(
     cmd: list[str],
     **kwargs,
 ) -> subprocess.CompletedProcess:
-    """subprocess.run() wrapper — auto-adds errors=replace in text mode."""
+    """subprocess.run() wrapper — forces UTF-8 encoding in text mode."""
     in_text = kwargs.get("text") or kwargs.get("universal_newlines") or kwargs.get("encoding")
     if in_text:
+        kwargs.setdefault("encoding", "utf-8")
         kwargs.setdefault("errors", "replace")
     if not kwargs.get("creationflags"):
         kwargs.update(no_console_kwargs())
@@ -54,8 +55,9 @@ def popen_subprocess(
     cmd: list[str],
     **kwargs,
 ) -> subprocess.Popen:
-    """subprocess.Popen() wrapper — auto-adds errors=replace in text mode."""
+    """subprocess.Popen() wrapper — forces UTF-8 encoding in text mode."""
     if kwargs.get("text") or kwargs.get("universal_newlines"):
+        kwargs.setdefault("encoding", "utf-8")
         kwargs.setdefault("errors", "replace")
     if not kwargs.get("creationflags"):
         kwargs.update(no_console_kwargs())
@@ -356,6 +358,39 @@ def _set_cached_probe_info(key: tuple[str, str, int, int] | None, info: dict[str
         _PROBE_INFO_CACHE[key] = dict(info)
 
 
+_DEFAULT_PROBE_TIMEOUT = 30.0
+
+
+def run_probe(
+    cmd: list[str],
+    *,
+    timeout: float = _DEFAULT_PROBE_TIMEOUT,
+    cancel_event: threading.Event | None = None,
+    max_output_bytes: int = 4096,
+) -> subprocess.CompletedProcess:
+    """Run ffprobe with timeout, cancel signal, and output limit."""
+    proc = popen_subprocess(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors="replace")
+    register_process(proc)
+    try:
+        if cancel_event and cancel_event.is_set():
+            proc.terminate()
+            raise InterruptedError("probe cancelled")
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            raise TimeoutError(f"probe timed out after {timeout}s: {' '.join(cmd)}")
+        if len(stdout) > max_output_bytes:
+            stdout = stdout[:max_output_bytes]
+        result = subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
+        if proc.returncode != 0:
+            result.check_returncode()
+        return result
+    finally:
+        unregister_process(proc)
+
+
 def get_duration_sec(video_path: Path, ffprobe: str) -> float:
     key = _probe_cache_key(video_path, ffprobe)
     cached = _get_cached_probe_info(key)
@@ -371,7 +406,7 @@ def get_duration_sec(video_path: Path, ffprobe: str) -> float:
         "default=noprint_wrappers=1:nokey=1",
         str(video_path),
     ]
-    result = run_subprocess(cmd, capture_output=True, text=True, check=True)
+    result = run_probe(cmd)
     raw = result.stdout.strip()
     if raw in ("N/A", "inf", "-inf", ""):
         raise ValueError(f"ffprobe 返回无效时长 '{raw}' for {video_path}")
@@ -430,6 +465,27 @@ def format_index(index: int, width: int) -> str:
     return str(index).zfill(width)
 
 
+def validate_within_root(path: Path, root: Path) -> Path:
+    """Resolve *path* and verify it is within *root* (no symlink escape).
+
+    Returns the resolved path on success.
+    Raises ValueError if the path escapes root or is a symlink.
+    """
+    resolved = path.resolve()
+    root_resolved = root.resolve()
+    try:
+        if not resolved.is_relative_to(root_resolved):
+            raise ValueError(f"path escapes root: {path} not within {root}")
+    except (ValueError, TypeError):
+        raise ValueError(f"path escapes root: {path} not within {root}")
+    try:
+        if resolved.is_symlink() or path.is_symlink():
+            raise ValueError(f"symlink not allowed: {path}")
+    except (TypeError, OSError):
+        pass
+    return resolved
+
+
 def probe_video_info(video_path: Path, ffprobe: str) -> dict:
     key = _probe_cache_key(video_path, ffprobe)
     cached = _get_cached_probe_info(key)
@@ -439,6 +495,9 @@ def probe_video_info(video_path: Path, ffprobe: str) -> dict:
     size_mb = video_path.stat().st_size / (1024 * 1024)
     _set_cached_probe_info(key, {"duration_sec": duration, "size_mb": size_mb})
     return {"duration_sec": round(duration, 2), "size_mb": round(size_mb, 2)}
+
+
+_MAX_STDERR_TAIL = 200
 
 
 def run_ffmpeg(
@@ -452,21 +511,36 @@ def run_ffmpeg(
     register_process(process)
     stderr_lines: list[str] = []
     time_pat = re.compile(r"time=(\d+):(\d+):(\d+\.\d+)")
-    try:
-        for line in process.stderr or []:
-            if cancel_event and cancel_event.is_set():
-                process.terminate()
-                raise InterruptedError("ffmpeg 被用户取消")
-            # Only print error/warning lines to reduce noise
+    cancel_flag = [False]
+
+    def _reader() -> None:
+        assert process.stderr is not None
+        for line in process.stderr:
             if "error" in line.lower() or "warning" in line.lower():
                 print(line, end="")
+            if len(stderr_lines) >= _MAX_STDERR_TAIL:
+                stderr_lines.pop(0)
             stderr_lines.append(line)
             if progress_callback:
                 m = time_pat.search(line)
                 if m:
                     h, mi, s = int(m.group(1)), int(m.group(2)), float(m.group(3))
                     progress_callback(h * 3600 + mi * 60 + s)
-        process.wait()
+
+    reader = threading.Thread(target=_reader, daemon=True)
+    reader.start()
+    try:
+        while True:
+            if cancel_event and cancel_event.is_set():
+                cancel_flag[0] = True
+                process.terminate()
+                raise InterruptedError("ffmpeg 被用户取消")
+            try:
+                process.wait(timeout=0.2)
+                break
+            except subprocess.TimeoutExpired:
+                pass
+        reader.join(timeout=5)
     except BaseException:
         if process.poll() is None:
             process.terminate()
@@ -477,5 +551,5 @@ def run_ffmpeg(
         raise
     finally:
         unregister_process(process)
-    if process.returncode != 0:
+    if not cancel_flag[0] and process.returncode != 0:
         raise RuntimeError(f"ffmpeg 执行失败:\n{' '.join(cmd)}\n{''.join(stderr_lines)}")

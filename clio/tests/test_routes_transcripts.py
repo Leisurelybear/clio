@@ -320,10 +320,17 @@ class TestHandleGetWhisperInstallStatus:
         progress.write_text(json.dumps({"status": "downloading", "progress_pct": 42}), encoding="utf-8")
         handler = MagicMock()
         handler._get_project_output.return_value = tmp_path
+        handler._resolve_project_dir.return_value = tmp_path
         handler._send_json = MagicMock()
         alive = MagicMock()
         alive.is_alive.return_value = True
-        with patch("clio.ui.routes.whisper_download._INSTALL_THREAD", alive):
+        fake_task = MagicMock()
+        fake_task.thread = alive
+        with patch.dict(
+            "clio.ui.routes.whisper_download._PROJECT_TASKS",
+            {str(tmp_path.resolve()): fake_task},
+            clear=False,
+        ):
             handle_get_whisper_install_status(handler, {})
         args = handler._send_json.call_args
         assert args[0][0]["progress_pct"] == 42
@@ -365,22 +372,22 @@ class TestHandlePostWhisperInstall:
     def test_starts_download(self, tmp_path: Path):
         handler = self._make_handler(tmp_path)
         handler._send_json = MagicMock()
-        with patch("clio.ui.routes.whisper_download._INSTALL_THREAD", None):
+        with patch.dict("clio.ui.routes.whisper_download._PROJECT_TASKS", {}, clear=True):
             handle_post_whisper_install(handler, {})
         handler._send_json.assert_called_once_with({"ok": True, "message": "whisper install started"})
 
     def test_rejects_concurrent(self, tmp_path: Path):
-        import threading
-
         handler = self._make_handler(tmp_path)
         handler._send_json = MagicMock()
-        alive = threading.Event()
-        dummy = threading.Thread(target=alive.wait)
-        dummy.start()
-        with patch("clio.ui.routes.whisper_download._INSTALL_THREAD", dummy):
+        fake_task = MagicMock()
+        fake_task.thread = MagicMock()
+        fake_task.thread.is_alive.return_value = True
+        with patch.dict(
+            "clio.ui.routes.whisper_download._PROJECT_TASKS",
+            {str(tmp_path.resolve()): fake_task},
+            clear=True,
+        ):
             handle_post_whisper_install(handler, {})
-        alive.set()
-        dummy.join()
         handler._send_json.assert_called_once()
         args = handler._send_json.call_args
         assert args[0][0]["ok"] is False
@@ -493,6 +500,65 @@ class TestHandlePostWhisperModelDelete:
 
         args = handler._send_json.call_args
         assert args[0][0]["deleted"] is False
+
+    def test_rejects_name_not_in_enum(self, tmp_path: Path):
+        handler = MagicMock()
+        handler._resolve_project_dir.return_value = tmp_path
+        cfg = MagicMock()
+        handler._get_config.return_value = cfg
+        cache_dir = tmp_path / "models"
+        cache_dir.mkdir()
+        handler._send_json = MagicMock()
+
+        with patch("clio.ui.routes.whisper_models._resolve_cache_dir", return_value=cache_dir):
+            handle_post_whisper_model_delete(handler, {}, {"name": "tiny"})
+
+        handler._send_json.assert_called_once()
+        args = handler._send_json.call_args
+        assert args[0][0]["ok"] is False
+        assert args[0][1] == 400
+
+    def test_refuses_delete_while_model_loaded(self, tmp_path: Path):
+        handler = MagicMock()
+        handler._resolve_project_dir.return_value = tmp_path
+        cfg = MagicMock()
+        handler._get_config.return_value = cfg
+        cache_dir = tmp_path / "models"
+        model_dir = cache_dir / "models--Systran--faster-whisper-medium"
+        model_dir.mkdir(parents=True)
+        handler._send_json = MagicMock()
+
+        with (
+            patch("clio.ui.routes.whisper_models._resolve_cache_dir", return_value=cache_dir),
+            patch("clio.ui.routes.whisper_models.is_model_loaded", return_value=True),
+        ):
+            handle_post_whisper_model_delete(handler, {}, {"name": "medium"})
+
+        assert model_dir.exists()
+        handler._send_json.assert_called_once()
+        args = handler._send_json.call_args
+        assert args[0][0]["ok"] is False
+        assert args[0][1] == 409
+
+    def test_does_not_delete_unrelated_model_by_substring(self, tmp_path: Path):
+        handler = MagicMock()
+        handler._resolve_project_dir.return_value = tmp_path
+        cfg = MagicMock()
+        handler._get_config.return_value = cfg
+        cache_dir = tmp_path / "models"
+        small_dir = cache_dir / "models--Systran--faster-whisper-small"
+        medium_dir = cache_dir / "models--Systran--faster-whisper-medium"
+        small_dir.mkdir(parents=True)
+        medium_dir.mkdir(parents=True)
+        handler._send_json = MagicMock()
+
+        with patch("clio.ui.routes.whisper_models._resolve_cache_dir", return_value=cache_dir):
+            handle_post_whisper_model_delete(handler, {}, {"name": "small"})
+
+        assert not small_dir.exists()
+        assert medium_dir.exists()
+        args = handler._send_json.call_args
+        assert args[0][0]["deleted"] is True
 
 
 class TestHandlePutWhisperModel:

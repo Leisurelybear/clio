@@ -5,7 +5,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from clio.ai.base import TaskName, TextAIProvider, VideoAIProvider
+from clio.ai.base import TaskName, TextAIProvider, VideoAIProvider, provider_supports_video
 from clio.ai.gemini import GeminiProvider
 from clio.ai.openai_compat import OpenAICompatProvider
 from clio.config import AppConfig, TaskConfig
@@ -21,6 +21,7 @@ _PROVIDER_TYPES: dict[str, type[Any]] = {
 class _CachedEntry:
     provider: TextAIProvider
     created_at: float
+    closing: bool = False
 
 
 _provider_cache: dict[tuple, _CachedEntry] = {}
@@ -50,9 +51,14 @@ def _build_provider(config: AppConfig, provider_name: str) -> TextAIProvider:
     with _provider_cache_lock:
         cached = _provider_cache.get(cache_key)
         if cached is not None and time.monotonic() - cached.created_at < ttl_sec:
-            return cached.provider
+            if not cached.closing:
+                return cached.provider
         if cached is not None:
-            cached.provider.close()
+            cached.closing = True
+            try:
+                cached.provider.close()
+            except Exception:
+                pass
             del _provider_cache[cache_key]
 
     cls = _PROVIDER_TYPES.get(provider_cfg.type)
@@ -61,7 +67,7 @@ def _build_provider(config: AppConfig, provider_name: str) -> TextAIProvider:
     provider = cls(provider_cfg, config.proxy)
     with _provider_cache_lock:
         existing = _provider_cache.get(cache_key)
-        if existing is not None:
+        if existing is not None and not existing.closing:
             provider.close()
             return existing.provider
         _provider_cache[cache_key] = _CachedEntry(provider=provider, created_at=time.monotonic())
@@ -95,6 +101,13 @@ def get_task_provider(config: AppConfig, task: TaskName | str) -> tuple[TextAIPr
 
 
 def get_video_provider(config: AppConfig, task: TaskName | str) -> tuple[VideoAIProvider, str]:
+    task_cfg = get_task_config(config, task)
+    provider_cfg = config.ai.providers.get(task_cfg.provider)
+    if provider_cfg is not None and not provider_supports_video(provider_cfg):
+        raise ValueError(
+            f"任务 '{task}' 需要视频分析能力，但厂家 '{task_cfg.provider}' 不支持视频。"
+            f"请在 config.yaml 中为 '{task_cfg.provider}' 配置 capabilities: [video] 或使用 gemini 厂家。"
+        )
     provider, model = get_task_provider(config, task)
     if not isinstance(provider, VideoAIProvider):
         raise ValueError(f"任务 '{task}' 使用的厂家不支持视频分析")

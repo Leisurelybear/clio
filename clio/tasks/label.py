@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from clio._constants import VIDEO_EXTS
 from clio.config import AppConfig
 from clio.log import timed
 from clio.processing_state import ProcessingState
@@ -115,6 +116,8 @@ def run_label_videos(
                 idx = json_file.stem[:3]
             compressed = None
             for f in config.compressed_dir.glob(f"{idx}_*"):
+                if f.suffix.lower() not in VIDEO_EXTS:
+                    continue
                 compressed = f
                 break
             orig_stem = Path(data.get("source_file") or data.get("compressed_file") or json_file.stem).stem

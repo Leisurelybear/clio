@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -125,10 +126,15 @@ def handle_post_cut(handler: HandlerProtocol, qs: dict[str, list[str]], obj: dic
         return handler._send_json({"ok": False, "error": "invalid day_label"}, 400)
     source = obj.get("source", "compressed")
     reencode = obj.get("reencode", False)
+    if not isinstance(reencode, bool):
+        return handler._send_json({"ok": False, "error": "reencode must be a boolean"}, 400)
     out_dir_raw = obj.get("output_dir", None)
-    force = bool(obj.get("force"))
-    # Default False so UI can prompt; CLI pipeline passes True / uses run_cut_all directly.
-    overwrite = bool(obj.get("overwrite", False))
+    force = obj.get("force", False)
+    if not isinstance(force, bool):
+        return handler._send_json({"ok": False, "error": "force must be a boolean"}, 400)
+    overwrite = obj.get("overwrite", False)
+    if not isinstance(overwrite, bool):
+        return handler._send_json({"ok": False, "error": "overwrite must be a boolean"}, 400)
 
     if source not in ("compressed", "original"):
         return handler._send_json({"ok": False, "error": "source must be compressed|original"}, 400)
@@ -172,25 +178,38 @@ def handle_post_cut(handler: HandlerProtocol, qs: dict[str, list[str]], obj: dic
             409,
         )
 
-    try:
-        run_cut_all(
-            cfg,
-            day_label=day_label,
-            output_dir=out_path,
-            reencode=bool(reencode),
-            source=source,
-            overwrite=True,
-        )
-    except FileExistsError as e:
-        return handler._send_json({"ok": False, "error": str(e), "code": "cut_output_exists"}, 409)
-    except Exception as e:
-        return handler._send_json({"ok": False, "error": str(e)}, 500)
+    state = handler._get_state(str(proj_dir.resolve()))
+    with state.job_lock:
+        if state.job_thread is not None and state.job_thread.is_alive():
+            return handler._send_json({"ok": False, "error": "另一个任务正在运行"}, 409)
+        state.job_cancel_event.clear()
+
+        def _cut_job():
+            try:
+                run_cut_all(
+                    cfg,
+                    day_label=day_label,
+                    output_dir=out_path,
+                    reencode=bool(reencode),
+                    source=source,
+                    overwrite=True,
+                    cancel_event=state.job_cancel_event,
+                )
+            except Exception as e:
+                print(f"[cut] 失败: {e}")
+            finally:
+                with state.job_lock:
+                    state.job_thread = None
+
+        state.job_thread = threading.Thread(target=_cut_job, daemon=True)
+        state.job_thread.start()
 
     handler._send_json(
         {
             "ok": True,
             "output_dir": str(actual_out_path),
             "day_label": day_label,
+            "started": True,
         }
     )
 

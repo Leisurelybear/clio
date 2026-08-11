@@ -238,7 +238,7 @@ async function apiFetch(scriptJson) {
  * @returns {Promise<string|null>}
  */
 export function loadVoiceoverText(index, scriptJson, fetchFn = apiFetch) {
-  const key = String(index ?? '');
+  const key = `${String(index ?? '')}:${scriptJson ?? ''}`;
   const cached = _voiceoverCache.get(key);
   if (cached) return cached;
   if (!scriptJson) {
@@ -377,7 +377,7 @@ export async function renderPlanSubtitle(opts = {}) {
   const segHasSubtitle = typeof seg.subtitle === 'string' && seg.subtitle.trim() !== '';
   if (!segHasSubtitle && (!v || !v.script_json)) { clear(); return; }
 
-  const voiceText = v?.script_json ? await textFor(idx, v.script_json) : null;
+  const voiceText = segHasSubtitle ? null : (v?.script_json ? await textFor(idx, v.script_json) : null);
   const text = resolveSegmentSubtitleText(seg, voiceText);
   // Stale-guard: user may have sought to another segment while awaiting.
   const live = opts.ctx ? opts.ctx : readStateContext();

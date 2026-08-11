@@ -113,6 +113,8 @@ def _process_one_script(
         context_override=context_override,
         task_prompts=task_prompts,
     )
+    if cancel_event and cancel_event.is_set():
+        return "cancelled"
     add_schema_version(script)
     script["_lineage"] = _voiceover_lineage_fingerprint(config, data, template, task_prompts)
     write_json_atomic(out, script)

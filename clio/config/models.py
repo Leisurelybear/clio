@@ -105,7 +105,7 @@ class ServerConfig:
 @dataclass
 class ExportConfig:
     canvas_ratio: str = "16:9"
-    output_subdir: str = "export"
+    output_subdir: str = field(default="export", metadata={"deprecated": True})
     jianying_draft_dir: str = ""
     auto_copy_draft: bool = False
 
@@ -425,6 +425,7 @@ class AppConfig:
         self._ai: CombinedAIConfig | None = None
         self._compress: CombinedCompressConfig | None = None
         self._whisper: CombinedWhisperConfig | None = None
+        self._default_project_cfg: ProjectConfig | None = None
 
     @property
     def project_dir(self) -> Path | None:
@@ -489,31 +490,111 @@ class AppConfig:
     def analyze(self) -> AnalyzeConfig:
         if self._project_cfg is not None:
             return self._project_cfg.analyze
-        return _EMPTY_PROJECT.analyze
+        if self._default_project_cfg is None:
+            self._default_project_cfg = ProjectConfig()
+            self._paths = None
+            self._ai = None
+            self._compress = None
+            self._whisper = None
+        return self._default_project_cfg.analyze
+
+    @analyze.setter
+    def analyze(self, val: AnalyzeConfig) -> None:
+        if self._project_cfg is None:
+            self._project_cfg = ProjectConfig()
+            self._paths = None
+            self._ai = None
+            self._compress = None
+            self._whisper = None
+        self._project_cfg.analyze = val
 
     @property
     def script(self) -> ScriptConfig:
         if self._project_cfg is not None:
             return self._project_cfg.script
-        return _EMPTY_PROJECT.script
+        if self._default_project_cfg is None:
+            self._default_project_cfg = ProjectConfig()
+            self._paths = None
+            self._ai = None
+            self._compress = None
+            self._whisper = None
+        return self._default_project_cfg.script
+
+    @script.setter
+    def script(self, val: ScriptConfig) -> None:
+        if self._project_cfg is None:
+            self._project_cfg = ProjectConfig()
+            self._paths = None
+            self._ai = None
+            self._compress = None
+            self._whisper = None
+        self._project_cfg.script = val
 
     @property
     def plan(self) -> PlanConfig:
         if self._project_cfg is not None:
             return self._project_cfg.plan
-        return _EMPTY_PROJECT.plan
+        if self._default_project_cfg is None:
+            self._default_project_cfg = ProjectConfig()
+            self._paths = None
+            self._ai = None
+            self._compress = None
+            self._whisper = None
+        return self._default_project_cfg.plan
+
+    @plan.setter
+    def plan(self, val: PlanConfig) -> None:
+        if self._project_cfg is None:
+            self._project_cfg = ProjectConfig()
+            self._paths = None
+            self._ai = None
+            self._compress = None
+            self._whisper = None
+        self._project_cfg.plan = val
 
     @property
     def export(self) -> ExportConfig:
         if self._project_cfg is not None:
             return self._project_cfg.export
-        return _EMPTY_PROJECT.export
+        if self._default_project_cfg is None:
+            self._default_project_cfg = ProjectConfig()
+            self._paths = None
+            self._ai = None
+            self._compress = None
+            self._whisper = None
+        return self._default_project_cfg.export
+
+    @export.setter
+    def export(self, val: ExportConfig) -> None:
+        if self._project_cfg is None:
+            self._project_cfg = ProjectConfig()
+            self._paths = None
+            self._ai = None
+            self._compress = None
+            self._whisper = None
+        self._project_cfg.export = val
 
     @property
     def preview(self) -> PreviewConfig:
         if self._project_cfg is not None:
             return self._project_cfg.preview
-        return _EMPTY_PROJECT.preview
+        if self._default_project_cfg is None:
+            self._default_project_cfg = ProjectConfig()
+            self._paths = None
+            self._ai = None
+            self._compress = None
+            self._whisper = None
+        return self._default_project_cfg.preview
+
+    @preview.setter
+    def preview(self, val: PreviewConfig) -> None:
+        if self._project_cfg is None:
+            self._project_cfg = ProjectConfig()
+            self._paths = None
+            self._ai = None
+            self._compress = None
+            self._whisper = None
+        self._project_cfg.preview = val
 
     # -- non-split: global-only sections --
 

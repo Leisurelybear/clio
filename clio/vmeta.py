@@ -207,7 +207,16 @@ class VideoIndex:
         verification so a removed segment is reported instead of silently
         passing.
         """
-        return [compressed_dir / s.filename for s in sorted(self.segments, key=lambda x: x.segment_number)]
+        root = compressed_dir.resolve()
+        result = []
+        for s in sorted(self.segments, key=lambda x: x.segment_number):
+            p = (compressed_dir / s.filename).resolve()
+            try:
+                p.relative_to(root)
+            except ValueError:
+                continue
+            result.append(p)
+        return result
 
     def is_stale(self, source: Path) -> bool:
         try:
@@ -220,8 +229,16 @@ class VideoIndex:
 def _quick_hash(path: Path, chunk: int = 1024 * 1024) -> str:
     try:
         h = hashlib.sha256()
+        size = path.stat().st_size
+        mtime_ns = path.stat().st_mtime_ns
+        h.update(f"{size}:{mtime_ns}".encode())
         with path.open("rb") as f:
             h.update(f.read(chunk))
+            if size > chunk * 2:
+                f.seek(size // 2)
+                h.update(f.read(chunk // 4))
+                f.seek(-chunk, 2)
+                h.update(f.read(chunk))
         return h.hexdigest()
     except OSError:
         return ""

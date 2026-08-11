@@ -8,9 +8,9 @@ if [ ! -f ".venv/bin/python" ]; then
 fi
 
 echo "Installing faster-whisper and pre-downloading model..."
-.venv/bin/python -m clio whisper install
-if [ $? -eq 0 ]; then
+if .venv/bin/python -m clio whisper install; then
     echo "Whisper 安装完成，模型已预下载到本地。"
 else
     echo "安装失败，请检查网络或 hf_endpoint 配置。" >&2
+    exit 1
 fi

@@ -101,6 +101,21 @@ def _resolve_found_original(orig: str | None, proj_dir: Path) -> Path | None:
     return None
 
 
+def _read_progress_file(progress_file: Path) -> dict | None:
+    """Read and validate progress JSON; return None on missing/invalid/structural mismatch."""
+    if not progress_file.is_file():
+        return None
+    try:
+        data = json.loads(progress_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    if not isinstance(data.get("phase"), str):
+        return None
+    return data
+
+
 def handle_get_run_stream(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     """GET /api/run/stream — SSE endpoint for real-time run status."""
     proj_dir = handler._resolve_project_dir(qs)
@@ -115,20 +130,13 @@ def handle_get_run_stream(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     handler.end_headers()
 
     last_data = ""
+    last_heartbeat = time.monotonic()
     try:
         while True:
-            if progress_file.is_file():
-                try:
-                    raw = progress_file.read_text(encoding="utf-8")
-                except OSError:
-                    time.sleep(0.5)
-                    continue
+            parsed = _read_progress_file(progress_file)
+            if parsed is not None:
+                raw = json.dumps(parsed, ensure_ascii=False)
                 if raw != last_data:
-                    try:
-                        parsed = json.loads(raw)
-                    except json.JSONDecodeError:
-                        time.sleep(0.5)
-                        continue
                     last_data = raw
                     with state.run_lock:
                         running = state.run_thread is not None and state.run_thread.is_alive()
@@ -138,6 +146,7 @@ def handle_get_run_stream(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
                     msg = json.dumps(parsed, ensure_ascii=False)
                     handler.wfile.write(f"data: {msg}\n\n".encode())
                     handler.wfile.flush()
+                    last_heartbeat = time.monotonic()
 
                     if parsed.get("status") in ("done", "error", "cancelled"):
                         break
@@ -146,6 +155,13 @@ def handle_get_run_stream(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
                     last_data = "_idle"
                     handler.wfile.write(b'data: {"status":"idle"}\n\n')
                     handler.wfile.flush()
+                    last_heartbeat = time.monotonic()
+
+            now = time.monotonic()
+            if now - last_heartbeat > 10.0:
+                handler.wfile.write(b": heartbeat\n\n")
+                handler.wfile.flush()
+                last_heartbeat = now
 
             time.sleep(0.5)
     except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
@@ -157,13 +173,12 @@ def handle_get_run_status(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     proj_dir = handler._resolve_project_dir(qs)
     state = handler._get_state(str(proj_dir.resolve()))
     progress_file = handler._get_project_output(qs) / ".progress.json"
-    if progress_file.is_file():
-        try:
-            data = json.loads(progress_file.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            data = {"status": "unknown"}
-    else:
+    if not progress_file.is_file():
         data = {"status": "idle"}
+    else:
+        data = _read_progress_file(progress_file)
+        if data is None:
+            data = {"status": "unknown"}
     with state.run_lock:
         running = state.run_thread is not None and state.run_thread.is_alive()
     data["running"] = running
@@ -206,7 +221,15 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
     cfg = copy.deepcopy(cfg)
     state = handler._get_state(str(proj_dir.resolve()))
     if "use_transcripts" in obj:
+        if not isinstance(obj["use_transcripts"], bool):
+            return handler._send_json({"ok": False, "error": "use_transcripts must be a boolean"}, 400)
         cfg.plan.use_transcripts = obj["use_transcripts"]
+    if steps is not None:
+        if not isinstance(steps, list):
+            return handler._send_json({"ok": False, "error": "steps must be a list"}, 400)
+        for s in steps:
+            if not isinstance(s, str):
+                return handler._send_json({"ok": False, "error": "steps items must be strings"}, 400)
     files_list = obj.get("files")
     if files_list is not None and not isinstance(files_list, list):
         return handler._send_json({"ok": False, "error": "files must be a list of video names"}, 400)

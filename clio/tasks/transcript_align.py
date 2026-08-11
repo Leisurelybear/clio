@@ -108,10 +108,18 @@ def attach_transcript_data(config: AppConfig, analysis: dict[str, Any], transcri
                 }
             )
         if not matched:
+            if "transcript" in item:
+                item.pop("transcript", None)
+                item.pop("transcript_segments", None)
+                changed = True
             continue
         matched.sort(key=lambda x: (x["start"], -x["overlap_sec"]))
         kept = [m for m in matched if m["text"]][:max_segments]
         if not kept:
+            if "transcript" in item:
+                item.pop("transcript", None)
+                item.pop("transcript_segments", None)
+                changed = True
             continue
         transcript_text = " ".join(m["text"] for m in kept)
         item["transcript"] = transcript_text

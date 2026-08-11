@@ -94,6 +94,7 @@ except ImportError:
 _whisper_model = None
 _whisper_cache_key: str | None = None
 _env_lock = threading.Lock()
+_model_lock = threading.RLock()
 
 
 def _reload_whisper_import() -> bool:
@@ -117,8 +118,22 @@ def _reload_whisper_import() -> bool:
 
 def _clear_model_cache() -> None:
     global _whisper_model, _whisper_cache_key
-    _whisper_model = None
-    _whisper_cache_key = None
+    with _model_lock:
+        _whisper_model = None
+        _whisper_cache_key = None
+
+
+def model_usage_lock() -> threading.Lock:
+    """Lock that serializes model load/clear against concurrent cache deletion."""
+    return _model_lock
+
+
+def is_model_loaded(model_name: str) -> bool:
+    """True when ``model_name`` is the currently cached in-memory model."""
+    with _model_lock:
+        if _whisper_cache_key is None:
+            return False
+        return _whisper_cache_key.split("@", 1)[0] == model_name
 
 
 def _resolve_cache_dir(config: AppConfig) -> Path:
@@ -168,57 +183,59 @@ def _get_model(config: AppConfig):
             device = _resolve_device(config)
             attempt = 0
             while True:
-                compute_types = _resolve_compute_types(device)
-                for ct in compute_types:
-                    attempt += 1
-                    key = f"{config.whisper.model_size}@{device}@{ct}@{cache_dir}"
-                    if _whisper_model is not None and _whisper_cache_key == key:
-                        return _whisper_model
-                    try:
-                        _whisper_model = WhisperModel(
-                            config.whisper.model_size,
-                            device=device,
-                            compute_type=ct,
-                            download_root=str(cache_dir),
-                        )
-                        _whisper_cache_key = key
-                        return _whisper_model
-                    except (ValueError, RuntimeError, OSError) as e:
-                        is_last = ct == compute_types[-1]
-                        err_str = str(e)
-                        if device == "cuda" and is_last:
-                            print(f"  [警告] CUDA 加载失败 ({err_str})，回退到 CPU")
-                            device = "cpu"
-                            break
-                        if device != "cuda" and is_last:
-                            print(f"  [错误] 模型加载失败: {err_str}")
-                            print("  [提示] 请执行 `python main.py whisper install` 预下载模型到本地缓存")
-                            ep = config.whisper.hf_endpoint or "未设置（使用官方地址）"
-                            print(f"  [提示] 国内用户需在设置中配置 hf_endpoint（当前: {ep}）")
-                            if (
-                                "tls" in err_str.lower()
-                                or "handshake" in err_str.lower()
-                                or "eof" in err_str.lower()
-                                or "connect" in err_str.lower()
-                            ):
-                                print("  [提示] 可能是网络/代理问题导致模型下载失败，建议：")
-                                print("         1. 在配置中设置 hf_endpoint: https://hf-mirror.com")
-                                print("         2. 或执行 `python main.py whisper install` 手动下载")
-                            if "cublas" in err_str.lower() or "library" in err_str.lower():
-                                print("  [提示] 可能是 CUDA 库缺失，建议：")
-                                print("         1. 在配置中设置 whisper.device: cpu（跳过 CUDA）")
-                                print(
-                                    "         2. 或安装 CUDA 运行时: pip install nvidia-cublas-cu12 nvidia-cudnn-cu12"
-                                )
+                with _model_lock:
+                    compute_types = _resolve_compute_types(device)
+                    for ct in compute_types:
+                        attempt += 1
+                        key = f"{config.whisper.model_size}@{device}@{ct}@{cache_dir}"
+                        if _whisper_model is not None and _whisper_cache_key == key:
+                            return _whisper_model
+                        try:
+                            _whisper_model = WhisperModel(
+                                config.whisper.model_size,
+                                device=device,
+                                compute_type=ct,
+                                download_root=str(cache_dir),
+                            )
+                            _whisper_cache_key = key
+                            return _whisper_model
+                        except (ValueError, RuntimeError, OSError) as e:
+                            is_last = ct == compute_types[-1]
+                            err_str = str(e)
+                            if device == "cuda" and is_last:
+                                print(f"  [警告] CUDA 加载失败 ({err_str})，回退到 CPU")
+                                device = "cpu"
+                                break
+                            if device != "cuda" and is_last:
+                                print(f"  [错误] 模型加载失败: {err_str}")
+                                print("  [提示] 请执行 `python main.py whisper install` 预下载模型到本地缓存")
+                                ep = config.whisper.hf_endpoint or "未设置（使用官方地址）"
+                                print(f"  [提示] 国内用户需在设置中配置 hf_endpoint（当前: {ep}）")
+                                if (
+                                    "tls" in err_str.lower()
+                                    or "handshake" in err_str.lower()
+                                    or "eof" in err_str.lower()
+                                    or "connect" in err_str.lower()
+                                ):
+                                    print("  [提示] 可能是网络/代理问题导致模型下载失败，建议：")
+                                    print("         1. 在配置中设置 hf_endpoint: https://hf-mirror.com")
+                                    print("         2. 或执行 `python main.py whisper install` 手动下载")
+                                if "cublas" in err_str.lower() or "library" in err_str.lower():
+                                    print("  [提示] 可能是 CUDA 库缺失，建议：")
+                                    print("         1. 在配置中设置 whisper.device: cpu（跳过 CUDA）")
+                                    print(
+                                        "         2. 或安装 CUDA 运行时: pip install nvidia-cublas-cu12"
+                                        " nvidia-cudnn-cu12"
+                                    )
+                                raise
+                            print(f"  [警告] {device} {ct} 加载失败 ({e})，尝试下一个 compute type")
+                            continue
+                        except Exception as e:
+                            if device == "cuda":
+                                print(f"  [警告] CUDA 加载异常 ({e})，回退到 CPU")
+                                device = "cpu"
+                                break
                             raise
-                        print(f"  [警告] {device} {ct} 加载失败 ({e})，尝试下一个 compute type")
-                        continue
-                    except Exception as e:
-                        if device == "cuda":
-                            print(f"  [警告] CUDA 加载异常 ({e})，回退到 CPU")
-                            device = "cpu"
-                            break
-                        raise
             return _whisper_model
         finally:
             for k, v in saved.items():

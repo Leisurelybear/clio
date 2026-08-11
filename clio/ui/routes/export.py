@@ -56,7 +56,9 @@ def handle_post_export(
         handler._send_json({"ok": False, "error": "invalid day"}, 400)
         return
     fmt = obj.get("format", "jianying")
-    force = bool(obj.get("force"))
+    force = obj.get("force", False)
+    if not isinstance(force, bool):
+        return handler._send_json({"ok": False, "error": "force must be a boolean"}, 400)
 
     proj_dir = handler._resolve_project_dir(qs)
     cfg = handler._get_config(proj_dir)
@@ -79,22 +81,28 @@ def handle_post_export(
         handler._send_json(blocked, 400)
         return
 
-    out_dir = cfg.paths.output_dir / "export" / f"{day}_{fmt}"
-    try:
-        result_path = export_plan(
-            fmt,
-            plan_path,
-            out_dir,
-            day_label=day,
-            project_dir=cfg.project_dir or proj_dir,
-            ffprobe=cfg.paths.ffprobe,
-            texts_dir=cfg.texts_dir,
-            canvas_ratio=cfg.export.canvas_ratio,
-            index_width=cfg.naming.index_width,
-        )
-    except (FileNotFoundError, ValueError) as e:
-        handler._send_json({"ok": False, "error": str(e)}, 400)
-        return
+    state = handler._get_state(str(Path(proj_dir).resolve()))
+    with state.job_lock:
+        if state.job_thread is not None and state.job_thread.is_alive():
+            return handler._send_json({"ok": False, "error": "另一个任务正在运行"}, 409)
+
+        out_dir = cfg.paths.output_dir / "export" / f"{day}_{fmt}"
+        try:
+            result_path = export_plan(
+                fmt,
+                plan_path,
+                out_dir,
+                day_label=day,
+                project_dir=cfg.project_dir or proj_dir,
+                ffprobe=cfg.paths.ffprobe,
+                texts_dir=cfg.texts_dir,
+                canvas_ratio=cfg.export.canvas_ratio,
+                index_width=cfg.naming.index_width,
+            )
+        except (FileNotFoundError, ValueError) as e:
+            return handler._send_json({"ok": False, "error": str(e)}, 400)
+        except Exception as e:
+            return handler._send_json({"ok": False, "error": str(e)}, 500)
 
     result_body = {"ok": True, "path": str(result_path)}
 

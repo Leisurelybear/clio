@@ -42,6 +42,10 @@ def handler(tmp_path: Path) -> MagicMock:
     cfg.compressed_dir.mkdir()
     h._resolve_project_dir.return_value = "default"
     h._get_config.return_value = cfg
+    mock_state = MagicMock()
+    mock_state.job_thread = None
+    mock_state.job_lock = MagicMock()
+    h._get_state.return_value = mock_state
     return h
 
 

@@ -15,6 +15,11 @@ class TaskName(StrEnum):
     REFINE_TEXT = "refine_text"
 
 
+class ProviderCapability(StrEnum):
+    TEXT = "text"
+    VIDEO = "video"
+
+
 @dataclass(frozen=True)
 class TokenUsage:
     prompt_tokens: int = 0
@@ -52,3 +57,10 @@ class VideoAIProvider(TextAIProvider, Protocol):
         progress_callback: Callable[[str], None] | None = None,
         cancel_event: threading.Event | None = None,
     ) -> AIResponse: ...
+
+
+def provider_supports_video(cfg: object) -> bool:
+    caps = getattr(cfg, "capabilities", None)
+    if caps is None:
+        return cfg.type == "gemini"
+    return ProviderCapability.VIDEO.value in caps

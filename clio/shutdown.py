@@ -48,48 +48,61 @@ def before_stop() -> None:
         _called = True
 
     _sprint("  [beforeStop] 开始清理资源...")
+    had_error = False
 
-    procs: list[subprocess.Popen] = []
-    with _processes_lock:
-        procs = list(_running_processes)
-        _running_processes.clear()
+    try:
+        procs: list[subprocess.Popen] = []
+        with _processes_lock:
+            procs = list(_running_processes)
+            _running_processes.clear()
 
-    if procs:
-        alive = [p for p in procs if p.poll() is None]
-        if alive:
-            _sprint(f"  [beforeStop] 终止 {len(alive)} 个运行中的 ffmpeg 子进程...")
-        for proc in alive:
-            pid = proc.pid
-            try:
-                proc.terminate()
-                proc.wait(timeout=5)
-                _sprint(f"  [beforeStop]   ffmpeg (pid={pid}) 已终止")
-            except Exception:
+        if procs:
+            alive = [p for p in procs if p.poll() is None]
+            if alive:
+                _sprint(f"  [beforeStop] 终止 {len(alive)} 个运行中的 ffmpeg 子进程...")
+            for proc in alive:
+                pid = proc.pid
                 try:
-                    proc.kill()
-                    proc.wait()
-                    _sprint(f"  [beforeStop]   ffmpeg (pid={pid}) 已强制终止")
+                    proc.terminate()
+                    proc.wait(timeout=5)
+                    _sprint(f"  [beforeStop]   ffmpeg (pid={pid}) 已终止")
                 except Exception:
-                    _sprint(f"  [beforeStop]   ffmpeg (pid={pid}) 终止失败（可能已退出）")
+                    try:
+                        proc.kill()
+                        proc.wait()
+                        _sprint(f"  [beforeStop]   ffmpeg (pid={pid}) 已强制终止")
+                    except Exception:
+                        _sprint(f"  [beforeStop]   ffmpeg (pid={pid}) 终止失败（可能已退出）")
 
-    from clio.ai.factory import _clear_provider_cache
+        try:
+            from clio.ai.factory import _clear_provider_cache
 
-    try:
-        _clear_provider_cache()
-        _sprint("  [beforeStop] AI 连接池已关闭")
-    except Exception:
-        pass
+            _clear_provider_cache()
+            _sprint("  [beforeStop] AI 连接池已关闭")
+        except Exception:
+            had_error = True
+            pass
 
-    try:
-        sys.stdout.flush()
-    except Exception:
-        pass
-    try:
-        sys.stderr.flush()
-    except Exception:
-        pass
+        try:
+            sys.stdout.flush()
+        except Exception:
+            pass
+        try:
+            sys.stderr.flush()
+        except Exception:
+            pass
+    except Exception as e:
+        had_error = True
+        _sprint(f"  [beforeStop] 清理过程异常: {e}")
 
-    _sprint("  [beforeStop] 清理完成")
+    _sprint("  [beforeStop] 清理完成" if not had_error else "  [beforeStop] 清理完成（有错误）")
+
+
+def reset_stop_flag() -> None:
+    """Reset the _called flag (for testing or after a failed shutdown)."""
+    global _called
+    with _called_lock:
+        _called = False
 
 
 def _signal_handler(signum, frame) -> None:

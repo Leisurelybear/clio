@@ -21,6 +21,7 @@ from clio.transcribe import (
     _resolve_device,
     check_cublas,
     check_whisper,
+    is_model_loaded,
     transcribe_audio,
 )
 
@@ -209,6 +210,36 @@ class TestGetModel:
                 os.environ["HF_ENDPOINT"] = old_val
             else:
                 os.environ.pop("HF_ENDPOINT", None)
+
+
+class TestIsModelLoaded:
+    def test_false_when_no_model_cached(self):
+        with (
+            patch("clio.transcribe._whisper_cache_key", None),
+        ):
+            assert is_model_loaded("small") is False
+
+    def test_true_when_cache_key_matches(self):
+        with (
+            patch("clio.transcribe._whisper_model", MagicMock()),
+            patch("clio.transcribe._whisper_cache_key", "small@cpu@int8@/cache"),
+        ):
+            assert is_model_loaded("small") is True
+
+    def test_false_when_cache_key_is_different_model(self):
+        with (
+            patch("clio.transcribe._whisper_model", MagicMock()),
+            patch("clio.transcribe._whisper_cache_key", "medium@cpu@int8@/cache"),
+        ):
+            assert is_model_loaded("small") is False
+
+    def test_model_usage_lock_is_reentrant(self):
+        from clio.transcribe import _model_lock, model_usage_lock
+
+        assert model_usage_lock() is _model_lock
+        with model_usage_lock():
+            with model_usage_lock():
+                pass
 
 
 class TestTranscribeAudio:

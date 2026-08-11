@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import os
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from clio.ai.factory import _clear_provider_cache
-from clio.config import _load_dotenv
+from clio.config import _load_dotenv  # noqa: F401 — kept for test mocks
 from clio.utils import write_text_atomic
 
 if TYPE_CHECKING:
@@ -41,10 +43,25 @@ def handle_put_env(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> N
     content = obj.get("content", "")
     env_path.parent.mkdir(parents=True, exist_ok=True)
     write_text_atomic(env_path, content)
-    # Reload env vars into os.environ so subsequent load_config picks them up
     _load_dotenv(env_path.parent, override=True)
-    # Clear config cache so next request rebuilds with the new API keys
+    _sync_env_to_environ(content, env_path.parent)
     handler.__class__._config_cache.invalidate_all()
-    # Drop live AI clients so new keys/proxy take effect immediately (not after TTL)
     _clear_provider_cache()
     handler._send_json({"ok": True, "path": str(env_path)})
+
+
+def _sync_env_to_environ(content: str, config_dir: Path) -> None:
+    """Parse .env content and sync to os.environ: add/update present keys, remove absent ones."""
+    new_keys: dict[str, str] = {}
+    for line in content.splitlines():
+        m = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$", line.strip())
+        if m and not line.strip().startswith("#"):
+            new_keys[m.group(1)] = m.group(2)
+    for key in list(os.environ.keys()):
+        if key.startswith(("DEEPSEEK_", "GEMINI_", "OPENAI_", "MOONSHOT_", "TONGYI_")):
+            if key in new_keys:
+                os.environ[key] = new_keys[key]
+            else:
+                del os.environ[key]
+    for key, val in new_keys.items():
+        os.environ[key] = val

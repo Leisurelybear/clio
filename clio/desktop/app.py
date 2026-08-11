@@ -23,35 +23,23 @@ from clio.ui.server import set_desktop_focus_callback
 def _confirm_web_continue() -> bool:
     """Ask the user whether to launch the desktop app while the web UI is running."""
     try:
-        from tkinter import Tk, messagebox
+        import webview
 
-        root = Tk()
-        root.withdraw()
-        root.attributes("-topmost", True)
-        try:
-            return messagebox.askyesno(
-                "Clio",
-                "检测到网页版正在运行（端口 8765），是否继续启动桌面版？",
-            )
-        finally:
-            root.destroy()
-    except Exception:  # noqa: BLE001 — never block startup on dialog failure
+        return webview.confirm_dialog(
+            "Clio",
+            "检测到网页版正在运行（端口 8765），是否继续启动桌面版？",
+        )
+    except Exception:
         return True
 
 
 def _confirm_quit() -> bool:
-    """Native askyesno. Returns True (quit) when the user confirms or tkinter fails."""
+    """Native confirm dialog. Returns True (quit) when the user confirms or dialog fails."""
     try:
-        from tkinter import Tk, messagebox
+        import webview
 
-        root = Tk()
-        root.withdraw()
-        root.attributes("-topmost", True)
-        try:
-            return messagebox.askyesno("退出 Clio", "任务仍在运行，确定退出？")
-        finally:
-            root.destroy()
-    except Exception:  # noqa: BLE001 — never block quit on dialog failure
+        return webview.confirm_dialog("退出 Clio", "任务仍在运行，确定退出？")
+    except Exception:
         return True
 
 

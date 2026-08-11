@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
 
 def handle_get_project(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
-    """Handle GET /api/project."""
+    """Handle GET /api/project. Read-only: does NOT modify the registry."""
     proj_dir = handler._resolve_project_dir(qs)
     proj_file = proj_dir / "project.json"
     data = {}
@@ -33,15 +33,21 @@ def handle_get_project(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
             data = json.loads(proj_file.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             data = {}
-    # Record this as the most recently used project
-    qs_project = qs.get("project", [None])[0]
-    config_path = handler.config_path
-    if qs_project:
-        _save_last_project(qs_project, config_path, project_dir=str(proj_dir))
     merged = {**handler.DEFAULT_PROJECT, **data}
     proj_out = _project_output_dir(proj_dir)
     merged["steps"] = _detect_steps(proj_out)
     handler._send_json(merged)
+
+
+def handle_post_project_select(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
+    """Handle POST /api/project/select. Records the project as last-used."""
+    qs_project = obj.get("project") or qs.get("project", [None])[0]
+    if not qs_project:
+        return handler._send_json({"ok": False, "error": "missing project"}, 400)
+    proj_dir = handler._resolve_project_dir(qs)
+    config_path = handler.config_path
+    _save_last_project(qs_project, config_path, project_dir=str(proj_dir))
+    handler._send_json({"ok": True})
 
 
 def handle_get_projects(handler: HandlerProtocol, qs: dict[str, Any]) -> None:

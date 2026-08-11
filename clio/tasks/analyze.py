@@ -523,10 +523,8 @@ def run_analyze_all(
                     break
 
     records.sort(key=lambda r: r.index)
-    # Selection re-analyze must merge into summary.csv (not truncate other rows).
-    to_write = (
-        _merge_summary_records(_clip_records_from_csv(config.summary_csv), records) if files is not None else records
-    )
+    existing = _clip_records_from_csv(config.summary_csv)
+    to_write = _merge_summary_records(existing, records)
     _write_csv(config.summary_csv, to_write, config)
     print(f"\nCSV 已保存: {config.summary_csv}")
 

@@ -179,6 +179,10 @@ def teardown_logging() -> None:
         if _original_stderr is not None:
             sys.stderr = _original_stderr
             _original_stderr = None
+        try:
+            sys.excepthook = sys.__excepthook__
+        except Exception:
+            pass
         _initialized = False
 
 

@@ -346,6 +346,25 @@ def run_cut_all(
                     state.mark(orig_stem, "cut", "skipped")
                 continue
 
+            if end <= start:
+                print(f"  [跳过] 时间范围无效 ({start}s >= {end}s): {seg.get('title', '')}")
+                orig_stem = _orig_stem_from_path(video_path) if video_path else ""
+                if orig_stem:
+                    state.mark(orig_stem, "cut", "skipped")
+                continue
+
+            try:
+                from clio.utils import get_duration_sec
+                from clio.utils import resolve_binary as _resolve_binary
+
+                probe = _resolve_binary(ffprobe or "", "ffprobe")
+                media_dur = get_duration_sec(video_path, probe)
+                if end > media_dur:
+                    print(f"  [警告] 结束时间 {end}s 超出媒体时长 {media_dur}s，截断至末尾")
+                    end = media_dur
+            except Exception:
+                pass
+
             # Apply segment offset for original source with legacy split videos
             offset = 0.0
             if source == "original":

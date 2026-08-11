@@ -17,6 +17,20 @@ _MAX_TIME_SEC = 86400  # 24h
 _SEG_SUFFIX_RE = re.compile(r"_seg\d+$")
 
 
+def _sanitize_segment(seg: dict) -> dict:
+    """Sanitize a segment: ensure numeric fields are actually numbers."""
+    if not isinstance(seg, dict):
+        return seg
+    for field in ("start", "end", "avg_logprob"):
+        val = seg.get(field)
+        if val is not None and not isinstance(val, (int, float)):
+            try:
+                seg[field] = float(val)
+            except (TypeError, ValueError):
+                seg[field] = 0.0 if field == "avg_logprob" else 0
+    return seg
+
+
 def _read_transcript(path: Path) -> tuple[dict[str, Any], int]:
     """Load transcript JSON plus its optimistic-concurrency revision (_rev).
 
@@ -27,6 +41,9 @@ def _read_transcript(path: Path) -> tuple[dict[str, Any], int]:
     rev = data.get("_rev", 0)
     if not isinstance(rev, int) or rev < 0:
         rev = 0
+    segments = data.get("segments")
+    if isinstance(segments, list):
+        data["segments"] = [_sanitize_segment(s) for s in segments]
     return data, rev
 
 
@@ -207,6 +224,29 @@ def handle_post_transcripts(handler: HandlerProtocol, qs: dict[str, Any], obj: d
             return handler._send_json({"ok": False, "error": "transcript already exists"}, 409)
         tp.parent.mkdir(parents=True, exist_ok=True)
         skeleton = {"segments": [], "_rev": 1}
+        init_segments = obj.get("segments")
+        if init_segments is not None:
+            if not isinstance(init_segments, list):
+                return handler._send_json({"ok": False, "error": "segments must be a list"}, 400)
+            for seg in init_segments:
+                if not isinstance(seg, dict):
+                    return handler._send_json({"ok": False, "error": "segment must be an object"}, 400)
+                if not isinstance(seg.get("text"), str):
+                    return handler._send_json({"ok": False, "error": "segment.text must be a string"}, 400)
+                try:
+                    seg_start = float(seg.get("start", 0))
+                    seg_end = float(seg.get("end", 0))
+                except (TypeError, ValueError):
+                    return handler._send_json({"ok": False, "error": "segment.start/end must be numbers"}, 400)
+                skeleton["segments"].append(
+                    {
+                        "start": round(seg_start, 2),
+                        "end": round(seg_end, 2),
+                        "text": seg["text"].strip(),
+                        "avg_logprob": 0.0,
+                        "low_confidence": False,
+                    }
+                )
         _save_atomic(tp, json.dumps(skeleton, ensure_ascii=False, indent=2).encode("utf-8"))
         handler._send_json({"ok": True, "message": "transcript file created"})
         return

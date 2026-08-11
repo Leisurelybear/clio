@@ -54,6 +54,9 @@ def _merge_stats(stats: dict, task: str, model: str, pt: int, ct: int, tt: int) 
     task_key["calls"] += 1
 
 
+_MAX_TOKEN_HISTORY = 500
+
+
 class FileTokenUsageStore(TokenUsageStore):
     def __init__(self, output_dir: str):
         self._path = Path(output_dir) / ".token_usage.json"
@@ -71,6 +74,8 @@ class FileTokenUsageStore(TokenUsageStore):
                 "total_tokens": usage.total_tokens,
             }
             raw["history"].append(entry)
+            if len(raw["history"]) > _MAX_TOKEN_HISTORY:
+                raw["history"] = raw["history"][-_MAX_TOKEN_HISTORY:]
             _merge_stats(raw, task, model, usage.prompt_tokens, usage.completion_tokens, usage.total_tokens)
             write_json_atomic(self._path, raw)
 
@@ -85,6 +90,9 @@ class FileTokenUsageStore(TokenUsageStore):
         if not self._path.is_file():
             return copy.deepcopy(_EMPTY_STATS)
         try:
-            return json.loads(self._path.read_text(encoding="utf-8"))
+            data = json.loads(self._path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             return copy.deepcopy(_EMPTY_STATS)
+        if not isinstance(data, dict) or "history" not in data or not isinstance(data.get("history"), list):
+            return copy.deepcopy(_EMPTY_STATS)
+        return data
