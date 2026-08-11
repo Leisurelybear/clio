@@ -264,7 +264,10 @@ export function loadVoiceoverText(index, scriptJson, fetchFn = apiFetch) {
  */
 export function invalidateVoiceoverCache(index) {
   if (index == null) { _voiceoverCache.clear(); return; }
-  _voiceoverCache.delete(String(index));
+  const prefix = `${String(index)}:`;
+  for (const key of _voiceoverCache.keys()) {
+    if (key.startsWith(prefix)) _voiceoverCache.delete(key);
+  }
 }
 
 /**

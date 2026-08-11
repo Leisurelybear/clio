@@ -62,5 +62,5 @@ class VideoAIProvider(TextAIProvider, Protocol):
 def provider_supports_video(cfg: object) -> bool:
     caps = getattr(cfg, "capabilities", None)
     if caps is None:
-        return cfg.type == "gemini"
+        return getattr(cfg, "type", None) == "gemini"
     return ProviderCapability.VIDEO.value in caps
