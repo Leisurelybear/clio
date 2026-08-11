@@ -113,7 +113,7 @@ class TestGetDurationSec:
                 stdout="5025.670000\n",
             )
             result = get_duration_sec(Path("/dummy.mp4"), "ffprobe")
-            assert result == pytest.approx(5025.67, rel=0.01)
+            assert abs(result - 5025.67) < 0.01
 
     def test_raises_on_ffprobe_failure(self):
         with patch("clio.utils.run_probe") as mock_run:
