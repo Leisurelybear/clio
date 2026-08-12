@@ -131,6 +131,9 @@ else
 fi
 
 echo "[5/5] 配置 git hooks..."
+# Entry-point hooks are tracked executable (0o755) so a fresh clone runs them;
+# re-assert perms in case an older checkout or filesystem dropped the bit.
+chmod +x .githooks/pre-commit .githooks/pre-push 2>/dev/null || true
 hooks_path="$(git config core.hooksPath || true)"
 if [[ "$hooks_path" != ".githooks" ]]; then
     git config core.hooksPath .githooks

@@ -135,6 +135,15 @@ jobs:
           echo "setup.sh not found -- skipping"
         fi
 
+    - name: Check entry-point git hooks are executable
+      run: |
+        for hook in .githooks/pre-commit .githooks/pre-push; do
+          if [ -f "$hook" ]; then
+            test -x "$hook" || { echo "ERROR: $hook is not executable (track as 0o755)"; exit 1; }
+          fi
+        done
+        echo "entry-point hooks are executable"
+
     - name: Validate config.example.yaml
       run: |
         python -c "import yaml; yaml.safe_load(open('config.example.yaml')); print('config.example.yaml: valid YAML')"
