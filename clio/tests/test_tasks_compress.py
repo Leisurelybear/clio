@@ -510,3 +510,71 @@ class TestRunCompressAll:
         assert idx == 2
         assert meta == fresh_meta
         assert reason is None
+
+    def test_scan_probe_failure_keeps_file_until_fresh_commit(self, monkeypatch, tmp_path: Path):
+        """A probe timeout must not delete the existing compressed file; it is
+        only removed after a fresh replacement commits (GAP-P1-07)."""
+        from clio.vmeta import VideoMeta
+
+        cfg = _cfg(tmp_path)
+        src = _add_video(cfg, "clip.mp4")
+        cfg.analyze.skip_existing = True
+
+        old = cfg.compressed_dir / "001_clip.mp4"
+        old.write_bytes(b"\x00" * 60_000)
+        VideoMeta.build(src, old, 10.0, 10.0).write(old)
+
+        monkeypatch.setattr("clio.tasks.compress.resolve_binary", lambda *a: "ffmpeg")
+
+        def _mock_compress(inp, outp, c, **kw):
+            outp.write_bytes(b"\x00" * 60_000)
+            return outp
+
+        monkeypatch.setattr("clio.tasks.compress.compress_video", _mock_compress)
+        monkeypatch.setattr("clio.tasks.compress._safe_duration", lambda *a, **k: 10.0)
+
+        def _probe(path, *a, **kw):
+            if Path(path).name == old.name:
+                raise RuntimeError("ffprobe 超时")
+            return 10.0
+
+        monkeypatch.setattr("clio.tasks.compress.get_duration_sec", _probe)
+
+        records = run_compress_all(cfg)
+
+        fresh = cfg.compressed_dir / "002_clip.mp4"
+        assert fresh.exists()
+        assert not old.exists(), "unverifiable old file pruned after fresh commit"
+        assert not old.with_suffix(".vmeta").exists()
+        assert any(r.compressed_path == fresh for r in records)
+
+    def test_scan_probe_failure_keeps_file_when_recompress_fails(self, monkeypatch, tmp_path: Path):
+        """If the replacement encode fails, the unverifiable old file must remain
+        so the last artifact is never lost (GAP-P1-07)."""
+        from clio.vmeta import VideoMeta
+
+        cfg = _cfg(tmp_path)
+        src = _add_video(cfg, "clip.mp4")
+        cfg.analyze.skip_existing = True
+
+        old = cfg.compressed_dir / "001_clip.mp4"
+        old.write_bytes(b"\x00" * 60_000)
+        VideoMeta.build(src, old, 10.0, 10.0).write(old)
+
+        monkeypatch.setattr("clio.tasks.compress.resolve_binary", lambda *a: "ffmpeg")
+
+        def _boom(inp, outp, c, **kw):
+            raise RuntimeError("磁盘满")
+
+        monkeypatch.setattr("clio.tasks.compress.compress_video", _boom)
+
+        def _probe(path, *a, **kw):
+            raise RuntimeError("ffprobe 超时")
+
+        monkeypatch.setattr("clio.tasks.compress.get_duration_sec", _probe)
+
+        with pytest.raises(RuntimeError, match="磁盘满"):
+            run_compress_all(cfg)
+
+        assert old.exists(), "old artifact retained when replacement fails"
+        assert old.with_suffix(".vmeta").exists()

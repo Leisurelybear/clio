@@ -237,6 +237,10 @@ def run_compress_all(
     # sharing a basename never collide on the same existing file.
     MIN_VALID_SIZE = 50 * 1024
     existing_map: dict[str, list[tuple[int, Path, VideoMeta | None]]] = {}
+    # Files ffprobe could not read during scan. A probe timeout/fork failure is
+    # NOT proof of corruption: keep the artifact and only remove it after a
+    # fresh replacement commits (GAP-P1-07).
+    unverifiable: dict[str, list[Path]] = {}
     if config.analyze.skip_existing and config.compressed_dir.is_dir():
         for f in config.compressed_dir.iterdir():
             if not f.is_file() or f.suffix.lower() not in VIDEO_EXTS:
@@ -248,8 +252,10 @@ def run_compress_all(
                 if dur <= 0:
                     raise ValueError("zero duration")
             except Exception:
-                print(f"[清理] {f.name} 已损坏（ffprobe 无法读取），重新压缩")
-                f.unlink(missing_ok=True)
+                meta = VideoMeta.read(f)
+                if meta and meta.source_path:
+                    unverifiable.setdefault(str(Path(meta.source_path).resolve()), []).append(f)
+                print(f"[保留] {f.name} 无法验证（ffprobe 异常），等新压缩成功后再清理")
                 continue
             if "_" in f.stem:
                 prefix, stem_part = f.stem.split("_", 1)
@@ -305,6 +311,7 @@ def run_compress_all(
                 tracker.log(f"▶ 压缩 {label_name}")
             print(_eta_line("压缩", i, len(items), label_name, completed, elapsed_total))
             t0 = time.monotonic()
+            target_pre_existed = use_out.exists()
             try:
                 if tracker:
 
@@ -316,7 +323,11 @@ def run_compress_all(
                 else:
                     compress_video(source, use_out, config, cancel_event=cancel_event)
             except Exception:
-                if use_out.exists():
+                # Keep the last valid artifact when the encode fails: only the
+                # atomic temp write is discarded, so a pre-existing target must
+                # be left untouched (GAP-P1-07). A freshly-created partial
+                # (non-atomic callers) is still cleaned up.
+                if use_out.exists() and not target_pre_existed:
                     use_out.unlink(missing_ok=True)
                 raise
             state.mark(original.stem, "compress", "done")
@@ -341,6 +352,16 @@ def run_compress_all(
             meta.write(use_out)
 
             _prune_stale_siblings(source, use_out, existing_map, config, force=overwrite)
+
+            # Now that a fresh valid output is committed, drop previously
+            # unverifiable same-source artifacts that were retained on scan
+            # (GAP-P1-07: defer deletion until a replacement exists).
+            resolved_src = str(source.resolve())
+            for stale in unverifiable.pop(resolved_src, []):
+                if stale.resolve() != use_out.resolve():
+                    print(f"[清理] 移除旧压缩 {stale.name}（新压缩已成功提交）")
+                    stale.unlink(missing_ok=True)
+                    stale.with_suffix(VMETA_EXT).unlink(missing_ok=True)
 
             records.append(
                 ClipRecord(

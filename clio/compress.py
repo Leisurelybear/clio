@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import tempfile
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -84,12 +86,25 @@ def compress_video(
     else:
         args.extend(["-crf", str(cfg.crf)])
 
-    args.extend(["-y", str(output_path)])
+    # Write to an exclusive temp file in the same directory, then atomically
+    # replace the target only after the encode succeeds (GAP-P1-07). A failed
+    # or cancelled encode must never destroy the last valid compressed output.
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{output_path.name}.", suffix=".part", dir=str(output_path.parent))
+    os.close(fd)
+    tmp = Path(tmp_name)
+    args.extend(["-y", str(tmp)])
     orig_size = input_path.stat().st_size
     cmd_preview = f"ffmpeg {' '.join(args)}"
     print(f"  ffmpeg: {cmd_preview}")
-    with timed(f"压缩 {input_path.name} -> {output_path.name}"):
-        run_ffmpeg(args, ffmpeg, progress_callback=_on_ffmpeg_progress, cancel_event=cancel_event)
+    try:
+        with timed(f"压缩 {input_path.name} -> {output_path.name}"):
+            run_ffmpeg(args, ffmpeg, progress_callback=_on_ffmpeg_progress, cancel_event=cancel_event)
+        if get_duration_sec(tmp, ffprobe) <= 0:
+            raise ValueError(f"压缩输出无法读取时长: {output_path.name}")
+        os.replace(tmp, output_path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     new_size = output_path.stat().st_size
     ratio = (1 - new_size / orig_size) * 100 if orig_size > 0 else 0
     print(

@@ -134,3 +134,45 @@ class TestCompressVideo:
         monkeypatch.setattr("clio.compress.run_ffmpeg", _raise_on_cancel)
         with pytest.raises(InterruptedError, match="ffmpeg 被用户取消"):
             compress_video(src, out, _default_config(), cancel_event=cancel_event)
+
+    def test_failed_encode_preserves_existing_target(self, monkeypatch, tmp_path: Path):
+        """A failed encode must not destroy the last valid compressed output."""
+        src = tmp_path / "input.mp4"
+        src.write_bytes(b"\x00" * 100_000)
+        out = tmp_path / "out.mp4"
+        out.write_bytes(b"previous-good")
+        monkeypatch.setattr("clio.compress.resolve_binary", lambda *a: "ffmpeg")
+        monkeypatch.setattr("clio.compress.get_duration_sec", lambda *a: 60.0)
+
+        def _boom(args, ffmpeg, progress_callback=None, **kw):
+            raise RuntimeError("ffmpeg 超时 fork 失败")
+
+        monkeypatch.setattr("clio.compress.run_ffmpeg", _boom)
+        with pytest.raises(RuntimeError, match="超时"):
+            compress_video(src, out, _default_config())
+
+        assert out.read_bytes() == b"previous-good"
+        leftovers = [p for p in tmp_path.iterdir() if p.name.endswith(".part")]
+        assert leftovers == []
+
+    def test_cancel_leaves_no_part_temp(self, monkeypatch, tmp_path: Path):
+        """Interrupted encode must clean up its temp file and keep target absent."""
+        from threading import Event
+
+        src = tmp_path / "input.mp4"
+        src.write_bytes(b"\x00" * 100_000)
+        out = tmp_path / "out.mp4"
+        monkeypatch.setattr("clio.compress.resolve_binary", lambda *a: "ffmpeg")
+        monkeypatch.setattr("clio.compress.get_duration_sec", lambda *a: 60.0)
+        cancel_event = Event()
+        cancel_event.set()
+
+        def _raise_on_cancel(args, ffmpeg, progress_callback=None, cancel_event=None, **kw):
+            raise InterruptedError("cancelled")
+
+        monkeypatch.setattr("clio.compress.run_ffmpeg", _raise_on_cancel)
+        with pytest.raises(InterruptedError):
+            compress_video(src, out, _default_config(), cancel_event=cancel_event)
+
+        assert not out.exists()
+        assert [p.name for p in tmp_path.iterdir() if p.name.endswith(".part")] == []
