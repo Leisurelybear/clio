@@ -357,3 +357,70 @@ class TestSecretHasInsecurePerms:
         path.write_text("K=v\n")
         os.chmod(path, 0o640)
         assert _secret_has_insecure_perms(path) is True
+
+
+class TestValidateWithinRoot:
+    def test_normal_path_inside_root(self, tmp_path: Path):
+        from clio.utils import validate_within_root
+
+        root = tmp_path / "root"
+        root.mkdir()
+        child = root / "child" / "file.txt"
+        child.parent.mkdir(parents=True)
+        child.write_text("test")
+
+        result = validate_within_root(child, root)
+        assert result == child.resolve()
+
+    def test_symlink_in_path_blocked(self, tmp_path: Path):
+        """GAP-P1-04: symlink component in path must be rejected."""
+        from clio.utils import validate_within_root
+
+        root = tmp_path / "root"
+        root.mkdir()
+        other = tmp_path / "other"
+        other.mkdir()
+        (other / "secret.txt").write_text("leaked")
+
+        link = root / "link"
+        link.symlink_to(other)
+
+        with pytest.raises(ValueError, match="symlink"):
+            validate_within_root(link / "secret.txt", root)
+
+    def test_parent_escape_blocked(self, tmp_path: Path):
+        """GAP-P1-04: path escaping root via ../ must be rejected."""
+        from clio.utils import validate_within_root
+
+        root = tmp_path / "root"
+        root.mkdir()
+        other = tmp_path / "other"
+        other.mkdir()
+        (other / "secret.txt").write_text("leaked")
+
+        with pytest.raises(ValueError, match="escapes root"):
+            validate_within_root(root.parent / "other" / "secret.txt", root)
+
+    def test_root_is_symlink_blocked(self, tmp_path: Path):
+        """GAP-P1-04: root itself being a symlink must be rejected."""
+        from clio.utils import validate_within_root
+
+        real_root = tmp_path / "real"
+        real_root.mkdir()
+        link_root = tmp_path / "link"
+        link_root.symlink_to(real_root)
+        (real_root / "secret.txt").write_text("leaked")
+
+        with pytest.raises(ValueError, match="symlink"):
+            validate_within_root(link_root / "secret.txt", link_root)
+
+    def test_relative_path_resolved_correctly(self, tmp_path: Path):
+        from clio.utils import validate_within_root
+
+        root = tmp_path / "root"
+        root.mkdir()
+        child = root / "child.txt"
+        child.write_text("test")
+
+        result = validate_within_root(tmp_path / "root" / "child.txt", tmp_path)
+        assert result == child.resolve()

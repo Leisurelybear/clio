@@ -22,7 +22,7 @@ from clio.ui.services.file_service import (
     _is_safe_basename,
 )
 from clio.utils import get_duration_sec, resolve_binary, validate_within_root
-from clio.vmeta import VideoMeta
+from clio.vmeta import VideoMeta, _meta_to_dict
 
 if TYPE_CHECKING:
     from clio.ui.handler_protocol import HandlerProtocol
@@ -658,15 +658,16 @@ def handle_get_vmeta(handler: HandlerProtocol, qs: dict[str, Any], stem: str) ->
     """Handle GET /api/vmeta/{stem} → .vmeta JSON content."""
     if not stem:
         return handler._send_json({"ok": False, "error": "missing stem"}, 400)
+    if not _is_safe_basename(stem):
+        return handler._send_json({"ok": False, "error": "forbidden"}, 403)
     proj_dir = handler._resolve_project_dir(qs)
     proj_out = handler._get_project_output(proj_dir)
     comp_dir = proj_out / "compressed"
-    for p in comp_dir.glob(f"{stem}.*"):
-        if p.suffix.lower() in VIDEO_EXTS:
+
+    for p in sorted(comp_dir.glob(f"{stem}.*")):
+        if p.is_file() and p.suffix.lower() in VIDEO_EXTS:
             meta = VideoMeta.read(p)
             if meta is not None:
-                from clio.vmeta import _meta_to_dict
-
                 return handler._send_json(_meta_to_dict(meta))
     handler._send_json({"ok": False, "error": "not found"}, 404)
 

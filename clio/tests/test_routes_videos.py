@@ -963,3 +963,100 @@ class TestVideosPayloadCoverFile:
         v = payload["videos"][0]
         assert v.get("cover_file") == "001_GL010695.jpg"
         assert v.get("text_json") == "001_GL010695.json"
+
+
+class TestHandleGetVmeta:
+    def test_found_returns_meta(self, tmp_path: Path):
+        from clio.ui.routes.videos import handle_get_vmeta
+
+        handler = MagicMock()
+        proj_dir = tmp_path / "input"
+        proj_dir.mkdir()
+        proj_out = tmp_path / "output"
+        proj_out.mkdir()
+        comp_dir = proj_out / "compressed"
+        comp_dir.mkdir()
+        (comp_dir / "001_test.mp4").write_bytes(b"")
+        import json as _json
+
+        _vmeta = _json.dumps(
+            {
+                "version": 1,
+                "data": {
+                    "source_path": "/some/path",
+                    "target_path": "001_test.mp4",
+                    "is_original": False,
+                    "is_split_segment": False,
+                    "split_info": None,
+                },
+                "source_modifyTime": 1234567890,
+                "source_size": 1000000,
+                "target_modifyTime": 1234567890,
+                "target_size": 500000,
+                "source_duration_sec": 60.0,
+                "target_duration_sec": 60.0,
+                "compress_settings": {},
+                "verify": "",
+            }
+        )
+        (comp_dir / "001_test.vmeta").write_text(_vmeta)
+
+        handler._resolve_project_dir.return_value = proj_dir
+        handler._get_project_output.return_value = proj_out
+        handler._send_json = MagicMock()
+
+        handle_get_vmeta(handler, {}, "001_test")
+
+        handler._send_json.assert_called_once()
+        call_args = handler._send_json.call_args[0][0]
+        assert call_args.get("data", {}).get("source_path") == "/some/path"
+
+    def test_path_traversal_blocked(self, tmp_path: Path):
+        """GAP-P1-04: stem with path traversal must be rejected."""
+        from clio.ui.routes.videos import handle_get_vmeta
+
+        handler = MagicMock()
+        proj_dir = tmp_path / "input"
+        proj_dir.mkdir()
+        proj_out = tmp_path / "output"
+        proj_out.mkdir()
+        comp_dir = proj_out / "compressed"
+        comp_dir.mkdir()
+        # Create a file outside compressed/ that should NOT be accessible
+        other = tmp_path / "other"
+        other.mkdir()
+        (other / "secret.vmeta").write_text('{"api_key": "SECRET123"}')
+
+        handler._resolve_project_dir.return_value = proj_dir
+        handler._get_project_output.return_value = proj_out
+        handler._send_json = MagicMock()
+
+        # Attempt path traversal via stem
+        handle_get_vmeta(handler, {}, "../other/secret")
+
+        # Should return forbidden, not leak the file
+        call_args = handler._send_json.call_args[0][0]
+        assert call_args.get("ok") is False
+        assert "forbidden" in call_args.get("error", "").lower()
+
+    def test_not_found_returns_404(self, tmp_path: Path):
+        from clio.ui.routes.videos import handle_get_vmeta
+
+        handler = MagicMock()
+        proj_dir = tmp_path / "input"
+        proj_dir.mkdir()
+        proj_out = tmp_path / "output"
+        proj_out.mkdir()
+        comp_dir = proj_out / "compressed"
+        comp_dir.mkdir()
+
+        handler._resolve_project_dir.return_value = proj_dir
+        handler._get_project_output.return_value = proj_out
+        handler._send_json = MagicMock()
+
+        handle_get_vmeta(handler, {}, "nonexistent")
+
+        handler._send_json.assert_called_once()
+        call_args = handler._send_json.call_args[0][0]
+        assert call_args["ok"] is False
+        assert call_args["error"] == "not found"

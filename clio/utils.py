@@ -552,6 +552,11 @@ def validate_within_root(path: Path, root: Path) -> Path:
     Returns the resolved path on success.
     Raises ValueError if the path escapes root or is a symlink.
     """
+    try:
+        if root.is_symlink():
+            raise ValueError(f"symlink not allowed: {root}")
+    except (TypeError, OSError):
+        pass
     resolved = path.resolve()
     root_resolved = root.resolve()
     try:
