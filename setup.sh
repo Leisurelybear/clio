@@ -118,7 +118,12 @@ fi
 echo "[4/5] 准备本地配置文件..."
 if [[ ! -f ".env" && -f ".env.example" ]]; then
     cp ".env.example" ".env"
-    echo "已创建 .env，请填写 GEMINI_API_KEY / DEEPSEEK_API_KEY 等密钥。"
+    chmod 600 .env
+    echo "已创建 .env（仅当前用户可读写），请填写 GEMINI_API_KEY / DEEPSEEK_API_KEY 等密钥。"
+elif [[ -f ".env" ]]; then
+    # Restrict an existing .env whose group/other bits are open (keys exposure).
+    chmod 600 .env 2>/dev/null || true
+    echo ".env 已存在，已确保仅当前用户可读写"
 else
     echo ".env 已存在或缺少 .env.example，跳过"
 fi

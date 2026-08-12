@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from clio.ui.routes.env_routes import handle_get_env, handle_put_env
 
@@ -145,3 +148,25 @@ class TestHandlePutEnv:
 
         dotenv = tmp_path / ".env"
         assert dotenv.read_text(encoding="utf-8") == "NEW=val\n"
+
+    @pytest.mark.skipif(os.name == "nt", reason="POSIX mode bits not applicable on Windows")
+    def test_403_on_overwrite_of_insecure_existing(self, tmp_path: Path):
+        """Existing .env readable/writable by others must not be overwritten."""
+        handler = MagicMock()
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text("key: val\n", encoding="utf-8")
+        handler.config_path = cfg
+        handler.__class__._config_cache = MagicMock()
+        handler._send_json = MagicMock()
+        dotenv = tmp_path / ".env"
+        dotenv.write_text("OLD=1\n", encoding="utf-8")
+        os.chmod(dotenv, 0o644)
+
+        with patch("clio.ui.routes.env_routes._load_dotenv"):
+            handle_put_env(handler, {}, {"content": "NEW=2\n"})
+
+        handler._send_json.assert_called_once()
+        args = handler._send_json.call_args
+        assert args[0][1] == 403
+        assert args[0][0]["ok"] is False
+        assert dotenv.read_text(encoding="utf-8") == "OLD=1\n"

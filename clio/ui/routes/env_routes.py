@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from clio.ai.factory import _clear_provider_cache
 from clio.config import _load_dotenv  # noqa: F401 — kept for test mocks
-from clio.utils import write_text_atomic
+from clio.utils import write_secret_atomic
 
 if TYPE_CHECKING:
     from clio.ui.handler_protocol import HandlerProtocol
@@ -42,7 +42,10 @@ def handle_put_env(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> N
         return handler._send_json({"ok": False, "error": "config_path not available"}, 500)
     content = obj.get("content", "")
     env_path.parent.mkdir(parents=True, exist_ok=True)
-    write_text_atomic(env_path, content)
+    try:
+        write_secret_atomic(env_path, content)
+    except PermissionError as e:
+        return handler._send_json({"ok": False, "error": str(e)}, 403)
     _load_dotenv(env_path.parent, override=True)
     _sync_env_to_environ(content, env_path.parent)
     handler.__class__._config_cache.invalidate_all()

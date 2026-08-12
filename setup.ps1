@@ -217,6 +217,12 @@ if (-not (Test-Path ".env")) {
 } else {
     Write-Host "[4/4] .env 已存在"
 }
+# Restrict .env to the current user only (other local users must not read keys).
+try {
+    icacls ".env" /inheritance:r /grant:r "$env:USERNAME:F" | Out-Null
+} catch {
+    Write-Host "[*] 警告: 未能限制 .env 访问权限: $_" -ForegroundColor DarkYellow
+}
 
 # 4. config.yaml
 if (-not (Test-Path "config.yaml") -and (Test-Path "config.example.yaml")) {

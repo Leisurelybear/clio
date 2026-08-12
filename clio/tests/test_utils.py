@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import os
+import stat
 from pathlib import Path
 
 import pytest
 
 from clio.utils import (
+    _secret_has_insecure_perms,
     extract_json,
     find_videos,
     format_index,
@@ -14,6 +17,7 @@ from clio.utils import (
     resolve_binary,
     sanitize_name,
     with_retry,
+    write_secret_atomic,
 )
 
 # ── extract_json ────────────────────────────────────────────────────
@@ -287,3 +291,69 @@ class TestResolveBinary:
     def test_empty_config_falls_back(self):
         with pytest.raises(FileNotFoundError):
             resolve_binary("", "ffmpeg_nonexistent_tool_xyz")
+
+
+# ── write_secret_atomic (GAP-P1-11) ────────────────────────────────
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX mode bits not applicable on Windows")
+class TestWriteSecretAtomic:
+    def test_new_file_created_owner_only(self, tmp_path):
+        path = tmp_path / ".env"
+        write_secret_atomic(path, "KEY=val\n")
+        assert path.read_text(encoding="utf-8") == "KEY=val\n"
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+    def test_overwrites_owner_only_existing(self, tmp_path):
+        path = tmp_path / ".env"
+        path.write_text("OLD=1\n")
+        os.chmod(path, 0o600)
+        write_secret_atomic(path, "NEW=2\n")
+        assert path.read_text(encoding="utf-8") == "NEW=2\n"
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+    def test_refuses_overwrite_of_group_accessible(self, tmp_path):
+        path = tmp_path / ".env"
+        path.write_text("OLD=1\n")
+        os.chmod(path, 0o640)
+        with pytest.raises(PermissionError):
+            write_secret_atomic(path, "NEW=2\n")
+        assert path.read_text(encoding="utf-8") == "OLD=1\n"
+
+    def test_refuses_overwrite_of_world_writable(self, tmp_path):
+        path = tmp_path / ".env"
+        path.write_text("OLD=1\n")
+        os.chmod(path, 0o666)
+        with pytest.raises(PermissionError):
+            write_secret_atomic(path, "NEW=2\n")
+        assert path.read_text(encoding="utf-8") == "OLD=1\n"
+
+    def test_no_leftover_temp_file(self, tmp_path):
+        path = tmp_path / ".env"
+        write_secret_atomic(path, "KEY=val\n")
+        leftovers = [p for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
+        assert leftovers == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX mode bits not applicable on Windows")
+class TestSecretHasInsecurePerms:
+    def test_missing_file_not_insecure(self, tmp_path):
+        assert _secret_has_insecure_perms(tmp_path / ".env") is False
+
+    def test_600_not_insecure(self, tmp_path):
+        path = tmp_path / ".env"
+        path.write_text("K=v\n")
+        os.chmod(path, 0o600)
+        assert _secret_has_insecure_perms(path) is False
+
+    def test_644_is_insecure(self, tmp_path):
+        path = tmp_path / ".env"
+        path.write_text("K=v\n")
+        os.chmod(path, 0o644)
+        assert _secret_has_insecure_perms(path) is True
+
+    def test_640_is_insecure(self, tmp_path):
+        path = tmp_path / ".env"
+        path.write_text("K=v\n")
+        os.chmod(path, 0o640)
+        assert _secret_has_insecure_perms(path) is True

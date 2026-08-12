@@ -453,6 +453,69 @@ def write_text_atomic(path: Path, text: str) -> None:
         raise
 
 
+def _secret_has_insecure_perms(path: Path) -> bool:
+    """True when *path* exists and grants group/other access (POSIX only).
+
+    Windows has no POSIX mode bits; ACL hardening there is best-effort via
+    icacls during write, so existing copies are not flagged.
+    """
+    if os.name == "nt":
+        return False
+    try:
+        mode = os.stat(path).st_mode & 0o777
+    except OSError:
+        return False
+    return bool(mode & 0o077)
+
+
+def _restrict_secret_to_owner(path: Path) -> None:
+    """Best-effort: make *path* readable/writable only by the current user."""
+    if os.name != "nt":
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+        return
+    user = os.environ.get("USERNAME") or os.environ.get("USER")
+    if not user:
+        return
+    try:
+        run_subprocess(
+            ["icacls", str(path), "/inheritance:r", "/grant:r", f"{user}:F"],
+            capture_output=True,
+            timeout=15,
+        )
+    except Exception:
+        pass
+
+
+def write_secret_atomic(path: Path, text: str) -> None:
+    """Atomically write a secrets file (e.g. .env) restricted to the current user.
+
+    The temp file is created with 0o600 and atomically renamed into place, then
+    permissions are re-asserted (POSIX chmod 0o600 / Windows icacls). If *path*
+    already exists with group/other access, refuse to overwrite so a tampered or
+    exposed copy is never silently replaced with fresh secrets.
+    """
+    if _secret_has_insecure_perms(path):
+        raise PermissionError(f"拒绝覆盖权限不安全的密钥文件: {path} (其他用户可读/写，请先 chmod 600 {path})")
+    tmp, fd = _exclusive_random_tmp(path)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        tmp.unlink(missing_ok=True)
+        raise
+    _restrict_secret_to_owner(path)
+
+
 def write_json_atomic(path: Path, data: JsonValue, *, ensure_ascii: bool = False, indent: int = 2) -> None:
     """Write JSON via a random exclusive temp file then atomically replace."""
     body = json.dumps(data, ensure_ascii=ensure_ascii, indent=indent)
