@@ -15,6 +15,7 @@ from clio.plan_readiness import (
 )
 from clio.ui.handler_protocol import HandlerProtocol
 from clio.ui.services.file_service import _is_safe_basename
+from clio.utils import resolve_binary
 
 
 def _copy_draft_to_jianying(
@@ -94,7 +95,7 @@ def handle_post_export(
                 out_dir,
                 day_label=day,
                 project_dir=cfg.project_dir or proj_dir,
-                ffprobe=cfg.paths.ffprobe,
+                ffprobe=resolve_binary(cfg.paths.ffprobe, "ffprobe"),
                 texts_dir=cfg.texts_dir,
                 canvas_ratio=cfg.export.canvas_ratio,
                 index_width=cfg.naming.index_width,

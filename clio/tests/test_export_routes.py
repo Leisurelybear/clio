@@ -85,6 +85,7 @@ class TestHandlePostExport:
         with (
             patch("clio.ui.routes.export.collect_project_indices", return_value=({"001"}, set())),
             patch("clio.ui.routes.export.export_plan") as mock_export,
+            patch("clio.ui.routes.export.resolve_binary", return_value="ffprobe"),
         ):
             mock_export.side_effect = FileNotFoundError("file not found")
             handle_post_export(handler, {}, {"day": "day1", "format": "jianying", "force": True})
@@ -98,6 +99,7 @@ class TestHandlePostExport:
         with (
             patch("clio.ui.routes.export.collect_project_indices", return_value=({"001"}, set())),
             patch("clio.ui.routes.export.export_plan") as mock_export,
+            patch("clio.ui.routes.export.resolve_binary", return_value="ffprobe"),
         ):
             mock_export.side_effect = ValueError("bad format")
             handle_post_export(handler, {}, {"day": "day1", "format": "jianying", "force": True})
@@ -113,6 +115,7 @@ class TestHandlePostExport:
         with (
             patch("clio.ui.routes.export.collect_project_indices", return_value=({"001"}, set())),
             patch("clio.ui.routes.export.export_plan") as mock_export,
+            patch("clio.ui.routes.export.resolve_binary", return_value="ffprobe"),
         ):
             mock_export.return_value = result_path
             handle_post_export(handler, {}, {"day": "day1", "format": "jianying", "force": True})
