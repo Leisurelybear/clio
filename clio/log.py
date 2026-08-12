@@ -15,6 +15,16 @@ _LOGGER_NAME = "clio"
 _FORMAT = "%(asctime)s [%(levelname)s] %(message)s"
 _DATEFMT = "%Y-%m-%d %H:%M:%S"
 
+# 单个小时日志的写入上限；超出后暂停该小时文件写入，避免无限增长拖垮磁盘。
+_MAX_LOG_BYTES = 64 * 1024 * 1024
+# 连续写入失败达到该次数后停用文件日志，防止每次 emit 都重复报错刷屏。
+_MAX_CONSECUTIVE_FAILURES = 5
+
+
+def _protected_stderr() -> TextIO | None:
+    """受保护的原始 stderr；日志自身出错时只写这里，避免经 TeeWriter 回灌递归。"""
+    return sys.__stderr__
+
 
 class _HourlyFileHandler(logging.Handler):
     """按当前小时自动切文件：logs/YYYY-MM-DD-HH.log。"""
@@ -24,6 +34,9 @@ class _HourlyFileHandler(logging.Handler):
         self._logs_dir = logs_dir
         self._current_hour: str | None = None
         self._current_file: TextIO | None = None
+        self._failure_count = 0
+        self._failed = False
+        self._quota_warned = False
         self.setFormatter(logging.Formatter(_FORMAT, datefmt=_DATEFMT))
         self._rotate(datetime.now())
 
@@ -40,16 +53,61 @@ class _HourlyFileHandler(logging.Handler):
         log_path = self._logs_dir / f"{hour_key}.log"
         self._current_file = open(log_path, "a", encoding="utf-8")
         self._current_hour = hour_key
+        self._failure_count = 0
+
+    def _over_quota(self) -> bool:
+        if self._current_file is None:
+            return False
+        try:
+            return self._current_file.tell() >= _MAX_LOG_BYTES
+        except Exception:
+            return False
+
+    def _emergency(self, message: str) -> None:
+        stream = _protected_stderr()
+        if stream is None:
+            return
+        try:
+            stream.write(message + "\n")
+            stream.flush()
+        except Exception:
+            pass
 
     def emit(self, record: logging.LogRecord) -> None:
+        if self._failed:
+            return
+        if self._over_quota():
+            if not self._quota_warned:
+                self._quota_warned = True
+                self._emergency(f"[clio] 日志文件达到 {format_size(_MAX_LOG_BYTES)} 限额，本小时文件写入已暂停")
+            return
         try:
             self._rotate(datetime.fromtimestamp(record.created))
             assert self._current_file is not None
             msg = self.format(record) + "\n"
             self._current_file.write(msg)
             self._current_file.flush()
+            self._failure_count = 0
         except Exception:
+            self._failure_count += 1
             self.handleError(record)
+            if self._failure_count >= _MAX_CONSECUTIVE_FAILURES:
+                self._failed = True
+                self._emergency(
+                    f"[clio] 日志文件连续 {_MAX_CONSECUTIVE_FAILURES} 次写入失败，已停用文件日志（磁盘已满或只读？）"
+                )
+
+    def handleError(self, record: logging.LogRecord) -> None:
+        """只写受保护的原始 stderr，避免经 TeeWriter 回灌 logger 形成递归。"""
+        stream = _protected_stderr()
+        if stream is None:
+            return
+        try:
+            stream.write("[clio] 日志写入失败，请检查磁盘空间与目录权限\n")
+            traceback.print_exc(file=stream)
+            stream.flush()
+        except Exception:
+            pass
 
     def close(self) -> None:
         if self._current_file is not None:
@@ -152,7 +210,12 @@ def setup_logging(logs_dir: Path, level: int = logging.INFO) -> logging.Logger:
         try:
             logger.addHandler(_HourlyFileHandler(logs_dir))
         except Exception as e:
-            sys.stderr.write(f"[clio] 无法创建日志文件: {e}\n")
+            stream = _protected_stderr()
+            if stream is not None:
+                try:
+                    stream.write(f"[clio] 无法创建日志文件: {e}\n")
+                except Exception:
+                    pass
 
         _original_stdout = sys.stdout
         _original_stderr = sys.stderr

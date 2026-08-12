@@ -4,9 +4,20 @@ from __future__ import annotations
 
 import io
 import logging
+import os
+
+import pytest
 
 from clio import session_log
-from clio.log import _TeeWriter, format_duration, format_size, setup_logging, teardown_logging
+from clio.log import (
+    _MAX_CONSECUTIVE_FAILURES,
+    _HourlyFileHandler,
+    _TeeWriter,
+    format_duration,
+    format_size,
+    setup_logging,
+    teardown_logging,
+)
 
 # ── format_size ─────────────────────────────────────────────────────
 
@@ -163,3 +174,103 @@ class TestSetupLogging:
         teardown_logging()
         assert sys.stdout is stdout
         assert sys.stderr is stderr
+
+
+# ── _HourlyFileHandler failure handling (GAP-P1-10) ───────────────
+
+
+def _make_record(message: str = "boom") -> logging.LogRecord:
+    return logging.LogRecord("clio", logging.ERROR, __file__, 42, message, None, None)
+
+
+class _FailingFile:
+    """File-like object whose write/flush always fail (disk full / read-only)."""
+
+    def __init__(self) -> None:
+        self.failures = 0
+
+    def tell(self) -> int:
+        return 0
+
+    def write(self, _text: str) -> int:
+        self.failures += 1
+        raise OSError(28, "No space left on device")
+
+    def flush(self) -> None:
+        raise OSError(28, "No space left on device")
+
+    def close(self) -> None:
+        pass
+
+
+class TestHourlyFileHandlerFailure:
+    def test_emit_failure_goes_to_protected_stderr_not_tee(self, tmp_path, monkeypatch):
+        """Write failure must be reported on the real stderr, never re-enter the
+        logger (which would recurse through _TeeWriter -> same failing handler)."""
+        protected = io.StringIO()
+        monkeypatch.setattr("sys.__stderr__", protected)
+        handler = _HourlyFileHandler(tmp_path)
+        failing = _FailingFile()
+        handler._current_file = failing
+
+        handler.emit(_make_record())
+
+        out = protected.getvalue()
+        assert "日志写入失败" in out
+        assert "No space left on device" in out
+        assert failing.failures == 1
+
+    def test_emit_failure_does_not_recurse_or_raise(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("sys.__stderr__", io.StringIO())
+        handler = _HourlyFileHandler(tmp_path)
+        handler._current_file = _FailingFile()
+
+        # Repeated emits must not raise RecursionError even though the handler
+        # keeps failing; the protected-stderr path breaks the feedback loop.
+        for _ in range(_MAX_CONSECUTIVE_FAILURES * 3):
+            handler.emit(_make_record())
+
+    def test_handler_disables_after_repeated_failures(self, tmp_path, monkeypatch):
+        protected = io.StringIO()
+        monkeypatch.setattr("sys.__stderr__", protected)
+        handler = _HourlyFileHandler(tmp_path)
+        failing = _FailingFile()
+        handler._current_file = failing
+
+        for _ in range(_MAX_CONSECUTIVE_FAILURES):
+            handler.emit(_make_record())
+
+        assert handler._failed is True
+        assert "已停用文件日志" in protected.getvalue()
+
+    def test_quota_pauses_writes_with_warning(self, tmp_path, monkeypatch):
+        protected = io.StringIO()
+        monkeypatch.setattr("sys.__stderr__", protected)
+
+        class _HugeFile(_FailingFile):
+            def tell(self) -> int:
+                return 64 * 1024 * 1024
+
+        handler = _HourlyFileHandler(tmp_path)
+        handler._current_file = _HugeFile()
+
+        handler.emit(_make_record())
+
+        assert "限额" in protected.getvalue()
+
+    @pytest.mark.skipif(
+        os.name == "nt",
+        reason="POSIX permission bit semantics not enforced on Windows",
+    )
+    def test_readonly_dir_is_handled_gracefully(self, tmp_path, monkeypatch):
+        protected = io.StringIO()
+        monkeypatch.setattr("sys.__stderr__", protected)
+        readonly = tmp_path / "readonly"
+        readonly.mkdir()
+        readonly.chmod(0o500)
+        try:
+            handler = _HourlyFileHandler(readonly)
+            handler.emit(_make_record())
+            assert "日志写入失败" in protected.getvalue()
+        finally:
+            readonly.chmod(0o700)
