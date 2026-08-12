@@ -87,9 +87,34 @@ def _warn_unknown_model(task_name: str, provider_name: str, task_model: str, pro
         )
 
 
+def _require_relative_subdir(field_name: str, value: str) -> None:
+    """Reject subdir values that could escape output_root.
+
+    A subdir is joined as `output_dir / subdir`; absolute paths, `~` and `..`
+    segments silently escape the project root (GAP-P1-03).
+    """
+    from pathlib import PurePosixPath
+
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{field_name} 必须是相对子目录名，不能为空")
+    if value.startswith(("~", "/", "\\")) or ":" in value[:2]:
+        raise ValueError(f"{field_name} 必须是相对子目录名，不能是绝对路径: {value!r}")
+    parts = PurePosixPath(value.replace("\\", "/")).parts
+    if any(p in ("..", ".") for p in parts) or value == ".":
+        raise ValueError(f"{field_name} 不能包含 .. 或 . 路径段: {value!r}")
+
+
 def _validate_config(config: AppConfig) -> None:
     if config.proxy.enabled and not config.proxy.url:
         raise ValueError("proxy.enabled=true 但 proxy.url 为空。请填写 proxy.url，或把 proxy.enabled 改成 false。")
+    for field_name, value in (
+        ("analyze.compressed_subdir", config.analyze.compressed_subdir),
+        ("analyze.texts_subdir", config.analyze.texts_subdir),
+        ("script.scripts_subdir", config.script.scripts_subdir),
+        ("plan.plans_subdir", config.plan.plans_subdir),
+        ("whisper.transcripts_subdir", config.whisper.transcripts_subdir),
+    ):
+        _require_relative_subdir(field_name, value)
     _require_min("analyze.max_workers", config.analyze.max_workers, 1)
     _require_min("analyze.max_analyze_duration_min", config.analyze.max_analyze_duration_min, 0)
     _require_min("analyze.window_max_min", config.analyze.window_max_min, 1)

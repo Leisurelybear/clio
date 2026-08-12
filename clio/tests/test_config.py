@@ -17,16 +17,19 @@ from clio.config import (
     load_config,
 )
 from clio.config.models import (
+    AnalyzeConfig,
     AppConfig,
     ExportConfig,
     GlobalAIConfig,
     GlobalCompressConfig,
     GlobalConfig,
+    PlanConfig,
     ProjectAIConfig,
     ProjectConfig,
     ProjectWhisperConfig,
     ProviderConfig,
     ProxyConfig,
+    ScriptConfig,
     TaskConfig,
 )
 
@@ -203,6 +206,37 @@ class TestValidateConfig:
         )
         with pytest.raises(ValueError, match="proxy"):
             _validate_config(cfg)
+
+    def test_subdir_absolute_escapes_root(self):
+        cfg = AppConfig(
+            global_cfg=GlobalConfig(),
+            project_cfg=ProjectConfig(analyze=AnalyzeConfig(compressed_subdir="/etc/passwd")),
+        )
+        with pytest.raises(ValueError, match="compressed_subdir"):
+            _validate_config(cfg)
+
+    def test_subdir_dotdot_escapes_root(self):
+        cfg = AppConfig(
+            global_cfg=GlobalConfig(),
+            project_cfg=ProjectConfig(plan=PlanConfig(plans_subdir="../outside")),
+        )
+        with pytest.raises(ValueError, match="plans_subdir"):
+            _validate_config(cfg)
+
+    def test_subdir_tilde_accepted_only_as_relative(self):
+        cfg = AppConfig(
+            global_cfg=GlobalConfig(),
+            project_cfg=ProjectConfig(whisper=WhisperConfig(transcripts_subdir="~/home")),
+        )
+        with pytest.raises(ValueError, match="transcripts_subdir"):
+            _validate_config(cfg)
+
+    def test_subdir_depth_allowed(self):
+        cfg = AppConfig(
+            global_cfg=GlobalConfig(),
+            project_cfg=ProjectConfig(script=ScriptConfig(scripts_subdir="nested/deep")),
+        )
+        assert _validate_config(cfg) is None
 
     def test_task_refers_to_nonexistent_provider(self):
         cfg = AppConfig(
