@@ -222,11 +222,27 @@ def handle_get_cut_orphaned_backups(handler: HandlerProtocol, qs: dict[str, Any]
 
 
 def handle_post_cut_restore_backups(handler: HandlerProtocol, qs: dict[str, list[str]], obj: dict) -> None:
-    """POST /api/cut/restore-backups — restore orphaned cut backups (old files)."""
+    """POST /api/cut/restore-backups — restore orphaned cut backups (old files).
+
+    When a target and its backup coexist, restoring would discard a completed
+    new cut, so the client must pass keep_target=true to keep new files or
+    false to restore old files (default). Conflicting items without an
+    explicit decision are reported with HTTP 409 (GAP-P1-06).
+    """
     body = obj if isinstance(obj, dict) else {}
     only = body.get("paths")
     if only is not None and not isinstance(only, list):
         return handler._send_json({"ok": False, "error": "paths must be a list"}, 400)
+    keep_target = body.get("keep_target") if "keep_target" in body else None
     proj_out = handler._get_project_output(qs)
-    result = restore_orphaned_cut_backups(proj_out, only=only)
+    result = restore_orphaned_cut_backups(proj_out, only=only, keep_target=keep_target)
+    if result["conflicts"]:
+        return handler._send_json(
+            {
+                "ok": False,
+                "error": "目标与备份共存，需明确选择保留新版或恢复旧版",
+                "conflicts": result["conflicts"],
+            },
+            409,
+        )
     handler._send_json({"ok": True, **result})

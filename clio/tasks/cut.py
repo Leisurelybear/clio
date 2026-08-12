@@ -32,6 +32,10 @@ _VIDEO_OUT_EXTS = {".mp4", ".mov", ".mkv", ".m4v", ".webm"}
 CUT_BAK_SUFFIX = ".clio_bak"
 
 
+class CutBackupConflictError(Exception):
+    """Raised when a cut target and its backup coexist and no decision was given."""
+
+
 def _indexed_files(directory: Path, raw_index: str, *, index_width: int, suffix: str | None = None) -> list[Path]:
     keys = expand_index_keys(raw_index, index_width=index_width)
     if not directory.is_dir() or not keys:
@@ -122,7 +126,8 @@ def target_path_for_cut_bak(bak: Path) -> Path | None:
 def list_orphaned_cut_backups(project_output_dir: Path) -> list[dict[str, str]]:
     """Find leftover *.clio_bak under output/cuts (interrupted re-cut).
 
-    Each item: bak, target, day (relative day folder under cuts when known).
+    Each item: bak, target, day (relative day folder under cuts when known),
+    and conflict=True when the target (a completed new cut) already exists.
     """
     cuts_root = Path(project_output_dir) / "cuts"
     if not cuts_root.is_dir():
@@ -148,6 +153,7 @@ def list_orphaned_cut_backups(project_output_dir: Path) -> list[dict[str, str]]:
                     "target": str(target.resolve()),
                     "day": day,
                     "name": target.name,
+                    "conflict": "true" if target.exists() else "false",
                 }
             )
     except OSError:
@@ -155,28 +161,45 @@ def list_orphaned_cut_backups(project_output_dir: Path) -> list[dict[str, str]]:
     return found
 
 
-def restore_orphaned_cut_backup(bak: Path) -> dict[str, str]:
-    """Restore one backup: remove incomplete target if present, rename bak → target."""
+def restore_orphaned_cut_backup(bak: Path, *, keep_target: bool | None = None) -> dict[str, str]:
+    """Resolve one cut backup.
+
+    When the target file also exists, restoring the old file would discard a
+    completed new cut, so an explicit decision is required (GAP-P1-06):
+      - keep_target=True  -> delete the backup, keep the new target
+      - keep_target=False -> delete the new target, restore the backup
+      - keep_target=None  -> no decision; raise CutBackupConflictError
+    """
     bak = Path(bak)
     target = target_path_for_cut_bak(bak)
     if target is None:
         raise ValueError(f"not a cut backup: {bak}")
     if not bak.is_file():
         raise FileNotFoundError(f"backup missing: {bak}")
+    if target.exists() and keep_target is None:
+        raise CutBackupConflictError(f"target and backup coexist; choose keep or restore: {target}")
     if target.exists():
+        if keep_target:
+            bak.unlink()
+            return {"bak": str(bak), "target": str(target), "name": target.name, "kept": "target"}
         target.unlink()
     bak.replace(target)
-    return {"bak": str(bak), "target": str(target), "name": target.name}
+    return {"bak": str(bak), "target": str(target), "name": target.name, "kept": "backup"}
 
 
 def restore_orphaned_cut_backups(
     project_output_dir: Path,
     *,
     only: list[str] | None = None,
+    keep_target: bool | None = None,
 ) -> dict[str, Any]:
     """Restore orphaned cut backups under output/cuts.
 
     only: optional list of absolute bak paths or target basenames to restore.
+    keep_target: required decision when a target coexists with its backup.
+        True keeps the new target (deletes the backup), False restores the old
+        file; None leaves coexisting items unresolved and reports them as
+        conflicts.
     """
     items = list_orphaned_cut_backups(project_output_dir)
     if only is not None:
@@ -188,12 +211,15 @@ def restore_orphaned_cut_backups(
         ]
     restored: list[dict[str, str]] = []
     errors: list[dict[str, str]] = []
+    conflicts: list[dict[str, str]] = []
     for it in items:
         try:
-            restored.append(restore_orphaned_cut_backup(Path(it["bak"])))
+            restored.append(restore_orphaned_cut_backup(Path(it["bak"]), keep_target=keep_target))
+        except CutBackupConflictError:
+            conflicts.append(it)
         except OSError as e:
             errors.append({"bak": it["bak"], "error": str(e)})
-    return {"restored": restored, "errors": errors, "count": len(restored)}
+    return {"restored": restored, "errors": errors, "conflicts": conflicts, "count": len(restored)}
 
 
 def _compute_segment_offset(compressed_stem: str, comp_dir: Path, original_path: Path, ffprobe: str) -> float:

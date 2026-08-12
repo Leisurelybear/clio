@@ -59,7 +59,7 @@ def _write_plan(cfg: AppConfig, day_label: str = "day1", seq: list | None = None
 
 
 class TestOrphanedCutBackups:
-    def test_list_and_restore(self, tmp_path):
+    def test_list_and_restore_when_target_absent(self, tmp_path):
         from clio.tasks.cut import (
             CUT_BAK_SUFFIX,
             list_orphaned_cut_backups,
@@ -70,20 +70,52 @@ class TestOrphanedCutBackups:
         day.mkdir(parents=True)
         target = day / "clip.mp4"
         bak = day / f"clip.mp4{CUT_BAK_SUFFIX}"
-        # incomplete new file + backup of old
-        target.write_bytes(b"partial")
+        # only backup of old remains; new file never completed
         bak.write_bytes(b"oldgood")
 
         items = list_orphaned_cut_backups(tmp_path)
         assert len(items) == 1
         assert items[0]["name"] == "clip.mp4"
         assert items[0]["day"] == "day1"
+        assert items[0]["conflict"] == "false"
 
         result = restore_orphaned_cut_backups(tmp_path)
         assert result["count"] == 1
         assert target.read_bytes() == b"oldgood"
         assert not bak.exists()
         assert list_orphaned_cut_backups(tmp_path) == []
+
+    def test_list_and_restore_coexist_requires_decision(self, tmp_path):
+        from clio.tasks.cut import (
+            CUT_BAK_SUFFIX,
+            list_orphaned_cut_backups,
+            restore_orphaned_cut_backups,
+        )
+
+        day = tmp_path / "cuts" / "day1"
+        day.mkdir(parents=True)
+        target = day / "clip.mp4"
+        bak = day / f"clip.mp4{CUT_BAK_SUFFIX}"
+        # completed new cut + leftover backup of old
+        target.write_bytes(b"newcut")
+        bak.write_bytes(b"oldgood")
+
+        items = list_orphaned_cut_backups(tmp_path)
+        assert items[0]["conflict"] == "true"
+
+        # no explicit decision -> conflict reported, nothing changed
+        result = restore_orphaned_cut_backups(tmp_path)
+        assert result["count"] == 0
+        assert len(result["conflicts"]) == 1
+        assert target.read_bytes() == b"newcut"
+        assert bak.exists()
+
+        # keep new target -> backup deleted
+        result = restore_orphaned_cut_backups(tmp_path, keep_target=True)
+        assert result["count"] == 1
+        assert result["restored"][0]["kept"] == "target"
+        assert target.read_bytes() == b"newcut"
+        assert not bak.exists()
 
     def test_restore_when_only_bak(self, tmp_path):
         from clio.tasks.cut import CUT_BAK_SUFFIX, restore_orphaned_cut_backup
@@ -94,6 +126,20 @@ class TestOrphanedCutBackups:
         bak.write_bytes(b"old")
         restore_orphaned_cut_backup(bak)
         assert (day / "only.mp4").read_bytes() == b"old"
+        assert not bak.exists()
+
+    def test_restore_explicit_restore_old_when_coexist(self, tmp_path):
+        from clio.tasks.cut import CUT_BAK_SUFFIX, restore_orphaned_cut_backup
+
+        day = tmp_path / "cuts" / "day2"
+        day.mkdir(parents=True)
+        target = day / "clip.mp4"
+        bak = day / f"clip.mp4{CUT_BAK_SUFFIX}"
+        target.write_bytes(b"newcut")
+        bak.write_bytes(b"oldgood")
+
+        restore_orphaned_cut_backup(bak, keep_target=False)
+        assert target.read_bytes() == b"oldgood"
         assert not bak.exists()
 
 

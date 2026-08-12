@@ -267,9 +267,43 @@ class TestOrphanedCutBackupRoutes:
         handler = MagicMock()
         handler._get_project_output.return_value = tmp_path
         handler._send_json = MagicMock()
-        handle_post_cut_restore_backups(handler, {}, {})
+        handle_post_cut_restore_backups(handler, {}, {"keep_target": False})
         payload = handler._send_json.call_args[0][0]
         assert payload["ok"] is True
         assert payload["count"] == 1
         assert (day / "a.mp4").read_bytes() == b"old"
+        assert not bak.exists()
+
+    def test_post_coexist_returns_conflict_409(self, tmp_path: Path):
+        day = tmp_path / "cuts" / "day1"
+        day.mkdir(parents=True)
+        bak = day / "a.mp4.clio_bak"
+        bak.write_bytes(b"old")
+        (day / "a.mp4").write_bytes(b"newcut")
+        handler = MagicMock()
+        handler._get_project_output.return_value = tmp_path
+        handler._send_json = MagicMock()
+        handle_post_cut_restore_backups(handler, {}, {})
+        status = handler._send_json.call_args[0][1]
+        payload = handler._send_json.call_args[0][0]
+        assert status == 409
+        assert payload["ok"] is False
+        assert len(payload["conflicts"]) == 1
+        assert (day / "a.mp4").read_bytes() == b"newcut"
+        assert bak.exists()
+
+    def test_post_coexist_keep_new(self, tmp_path: Path):
+        day = tmp_path / "cuts" / "day1"
+        day.mkdir(parents=True)
+        bak = day / "a.mp4.clio_bak"
+        bak.write_bytes(b"old")
+        (day / "a.mp4").write_bytes(b"newcut")
+        handler = MagicMock()
+        handler._get_project_output.return_value = tmp_path
+        handler._send_json = MagicMock()
+        handle_post_cut_restore_backups(handler, {}, {"keep_target": True})
+        payload = handler._send_json.call_args[0][0]
+        assert payload["ok"] is True
+        assert payload["count"] == 1
+        assert (day / "a.mp4").read_bytes() == b"newcut"
         assert not bak.exists()

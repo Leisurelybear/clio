@@ -89,21 +89,44 @@ async function handleRuntimeWarningAction(actionId) {
     return;
   }
   const n = _orphanedCutBackups.length;
-  if (!confirm(`将恢复 ${n} 个中断覆盖前的旧裁剪文件（删除残缺新文件并还原 *.clio_bak）。继续？`)) {
+  const conflicts = (_orphanedCutBackups || []).filter((it) => it.conflict === 'true' || it.conflict === true);
+  if (!confirm(`将恢复 ${n} 个中断覆盖前的旧裁剪文件（还原 *.clio_bak）。继续？`)) {
     return;
   }
   try {
-    const r = await api('POST', '/api/cut/restore-backups', {});
+    let body = {};
+    if (conflicts.length) {
+      const keepNew = confirm(
+        `${conflicts.length} 个文件的目标与备份共存（新成片已生成）。保留新版并删除备份？\n选择「取消」则恢复旧版并删除新版。`,
+      );
+      body = { keep_target: keepNew };
+    }
+    const r = await api('POST', '/api/cut/restore-backups', body);
     const count = r.count || (r.restored || []).length || 0;
     const errN = (r.errors || []).length;
     setStatus(
-      errN ? `已恢复 ${count} 个，${errN} 个失败` : `已恢复 ${count} 个裁剪备份`,
+      errN ? `已恢复 ${count} 个，${errN} 个失败` : `已处理 ${count} 个裁剪备份`,
       errN ? 'warn' : 'ok',
     );
-    addToast(errN ? `恢复 ${count}，失败 ${errN}` : `已恢复 ${count} 个旧文件`, errN ? 'warning' : 'success');
+    addToast(errN ? `处理 ${count}，失败 ${errN}` : `已处理 ${count} 个旧文件`, errN ? 'warning' : 'success');
   } catch (e) {
-    setStatus('恢复失败: ' + e.message, 'err');
-    addToast('恢复失败: ' + e.message, 'error', 6000);
+    if (e.status === 409 && e.body && e.body.conflicts && e.body.conflicts.length) {
+      const keepNew = confirm(
+        `${e.body.conflicts.length} 个文件的目标与备份共存（新成片已生成）。保留新版并删除备份？\n选择「取消」则恢复旧版并删除新版。`,
+      );
+      try {
+        const r = await api('POST', '/api/cut/restore-backups', { keep_target: keepNew });
+        const count = r.count || (r.restored || []).length || 0;
+        setStatus(`已处理 ${count} 个裁剪备份`, 'ok');
+        addToast(`已处理 ${count} 个旧文件`, 'success');
+      } catch (e2) {
+        setStatus('恢复失败: ' + e2.message, 'err');
+        addToast('恢复失败: ' + e2.message, 'error', 6000);
+      }
+    } else {
+      setStatus('恢复失败: ' + e.message, 'err');
+      addToast('恢复失败: ' + e.message, 'error', 6000);
+    }
   }
   await refreshRuntimeWarningsBanner();
 }
