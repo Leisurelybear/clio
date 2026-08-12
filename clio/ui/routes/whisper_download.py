@@ -512,7 +512,7 @@ def _run_install(
                 downloaded += target.stat().st_size
                 continue
         url = hf_hub_url(repo_id, filename=filename)
-        tmp_path = target.with_name(target.name + ".tmp")
+        tmp_path = target.with_name(target.name + f".{os.urandom(4).hex()}.tmp")
         try:
             response = _req.get(url, stream=True, proxies=proxies, timeout=(30, 180), allow_redirects=True)
             response.raise_for_status()

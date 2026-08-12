@@ -249,16 +249,11 @@ def _upgrade_config_file(yaml_path: Path, *, section_map: dict[str, type]) -> No
                 bak.write_text(previous, encoding="utf-8")
             except Exception:
                 pass
-    tmp = yaml_path.with_suffix(".yaml.tmp")
-    unique_tmp = tmp.with_name(tmp.name + f".{os.getpid()}.{id(raw) % 100000}")
+    from clio.utils import write_text_atomic
+
     try:
-        with unique_tmp.open("w", encoding="utf-8") as f:
-            f.write(text)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(unique_tmp, yaml_path)
+        write_text_atomic(yaml_path, text)
     except Exception:
-        unique_tmp.unlink(missing_ok=True)
         return
     print(f"[config] {yaml_path.name} auto-added {len(added)} new field(s): {', '.join(added)}")
 
@@ -400,11 +395,11 @@ def _migrate_v1_to_v2(config_path: Path) -> None:
     # Write V2 global config.yaml
     global_raw = _filter_global_only(raw)
     global_raw[_CONFIG_VERSION] = _V2
+    from clio.utils import write_text_atomic
+
     try:
         text = yaml.dump(global_raw, default_flow_style=False, allow_unicode=True, sort_keys=False)
-        tmp = config_path.with_suffix(".yaml.tmp")
-        tmp.write_text(text, encoding="utf-8")
-        os.replace(tmp, config_path)
+        write_text_atomic(config_path, text)
         print(f"[config] migrated config.yaml to V2 (global-only, backup at {bak.name})")
     except Exception:
         return
@@ -460,9 +455,7 @@ def _migrate_v1_to_v2(config_path: Path) -> None:
             else:
                 try:
                     text = yaml.dump(project_out, default_flow_style=False, allow_unicode=True, sort_keys=False)
-                    tmp = proj_yaml.with_suffix(".yaml.tmp")
-                    tmp.write_text(text, encoding="utf-8")
-                    os.replace(tmp, proj_yaml)
+                    write_text_atomic(proj_yaml, text)
                     print(f"[config] {proj_dir.name}/project.yaml: migrated to V2")
                 except Exception:
                     pass

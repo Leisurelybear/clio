@@ -61,13 +61,13 @@ def _load_disk_cache(proj_out: Path, source: str, signature: tuple[Any, ...]) ->
 
 
 def _save_disk_cache(proj_out: Path, source: str, signature: tuple[Any, ...], payload: dict[str, Any]) -> None:
+    from clio.utils import write_json_atomic
+
     try:
         cache_dir = _cache_dir(proj_out)
         cache_dir.mkdir(parents=True, exist_ok=True)
         data = {"version": 1, "signature": _signature_hash(signature), "payload": payload}
-        tmp = cache_dir / f"videos_{source}.json.tmp"
-        tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-        tmp.replace(_disk_cache_path(proj_out, source))
+        write_json_atomic(_disk_cache_path(proj_out, source), data)
     except OSError:
         pass
 

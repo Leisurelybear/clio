@@ -140,15 +140,13 @@ def read_peaks(project_output: Path, key: str) -> dict[str, Any] | None:
 
 
 def write_peaks_atomic(project_output: Path, key: str, payload: dict[str, Any]) -> Path:
-    d = waveforms_dir(project_output)
-    d.mkdir(parents=True, exist_ok=True)
+    from clio.utils import write_text_atomic
+
     dest = ready_path(project_output, key)
-    tmp = dest.with_suffix(".json.tmp")
     body = dict(payload)
     body["status"] = "ready"
     body["version"] = WAVEFORM_VERSION
-    tmp.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
-    os.replace(tmp, dest)
+    write_text_atomic(dest, json.dumps(body, ensure_ascii=False))
     return dest
 
 

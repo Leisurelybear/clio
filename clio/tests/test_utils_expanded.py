@@ -183,6 +183,30 @@ class TestWriteTextAtomic:
         write_text_atomic(f, "")
         assert f.read_text(encoding="utf-8") == ""
 
+    def test_planted_file_never_followed(self, tmp_path):
+        collision = (b"\x11" * 8).hex()
+        first_name = tmp_path / f".out.txt.{collision}.tmp"
+        first_name.write_text("keep me", encoding="utf-8")
+
+        values = iter([b"\x11" * 8, b"\x22" * 8])
+
+        def sequential_urandom(n: int) -> bytes:
+            del n
+            return next(values)
+
+        with patch("clio.utils.os.urandom", side_effect=sequential_urandom):
+            target = tmp_path / "out.txt"
+            write_text_atomic(target, "new content")
+        assert first_name.read_text(encoding="utf-8") == "keep me"
+        assert target.read_text(encoding="utf-8") == "new content"
+
+    def test_all_temp_names_collide_raises(self, tmp_path):
+        f = tmp_path / "out.txt"
+        with patch("clio.utils.os.open", side_effect=FileExistsError):
+            with pytest.raises(OSError):
+                write_text_atomic(f, "content")
+        assert not f.exists()
+
 
 class TestRunFfmpeg:
     @patch("clio.utils.popen_subprocess")

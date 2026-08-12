@@ -417,28 +417,46 @@ def get_duration_sec(video_path: Path, ffprobe: str) -> float:
     return duration
 
 
-def write_json_atomic(path: Path, data: JsonValue, *, ensure_ascii: bool = False, indent: int = 2) -> None:
-    """Write JSON to a file using tmp + rename for crash safety."""
+def _exclusive_random_tmp(path: Path) -> Path:
+    """Return a random temp path in *path*'s directory opened exclusively.
+
+    Opening with O_CREAT|O_EXCL fails if anything (including a planted
+    symlink) already occupies the random name, so writes never follow or
+    overwrite pre-placed links.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + f".tmp.{os.urandom(4).hex()}")
-    try:
-        tmp.write_text(json.dumps(data, ensure_ascii=ensure_ascii, indent=indent), encoding="utf-8")
-        os.replace(tmp, path)
-    except BaseException:
-        tmp.unlink(missing_ok=True)
-        raise
+    for _ in range(32):
+        tmp = path.parent / f".{path.name}.{os.urandom(8).hex()}.tmp"
+        try:
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            continue
+        return tmp, fd
+    raise OSError(f"无法创建唯一临时文件: {path}")
 
 
 def write_text_atomic(path: Path, text: str) -> None:
-    """Write text to a file using tmp + rename for crash safety."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + f".tmp.{os.urandom(4).hex()}")
+    """Write text via a random exclusive temp file then atomically replace."""
+    tmp, fd = _exclusive_random_tmp(path)
     try:
-        tmp.write_text(text, encoding="utf-8")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp, path)
     except BaseException:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
         tmp.unlink(missing_ok=True)
         raise
+
+
+def write_json_atomic(path: Path, data: JsonValue, *, ensure_ascii: bool = False, indent: int = 2) -> None:
+    """Write JSON via a random exclusive temp file then atomically replace."""
+    body = json.dumps(data, ensure_ascii=ensure_ascii, indent=indent)
+    write_text_atomic(path, body)
 
 
 def sanitize_name(text: str, max_len: int = 40) -> str:
