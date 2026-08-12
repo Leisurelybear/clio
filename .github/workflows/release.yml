@@ -143,13 +143,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install universal2 Python (python.org)
+      - name: Install universal2 Python (python.org) with Sigstore verification
         run: |
-          # GitHub-hosted Python is single-arch; PyInstaller universal2 needs a
-          # universal2 interpreter + universal2 wheels (pyobjc ships them).
-          curl -L -o python.pkg "https://www.python.org/ftp/python/3.11.9/python-3.11.9-macos11.pkg"
+          set -euo pipefail
+          # 3.11 is in security-only phase (PEP 664) — 3.11.9 is the LAST release
+          # with macOS binary installers, so we cannot patch-bump within 3.11.
+          # Track migration to a still-maintained series (3.12+/3.13+) in CI.
+          url="https://www.python.org/ftp/python/3.11.9/python-3.11.9-macos11.pkg"
+          curl -fsSL -o python.pkg "$url"
+          curl -fsSL -o python.pkg.sigstore "$url.sigstore"
+          # github-hosted macOS image ships a system python3; use it to run the
+          # Sigstore verifier without touching the yet-to-be-installed 3.11.
+          python3 -m pip install sigstore --quiet
+          python3 -m sigstore verify identity \
+            --bundle python.pkg.sigstore \
+            --cert-identity pablogsal@python.org \
+            --cert-oidc-issuer https://accounts.google.com \
+            python.pkg
           sudo installer -pkg python.pkg -target /
           echo "/Library/Frameworks/Python.framework/Versions/3.11/bin" >> "$GITHUB_PATH"
+
+      - name: Verify installed Python version
+        run: |
+          /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 --version | grep -q '^Python 3\.11\.9$' \
+            || { echo "unexpected installed Python version"; exit 1; }
+          echo "Python 3.11.9 verified"
 
       - name: Install build dependencies
         run: |
