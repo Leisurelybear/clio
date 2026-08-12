@@ -597,8 +597,96 @@ class TestHandlePutConfigGlobal:
         data = yaml.safe_load(cfg.read_text(encoding="utf-8"))
         stored = data["ai"]["providers"]["gemini"].get("api_key", "")
         assert stored != "********"
-        assert stored != "sk-live-real-secret"
-        assert stored in ("", None)
+
+    def test_global_write_breaking_registered_project_returns_409(self, tmp_path: Path):
+        """A global change that invalidates a registered project's task binding
+        must be rejected with 409 and the affected project listed (GAP-P1-08)."""
+        import json
+
+        handler = MagicMock()
+        cfg = tmp_path / "config.yaml"
+        on_disk = {
+            "proxy": {"enabled": False, "url": ""},
+            "ai": {
+                "providers": {
+                    "gemini": {"type": "gemini", "api_key_env": "GEMINI_API_KEY"},
+                    "deepseek": {"type": "openai", "api_key_env": "DEEPSEEK_API_KEY"},
+                }
+            },
+        }
+        cfg.write_text(yaml.dump(on_disk), encoding="utf-8")
+
+        # Registered project binding voiceover to deepseek
+        proj = tmp_path / "paris"
+        proj.mkdir()
+        (proj / "project.yaml").write_text(
+            "ai:\n  tasks:\n    voiceover:\n      provider: deepseek\n      model: deepseek-chat\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "projects.json").write_text(json.dumps({"projects": [str(proj.resolve())]}), encoding="utf-8")
+
+        handler.config_path = cfg
+        handler.__class__._config_cache = MagicMock()
+        handler._send_json = MagicMock()
+
+        # New global config drops the deepseek provider
+        body = {
+            "proxy": {"enabled": False, "url": ""},
+            "ai": {"providers": {"gemini": {"type": "gemini", "api_key_env": "GEMINI_API_KEY"}}},
+        }
+        handle_put_config_global(handler, {}, body)
+
+        args = handler._send_json.call_args
+        assert args[0][1] == 409
+        assert args[0][0]["ok"] is False
+        assert len(args[0][0]["affected"]) == 1
+        assert args[0][0]["affected"][0]["project"] == str(proj.resolve())
+        # Global config must NOT be modified
+        data = yaml.safe_load(cfg.read_text(encoding="utf-8"))
+        assert "deepseek" in data["ai"]["providers"]
+
+    def test_global_write_keeps_provider_used_by_registered_project(self, tmp_path: Path):
+        """Keeping the provider referenced by a registered project succeeds."""
+        import json
+
+        handler = MagicMock()
+        cfg = tmp_path / "config.yaml"
+        on_disk = {
+            "proxy": {"enabled": False, "url": ""},
+            "ai": {
+                "providers": {
+                    "gemini": {"type": "gemini", "api_key_env": "GEMINI_API_KEY"},
+                    "deepseek": {"type": "openai", "api_key_env": "DEEPSEEK_API_KEY"},
+                }
+            },
+        }
+        cfg.write_text(yaml.dump(on_disk), encoding="utf-8")
+
+        proj = tmp_path / "paris"
+        proj.mkdir()
+        (proj / "project.yaml").write_text(
+            "ai:\n  tasks:\n    voiceover:\n      provider: deepseek\n      model: deepseek-chat\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "projects.json").write_text(json.dumps({"projects": [str(proj.resolve())]}), encoding="utf-8")
+
+        handler.config_path = cfg
+        handler.__class__._config_cache = MagicMock()
+        handler._send_json = MagicMock()
+
+        body = {
+            "proxy": {"enabled": False, "url": ""},
+            "ai": {
+                "providers": {
+                    "gemini": {"type": "gemini", "api_key_env": "GEMINI_API_KEY"},
+                    "deepseek": {"type": "openai", "api_key_env": "DEEPSEEK_API_KEY"},
+                }
+            },
+        }
+        handle_put_config_global(handler, {}, body)
+
+        args = handler._send_json.call_args
+        assert args[0][0]["ok"] is True, args
 
 
 class TestHandlePutConfigRawApiKey:

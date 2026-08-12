@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
@@ -31,7 +32,7 @@ from clio.ui.services.file_service import (
     _find_texts_dirs,
     _save_atomic,
 )
-from clio.ui.services.project_service import _project_output_dir
+from clio.ui.services.project_service import _project_output_dir, _registry_path, _registry_project_paths
 
 if TYPE_CHECKING:
     from clio.ui.handler_protocol import HandlerProtocol
@@ -158,6 +159,11 @@ def handle_put_config_raw(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
         if tmp_path and tmp_path.exists():
             tmp_path.unlink()
         return handler._send_json({"ok": False, "error": f"config validation failed: {e}"}, 400)
+    affected = _validate_global_against_registry(config_path, tmp_path)
+    if affected:
+        if tmp_path and tmp_path.exists():
+            tmp_path.unlink()
+        return handler._send_json({"ok": False, "error": "全局配置变更会影响以下已注册项目", "affected": affected}, 409)
     _save_atomic(config_path, yml.encode("utf-8"))
     if tmp_path and tmp_path.exists():
         tmp_path.unlink()
@@ -346,6 +352,33 @@ def handle_get_config_project(handler: HandlerProtocol, qs: dict[str, Any]) -> N
     handler._send_json(_merge_project_with_defaults(raw if isinstance(raw, dict) else {}))
 
 
+def _validate_global_against_registry(config_path: Path, candidate: Path) -> list[dict[str, str]]:
+    """Validate the candidate global config against every registered project.
+
+    Returns a list of {project, error} for projects whose merged config
+    (global + project.yaml) fails to load with the candidate. This catches a
+    provider rename/removal or task-binding change that would silently break
+    other projects (GAP-P1-08).
+    """
+    reg_file = _registry_path(config_path)
+    if not reg_file.is_file():
+        return []
+    try:
+        reg = json.loads(reg_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return []
+    failures: list[dict[str, str]] = []
+    for raw_proj in _registry_project_paths(reg):
+        proj_dir = Path(raw_proj)
+        if not (proj_dir / "project.yaml").is_file():
+            continue
+        try:
+            load_config(candidate, project_dir=proj_dir)
+        except Exception as e:
+            failures.append({"project": str(proj_dir), "error": str(e)})
+    return failures
+
+
 def handle_put_config_global(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
     """Handle PUT /api/config/global."""
     config_path = handler.config_path
@@ -377,6 +410,11 @@ def handle_put_config_global(handler: HandlerProtocol, qs: dict[str, Any], obj: 
         if tmp_path and tmp_path.exists():
             tmp_path.unlink()
         return handler._send_json({"ok": False, "error": f"config validation failed: {e}"}, 400)
+    affected = _validate_global_against_registry(config_path, tmp_path)
+    if affected:
+        if tmp_path and tmp_path.exists():
+            tmp_path.unlink()
+        return handler._send_json({"ok": False, "error": "全局配置变更会影响以下已注册项目", "affected": affected}, 409)
     _save_atomic(config_path, yml.encode("utf-8"))
     if tmp_path and tmp_path.exists():
         tmp_path.unlink()
