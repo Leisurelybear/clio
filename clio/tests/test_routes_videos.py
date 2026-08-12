@@ -550,6 +550,27 @@ class TestHandleGetVideo:
 
         handler.send_error.assert_called_once()
 
+    def test_symlink_escape_outside_root_forbidden(self, tmp_path: Path):
+        handler = MagicMock()
+        proj_dir = tmp_path / "input"
+        proj_dir.mkdir()
+        proj_out = tmp_path / "output"
+        proj_out.mkdir()
+        (proj_out / "compressed").mkdir()
+        outside = tmp_path / "outside.mp4"
+        outside.write_bytes(b"secret")
+        handler._resolve_project_dir.return_value = proj_dir
+        handler._get_project_output.return_value = proj_out
+        handler.send_error = MagicMock()
+
+        with patch(
+            "clio.ui.routes.videos.validate_within_root",
+            side_effect=ValueError("symlink not allowed"),
+        ):
+            handle_get_video(handler, {"file": ["001_test.mp4"], "source": ["compressed"]})
+
+        handler.send_error.assert_called_once_with(HTTPStatus.FORBIDDEN)
+
     def test_forbidden_original_relative_traversal(self, tmp_path: Path):
         handler = MagicMock()
         proj_dir = tmp_path / "input"

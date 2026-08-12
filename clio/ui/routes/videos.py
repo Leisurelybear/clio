@@ -21,7 +21,7 @@ from clio.ui.services.file_service import (
     _find_texts_dirs,
     _is_safe_basename,
 )
-from clio.utils import get_duration_sec, resolve_binary
+from clio.utils import get_duration_sec, resolve_binary, validate_within_root
 from clio.vmeta import VideoMeta
 
 if TYPE_CHECKING:
@@ -645,7 +645,10 @@ def handle_get_video(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     else:
         if not _is_safe_basename(fname):
             return handler.send_error(HTTPStatus.FORBIDDEN)
-        vp = proj_out / "compressed" / fname
+        try:
+            vp = validate_within_root(proj_out / "compressed" / fname, proj_out)
+        except ValueError:
+            return handler.send_error(HTTPStatus.FORBIDDEN)
     if not vp.is_file() or vp.suffix.lower() not in VIDEO_EXTS:
         return handler.send_error(HTTPStatus.NOT_FOUND)
     handler._send_video_range(vp)
