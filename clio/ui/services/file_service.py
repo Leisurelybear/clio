@@ -359,10 +359,20 @@ _VIDEO_MIME = {
 }
 
 
+def _send_range_not_satisfiable(handler, size: int) -> None:
+    """416 with required Content-Range: bytes */size (RFC 7233)."""
+    handler.send_response(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+    handler.send_header("Content-Range", f"bytes */{size}")
+    handler.send_header("Content-Length", "0")
+    handler.end_headers()
+
+
 def send_video_range(handler, path: Path) -> None:
     """Respond to a Range-based video request.
 
     Supports full and partial (bytes=start-end, bytes=-N) range requests.
+    Range must be a single exact ``bytes=…`` unit (no trailing junk).
+    HEAD returns the same headers without a body.
     """
     try:
         size = path.stat().st_size
@@ -371,9 +381,9 @@ def send_video_range(handler, path: Path) -> None:
         return
     rng = handler.headers.get("Range")
     if rng:
-        m = re.match(r"bytes=(\d*)-(\d*)", rng)
-        if not m:
-            handler.send_error(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+        m = re.fullmatch(r"bytes=(\d*)-(\d*)", rng.strip())
+        if not m or (m.group(1) == "" and m.group(2) == ""):
+            _send_range_not_satisfiable(handler, size)
             return
         start_s, end_s = m.group(1), m.group(2)
         if start_s == "" and end_s != "":
@@ -384,11 +394,11 @@ def send_video_range(handler, path: Path) -> None:
             start = int(start_s) if start_s else 0
             end = int(end_s) if end_s else size - 1
         if start >= size or end >= size or start > end:
-            handler.send_error(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+            _send_range_not_satisfiable(handler, size)
             return
         length = end - start + 1
         if length <= 0:
-            handler.send_error(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+            _send_range_not_satisfiable(handler, size)
             return
         handler.send_response(206)
         handler.send_header("Content-Range", f"bytes {start}-{end}/{size}")
@@ -402,6 +412,8 @@ def send_video_range(handler, path: Path) -> None:
     handler.send_header("Content-Type", _VIDEO_MIME.get(path.suffix.lower(), "video/mp4"))
     handler.send_header("Cache-Control", "no-store")
     handler.end_headers()
+    if getattr(handler, "command", "GET").upper() == "HEAD":
+        return
     with path.open("rb") as f:
         f.seek(start)
         remaining = length

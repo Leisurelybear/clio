@@ -467,6 +467,22 @@ def make_handler(
                 return self._invoke_handler(handler_fn, qs, **path_kwargs)
             return self._invoke_handler(handler_fn, qs)
 
+        def do_HEAD(self):
+            """HEAD for Range-capable video (P2-P40); other paths 404."""
+            if not self._require_local_session():
+                return
+            url = urlparse(self.path)
+            qs = parse_qs(url.query)
+            path = url.path
+            handler_fn, path_kwargs, route = router.dispatch("HEAD", path)
+            if handler_fn is None:
+                return self.send_error(HTTPStatus.NOT_FOUND)
+            if route and route.auth_required and not self._require_auth():
+                return
+            if path_kwargs:
+                return self._invoke_handler(handler_fn, qs, **path_kwargs)
+            return self._invoke_handler(handler_fn, qs)
+
         def do_PUT(self):
             if not self._require_local_session():
                 return
@@ -577,6 +593,7 @@ def make_handler(
             Route("GET", "/api/projects", "handle_get_projects"),
             Route("GET", "/api/videos", "handle_get_videos"),
             Route("GET", "/api/video", "handle_get_video"),
+            Route("HEAD", "/api/video", "handle_get_video"),
             Route("GET", "/api/vmeta/{stem}", "handle_get_vmeta"),
             Route("GET", "/api/videos/selected", "handle_get_videos_selected"),
             Route("PUT", "/api/videos/selected", "handle_put_videos_selected"),

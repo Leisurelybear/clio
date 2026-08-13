@@ -451,6 +451,13 @@ class TestDoGET:
         handler.do_GET()
         mock_fn.assert_called_once()
 
+    @patch("clio.ui.server.handle_get_video")
+    def test_api_video_head(self, mock_fn, handler_cls):
+        handler = _build_handler(handler_cls, path="/api/video")
+        handler.command = "HEAD"
+        handler.do_HEAD()
+        mock_fn.assert_called_once()
+
     @patch("clio.ui.server.handle_get_vmeta")
     def test_api_vmeta(self, mock_fn, handler_cls):
         handler = _build_handler(handler_cls, path="/api/vmeta/001_test")
