@@ -103,6 +103,17 @@ describe('nextPlayableSegIndex / widths', () => {
     expect(nextPlayableSegIndex(t, 2)).toBeNull();
   });
 
+  it('globalToLocal at end with trailing zero-duration uses last playable', () => {
+    const t = buildTimeline([
+      { index: 'a', use_timeline: '00:00-00:10' },
+      { index: 'b', use_timeline: '' },
+      { index: 'c', use_timeline: '' },
+    ]);
+    const loc = globalToLocal(t, 10);
+    expect(loc.segIndex).toBe(0);
+    expect(loc.localSec).toBe(10);
+  });
+
   it('widths proportional', () => {
     const t = buildTimeline(seq3);
     const w = segmentWidths(t);

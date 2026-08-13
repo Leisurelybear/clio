@@ -69,6 +69,17 @@ describe('parseTimecode', () => {
     expect(parseTimecode('45.5')).toBe(45.5);
   });
 
+  it('keeps fractional seconds (0.12 must not become 12)', () => {
+    expect(parseTimecode('0.12')).toBe(0.12);
+    expect(parseTimecode('12.5')).toBe(12.5);
+  });
+
+  it('rejects invalid MM:SS ranges', () => {
+    expect(Number.isNaN(parseTimecode('01:60'))).toBe(true);
+    expect(Number.isNaN(parseTimecode('1:2:70'))).toBe(true);
+    expect(Number.isNaN(parseTimecode('1:2:3:4'))).toBe(true);
+  });
+
   it('returns 0 for empty string', () => {
     expect(parseTimecode('')).toBe(0);
   });
@@ -78,8 +89,8 @@ describe('parseTimecode', () => {
     expect(parseTimecode(undefined)).toBe(0);
   });
 
-  it('returns 0 for unparseable string', () => {
-    expect(parseTimecode('abc')).toBe(0);
+  it('returns NaN for unparseable string', () => {
+    expect(Number.isNaN(parseTimecode('abc'))).toBe(true);
   });
 });
 

@@ -1,22 +1,15 @@
 /** Pure plan composite timeline helpers (no DOM). */
 
-function parseTimecode(s) {
-  if (!s) return 0;
-  const parts = String(s).split(':').map(parseFloat);
-  if (parts.length === 3 && parts.every(Number.isFinite)) {
-    return parts[0] * 3600 + parts[1] * 60 + parts[2];
-  }
-  if (parts.length === 2 && parts.every(Number.isFinite)) {
-    return parts[0] * 60 + parts[1];
-  }
-  return parseFloat(s) || 0;
-}
+import { parseTimecode } from './utils.js';
 
 function parseRange(useTimeline) {
   const parts = String(useTimeline || '').split('-');
   if (parts.length < 2) return { planStart: 0, planEnd: 0, duration: 0 };
   const planStart = parseTimecode(parts[0].trim());
   const planEnd = parseTimecode(parts[1].trim());
+  if (!Number.isFinite(planStart) || !Number.isFinite(planEnd)) {
+    return { planStart: 0, planEnd: 0, duration: 0 };
+  }
   const duration = Math.max(0, planEnd - planStart);
   return { planStart, planEnd, duration };
 }
@@ -77,6 +70,16 @@ export function nextPlayableSegIndex(timeline, fromIndex) {
   return null;
 }
 
+/** Last playable segment at or before *atOrBefore* (P2-P43 end-edge fallback). */
+export function lastPlayableSegIndex(timeline, atOrBefore = Infinity) {
+  const segs = timeline?.segments || [];
+  const end = Math.min(segs.length - 1, Number.isFinite(atOrBefore) ? atOrBefore : segs.length - 1);
+  for (let i = end; i >= 0; i--) {
+    if (segs[i].duration > 0) return i;
+  }
+  return null;
+}
+
 /**
  * @param {{ segments?: Array, total?: number }} timeline
  * @param {number} globalSec
@@ -96,7 +99,7 @@ export function globalToLocal(timeline, globalSec) {
   }
 
   if (segs[idx].duration === 0) {
-    const n = nextPlayableSegIndex(timeline, idx - 1);
+    const n = lastPlayableSegIndex(timeline, idx);
     if (n != null) idx = n;
   }
 

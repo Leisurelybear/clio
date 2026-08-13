@@ -1,5 +1,7 @@
 /** Pure helpers for plan sequence structural edits (no DOM). */
 
+import { parseTimecode } from './utils.js';
+
 export function reorderSequence(sequence, fromIndex, toIndex) {
   const arr = sequence.slice();
   if (fromIndex < 0 || toIndex < 0 || fromIndex >= arr.length || toIndex >= arr.length) {
@@ -98,13 +100,9 @@ function parseTimelineParts(range) {
 }
 
 function timecodeToSec(tc) {
-  if (!tc) return null;
-  const parts = String(tc).split(':').map(Number);
-  if (parts.some((x) => !Number.isFinite(x))) return null;
-  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-  if (parts.length === 2) return parts[0] * 60 + parts[1];
-  if (parts.length === 1) return parts[0];
-  return null;
+  if (tc == null || String(tc).trim() === '') return null;
+  const n = parseTimecode(tc);
+  return Number.isFinite(n) ? n : null;
 }
 
 /**

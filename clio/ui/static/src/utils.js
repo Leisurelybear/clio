@@ -22,15 +22,35 @@ function fmtTime(sec) {
 }
 
 function parseTimecode(s) {
-  if (!s) return 0;
-  const parts = String(s).split(':').map(parseFloat);
-  if (parts.length === 3 && parts.every(Number.isFinite)) {
-    return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  /**
+   * Parse a timecode to seconds.
+   * Accepts plain seconds (`12`, `0.12`) or `MM:SS` / `HH:MM:SS` with optional
+   * fractional seconds on the last field. Dots are never treated as separators
+   * (so `0.12` stays 0.12s, not `0:12` → 12s) — P2-P43.
+   * Invalid strings return NaN (except null/empty → 0 for legacy timeline callers).
+   */
+  if (s == null || String(s).trim() === '') return 0;
+  const str = String(s).trim();
+  if (/^\d+(\.\d+)?$/.test(str)) {
+    const n = Number(str);
+    return Number.isFinite(n) ? n : NaN;
   }
-  if (parts.length === 2 && parts.every(Number.isFinite)) {
-    return parts[0] * 60 + parts[1];
+  const three = str.match(/^(\d+):([0-5]?\d):([0-5]?\d(?:\.\d+)?)$/);
+  if (three) {
+    const h = Number(three[1]);
+    const min = Number(three[2]);
+    const sec = Number(three[3]);
+    if (![h, min, sec].every(Number.isFinite) || min >= 60 || sec >= 60) return NaN;
+    return h * 3600 + min * 60 + sec;
   }
-  return parseFloat(s) || 0;
+  const two = str.match(/^(\d+):([0-5]?\d(?:\.\d+)?)$/);
+  if (two) {
+    const min = Number(two[1]);
+    const sec = Number(two[2]);
+    if (![min, sec].every(Number.isFinite) || sec >= 60) return NaN;
+    return min * 60 + sec;
+  }
+  return NaN;
 }
 
 function getDeep(obj, path) {
