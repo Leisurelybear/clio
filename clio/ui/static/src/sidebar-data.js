@@ -3,6 +3,7 @@ import {
   $, $$, escapeHtml, setStatus, updateProjectSidebar,
 } from './utils.js';
 import { api, icon } from './api.js';
+import { beginLatest, endLatest, isLatest, isAbortError } from './latest.js';
 import { updateRunFilesBadge } from './runner.js';
 import { summarizeOfflineVideos } from './offline-media.js';
 import {
@@ -102,10 +103,16 @@ export async function loadProjects() {
 }
 
 export async function loadConfig() {
+  const ac = beginLatest('config');
   try {
-    state.config = await api('GET', '/api/config');
-  } catch {
+    const cfg = await api('GET', '/api/config', undefined, { signal: ac.signal });
+    if (!isLatest('config', ac)) return;
+    state.config = cfg;
+  } catch (e) {
+    if (isAbortError(e) || !isLatest('config', ac)) return;
     state.config = { project_dir: '(加载失败)', output_dir: '' };
+  } finally {
+    endLatest('config', ac);
   }
   $('proj-name').textContent = state.config.project_dir || '';
   $('proj-name').title = `project: ${state.config.project_dir || ''}\noutput: ${state.config.output_dir || ''}`;
@@ -122,11 +129,16 @@ export async function loadFfmpegDeps() {
 }
 
 export async function loadPlans() {
+  const ac = beginLatest('plans');
   try {
-    const r = await api('GET', '/api/plans');
+    const r = await api('GET', '/api/plans', undefined, { signal: ac.signal });
+    if (!isLatest('plans', ac)) return;
     state.availablePlans = r.plans || [];
   } catch (e) {
+    if (isAbortError(e) || !isLatest('plans', ac)) return;
     state.availablePlans = [];
+  } finally {
+    endLatest('plans', ac);
   }
 }
 
@@ -146,20 +158,32 @@ export function updateSelectBtnVisibility() {
 }
 
 export async function loadVideos() {
-  const r = await api('GET', `/api/videos?source=${state.source}`);
-  state.videos = r.videos;
-  state.groups = r.groups || {};
-  updateSelectBtnVisibility();
-  renderVideoList();
-  // Hint when project has no selected originals yet
-  if (state.source === 'original' && state.videos.length === 0) {
-    try {
-      const sel = await api('GET', '/api/videos/selected');
-      const n = (sel.videos || []).length;
-      if (n === 0) {
-        setStatus('项目尚无视频，点击「添加视频」从磁盘选择素材（或运行 python main.py migrate）', 'ok');
+  const ac = beginLatest('videos');
+  try {
+    const r = await api('GET', `/api/videos?source=${state.source}`, undefined, { signal: ac.signal });
+    if (!isLatest('videos', ac)) return;
+    state.videos = r.videos;
+    state.groups = r.groups || {};
+    updateSelectBtnVisibility();
+    renderVideoList();
+    // Hint when project has no selected originals yet
+    if (state.source === 'original' && state.videos.length === 0) {
+      try {
+        const sel = await api('GET', '/api/videos/selected', undefined, { signal: ac.signal });
+        if (!isLatest('videos', ac)) return;
+        const n = (sel.videos || []).length;
+        if (n === 0) {
+          setStatus('项目尚无视频，点击「添加视频」从磁盘选择素材（或运行 python main.py migrate）', 'ok');
+        }
+      } catch (e) {
+        if (isAbortError(e)) return;
       }
-    } catch (_) { /* ignore */ }
+    }
+  } catch (e) {
+    if (isAbortError(e) || !isLatest('videos', ac)) return;
+    throw e;
+  } finally {
+    endLatest('videos', ac);
   }
 }
 
@@ -179,8 +203,10 @@ export function initVideoFilterBar() {
 }
 
 export async function loadProject() {
+  const ac = beginLatest('project');
   try {
-    const proj = await api('GET', '/api/project');
+    const proj = await api('GET', '/api/project', undefined, { signal: ac.signal });
+    if (!isLatest('project', ac)) return;
     if (proj.currentDay) state.currentDay = proj.currentDay;
     if (proj.source && proj.source !== state.source) {
       state.source = proj.source;
@@ -194,7 +220,12 @@ export async function loadProject() {
       state.lastEntity = proj.lastEntity;
     }
     if (proj.lastVideo) state.lastVideo = proj.lastVideo;
-  } catch (e) { /* 非关键, 静默忽略 */ }
+  } catch (e) {
+    if (isAbortError(e) || !isLatest('project', ac)) return;
+    /* 非关键, 静默忽略 */
+  } finally {
+    endLatest('project', ac);
+  }
 }
 
 export async function saveProject(extra) {

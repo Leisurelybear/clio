@@ -2,8 +2,11 @@ import { state } from './state.js';
 
 let _showingAuth = false;
 
-async function api(method, url, body) {
+async function api(method, url, body, options = {}) {
   const opts = { method, headers: {} };
+  if (options.signal) {
+    opts.signal = options.signal;
+  }
   const token = sessionStorage.getItem('api_token');
   if (token) {
     opts.headers['Authorization'] = `Bearer ${token}`;

@@ -6,6 +6,7 @@ import {
   updateSidebarDay,
 } from './utils.js';
 import { api, icon } from './api.js';
+import { beginLatest, endLatest, isLatest, isAbortError } from './latest.js';
 import { addToast } from './toast.js';
 
 let _runEventSource = null;
@@ -247,18 +248,23 @@ async function refreshRunPreview({ silent = false } = {}) {
     container.innerHTML = renderRunPreviewHtml(null);
     return null;
   }
+  const ac = beginLatest('run-preview');
   if (!silent) {
     container.innerHTML = '<p class="muted">正在生成运行预览...</p>';
   }
   try {
-    const response = await api('POST', '/api/run/preview', options);
+    const response = await api('POST', '/api/run/preview', options, { signal: ac.signal });
+    if (!isLatest('run-preview', ac)) return null;
     if (response.preview) {
       container.innerHTML = renderRunPreviewHtml(response.preview);
     } else {
       container.innerHTML = renderRunPreviewHtml(null);
     }
-  } catch {
+  } catch (e) {
+    if (isAbortError(e) || !isLatest('run-preview', ac)) return null;
     container.innerHTML = renderRunPreviewHtml(null);
+  } finally {
+    endLatest('run-preview', ac);
   }
   return null;
 }

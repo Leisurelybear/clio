@@ -1,6 +1,7 @@
 import { state } from './state.js';
 import { $, escapeHtml, markDirty, clearDirty, updateSidebarDay, setStatus } from './utils.js';
 import { api, icon } from './api.js';
+import { beginLatest, endLatest, isLatest, isAbortError } from './latest.js';
 import { renderPreviewBar, startPreview, _playPreviewSegment } from './viewer.js';
 import { buildTimeline, clampGlobal } from './plan-timeline.js';
 import { recomposePlanWaveformFromCache, isPlanWaveformMode } from './waveform.js';
@@ -135,22 +136,27 @@ function scheduleReadinessCheck() {
 async function refreshReadinessPanel() {
   const panel = $('plan-readiness');
   if (!panel || !state.plan) return;
+  const ac = beginLatest('plan-readiness');
   panel.innerHTML = '<p class="muted">检查规划就绪状态…</p>';
   try {
     const r = await api('POST', '/api/plan/readiness', {
       day: state.currentDay || 'day1',
       source: $('cut-source')?.value || 'compressed',
       plan: state.plan,
-    });
+    }, { signal: ac.signal });
+    if (!isLatest('plan-readiness', ac)) return;
     const errors = r.errors || [];
     const warnings = r.warnings || [];
     _lastReadiness = { ok: !!r.ok, errors, warnings };
     renderReadinessList(panel, errors, warnings);
     updateActionButtonsGate();
   } catch (e) {
+    if (isAbortError(e) || !isLatest('plan-readiness', ac)) return;
     panel.innerHTML = `<p class="err">就绪检查失败: ${escapeHtml(e.message || e)}</p>`;
     _lastReadiness = { ok: false, errors: [{ message: String(e.message || e) }], warnings: [] };
     updateActionButtonsGate();
+  } finally {
+    endLatest('plan-readiness', ac);
   }
 }
 
