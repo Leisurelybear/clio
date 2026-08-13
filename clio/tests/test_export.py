@@ -158,7 +158,7 @@ class TestBuildMaterials:
     def test_builds_video_and_text(self, tmp_path: Path) -> None:
         plan_data = {
             "sequence": [
-                {"index": "001", "voiceover_hint": "Hello world"},
+                {"index": "001", "subtitle": "Hello world", "voiceover_hint": "ignored narration"},
             ]
         }
         index_to_source = {"001": "GL010683"}
@@ -172,6 +172,23 @@ class TestBuildMaterials:
         assert len(materials["texts"]) == 1
         assert idx_map["001"] == materials["videos"][0]["id"]
         assert text_ids[0] == materials["texts"][0]["id"]
+        import json
+
+        content = json.loads(materials["texts"][0]["content"])
+        assert content["text"] == "Hello world"
+
+    def test_voiceover_hint_alone_does_not_create_text_track(self, tmp_path: Path) -> None:
+        plan_data = {
+            "sequence": [
+                {"index": "001", "voiceover_hint": "narration only"},
+            ]
+        }
+        with patch("clio.export.jianying._resolve_video") as mock_resolve:
+            mock_resolve.return_value = (tmp_path / "GL010683.mp4", 60_000_000)
+            materials, _idx_map, text_ids = _build_materials(plan_data, [], "ffprobe", {"001": "GL010683"})
+        assert len(materials["videos"]) == 1
+        assert materials["texts"] == []
+        assert text_ids == {}
 
     def test_skips_segment_when_video_not_found(self, tmp_path: Path) -> None:
         plan_data = {
@@ -210,8 +227,8 @@ class TestBuildTracks:
     def test_builds_video_and_text_tracks(self) -> None:
         plan_data = {
             "sequence": [
-                {"index": "001", "use_timeline": "00:00-00:10", "voiceover_hint": "Hello"},
-                {"index": "001", "use_timeline": "00:10-00:20", "voiceover_hint": ""},
+                {"index": "001", "use_timeline": "00:00-00:10", "subtitle": "Hello"},
+                {"index": "001", "use_timeline": "00:10-00:20", "subtitle": ""},
             ]
         }
         index_to_material_id = {"001": "mat-001"}
@@ -270,7 +287,8 @@ class TestExportPlanToJianying:
                         {
                             "index": "001",
                             "use_timeline": "00:00-00:10",
-                            "voiceover_hint": "Hello",
+                            "subtitle": "Hello",
+                            "voiceover_hint": "narration only",
                         },
                     ],
                 }

@@ -186,12 +186,13 @@ def _build_materials(
                 }
             )
 
-        # Text material (one per sequence entry, only if voiceover_hint exists)
-        voiceover = (seg.get("voiceover_hint") or "").strip()
-        if voiceover:
+        # Text material: on-screen captions come from plan.subtitle only.
+        # voiceover_hint is narration/preview and must not drive CapCut text tracks (P2-P51).
+        caption = (seg.get("subtitle") or "").strip()
+        if caption:
             text_id = str(uuid.uuid4())
             content = {
-                "text": voiceover,
+                "text": caption,
                 "font_color": "#FFFFFF",
                 "font_size": 18,
                 "bold": False,

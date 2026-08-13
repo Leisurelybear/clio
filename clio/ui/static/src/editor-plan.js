@@ -536,12 +536,12 @@ export function renderPlan() {
           <label>理由
             <textarea rows="3" data-k="reason">${escapeHtml(seg.reason || '')}</textarea>
           </label>
-          <label>口播
+          <label>口播提示（仅预览/旁白，不导出成片字幕）
             <textarea rows="3" data-k="voiceover_hint">${escapeHtml(seg.voiceover_hint || '')}</textarea>
           </label>
         </div>
         <div class="plan-seg-subtitles">
-          <label>成片字幕 (保存到规划)
+          <label>成片字幕（导出到剪映字幕轨）
             <textarea rows="3" data-k="subtitle" placeholder="加载中…"></textarea>
           </label>
         </div>
