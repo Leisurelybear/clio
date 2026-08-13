@@ -35,7 +35,7 @@ def handle_get_project(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
             data = {}
     merged = {**handler.DEFAULT_PROJECT, **data}
     proj_out = _project_output_dir(proj_dir)
-    merged["steps"] = _detect_steps(proj_out)
+    merged["steps"] = _detect_steps(proj_out, project_dir=proj_dir)
     handler._send_json(merged)
 
 

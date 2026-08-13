@@ -50,16 +50,20 @@ def handle_get_config(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     """Handle GET /api/config."""
     proj_dir = handler._resolve_project_dir(qs)
     proj_out = handler._get_project_output(proj_dir)
-    comp = proj_out / "compressed"
-    texts = _find_texts_dirs(proj_out)
+    cfg = handler._get_config(proj_dir)
+    texts_subdir = getattr(getattr(cfg, "analyze", None), "texts_subdir", None) or "texts"
+    texts = _find_texts_dirs(proj_out, preferred_subdir=str(texts_subdir))
+    preferred = cfg.texts_dir
+    if preferred.is_dir() and preferred not in texts:
+        texts = [preferred, *texts]
     handler._send_json(
         {
             "project_dir": str(proj_dir),
             "output_dir": str(proj_out),
-            "compressed_dir": str(comp),
+            "compressed_dir": str(cfg.compressed_dir),
             "texts_dirs": [str(d) for d in texts],
-            "scripts_dir": str(proj_out / "scripts"),
-            "plans_dir": str(proj_out / "plans"),
+            "scripts_dir": str(cfg.scripts_dir),
+            "plans_dir": str(cfg.plans_dir),
         }
     )
 

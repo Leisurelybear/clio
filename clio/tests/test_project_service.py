@@ -169,6 +169,20 @@ class TestDetectSteps:
         steps = _detect_steps(out)
         assert steps["plan"] is True
 
+    def test_custom_subdirs_from_project_yaml(self, tmp_path: Path):
+        proj = tmp_path / "proj"
+        out = proj / "output"
+        plans = out / "storyboard"
+        plans.mkdir(parents=True)
+        (plans / "day1_plan.json").write_bytes(b"{}")
+        (proj / "project.yaml").write_text(
+            "plan:\n  plans_subdir: storyboard\n",
+            encoding="utf-8",
+        )
+        steps = _detect_steps(out, project_dir=proj)
+        assert steps["plan"] is True
+        assert _detect_steps(out)["plan"] is False
+
     def test_label_detected(self, tmp_path: Path):
         out = tmp_path / "output"
         labeled = out / "labeled"

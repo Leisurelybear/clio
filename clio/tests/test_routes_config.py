@@ -29,6 +29,13 @@ class TestHandleGetConfig:
         proj_out.mkdir()
         handler._resolve_project_dir.return_value = proj_dir
         handler._get_project_output.return_value = proj_out
+        cfg = MagicMock()
+        cfg.compressed_dir = proj_out / "compressed"
+        cfg.texts_dir = proj_out / "texts"
+        cfg.scripts_dir = proj_out / "scripts"
+        cfg.plans_dir = proj_out / "plans"
+        cfg.analyze = MagicMock(texts_subdir="texts")
+        handler._get_config.return_value = cfg
         handler._send_json = MagicMock()
 
         handle_get_config(handler, {})
@@ -40,6 +47,34 @@ class TestHandleGetConfig:
         assert "input_dir" not in payload
         assert "output_dir" in payload
         assert "compressed_dir" in payload
+        assert payload["scripts_dir"] == str(cfg.scripts_dir)
+        assert payload["plans_dir"] == str(cfg.plans_dir)
+
+    def test_honors_custom_subdirs(self, tmp_path: Path):
+        handler = MagicMock()
+        proj_dir = tmp_path / "input"
+        proj_dir.mkdir()
+        proj_out = tmp_path / "output"
+        custom_texts = proj_out / "notes"
+        custom_texts.mkdir(parents=True)
+        handler._resolve_project_dir.return_value = proj_dir
+        handler._get_project_output.return_value = proj_out
+        cfg = MagicMock()
+        cfg.compressed_dir = proj_out / "comp"
+        cfg.texts_dir = custom_texts
+        cfg.scripts_dir = proj_out / "vo"
+        cfg.plans_dir = proj_out / "storyboard"
+        cfg.analyze = MagicMock(texts_subdir="notes")
+        handler._get_config.return_value = cfg
+        handler._send_json = MagicMock()
+
+        handle_get_config(handler, {})
+
+        payload = handler._send_json.call_args[0][0]
+        assert payload["compressed_dir"] == str(cfg.compressed_dir)
+        assert payload["scripts_dir"] == str(cfg.scripts_dir)
+        assert payload["plans_dir"] == str(cfg.plans_dir)
+        assert str(custom_texts) in payload["texts_dirs"]
 
 
 class TestHandleGetConfigRaw:

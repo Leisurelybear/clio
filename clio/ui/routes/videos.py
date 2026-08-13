@@ -272,7 +272,8 @@ def _file_fingerprint(path: Path) -> tuple[Any, ...]:
 
 
 def _videos_cache_signature(proj_dir: Path, proj_out: Path, comp_dir: Path, cfg: Any) -> tuple[Any, ...]:
-    text_dirs = tuple(_find_texts_dirs(proj_out))
+    texts_subdir = getattr(getattr(cfg, "analyze", None), "texts_subdir", None) or "texts"
+    text_dirs = tuple(_find_texts_dirs(proj_out, preferred_subdir=str(texts_subdir)))
     videos_json = proj_dir / "videos.json"
     selected_videos = load_selected_videos(proj_dir)
     selected_fingerprints: list[tuple[str, tuple[Any, ...]]] = []
@@ -286,8 +287,8 @@ def _videos_cache_signature(proj_dir: Path, proj_out: Path, comp_dir: Path, cfg:
         _dir_fingerprint(proj_dir, video_only=True),
         _dir_fingerprint(comp_dir),
         tuple((str(td), _dir_fingerprint(td, json_only=True)) for td in text_dirs),
-        _dir_fingerprint(proj_out / "scripts", json_only=True),
-        _dir_fingerprint(proj_out / cfg.whisper.transcripts_subdir, json_only=True),
+        _dir_fingerprint(cfg.scripts_dir, json_only=True),
+        _dir_fingerprint(cfg.transcripts_dir, json_only=True),
         _dir_fingerprint(proj_out / "covers"),  # AI cover thumbs
         cfg.whisper.transcripts_subdir,
         cfg.paths.ffprobe,
@@ -372,9 +373,9 @@ def _build_videos_payload(
         output_dir=proj_out,
         project_dir=proj_dir,
         compressed_dir=comp_dir,
-        texts_dir=proj_out / "texts",
-        scripts_dir=proj_out / "scripts",
-        transcripts_dir=proj_out / cfg.whisper.transcripts_subdir,
+        texts_dir=cfg.texts_dir,
+        scripts_dir=cfg.scripts_dir,
+        transcripts_dir=cfg.transcripts_dir,
     )
     index.build()
 

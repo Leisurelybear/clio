@@ -37,13 +37,38 @@ def _is_safe_basename(name: str) -> bool:
     return True
 
 
-def _find_texts_dirs(output_dir: Path) -> list[Path]:
-    """Return all texts* subdirectories (texts, texts - Paris, ...)."""
+def _find_texts_dirs(output_dir: Path, *, preferred_subdir: str | None = None) -> list[Path]:
+    """Return texts* subdirectories (configured name first, then texts / texts - *)."""
     if not output_dir or not output_dir.is_dir():
         return []
-    return [
-        d for d in sorted(output_dir.iterdir()) if d.is_dir() and (d.name == "texts" or d.name.startswith("texts - "))
-    ]
+    found: list[Path] = []
+    seen: set[str] = set()
+
+    def _add(d: Path) -> None:
+        if not d.is_dir():
+            return
+        try:
+            key = str(d.resolve())
+        except OSError:
+            key = str(d)
+        if key in seen:
+            return
+        seen.add(key)
+        found.append(d)
+
+    if preferred_subdir:
+        name = Path(str(preferred_subdir)).name
+        if name and name not in (".", ".."):
+            _add(output_dir / name)
+
+    try:
+        entries = sorted(output_dir.iterdir())
+    except OSError:
+        return found
+    for d in entries:
+        if d.is_dir() and (d.name == "texts" or d.name.startswith("texts - ")):
+            _add(d)
+    return found
 
 
 def _save_atomic(path: Path, data: bytes) -> None:
@@ -54,13 +79,21 @@ def _save_atomic(path: Path, data: bytes) -> None:
       rotated aside (timestamped) before the current file becomes the new bak —
       so a corrupt primary cannot clobber the last known-good backup.
     - If only ``.bak`` exists (no primary), it is left untouched.
+    - Parent directory is fsynced after replace; prior mode bits are preserved.
     """
     import os
     import time
 
-    from clio.utils import _exclusive_random_tmp
+    from clio.utils import _cleanup_stale_atomic_tmps, _exclusive_random_tmp, _fsync_dir
 
     path.parent.mkdir(parents=True, exist_ok=True)
+    _cleanup_stale_atomic_tmps(path)
+    existing_mode: int | None = None
+    if path.exists():
+        try:
+            existing_mode = path.stat().st_mode & 0o777
+        except OSError:
+            existing_mode = None
     bak = path.with_suffix(path.suffix + ".bak")
     tmp, fd = _exclusive_random_tmp(path)
     try:
@@ -68,6 +101,11 @@ def _save_atomic(path: Path, data: bytes) -> None:
             f.write(data)
             f.flush()
             os.fsync(f.fileno())
+        if existing_mode is not None:
+            try:
+                os.chmod(tmp, existing_mode)
+            except OSError:
+                pass
         if path.exists():
             if bak.exists():
                 rotated = path.with_suffix(path.suffix + f".bak.{time.time_ns()}")
@@ -81,6 +119,7 @@ def _save_atomic(path: Path, data: bytes) -> None:
                 shutil.copy2(path, bak)
                 path.unlink(missing_ok=True)
         os.replace(tmp, path)
+        _fsync_dir(path.parent)
     except BaseException:
         try:
             os.close(fd)

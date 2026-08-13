@@ -410,7 +410,10 @@ def handle_post_rerun(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -
     )
     texts_json = None
     if task in ("voiceover", "all"):
-        for td in _find_texts_dirs(proj_out):
+        for td in _find_texts_dirs(
+            proj_out,
+            preferred_subdir=getattr(getattr(cfg, "analyze", None), "texts_subdir", None) or "texts",
+        ):
             candidates = sorted(td.glob(f"{index_prefix}_*.json"))
             if candidates:
                 texts_json = candidates[0]

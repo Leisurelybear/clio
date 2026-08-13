@@ -27,10 +27,15 @@ if TYPE_CHECKING:
     from clio.ui.handler_protocol import HandlerProtocol
 
 
+def _plans_dir(handler: HandlerProtocol, qs: dict[str, Any]) -> Path:
+    """Resolve plans directory from AppConfig (honors custom plans_subdir)."""
+    proj_dir = handler._resolve_project_dir(qs)
+    return handler._get_config(proj_dir).plans_dir
+
+
 def handle_get_plans(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     """Handle GET /api/plans."""
-    proj_out = handler._get_project_output(qs)
-    plans_dir = proj_out / "plans"
+    plans_dir = _plans_dir(handler, qs)
     plans = []
     if plans_dir.is_dir():
         for p in sorted(plans_dir.glob("*_plan.json")):
@@ -45,8 +50,7 @@ def handle_get_plan(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     day = qs.get("day", [""])[0]
     if not _is_safe_basename(day) or not day:
         return handler._send_json({"error": "forbidden"}, 403)
-    proj_out = handler._get_project_output(qs)
-    p = proj_out / "plans" / f"{day}_plan.json"
+    p = _plans_dir(handler, qs) / f"{day}_plan.json"
     if not p.is_file():
         return handler._send_json({"error": f"规划文件不存在: {p}"}, 404)
     handler._send_bytes(p.read_bytes(), "application/json; charset=utf-8")
@@ -57,8 +61,7 @@ def handle_put_plan(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> 
     day = qs.get("day", [""])[0]
     if not _is_safe_basename(day) or not day:
         return handler._send_json({"ok": False, "error": "forbidden"}, 403)
-    proj_out = handler._get_project_output(qs)
-    p = proj_out / "plans" / f"{day}_plan.json"
+    p = _plans_dir(handler, qs) / f"{day}_plan.json"
     plan = Plan.from_dict(obj if isinstance(obj, dict) else {})
     issues = plan.validate_for_save()
     if issues:

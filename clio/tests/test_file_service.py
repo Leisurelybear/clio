@@ -71,11 +71,24 @@ class TestFindTextsDirs:
         result = _find_texts_dirs(out)
         assert len(result) == 1
 
-    def test_ignores_texts_backup(self, tmp_path: Path):
+    def test_finds_preferred_custom_subdir(self, tmp_path: Path):
         out = tmp_path / "output"
         out.mkdir()
-        (out / "texts_backup").mkdir()
-        assert _find_texts_dirs(out) == []
+        notes = out / "notes"
+        notes.mkdir()
+        result = _find_texts_dirs(out, preferred_subdir="notes")
+        assert result == [notes]
+
+    def test_preferred_plus_legacy_texts(self, tmp_path: Path):
+        out = tmp_path / "output"
+        out.mkdir()
+        notes = out / "notes"
+        texts = out / "texts"
+        notes.mkdir()
+        texts.mkdir()
+        result = _find_texts_dirs(out, preferred_subdir="notes")
+        assert result[0] == notes
+        assert texts in result
 
     def test_ignores_non_texts_dir(self, tmp_path: Path):
         out = tmp_path / "output"

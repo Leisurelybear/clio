@@ -68,31 +68,65 @@ def _project_output_dir(project_dir: Path) -> Path:
     return _resolve_project_output_path(project_dir, out) or (project_dir / "output").resolve()
 
 
-def _detect_steps(proj_output_dir: Path) -> dict[str, bool]:
+def _artifact_subdir_names(project_dir: Path | None = None) -> dict[str, str]:
+    """Read custom output subdir names from project.yaml (GAP-P2-01)."""
+    names = {
+        "compressed": "compressed",
+        "texts": "texts",
+        "scripts": "scripts",
+        "plans": "plans",
+    }
+    if project_dir is None:
+        return names
+    proj_yaml = project_dir / "project.yaml"
+    if not proj_yaml.is_file():
+        return names
+    try:
+        data = yaml.safe_load(proj_yaml.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return names
+    if not isinstance(data, dict):
+        return names
+    analyze = data.get("analyze") if isinstance(data.get("analyze"), dict) else {}
+    script = data.get("script") if isinstance(data.get("script"), dict) else {}
+    plan = data.get("plan") if isinstance(data.get("plan"), dict) else {}
+    for key, section, field in (
+        ("compressed", analyze, "compressed_subdir"),
+        ("texts", analyze, "texts_subdir"),
+        ("scripts", script, "scripts_subdir"),
+        ("plans", plan, "plans_subdir"),
+    ):
+        raw = section.get(field) if isinstance(section, dict) else None
+        if raw is None or str(raw).strip() == "":
+            continue
+        name = Path(str(raw)).name
+        if name and name not in (".", ".."):
+            names[key] = name
+    return names
+
+
+def _detect_steps(proj_output_dir: Path, *, project_dir: Path | None = None) -> dict[str, bool]:
     """Infer which pipeline steps are complete from the filesystem."""
     steps: dict[str, bool] = {}
     if not proj_output_dir.is_dir():
         return {k: False for k in ("compress", "analyze", "scripts", "plan", "label", "cut")}
-    comp = proj_output_dir / "compressed"
+    sub = _artifact_subdir_names(project_dir)
+    comp = proj_output_dir / sub["compressed"]
     try:
         steps["compress"] = comp.is_dir() and any(comp.iterdir())
     except (PermissionError, OSError):
         steps["compress"] = False
-    texts = [
-        d
-        for d in sorted(proj_output_dir.iterdir())
-        if d.is_dir() and (d.name == "texts" or d.name.startswith("texts - "))
-    ]
+    texts = _find_texts_dirs_for_steps(proj_output_dir, preferred_subdir=sub["texts"])
     try:
         steps["analyze"] = any(any(True for _ in t.iterdir()) for t in texts)
     except (PermissionError, OSError):
         steps["analyze"] = False
-    scripts_dir = proj_output_dir / "scripts"
+    scripts_dir = proj_output_dir / sub["scripts"]
     try:
         steps["scripts"] = scripts_dir.is_dir() and any(scripts_dir.iterdir())
     except (PermissionError, OSError):
         steps["scripts"] = False
-    plans_dir = proj_output_dir / "plans"
+    plans_dir = proj_output_dir / sub["plans"]
     try:
         steps["plan"] = plans_dir.is_dir() and any(plans_dir.iterdir())
     except (PermissionError, OSError):
@@ -106,6 +140,12 @@ def _detect_steps(proj_output_dir: Path) -> dict[str, bool]:
     except (PermissionError, OSError):
         steps["cut"] = False
     return steps
+
+
+def _find_texts_dirs_for_steps(output_dir: Path, *, preferred_subdir: str) -> list[Path]:
+    from clio.ui.services.file_service import _find_texts_dirs
+
+    return _find_texts_dirs(output_dir, preferred_subdir=preferred_subdir)
 
 
 def _registry_path(config_path: Path | None) -> Path:
@@ -276,7 +316,7 @@ def _list_projects(
                 "output_dir": str(proj_out),
                 "currentDay": data.get("currentDay", "day1"),
                 "source": data.get("source", "compressed"),
-                "steps": _detect_steps(proj_out),
+                "steps": _detect_steps(proj_out, project_dir=p),
                 "createdAt": data.get("createdAt"),
                 "updatedAt": data.get("updatedAt"),
                 "is_current": (
@@ -315,7 +355,7 @@ def _list_projects(
                     "output_dir": str(proj_out),
                     "currentDay": data.get("currentDay", "day1"),
                     "source": data.get("source", "compressed"),
-                    "steps": _detect_steps(proj_out),
+                    "steps": _detect_steps(proj_out, project_dir=p),
                     "createdAt": data.get("createdAt"),
                     "updatedAt": data.get("updatedAt"),
                     "is_current": (

@@ -17,10 +17,18 @@ from clio.ui.routes.plan import (
 )
 
 
+def _mock_plans_cfg(handler: MagicMock, plans_dir: Path, proj_dir: Path | None = None) -> None:
+    handler._resolve_project_dir.return_value = proj_dir or plans_dir.parent
+    cfg = MagicMock()
+    cfg.plans_dir = plans_dir
+    handler._get_config.return_value = cfg
+
+
 class TestHandleGetPlans:
-    def test_no_plans_dir(self):
+    def test_no_plans_dir(self, tmp_path: Path):
         handler = MagicMock()
-        handler._get_project_output.return_value = Path("/nonexistent/output")
+        plans_dir = tmp_path / "output" / "plans"
+        _mock_plans_cfg(handler, plans_dir, tmp_path)
         handler._send_json = MagicMock()
 
         handle_get_plans(handler, {})
@@ -29,12 +37,11 @@ class TestHandleGetPlans:
 
     def test_lists_plans(self, tmp_path: Path):
         handler = MagicMock()
-        proj_out = tmp_path / "output"
-        plans_dir = proj_out / "plans"
+        plans_dir = tmp_path / "output" / "plans"
         plans_dir.mkdir(parents=True)
         (plans_dir / "day1_plan.json").write_bytes(b"{}")
         (plans_dir / "day2_plan.json").write_bytes(b"{}")
-        handler._get_project_output.return_value = proj_out
+        _mock_plans_cfg(handler, plans_dir, tmp_path)
         handler._send_json = MagicMock()
 
         handle_get_plans(handler, {})
@@ -44,6 +51,21 @@ class TestHandleGetPlans:
         payload = args[0][0]
         assert len(payload["plans"]) == 2
         assert payload["plans"][0]["day_label"] == "day1"
+
+    def test_custom_plans_subdir(self, tmp_path: Path):
+        handler = MagicMock()
+        custom = tmp_path / "output" / "my_plans"
+        custom.mkdir(parents=True)
+        (custom / "day1_plan.json").write_bytes(b"{}")
+        _mock_plans_cfg(handler, custom, tmp_path)
+        handler._send_json = MagicMock()
+
+        handle_get_plans(handler, {})
+
+        payload = handler._send_json.call_args[0][0]
+        assert len(payload["plans"]) == 1
+        assert payload["plans"][0]["day_label"] == "day1"
+        assert "my_plans" in payload["plans"][0]["path"]
 
 
 class TestHandleGetPlan:
@@ -57,8 +79,8 @@ class TestHandleGetPlan:
 
     def test_not_found(self, tmp_path: Path):
         handler = MagicMock()
-        proj_out = tmp_path / "output"
-        handler._get_project_output.return_value = proj_out
+        plans_dir = tmp_path / "output" / "plans"
+        _mock_plans_cfg(handler, plans_dir, tmp_path)
         handler._send_json = MagicMock()
 
         handle_get_plan(handler, {"day": ["day1"]})
@@ -69,18 +91,16 @@ class TestHandleGetPlan:
 
     def test_found(self, tmp_path: Path):
         handler = MagicMock()
-        proj_out = tmp_path / "output"
-        plans_dir = proj_out / "plans"
+        plans_dir = tmp_path / "output" / "plans"
         plans_dir.mkdir(parents=True)
         (plans_dir / "day1_plan.json").write_text(json.dumps({"plan": "test"}), encoding="utf-8")
-        handler._get_project_output.return_value = proj_out
+        _mock_plans_cfg(handler, plans_dir, tmp_path)
         handler._send_bytes = MagicMock()
 
         handle_get_plan(handler, {"day": ["day1"]})
 
         handler._send_bytes.assert_called_once()
-        args = handler._send_bytes.call_args
-        assert b'"plan": "test"' in args[0][0]
+        assert b"test" in handler._send_bytes.call_args[0][0]
 
 
 class TestHandlePutPlan:
@@ -92,24 +112,37 @@ class TestHandlePutPlan:
 
     def test_saves_plan(self, tmp_path: Path):
         handler = MagicMock()
-        proj_out = tmp_path / "output"
-        handler._get_project_output.return_value = proj_out
+        plans_dir = tmp_path / "output" / "plans"
+        _mock_plans_cfg(handler, plans_dir, tmp_path)
         handler._send_json = MagicMock()
 
         handle_put_plan(handler, {"day": ["day1"]}, {"title": "test plan"})
 
         handler._send_json.assert_called_once()
-        saved = proj_out / "plans" / "day1_plan.json"
+        saved = plans_dir / "day1_plan.json"
         assert saved.is_file()
         data = json.loads(saved.read_text(encoding="utf-8"))
         assert data["title"] == "test plan"
         assert "_schema_version" in data
 
+    def test_saves_to_custom_plans_subdir(self, tmp_path: Path):
+        handler = MagicMock()
+        custom = tmp_path / "output" / "storyboard"
+        _mock_plans_cfg(handler, custom, tmp_path)
+        handler._send_json = MagicMock()
+
+        handle_put_plan(handler, {"day": ["day1"]}, {"title": "custom"})
+
+        saved = custom / "day1_plan.json"
+        assert saved.is_file()
+        assert (tmp_path / "output" / "plans" / "day1_plan.json").exists() is False
+
 
 class TestHandlePutPlanValidation:
     def test_rejects_invalid_timeline(self, tmp_path: Path):
         handler = MagicMock()
-        handler._get_project_output.return_value = tmp_path / "output"
+        plans_dir = tmp_path / "output" / "plans"
+        _mock_plans_cfg(handler, plans_dir, tmp_path)
         handler._send_json = MagicMock()
         body = {
             "day_title": "d",
@@ -123,8 +156,8 @@ class TestHandlePutPlanValidation:
 
     def test_saves_normalized_plan_with_schema(self, tmp_path: Path):
         handler = MagicMock()
-        proj_out = tmp_path / "output"
-        handler._get_project_output.return_value = proj_out
+        plans_dir = tmp_path / "output" / "plans"
+        _mock_plans_cfg(handler, plans_dir, tmp_path)
         handler._send_json = MagicMock()
         body = {
             "day_title": "d",
@@ -133,7 +166,7 @@ class TestHandlePutPlanValidation:
         handle_put_plan(handler, {"day": ["day1"]}, body)
         handler._send_json.assert_called_once()
         assert handler._send_json.call_args[0][0]["ok"] is True
-        saved = json.loads((proj_out / "plans" / "day1_plan.json").read_text(encoding="utf-8"))
+        saved = json.loads((plans_dir / "day1_plan.json").read_text(encoding="utf-8"))
         assert saved["sequence"][0]["index"] == "001"
         assert "_schema_version" in saved
 
