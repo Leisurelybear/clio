@@ -17,7 +17,7 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any, ClassVar
 from urllib.parse import parse_qs, urlparse
@@ -27,6 +27,11 @@ from clio.session_log import clear as clear_session_log
 from clio.session_log import read as read_session_log
 from clio.shutdown import before_stop, install_hooks
 from clio.tasks.reindex import auto_reindex_if_needed
+from clio.ui.http_server import (
+    REQUEST_TIMEOUT_SEC,
+    BoundedThreadingHTTPServer,
+    header_bytes_too_large,
+)
 from clio.ui.router import Route, Router
 from clio.ui.routes.ai import handle_post_ai_test
 from clio.ui.routes.config_routes import (
@@ -262,6 +267,7 @@ def make_handler(
     from clio.ui.handler_protocol import HandlerProtocol
 
     class Handler(BaseHTTPRequestHandler, HandlerProtocol):
+        timeout = REQUEST_TIMEOUT_SEC
         _project_states: dict[str, _ServerState]
         _config_cache: ClassVar[ConfigCache]
         DEFAULT_PROJECT: dict[str, Any] = {}
@@ -272,6 +278,16 @@ def make_handler(
         _allowed_hosts: tuple[str, ...]
         _enforce_local_session: bool
         _enforce_json_ct: bool
+
+        def parse_request(self) -> bool:
+            ok = super().parse_request()
+            if not ok:
+                return False
+            if header_bytes_too_large(self.raw_requestline, self.headers):
+                self.send_error(HTTPStatus.REQUEST_HEADER_FIELDS_TOO_LARGE)
+                self.close_connection = True
+                return False
+            return True
 
         def _get_state(self, project_key: str) -> _ServerState:
             states = self.__class__._project_states
@@ -769,7 +785,7 @@ def run(
     print(f"[startup] HTTP handler ready ({_startup_ms(t)})")
 
     t = time.perf_counter()
-    server = ThreadingHTTPServer((host, port), handler)
+    server = BoundedThreadingHTTPServer((host, port), handler)
     print(f"[startup] bound {host}:{port} ({_startup_ms(t)})")
 
     url = f"http://{host}:{port}/"

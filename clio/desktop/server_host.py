@@ -14,6 +14,7 @@ from pathlib import Path
 from clio.config import AppConfig
 from clio.shutdown import before_stop, install_hooks
 from clio.tasks.reindex import auto_reindex_if_needed
+from clio.ui.http_server import BoundedThreadingHTTPServer
 from clio.ui.server import make_handler
 from clio.ui.services.project_service import resolve_last_project_config
 
@@ -59,7 +60,7 @@ def start_server(
         bound_port=port,
         enforce_local_session=True,
     )
-    server = ThreadingHTTPServer((host, port), handler)
+    server = BoundedThreadingHTTPServer((host, port), handler)
     bound_host, bound_port = server.server_address[:2]
 
     thread = threading.Thread(
