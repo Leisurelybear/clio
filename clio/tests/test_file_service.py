@@ -123,6 +123,46 @@ class TestSaveAtomic:
         _save_atomic(target, b"data")
         tmp_files = list(tmp_path.glob("*.tmp.*"))
         assert tmp_files == []
+        # Also no leftover exclusive-temp style names
+        assert list(tmp_path.glob(".*.tmp")) == []
+
+    def test_planted_symlink_temp_not_followed(self, tmp_path: Path, monkeypatch):
+        """GAP-P1-02: must not follow a planted symlink at the temp path."""
+        import pytest
+
+        target = tmp_path / "out.txt"
+        victim = tmp_path / "victim.bin"
+        victim.write_bytes(b"keep me")
+
+        # Plant at the legacy predictable name (.txt.tmp.<4-byte-hex>).
+        legacy_hex = (b"\x11" * 4).hex()
+        legacy_planted = target.with_suffix(target.suffix + f".tmp.{legacy_hex}")
+        try:
+            legacy_planted.symlink_to(victim)
+        except OSError:
+            pytest.skip("symlink creation not permitted on this host")
+
+        # Also plant at exclusive-random naming so the fix path is covered.
+        excl_hex = (b"\x11" * 8).hex()
+        excl_planted = tmp_path / f".out.txt.{excl_hex}.tmp"
+        try:
+            excl_planted.symlink_to(victim)
+        except OSError:
+            pytest.skip("symlink creation not permitted on this host")
+
+        calls = {"n": 0}
+
+        def colliding_then_safe(n: int) -> bytes:
+            calls["n"] += 1
+            # First attempt collides with the planted name for both schemes.
+            if calls["n"] == 1:
+                return b"\x11" * n
+            return b"\x22" * n
+
+        monkeypatch.setattr("clio.utils.os.urandom", colliding_then_safe)
+        _save_atomic(target, b"new content")
+        assert victim.read_bytes() == b"keep me"
+        assert target.read_bytes() == b"new content"
 
 
 # ===================== _find_original_for_compressed =====================

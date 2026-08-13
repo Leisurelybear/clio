@@ -12,7 +12,6 @@ Module-level helpers extracted from server.py:
 
 from __future__ import annotations
 
-import os
 import re
 import shutil
 import string
@@ -48,15 +47,15 @@ def _find_texts_dirs(output_dir: Path) -> list[Path]:
 
 
 def _save_atomic(path: Path, data: bytes) -> None:
+    from clio.utils import write_bytes_atomic
+
     path.parent.mkdir(parents=True, exist_ok=True)
     bak = path.with_suffix(path.suffix + ".bak")
     if path.exists():
         shutil.copy2(path, bak)
     elif bak.exists():
         bak.unlink()
-    tmp = path.with_suffix(path.suffix + f".tmp.{os.urandom(4).hex()}")
-    tmp.write_bytes(data)
-    os.replace(tmp, path)
+    write_bytes_atomic(path, data)
 
 
 def _create_project_yaml(proj_dir: Path, config_path: Path | None, proj_out: Path) -> Path | None:
