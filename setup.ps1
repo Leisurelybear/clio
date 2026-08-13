@@ -110,22 +110,37 @@ if (-not (Test-Path ".venv\Scripts\python.exe")) {
 }
 
 # 确保虚拟环境中有 pip（某些 Windows Python 安装不会自带）
+# GAP-P2-14: prefer ensurepip; only fall back to a pinned get-pip.py with SHA-256 verify.
 & ".venv\Scripts\python.exe" -c "import pip" 2>$null
 if ($LASTEXITCODE -ne 0) {
     Write-Host "     正在通过 ensurepip 安装 pip..." -ForegroundColor Yellow
     & ".venv\Scripts\python.exe" -m ensurepip --upgrade --default-pip
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "     ensurepip 不可用，下载 get-pip.py..." -ForegroundColor Yellow
-        $getPip = "$env:TEMP\get-pip.py"
+        # Pinned immutable raw commit from pypa/get-pip (same pin used by docker-library/python).
+        $getPipUrl = "https://github.com/pypa/get-pip/raw/ac00c61f60b2df101b7cdf90ed319b625ac93b42/public/get-pip.py"
+        $getPipSha256 = "0f8bb2652c0b0965f268312f49ec21e772d421d381af4324beea66b8acf2635c"
+        Write-Host "     ensurepip 不可用，下载已固定版本的 get-pip.py 并校验 SHA-256..." -ForegroundColor Yellow
+        $getPip = Join-Path $env:TEMP ("get-pip-" + [guid]::NewGuid().ToString("N") + ".py")
         try {
             [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-            Invoke-WebRequest -Uri "https://bootstrap.pypa.io/get-pip.py" -OutFile $getPip -UseBasicParsing -TimeoutSec 30
-            & ".venv\Scripts\python.exe" $getPip
+            Invoke-WebRequest -Uri $getPipUrl -OutFile $getPip -UseBasicParsing -TimeoutSec 60
+            $actual = (Get-FileHash -Path $getPip -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actual -ne $getPipSha256) {
+                Write-Host "     get-pip.py SHA-256 校验失败 (got $actual)" -ForegroundColor Red
+                Write-Host "     请改用官网 Python 安装包（含 ensurepip），勿执行未校验脚本" -ForegroundColor Red
+                exit 1
+            }
+            & ".venv\Scripts\python.exe" $getPip --disable-pip-version-check
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "     get-pip.py 执行失败" -ForegroundColor Red
+                exit 1
+            }
         } catch {
-            Write-Host "     无法安装 pip，请检查网络或手动安装: python -m ensurepip --upgrade" -ForegroundColor Red
+            Write-Host "     无法安装 pip: $_" -ForegroundColor Red
+            Write-Host "     请检查网络，或手动: python -m ensurepip --upgrade" -ForegroundColor Red
             exit 1
         } finally {
-            if (Test-Path $getPip) { Remove-Item $getPip -Force }
+            if (Test-Path $getPip) { Remove-Item $getPip -Force -ErrorAction SilentlyContinue }
         }
     }
 }
