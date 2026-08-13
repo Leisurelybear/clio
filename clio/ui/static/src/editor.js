@@ -6,13 +6,16 @@ import { renderTexts, renderTranscript } from './editor-texts.js';
 import { renderVoiceover } from './editor-voiceover.js';
 import { renderPlan, executeCut, save } from './editor-plan.js';
 import {
-  renderConfig, initProjectConfig, renderLogs, renderTokens,
+  renderConfig, initProjectConfig, renderLogs, stopLogsPolling, renderTokens,
   _renderConfigForm, labelFromPath, _renderTooltip,
 } from './editor-config.js';
 import { renderRefineUI, refineCurrentFile } from './editor-refine.js';
 
 
 export function renderActiveTab() {
+  if (state.currentEntity !== 'logs') {
+    stopLogsPolling();
+  }
   if (state.currentEntity === 'plan') {
     renderPlan();
     return;
@@ -53,6 +56,7 @@ export {
   renderConfig,
   initProjectConfig,
   renderLogs,
+  stopLogsPolling,
   renderTokens,
   _renderConfigForm,
   labelFromPath,

@@ -10,6 +10,7 @@ import {
   normalizeLogEntry,
   formatLogTime,
 } from './logs-filter.js';
+import { LOGS_BUFFER_MAX, appendLogEntries } from './logs-buffer.js';
 // Dynamic import avoids static cycle: editor.js → editor-config.js → editor.js (A-006)
 
 const DEFAULT_PROVIDERS = ['gemini', 'openai', 'deepseek'];
@@ -1346,6 +1347,8 @@ let _logsFilterQuery = '';
 let _logsFilterLevel = 'all';
 /** 0 = all; else window in ms */
 let _logsFilterSinceMs = 0;
+/** Skip overlapping /api/logs polls (P2-P38). */
+let _logsPollInFlight = false;
 
 const _LEVEL_LABELS = {
   debug: '调试',
@@ -1432,11 +1435,18 @@ function _syncLogsSinceChips() {
   });
 }
 
+/** Stop session-log polling without clearing the in-memory buffer (P2-P38). */
+export function stopLogsPolling() {
+  if (_logsTimer) {
+    clearInterval(_logsTimer);
+    _logsTimer = null;
+  }
+  _logsPollInFlight = false;
+}
+
 export function renderLogs() {
   const pane = $('tab-logs');
-  _logsOffset = 0;
-  _logsBuffer = [];
-  if (_logsTimer) { clearInterval(_logsTimer); _logsTimer = null; }
+  stopLogsPolling();
   const sinceChipsHtml = _SINCE_CHIPS.map((c) =>
     `<button type="button" class="logs-chip" data-log-since="${c.ms}">${c.label}</button>`
   ).join('');
@@ -1503,9 +1513,16 @@ export function renderLogs() {
 
   const ingest = (lines) => {
     if (!Array.isArray(lines) || !lines.length) return;
-    for (const raw of lines) {
-      const entry = normalizeLogEntry(raw);
-      _logsBuffer.push(entry);
+    const prevLen = _logsBuffer.length;
+    const entries = lines.map(normalizeLogEntry);
+    appendLogEntries(_logsBuffer, entries);
+    const trimmed = prevLen + entries.length > LOGS_BUFFER_MAX;
+    // After ring trim, incremental DOM append would be wrong — full repaint.
+    if (trimmed) {
+      _paintLogsView(view);
+      return;
+    }
+    for (const entry of entries) {
       if (entryMatchesLogFilter(entry, _logsFilterOpts())) {
         _appendLogLineEl(view, entry);
       }
@@ -1523,25 +1540,25 @@ export function renderLogs() {
     if (_logsAutoScroll) view.scrollTop = view.scrollHeight;
   };
 
-  _logsTimer = setInterval(async () => {
+  const pollOnce = async () => {
+    if (_logsPollInFlight) return;
+    _logsPollInFlight = true;
     try {
       const r = await api('GET', `/api/logs?offset=${_logsOffset}`);
       if (!r || !r.logs) return;
+      // Left the logs pane while in flight — do not touch detached DOM.
+      if (!$('logs-view')) return;
       ingest(r.logs);
-      _logsOffset = r.total;
-    } catch { /* ignore */ }
-  }, 2000);
+      if (typeof r.total === 'number') _logsOffset = r.total;
+    } catch { /* ignore */ } finally {
+      _logsPollInFlight = false;
+    }
+  };
 
-  (async () => {
-    try {
-      const r = await api('GET', '/api/logs?offset=0');
-      if (r && r.logs) {
-        _logsBuffer = r.logs.map(normalizeLogEntry);
-        _logsOffset = r.total;
-        _paintLogsView(view);
-      }
-    } catch { /* ignore */ }
-  })();
+  // Re-enter: show retained buffer immediately, then resume from offset.
+  _paintLogsView(view);
+  _logsTimer = setInterval(pollOnce, 2000);
+  pollOnce();
 }
 
 
