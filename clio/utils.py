@@ -417,7 +417,7 @@ def get_duration_sec(video_path: Path, ffprobe: str) -> float:
     return duration
 
 
-def _exclusive_random_tmp(path: Path) -> Path:
+def _exclusive_random_tmp(path: Path) -> tuple[Path, int]:
     """Return a random temp path in *path*'s directory opened exclusively.
 
     Opening with O_CREAT|O_EXCL fails if anything (including a planted
@@ -437,10 +437,15 @@ def _exclusive_random_tmp(path: Path) -> Path:
 
 def write_text_atomic(path: Path, text: str) -> None:
     """Write text via a random exclusive temp file then atomically replace."""
+    write_bytes_atomic(path, text.encode("utf-8"))
+
+
+def write_bytes_atomic(path: Path, data: bytes) -> None:
+    """Write bytes via a random exclusive temp file then atomically replace."""
     tmp, fd = _exclusive_random_tmp(path)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(text)
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp, path)
@@ -549,25 +554,55 @@ def format_index(index: int, width: int) -> str:
 def validate_within_root(path: Path, root: Path) -> Path:
     """Resolve *path* and verify it is within *root* (no symlink escape).
 
+    Rejects when *root* itself is a symlink, when any path component under
+    *root* is a symlink (even if the final target stays inside the root), or
+    when the resolved path escapes *root*.
+
     Returns the resolved path on success.
-    Raises ValueError if the path escapes root or is a symlink.
+    Raises ValueError if the path escapes root or involves a symlink.
     """
+    abs_root = root.absolute()
     try:
-        if root.is_symlink():
+        if abs_root.is_symlink():
             raise ValueError(f"symlink not allowed: {root}")
-    except (TypeError, OSError):
+    except ValueError:
+        raise
+    except OSError:
         pass
+
+    root_resolved = abs_root.resolve()
+    abs_path = path.absolute()
+
+    # Walk lexical components under root without following links so an
+    # intermediate symlink cannot be laundered by Path.resolve().
+    try:
+        rel = abs_path.relative_to(abs_root)
+    except ValueError:
+        rel = None
+    if rel is not None:
+        cur = abs_root
+        for part in rel.parts:
+            cur = cur / part
+            try:
+                if cur.is_symlink():
+                    raise ValueError(f"symlink not allowed: {cur}")
+            except ValueError:
+                raise
+            except OSError:
+                pass
+
     resolved = path.resolve()
-    root_resolved = root.resolve()
     try:
         if not resolved.is_relative_to(root_resolved):
             raise ValueError(f"path escapes root: {path} not within {root}")
-    except (ValueError, TypeError):
-        raise ValueError(f"path escapes root: {path} not within {root}")
+    except TypeError:
+        raise ValueError(f"path escapes root: {path} not within {root}") from None
     try:
-        if resolved.is_symlink() or path.is_symlink():
+        if resolved.is_symlink():
             raise ValueError(f"symlink not allowed: {path}")
-    except (TypeError, OSError):
+    except ValueError:
+        raise
+    except OSError:
         pass
     return resolved
 

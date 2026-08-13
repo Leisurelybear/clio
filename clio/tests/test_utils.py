@@ -372,21 +372,37 @@ class TestValidateWithinRoot:
         result = validate_within_root(child, root)
         assert result == child.resolve()
 
-    def test_symlink_in_path_blocked(self, tmp_path: Path):
-        """GAP-P1-04: symlink component in path must be rejected."""
+    def test_symlink_escape_outside_root_blocked(self, tmp_path: Path):
+        """GAP-P1-04: symlink component escaping root must be rejected as symlink."""
         from clio.utils import validate_within_root
 
-        root = tmp_path / "root"
+        # Avoid "symlink" in the fixture path so match= cannot false-green.
+        root = tmp_path / "workspace"
         root.mkdir()
-        other = tmp_path / "other"
+        other = tmp_path / "outside"
         other.mkdir()
         (other / "secret.txt").write_text("leaked")
 
-        link = root / "link"
+        link = root / "alias"
         link.symlink_to(other)
 
-        with pytest.raises(ValueError, match="symlink"):
+        with pytest.raises(ValueError, match=r"^symlink not allowed:"):
             validate_within_root(link / "secret.txt", root)
+
+    def test_symlink_inside_root_blocked(self, tmp_path: Path):
+        """GAP-P1-04: intermediate symlink inside root must still be rejected."""
+        from clio.utils import validate_within_root
+
+        root = tmp_path / "workspace"
+        root.mkdir()
+        inner = root / "inner"
+        inner.mkdir()
+        (inner / "ok.txt").write_text("x")
+        alias = root / "alias"
+        alias.symlink_to(inner)
+
+        with pytest.raises(ValueError, match=r"^symlink not allowed:"):
+            validate_within_root(alias / "ok.txt", root)
 
     def test_parent_escape_blocked(self, tmp_path: Path):
         """GAP-P1-04: path escaping root via ../ must be rejected."""
@@ -405,13 +421,13 @@ class TestValidateWithinRoot:
         """GAP-P1-04: root itself being a symlink must be rejected."""
         from clio.utils import validate_within_root
 
-        real_root = tmp_path / "real"
+        real_root = tmp_path / "real_workspace"
         real_root.mkdir()
-        link_root = tmp_path / "link"
+        link_root = tmp_path / "alias_root"
         link_root.symlink_to(real_root)
         (real_root / "secret.txt").write_text("leaked")
 
-        with pytest.raises(ValueError, match="symlink"):
+        with pytest.raises(ValueError, match=r"^symlink not allowed:"):
             validate_within_root(link_root / "secret.txt", link_root)
 
     def test_relative_path_resolved_correctly(self, tmp_path: Path):
