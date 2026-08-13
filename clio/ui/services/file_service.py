@@ -236,22 +236,28 @@ def _find_original_for_compressed(
 
         selected = load_selected_videos(lookup_dir)
         if selected:
-            for p in selected:
-                if p.stem.lower() == suffix:
-                    try:
-                        return str(p.resolve()) if p.is_file() else str(p)
-                    except OSError:
-                        return str(p)
+
+            def _unique_stem_match(needle: str) -> Path | None:
+                hits = [p for p in selected if p.stem.lower() == needle]
+                if len(hits) == 1:
+                    return hits[0]
+                return None  # zero or ambiguous same-stem names
+
+            hit = _unique_stem_match(suffix)
+            if hit is not None:
+                try:
+                    return str(hit.resolve()) if hit.is_file() else str(hit)
+                except OSError:
+                    return str(hit)
             m = re.match(r"^(.+)_seg\d+$", suffix)
             if m:
-                base = m.group(1)
-                for p in selected:
-                    if p.stem.lower() == base:
-                        try:
-                            return str(p.resolve()) if p.is_file() else str(p)
-                        except OSError:
-                            return str(p)
-            # videos.json present but no match — do not fall through to dir scan
+                hit = _unique_stem_match(m.group(1))
+                if hit is not None:
+                    try:
+                        return str(hit.resolve()) if hit.is_file() else str(hit)
+                    except OSError:
+                        return str(hit)
+            # videos.json present but no unique match — do not fall through to dir scan
             # of project_dir (would miss external-only selections intentionally)
             if project_dir is not None:
                 return None
@@ -262,53 +268,68 @@ def _find_original_for_compressed(
     )
     if scan_dir is None:
         return None
-    for p in sorted(scan_dir.iterdir()):
-        if p.is_file() and p.stem.lower() == suffix:
-            return str(p.resolve())
+    stem_hits = [p for p in sorted(scan_dir.iterdir()) if p.is_file() and p.stem.lower() == suffix]
+    if len(stem_hits) == 1:
+        return str(stem_hits[0].resolve())
+    if len(stem_hits) > 1:
+        return None
     m = re.match(r"^(.+)_seg\d+$", suffix)
     if m:
         base = m.group(1)
-        for p in sorted(scan_dir.iterdir()):
-            if p.is_file() and p.stem.lower() == base:
-                return str(p.resolve())
+        base_hits = [p for p in sorted(scan_dir.iterdir()) if p.is_file() and p.stem.lower() == base]
+        if len(base_hits) == 1:
+            return str(base_hits[0].resolve())
+        if len(base_hits) > 1:
+            return None
     return None
+
+
+def _scan_compressed_for_original(stem: str, comp_dir: Path) -> list[tuple[str, str]] | None:
+    """Directory-scan matches for an original stem (legacy / vindex fallback)."""
+    needle = stem.lower()
+    exact: list[tuple[str, str]] = []
+    seg_matches: list[tuple[str, str]] = []
+    for p in sorted(comp_dir.iterdir()):
+        if p.suffix.lower() not in VIDEO_EXTS or "_" not in p.stem:
+            continue
+        idx, rest = p.stem.split("_", 1)
+        rest_l = rest.lower()
+        if rest_l == needle:
+            exact.append((p.name, idx))
+            continue
+        seg_prefix = needle + "_seg"
+        if rest_l.startswith(seg_prefix) and rest_l[len(seg_prefix) :].isdigit():
+            seg_matches.append((p.name, idx))
+    if exact:
+        exact.sort(key=lambda m: m[1])
+        return exact
+    if not seg_matches:
+        return None
+    seg_matches.sort(key=lambda m: m[1])
+    return seg_matches
 
 
 def _find_compressed_for_original(stem: str, comp_dir: Path) -> list[tuple[str, str]] | None:
     """For an original stem like 'GL010695', find matching compressed file(s) and
     their indices. Prefers .vindex for O(1) lookup; falls back to directory scan
-    for legacy projects.
+    for legacy projects or incomplete/stale .vindex entries.
     Returns a sorted list of (compressed_basename, index) tuples,
     or None if not found. For split videos, returns all segments sorted by index.
     """
     if not comp_dir.is_dir():
         return None
 
-    # Try .vindex first (O(1))
+    disk = _scan_compressed_for_original(stem, comp_dir)
+
+    # Try .vindex first (O(1)); if incomplete vs disk, prefer disk to avoid misses.
     vindex = VideoIndex.read(stem, comp_dir)
     if vindex is not None:
-        paths = vindex.compressed_paths(comp_dir)
-        if paths:
-            matches = [(p.name, s.index) for p, s in zip(paths, vindex.segments)]
-            matches.sort(key=lambda m: m[1])
+        matches = [(p.name, s.index) for s in vindex.segments if (p := comp_dir / s.filename).is_file()]
+        matches.sort(key=lambda m: m[1])
+        if matches and (disk is None or len(matches) >= len(disk)):
             return matches
 
-    # Legacy fallback: directory scan
-    needle = stem.lower()
-    fallback_matches: list[tuple[str, str]] = []
-    for p in sorted(comp_dir.iterdir()):
-        if p.suffix.lower() not in VIDEO_EXTS or "_" not in p.stem:
-            continue
-        idx, rest = p.stem.split("_", 1)
-        if rest.lower() == needle:
-            return [(p.name, idx)]
-        seg_prefix = needle + "_seg"
-        if rest.lower().startswith(seg_prefix) and rest.lower()[len(seg_prefix) :].isdigit():
-            fallback_matches.append((p.name, idx))
-    if not fallback_matches:
-        return None
-    fallback_matches.sort(key=lambda m: m[1])
-    return fallback_matches
+    return disk
 
 
 def _coerce_config_types(new_val: Any, ref_val: Any) -> Any:

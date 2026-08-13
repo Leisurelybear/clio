@@ -229,6 +229,24 @@ class TestFindOriginalForCompressed:
         result = _find_original_for_compressed("foo_bar_seg01", tmp_path)
         assert result is not None and Path(result).name == "bar.MP4"
 
+    def test_ambiguous_stem_in_videos_json_returns_none(self, tmp_path: Path):
+        import json
+
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        a = tmp_path / "a"
+        b = tmp_path / "b"
+        a.mkdir()
+        b.mkdir()
+        (a / "GL010695.MP4").write_bytes(b"1")
+        (b / "GL010695.MP4").write_bytes(b"2")
+        (proj / "videos.json").write_text(
+            json.dumps([str((a / "GL010695.MP4").resolve()), str((b / "GL010695.MP4").resolve())]),
+            encoding="utf-8",
+        )
+        result = _find_original_for_compressed("001_GL010695", proj, project_dir=proj)
+        assert result is None
+
 
 # ===================== _find_compressed_for_original =====================
 
@@ -272,6 +290,38 @@ class TestFindCompressedForOriginal:
         (comp / "002_GL010695_seg01.mp4").write_bytes(b"")
         result = _find_compressed_for_original("GL010695", comp)
         assert result == [("001_GL010695.mp4", "001")]
+
+    def test_incomplete_vindex_falls_back_to_disk_scan(self, tmp_path: Path):
+        """Stale .vindex missing a segment must not hide disk matches."""
+        from clio.vmeta import SegmentEntry, VideoIndex
+
+        comp = tmp_path / "compressed"
+        comp.mkdir()
+        (comp / "001_GL010695_seg01.mp4").write_bytes(b"a")
+        (comp / "002_GL010695_seg02.mp4").write_bytes(b"b")
+        idx = VideoIndex(
+            source_stem="GL010695",
+            source_path=str(tmp_path / "GL010695.MP4"),
+            source_size=1,
+            source_modifyTime=1,
+            source_duration_sec=10.0,
+            is_split=True,
+            segments=[
+                SegmentEntry(
+                    index="001",
+                    filename="001_GL010695_seg01.mp4",
+                    offset_sec=0.0,
+                    duration_sec=5.0,
+                    segment_number=1,
+                    total_segments=2,
+                ),
+            ],
+        )
+        idx.write(comp)
+        result = _find_compressed_for_original("GL010695", comp)
+        assert result is not None
+        assert len(result) == 2
+        assert {r[0] for r in result} == {"001_GL010695_seg01.mp4", "002_GL010695_seg02.mp4"}
 
     def test_case_insensitive_needle(self, tmp_path: Path):
         comp = tmp_path / "compressed"

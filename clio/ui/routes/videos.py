@@ -191,15 +191,20 @@ def _compressed_matches_selection(
     return False
 
 
-def _load_videos_json_selection(proj_dir: Path) -> set[Path] | None:
-    """Load videos.json selection.
+def _load_videos_json_selection(proj_dir: Path) -> list[Path] | None:
+    """Load videos.json selection in registration order.
 
     Returns None only when videos.json is absent (legacy project).
-    Empty list / offline paths still yield a set so selection mode stays active.
+    Empty list / offline paths still yield a list so selection mode stays active.
     """
     if not (proj_dir / "videos.json").is_file():
         return None
-    selected = load_selected_videos(proj_dir)
+    return load_selected_videos(proj_dir)
+
+
+def _selection_path_set(selected: list[Path] | None) -> set[Path] | None:
+    if selected is None:
+        return None
     out: set[Path] = set()
     for p in selected:
         try:
@@ -220,7 +225,8 @@ def handle_get_videos(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     comp_dir = proj_out / "compressed"
     cfg = handler._get_config(proj_dir)
     cache_key = (str(proj_dir.resolve()), str(proj_out.resolve()), source)
-    selected_set = _load_videos_json_selection(proj_dir)
+    selected_ordered = _load_videos_json_selection(proj_dir)
+    selected_set = _selection_path_set(selected_ordered)
     signature = _videos_cache_signature(proj_dir, proj_out, comp_dir, cfg)
     with _VIDEOS_CACHE_LOCK:
         cached = _VIDEOS_CACHE.get(cache_key)
@@ -237,7 +243,16 @@ def handle_get_videos(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
             _VIDEOS_CACHE[cache_key] = (signature, deepcopy(disk_payload))
         return handler._send_json(disk_payload)
 
-    payload = _build_videos_payload(handler, proj_dir, proj_out, comp_dir, source, cfg, selected_set=selected_set)
+    payload = _build_videos_payload(
+        handler,
+        proj_dir,
+        proj_out,
+        comp_dir,
+        source,
+        cfg,
+        selected_set=selected_set,
+        selected_ordered=selected_ordered,
+    )
     _save_disk_cache(proj_out, source, signature, payload)
     with _VIDEOS_CACHE_LOCK:
         if len(_VIDEOS_CACHE) >= _VIDEOS_CACHE_MAX and cache_key not in _VIDEOS_CACHE:
@@ -252,7 +267,8 @@ def _file_fingerprint(path: Path) -> tuple[Any, ...]:
         st = path.stat()
         return (st.st_size, st.st_mtime_ns)
     except OSError:
-        return ()
+        # Distinguish offline paths in the signature (external media status).
+        return ("missing", str(path))
 
 
 def _videos_cache_signature(proj_dir: Path, proj_out: Path, comp_dir: Path, cfg: Any) -> tuple[Any, ...]:
@@ -349,6 +365,7 @@ def _build_videos_payload(
     cfg: Any,
     *,
     selected_set: set[Path] | None = None,
+    selected_ordered: list[Path] | None = None,
 ) -> dict[str, Any]:
     # -- Build artifact index ------------------------------------------------
     index = ArtifactIndex(
@@ -371,11 +388,12 @@ def _build_videos_payload(
 
     videos: list[dict] = []
     groups: dict[str, dict] = {}
+    preserve_registration_order = False
 
     if source == "compressed":
         if comp_dir.is_dir():
             # Pass 1: build flat video list + collect group members
-            group_members: dict[str, list[tuple[str, int]]] = {}
+            group_members: dict[str, list[tuple[str, int, str]]] = {}
             compressed_paths = prefer_canonical_compressed(
                 sorted(p for p in comp_dir.iterdir() if p.is_file() and p.suffix.lower() in VIDEO_EXTS)
             )
@@ -440,7 +458,7 @@ def _build_videos_payload(
                     "segment_label": None,
                 }
                 if group_key is not None and seg_num is not None:
-                    group_members.setdefault(group_key, []).append((idx, seg_num))
+                    group_members.setdefault(group_key, []).append((idx, seg_num, p.name))
                 videos.append(v)
 
             # Pass 2: compute totals, fill segment labels and offsets
@@ -459,9 +477,9 @@ def _build_videos_payload(
                 }
                 offsets: dict[str, float] = {}
                 durations: dict[str, float] = {}
-                for member_idx, seg_num in members:
+                for member_idx, seg_num, fname in members:
                     for v in videos:
-                        if v["index"] == member_idx:
+                        if v["file"] == fname:
                             comp_file = comp_dir / v["file"]
                             meta = VideoMeta.read(comp_file)
                             if meta and meta.split_info:
@@ -476,18 +494,23 @@ def _build_videos_payload(
                         if candidate.is_file():
                             orig_video = candidate
                             break
+                    if orig_video is None and selected_ordered:
+                        for cand in selected_ordered:
+                            if cand.stem.lower() == gk.lower() and cand.is_file():
+                                orig_video = cand
+                                break
                     if orig_video is not None:
                         try:
                             dur = get_duration_sec(orig_video, _ffprobe)
                             seg_dur = dur / total
-                            for i, (member_idx, _) in enumerate(missing):
-                                offsets[member_idx] = round(i * seg_dur, 1)
+                            for member_idx, seg_num, _fname in missing:
+                                offsets[member_idx] = round((seg_num - 1) * seg_dur, 1)
                                 durations[member_idx] = round(seg_dur, 1)
                         except Exception:
                             pass
-                for member_idx, seg_num in members:
+                for member_idx, seg_num, fname in members:
                     for v in videos:
-                        if v["index"] == member_idx:
+                        if v["file"] == fname:
                             v["segment_label"] = f"{seg_num}/{total}"
                             v["offset_sec"] = offsets.get(member_idx, 0.0)
                             v["duration_sec"] = durations.get(member_idx, 0.0)
@@ -500,8 +523,11 @@ def _build_videos_payload(
         except Exception:
             _ffprobe = None
 
-        if selected_set is not None:
-            # May be empty (new project). Offline/missing paths still listed so UI can show them.
+        if selected_ordered is not None:
+            # Preserve videos.json registration order (head/tail inclusive).
+            video_paths = list(selected_ordered)
+            preserve_registration_order = True
+        elif selected_set is not None:
             video_paths = sorted(selected_set, key=lambda p: p.name.lower())
         else:
             # No videos.json → empty list (do not scan project_dir)
@@ -550,7 +576,7 @@ def _build_videos_payload(
                     v["abs_path"] = abs_path
                 videos.append(v)
                 continue
-            # Compute per-segment offsets
+            # Compute per-segment offsets (equal split by ordered segment position).
             seg_offsets: dict[str, float] = {}
             if len(comp) > 1 and _ffprobe:
                 try:
@@ -586,7 +612,8 @@ def _build_videos_payload(
                 if len(segment_matches) > 1:
                     seg_v["segment_matches"] = segment_matches
                 videos.append(seg_v)
-    videos.sort(key=_video_sort_key)
+    if not preserve_registration_order:
+        videos.sort(key=_video_sort_key)
     return {"videos": videos, "source": source, "groups": groups}
 
 

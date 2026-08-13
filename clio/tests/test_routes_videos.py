@@ -1060,3 +1060,112 @@ class TestHandleGetVmeta:
         call_args = handler._send_json.call_args[0][0]
         assert call_args["ok"] is False
         assert call_args["error"] == "not found"
+
+
+# ---- P2-P39: registration order / ambiguous names / segment offsets ----
+
+
+class TestVideosP2P39:
+    def setup_method(self):
+        _clear_videos_cache()
+
+    def _cfg(self):
+        return SimpleNamespace(
+            whisper=SimpleNamespace(transcripts_subdir="transcripts"),
+            paths=SimpleNamespace(ffprobe="ffprobe"),
+        )
+
+    def test_original_list_preserves_videos_json_order(self, tmp_path: Path):
+        import json
+
+        handler = MagicMock()
+        proj_dir = tmp_path / "input"
+        proj_dir.mkdir()
+        proj_out = tmp_path / "output"
+        (proj_out / "compressed").mkdir(parents=True)
+        # Alphabetical would be A then Z; registration order is Z then A
+        z = proj_dir / "Z_clip.mp4"
+        a = proj_dir / "A_clip.mp4"
+        z.write_bytes(b"z")
+        a.write_bytes(b"a")
+        (proj_dir / "videos.json").write_text(json.dumps([str(z.resolve()), str(a.resolve())]), encoding="utf-8")
+        handler._resolve_project_dir.return_value = proj_dir
+        handler._get_project_output.return_value = proj_out
+        handler._get_config.return_value = self._cfg()
+        handler._send_json = MagicMock()
+
+        handle_get_videos(handler, {"source": ["original"]})
+        videos = handler._send_json.call_args[0][0]["videos"]
+        names = [v["file"] for v in videos]
+        assert names == ["Z_clip.mp4", "A_clip.mp4"], names
+
+    def test_ambiguous_same_basename_requires_abspath(self, tmp_path: Path):
+        import json
+
+        handler = MagicMock()
+        proj_dir = tmp_path / "input"
+        proj_dir.mkdir()
+        proj_out = tmp_path / "output"
+        proj_out.mkdir()
+        d1 = tmp_path / "nas1"
+        d2 = tmp_path / "nas2"
+        d1.mkdir()
+        d2.mkdir()
+        v1 = d1 / "clip.mp4"
+        v2 = d2 / "clip.mp4"
+        v1.write_bytes(b"1")
+        v2.write_bytes(b"2")
+        (proj_dir / "videos.json").write_text(json.dumps([str(v1.resolve()), str(v2.resolve())]), encoding="utf-8")
+        handler._resolve_project_dir.return_value = proj_dir
+        handler._get_project_output.return_value = proj_out
+        handler.send_error = MagicMock()
+
+        handle_get_video(handler, {"file": ["clip.mp4"], "source": ["original"]})
+        handler.send_error.assert_called_once_with(HTTPStatus.FORBIDDEN)
+
+    def test_segment_offset_uses_seg_number_not_missing_index(self, tmp_path: Path):
+        """When only middle segment has meta, remaining offsets use seg_num."""
+        from clio.vmeta import SplitInfo, VideoMeta
+
+        handler = MagicMock()
+        proj_dir = tmp_path / "input"
+        proj_dir.mkdir()
+        orig = proj_dir / "GL010695.MP4"
+        orig.write_bytes(b"orig")
+        proj_out = tmp_path / "output"
+        comp = proj_out / "compressed"
+        comp.mkdir(parents=True)
+        # three segments; only seg02 has split_info
+        for name in ("001_GL010695_seg01.mp4", "002_GL010695_seg02.mp4", "003_GL010695_seg03.mp4"):
+            (comp / name).write_bytes(b"x")
+        mid = comp / "002_GL010695_seg02.mp4"
+        meta = VideoMeta.build(
+            source=orig,
+            target=mid,
+            source_duration=90.0,
+            target_duration=30.0,
+            split_info=SplitInfo(
+                original_stem="GL010695",
+                segment_index=2,
+                total_segments=3,
+                offset_sec=30.0,
+                segment_duration_sec=30.0,
+            ),
+        )
+        meta.write(mid)
+
+        handler._resolve_project_dir.return_value = proj_dir
+        handler._get_project_output.return_value = proj_out
+        handler._get_config.return_value = self._cfg()
+        handler._send_json = MagicMock()
+
+        with (
+            patch("clio.ui.routes.videos.resolve_binary", return_value="ffprobe"),
+            patch("clio.ui.routes.videos.get_duration_sec", return_value=90.0),
+        ):
+            handle_get_videos(handler, {"source": ["compressed"]})
+
+        videos = {v["file"]: v for v in handler._send_json.call_args[0][0]["videos"]}
+        assert videos["001_GL010695_seg01.mp4"]["offset_sec"] == 0.0
+        assert videos["002_GL010695_seg02.mp4"]["offset_sec"] == 30.0
+        assert videos["003_GL010695_seg03.mp4"]["offset_sec"] == 60.0
