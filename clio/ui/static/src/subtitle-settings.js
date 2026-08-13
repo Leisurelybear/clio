@@ -1,3 +1,40 @@
+const SUBTITLE_MODES = new Set(['auto', 'multi', 'scroll']);
+const COLOR_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$|^rgba?\(\s*[\d.%\s,/]+\s*\)$/;
+const CSS_SHADOW_RE = /^[0-9a-zA-Z#%.,()\s/-]+$/;
+const FONT_FAMILY_RE = /^[0-9a-zA-Z\s,"'_-]+$/;
+
+export function safeStr(v, d) {
+  return v == null || v === '' ? d : String(v);
+}
+
+/** Strict color for CSS (hex / rgb / rgba only). */
+export function safeColor(v, fallback = '#ffffff') {
+  if (v == null || v === '') return null;
+  const s = String(v).trim();
+  if (COLOR_RE.test(s)) return s;
+  return fallback;
+}
+
+export function safeCssShadow(v, fallback) {
+  const s = String(v ?? '').trim();
+  if (!s) return fallback;
+  if (s.length > 120 || !CSS_SHADOW_RE.test(s)) return fallback;
+  if (/expression|url\s*\(|javascript:/i.test(s)) return fallback;
+  return s;
+}
+
+export function safeFontFamily(v, fallback = '') {
+  const s = String(v ?? '').trim();
+  if (!s) return fallback;
+  if (s.length > 80 || !FONT_FAMILY_RE.test(s)) return fallback;
+  return s;
+}
+
+export function safeSubtitleMode(v, fallback = 'auto') {
+  const s = String(v ?? '').trim().toLowerCase();
+  return SUBTITLE_MODES.has(s) ? s : fallback;
+}
+
 export function subtitleControlsModel(config) {
   const s = config?.preview?.subtitles || {};
   const num = (v, d) => {
@@ -10,19 +47,15 @@ export function subtitleControlsModel(config) {
   return {
     font_size: num(s.font_size, 22),
     min_font_size: num(s.min_font_size, 14),
-    font_color: attr(safeStr(s.font_color, '#fff')),
-    background: attr(safeStr(s.background, 'rgba(0,0,0,.55)')),
-    outline: attr(safeStr(s.outline, '0 0 2px rgba(0,0,0,.8)')),
-    font_family: attr(safeStr(s.font_family, '')),
-    mode: s.mode || 'auto',
+    font_color: attr(safeColor(s.font_color, '#fff') || '#fff'),
+    background: attr(safeCssShadow(s.background, 'rgba(0,0,0,.55)')),
+    outline: attr(safeCssShadow(s.outline, '0 0 2px rgba(0,0,0,.8)')),
+    font_family: attr(safeFontFamily(s.font_family, '')),
+    mode: safeSubtitleMode(s.mode, 'auto'),
     max_lines: Math.max(1, num(s.max_lines, 2)),
     max_len_per_line: Math.max(1, num(s.max_len_per_line, 16)),
     scroll_speed: Math.max(1, num(s.scroll_speed, 40)),
   };
-}
-
-export function safeStr(v, d) {
-  return v == null || v === '' ? d : String(v);
 }
 
 export function mergeSubtitleSettings(project, updates) {
@@ -30,16 +63,20 @@ export function mergeSubtitleSettings(project, updates) {
   const preview = out.preview && typeof out.preview === 'object' ? { ...out.preview } : {};
   const subtitles = { ...(preview.subtitles && typeof preview.subtitles === 'object' ? preview.subtitles : {}) };
   for (const [k, v] of Object.entries(updates)) {
-    if (v !== undefined && v !== '') subtitles[k] = v;
-    else delete subtitles[k];
+    if (v === undefined || v === '') {
+      delete subtitles[k];
+      continue;
+    }
+    if (k === 'mode') subtitles[k] = safeSubtitleMode(v, 'auto');
+    else if (k === 'font_color') subtitles[k] = safeColor(v, '#ffffff') || '#ffffff';
+    else if (k === 'background') subtitles[k] = safeCssShadow(v, 'rgba(0,0,0,.55)');
+    else if (k === 'outline') subtitles[k] = safeCssShadow(v, '0 0 2px rgba(0,0,0,.8)');
+    else if (k === 'font_family') subtitles[k] = safeFontFamily(v, '');
+    else subtitles[k] = v;
   }
   preview.subtitles = subtitles;
   out.preview = preview;
   return out;
-}
-
-export function safeColor(v) {
-  return v == null ? null : String(v);
 }
 
 /**
@@ -134,7 +171,12 @@ export function renderSubtitleSettingsPanel(container, opts = {}) {
     for (const key of STRING_KEYS) {
       const el = container.querySelector(`[data-subtle="${key}"]`);
       if (!el) continue;
-      updates[key] = el.value;
+      if (key === 'mode') updates[key] = safeSubtitleMode(el.value, 'auto');
+      else if (key === 'font_color') updates[key] = safeColor(el.value, '#ffffff') || '#ffffff';
+      else if (key === 'background') updates[key] = safeCssShadow(el.value, 'rgba(0,0,0,.55)');
+      else if (key === 'outline') updates[key] = safeCssShadow(el.value, '0 0 2px rgba(0,0,0,.8)');
+      else if (key === 'font_family') updates[key] = safeFontFamily(el.value, '');
+      else updates[key] = el.value;
     }
     onChange(updates);
   };

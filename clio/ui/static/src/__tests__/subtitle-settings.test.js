@@ -40,7 +40,7 @@ describe('subtitleControlsModel', () => {
     expect(m.scroll_speed).toBe(40);
   });
 
-  it('escapes attribute-breaking characters in string values', () => {
+  it('rejects unsafe CSS values with whitelist defaults', () => {
     const m = subtitleControlsModel({
       preview: {
         subtitles: {
@@ -48,13 +48,15 @@ describe('subtitleControlsModel', () => {
           background: '<img src=x onerror=alert(1)>',
           outline: 'red" autofocus"',
           font_family: "' style=position:fixed",
+          mode: 'hack',
         },
       },
     });
-    expect(m.font_color).toBe('&quot; onfocus=&quot;alert(1)');
-    expect(m.background).toBe('&lt;img src=x onerror=alert(1)&gt;');
-    expect(m.outline).toBe('red&quot; autofocus&quot;');
-    expect(m.font_family).toBe('&#39; style=position:fixed');
+    expect(m.font_color).toBe('#fff');
+    expect(m.background).toBe('rgba(0,0,0,.55)');
+    expect(m.outline).toBe('0 0 2px rgba(0,0,0,.8)');
+    expect(m.font_family).toBe('');
+    expect(m.mode).toBe('auto');
   });
 });
 
@@ -95,8 +97,13 @@ describe('safeColor', () => {
   it('passes through valid hex/color strings', () => {
     expect(safeColor('#ffffff')).toBe('#ffffff');
     expect(safeColor('#fff')).toBe('#fff');
-    expect(safeColor('')).toBe('');
+    expect(safeColor('')).toBe(null);
     expect(safeColor(null)).toBe(null);
+  });
+
+  it('rejects non-color payloads', () => {
+    expect(safeColor('url(javascript:alert(1))', '#000')).toBe('#000');
+    expect(safeColor('red; background:url(x)', '#111')).toBe('#111');
   });
 });
 

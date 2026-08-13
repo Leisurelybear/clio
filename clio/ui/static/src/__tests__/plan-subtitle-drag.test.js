@@ -62,21 +62,23 @@ describe('initSubtitleDrag', () => {
     expect(Number.isFinite(commits[0].y)).toBe(true);
   });
 
-  it('pointercancel ends drag without committing', () => {
+  it('pointercancel restores start position without committing', () => {
     const el = mount();
+    el.dataset.posX = '20';
+    el.dataset.posY = '10';
+    el.style.setProperty('--st-pos-x', '20%');
+    el.style.setProperty('--st-pos-y', '10%');
     const commits = [];
     const handle = el.querySelector('.plan-subtitle-handle');
     const stage = document.createElement('div');
     stage.getBoundingClientRect = () => ({ width: 200, height: 100, left: 0, top: 0, bottom: 100 });
-    const listeners = { move: 0, up: 0 };
-    const origAdd = document.addEventListener.bind(document);
-    const origRemove = document.removeEventListener.bind(document);
     initSubtitleDrag({ handle, stage, onCommit: (p) => commits.push(p) });
 
-    handle.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    handle.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 40, clientY: 90 }));
+    document.dispatchEvent(new MouseEvent('pointermove', { clientX: 150, clientY: 20 }));
     document.dispatchEvent(new MouseEvent('pointercancel'));
-    document.dispatchEvent(new MouseEvent('pointermove', { clientX: 150, clientY: 60 }));
-    document.dispatchEvent(new MouseEvent('pointerup'));
     expect(commits.length).toBe(0);
+    expect(el.style.getPropertyValue('--st-pos-x')).toBe('20%');
+    expect(el.style.getPropertyValue('--st-pos-y')).toBe('10%');
   });
 });
