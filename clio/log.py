@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TextIO
 
 from clio import session_log
+from clio.privacy import redact_sensitive
 
 _LOGGER_NAME = "clio"
 _FORMAT = "%(asctime)s [%(levelname)s] %(message)s"
@@ -52,6 +53,13 @@ class _HourlyFileHandler(logging.Handler):
         self._logs_dir.mkdir(parents=True, exist_ok=True)
         log_path = self._logs_dir / f"{hour_key}.log"
         self._current_file = open(log_path, "a", encoding="utf-8")
+        try:
+            import os
+
+            if hasattr(os, "chmod"):
+                os.chmod(log_path, 0o600)
+        except OSError:
+            pass
         self._current_hour = hour_key
         self._failure_count = 0
 
@@ -84,7 +92,7 @@ class _HourlyFileHandler(logging.Handler):
         try:
             self._rotate(datetime.fromtimestamp(record.created))
             assert self._current_file is not None
-            msg = self.format(record) + "\n"
+            msg = redact_sensitive(self.format(record)) + "\n"
             self._current_file.write(msg)
             self._current_file.flush()
             self._failure_count = 0
@@ -135,16 +143,16 @@ class _TeeWriter:
         except Exception:
             written = 0
         if "Traceback (most recent call last):" in message:
-            self._logger.log(logging.ERROR, message.rstrip())
+            self._logger.log(logging.ERROR, redact_sensitive(message.rstrip()))
         else:
             for line in message.splitlines():
                 if line:
-                    self._logger.log(self._level, line)
+                    self._logger.log(self._level, redact_sensitive(line))
         # print() often splits content + trailing "\n" into two write()s;
         # blank ends must not create empty session_log rows in the UI.
         stripped = message.rstrip()
         if stripped:
-            session_log.write(stripped)
+            session_log.write(redact_sensitive(stripped))
         try:
             self._original.flush()
         except Exception:
@@ -247,6 +255,20 @@ def teardown_logging() -> None:
         except Exception:
             pass
         _initialized = False
+
+
+def clear_disk_logs(logs_dir: Path) -> int:
+    """Delete ``*.log`` files under *logs_dir*. Returns number of files removed."""
+    if not logs_dir.is_dir():
+        return 0
+    removed = 0
+    for path in logs_dir.glob("*.log"):
+        try:
+            path.unlink()
+            removed += 1
+        except OSError:
+            continue
+    return removed
 
 
 def format_size(num_bytes: float) -> str:

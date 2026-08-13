@@ -274,3 +274,31 @@ class TestHourlyFileHandlerFailure:
             assert "日志写入失败" in protected.getvalue()
         finally:
             readonly.chmod(0o700)
+
+
+class TestClearDiskLogs:
+    def test_removes_log_files(self, tmp_path):
+        from clio.log import clear_disk_logs
+
+        (tmp_path / "a.log").write_text("x", encoding="utf-8")
+        (tmp_path / "keep.txt").write_text("y", encoding="utf-8")
+        assert clear_disk_logs(tmp_path) == 1
+        assert not (tmp_path / "a.log").exists()
+        assert (tmp_path / "keep.txt").exists()
+
+
+class TestTeeWriterRedaction:
+    def test_session_log_masks_secrets(self):
+        session_log.clear()
+        buf = io.StringIO()
+        logger = logging.getLogger("clio-test-tee-redact")
+        logger.handlers.clear()
+        logger.addHandler(logging.NullHandler())
+        tee = _TeeWriter(buf, logger, logging.INFO)
+        tee.write("api_key=sk-live-supersecretvalue\n")
+        entries = session_log.read()["logs"]
+        assert entries
+        assert "supersecretvalue" not in entries[-1]["text"]
+        assert "sk-" in entries[-1]["text"] or "***" in entries[-1]["text"]
+        # Console still receives original for interactive debug
+        assert "supersecretvalue" in buf.getvalue()

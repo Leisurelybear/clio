@@ -177,7 +177,15 @@ def _handle_get_logs(handler, qs):
 
 def _handle_post_logs_clear(handler, qs, obj):
     clear_session_log()
-    return handler._send_json({"ok": True})
+    cleared_disk = 0
+    try:
+        from clio.log import clear_disk_logs
+
+        cfg = handler._get_config()
+        cleared_disk = clear_disk_logs(Path(cfg.paths.logs_dir))
+    except Exception:
+        cleared_disk = 0
+    return handler._send_json({"ok": True, "cleared_disk_files": cleared_disk})
 
 
 @dataclass
