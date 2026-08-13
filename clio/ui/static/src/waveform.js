@@ -198,30 +198,55 @@ export function updateWaveformPlayhead(player) {
   playhead.style.left = `${Math.max(0, Math.min(1, ratio)) * 100}%`;
 }
 
+function _seekWaveformRatio(player, ratio) {
+  const r = Math.max(0, Math.min(1, Number(ratio) || 0));
+  if (_mode === 'plan' && _planBridge?.isPlan?.() && _planTotal > 0) {
+    _planBridge.seekGlobal(r * _planTotal);
+    updateWaveformPlayhead(player);
+    return r;
+  }
+  if (!player || !(player.duration > 0)) return r;
+  try {
+    player.currentTime = r * player.duration;
+  } catch { /* ignore */ }
+  updateWaveformPlayhead(player);
+  return r;
+}
+
+function _currentWaveformRatio(player) {
+  if (_mode === 'plan' && _planBridge?.isPlan?.() && _planTotal > 0) {
+    return Math.max(0, Math.min(1, _planBridge.getGlobalRatio?.() || 0));
+  }
+  const dur = player?.duration;
+  if (!(dur > 0)) return 0;
+  return Math.max(0, Math.min(1, (player.currentTime || 0) / dur));
+}
+
+function _syncWaveformAria(bar, ratio) {
+  if (!bar) return;
+  const pct = Math.round(Math.max(0, Math.min(1, ratio)) * 100);
+  bar.setAttribute('aria-valuenow', String(pct));
+}
+
 export function bindWaveformScrub(player) {
   const { bar } = _barEls();
   if (!bar || bar.dataset.bound === '1') return;
   bar.dataset.bound = '1';
+  if (!bar.getAttribute('role')) bar.setAttribute('role', 'slider');
+  if (!bar.hasAttribute('tabindex')) bar.setAttribute('tabindex', '0');
+  if (!bar.getAttribute('aria-label')) bar.setAttribute('aria-label', '波形进度');
+  bar.setAttribute('aria-valuemin', '0');
+  bar.setAttribute('aria-valuemax', '100');
+  _syncWaveformAria(bar, _currentWaveformRatio(player));
 
   let dragging = false;
 
   const seekFromEvent = (e) => {
     const rect = bar.getBoundingClientRect();
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-
-    if (_mode === 'plan' && _planBridge?.isPlan?.() && _planTotal > 0) {
-      const g = timeFromClientX(clientX, rect, _planTotal);
-      _planBridge.seekGlobal(g);
-      updateWaveformPlayhead(player);
-      return;
-    }
-
-    if (!player || !(player.duration > 0)) return;
-    const t = timeFromClientX(clientX, rect, player.duration);
-    try {
-      player.currentTime = t;
-    } catch { /* ignore */ }
-    updateWaveformPlayhead(player);
+    const width = rect.width || 1;
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / width));
+    _syncWaveformAria(bar, _seekWaveformRatio(player, ratio));
   };
 
   bar.addEventListener('pointerdown', (e) => {
@@ -241,6 +266,18 @@ export function bindWaveformScrub(player) {
   };
   bar.addEventListener('pointerup', endDrag);
   bar.addEventListener('pointercancel', endDrag);
+
+  bar.addEventListener('keydown', (e) => {
+    const step = e.shiftKey ? 0.1 : 0.02;
+    let next = _currentWaveformRatio(player);
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') next -= step;
+    else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') next += step;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = 1;
+    else return;
+    e.preventDefault();
+    _syncWaveformAria(bar, _seekWaveformRatio(player, next));
+  });
 
   if (typeof ResizeObserver !== 'undefined') {
     const ro = new ResizeObserver(() => {

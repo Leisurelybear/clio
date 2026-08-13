@@ -37,4 +37,25 @@ describe('addToast a11y and duration', () => {
     const toast = document.querySelector('.toast');
     expect(toast?.classList.contains('removing') || !toast).toBe(true);
   });
+
+  it('duration 0 stays sticky even when dequeued', async () => {
+    const { addToast } = await import('../toast.js');
+    // Fill visible slots so the sticky toast waits in queue.
+    addToast('a', 'info', 100);
+    addToast('b', 'info', 100);
+    addToast('c', 'info', 100);
+    addToast('sticky', 'info', 0);
+    // Expire the first toast and flush its remove animation.
+    vi.advanceTimersByTime(150);
+    const removing = document.querySelector('.toast.removing');
+    removing?.dispatchEvent(new Event('animationend'));
+    const sticky = [...document.querySelectorAll('.toast')].find((t) =>
+      t.textContent?.includes('sticky'),
+    );
+    expect(sticky).toBeTruthy();
+    vi.advanceTimersByTime(10_000);
+    expect([...document.querySelectorAll('.toast')].some((t) =>
+      t.textContent?.includes('sticky'),
+    )).toBe(true);
+  });
 });

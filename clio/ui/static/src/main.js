@@ -30,6 +30,7 @@ import {
 } from './sidebar.js';
 import { resolveSessionRestore } from './session-restore.js';
 import { shouldConfirmDirtyTabSwitch } from './editor-save.js';
+import { stripQueryParams } from './url-params.js';
 
 // Expose functions referenced by inline onclick handlers in HTML
 window.switchToOriginalThenCompress = switchToOriginalThenCompress;
@@ -184,12 +185,12 @@ async function init() {
     state.currentProjectDir = urlProjectDir;
   }
 
-  // Auto-capture token from URL
+  // Auto-capture token from URL (keep project selectors; only drop token).
   const urlToken = urlParams.get('token');
   if (urlToken) {
     sessionStorage.setItem('api_token', urlToken);
-    const newUrl = location.pathname + (location.hash || '');
-    history.replaceState(null, '', newUrl);
+    const cleaned = stripQueryParams(location.search, ['token']);
+    history.replaceState(null, '', location.pathname + cleaned + (location.hash || ''));
   }
 
   // 新建/打开项目模态框（必须在 try 之前绑定，空状态时也会用到）

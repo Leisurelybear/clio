@@ -68,8 +68,10 @@ function removeToast(toast) {
       const container = getContainer();
       if (!container) return;
       container.appendChild(next);
-      const nextDur = Number(next.dataset.duration) || DEFAULT_DURATIONS.info;
-      if (nextDur > 0) setTimeout(() => removeToast(next), nextDur);
+      const nextDur = Number(next.dataset.duration);
+      // duration=0 means sticky (never auto-dismiss); do not coerce via ||.
+      const ms = Number.isFinite(nextDur) ? nextDur : DEFAULT_DURATIONS.info;
+      if (ms > 0) setTimeout(() => removeToast(next), ms);
     }
   }, { once: true });
 }

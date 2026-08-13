@@ -98,12 +98,13 @@ function onResizeClick(e) {
 
 function setupKeyboardShortcuts() {
   document.addEventListener('keydown', (e) => {
-    if (e.ctrlKey && e.key === 'b') {
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && e.key === 'b') {
       e.preventDefault();
       document.body.classList.toggle('sidebar-collapsed');
       saveLayout();
     }
-    if (e.ctrlKey && e.key === '\\') {
+    if (mod && e.key === '\\') {
       e.preventDefault();
       document.body.classList.toggle('editor-collapsed');
       saveLayout();

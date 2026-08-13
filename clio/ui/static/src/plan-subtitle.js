@@ -472,16 +472,48 @@ export function initSubtitleDrag({ handle, stage, onCommit }) {
   if (!el || !handle || !stage) return;
   let dragging = false;
 
+  if (!handle.getAttribute('role')) handle.setAttribute('role', 'button');
+  if (!handle.hasAttribute('tabindex')) handle.setAttribute('tabindex', '0');
+  if (!handle.getAttribute('aria-label')) {
+    handle.setAttribute('aria-label', '调整字幕位置，方向键微调，Shift 加速');
+  }
+
+  const readPos = () => {
+    const x = Number(el.dataset.posX);
+    const y = Number(el.dataset.posY);
+    return clampPositionPct(
+      Number.isFinite(x) ? x : DEFAULT_POS_X,
+      Number.isFinite(y) ? y : DEFAULT_POS_Y,
+    );
+  };
+
+  const applyPos = (x, y, { commit = false } = {}) => {
+    const [cx, cy] = clampPositionPct(x, y);
+    el.style.setProperty('--st-pos-x', `${cx}%`);
+    el.style.setProperty('--st-pos-y', `${cy}%`);
+    el.dataset.posX = String(cx);
+    el.dataset.posY = String(cy);
+    if (commit && typeof onCommit === 'function') onCommit({ x: cx, y: cy });
+    return [cx, cy];
+  };
+
+  handle.addEventListener('keydown', (e) => {
+    const step = e.shiftKey ? 5 : 1;
+    let [x, y] = readPos();
+    if (e.key === 'ArrowLeft') x -= step;
+    else if (e.key === 'ArrowRight') x += step;
+    else if (e.key === 'ArrowUp') y += step;
+    else if (e.key === 'ArrowDown') y -= step;
+    else return;
+    e.preventDefault();
+    applyPos(x, y, { commit: true });
+  });
+
   handle.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     dragging = true;
     // Snapshot pre-drag position so pointercancel can restore it (P2-P44).
-    const startX = Number(el.dataset.posX);
-    const startY = Number(el.dataset.posY);
-    const [originX, originY] = clampPositionPct(
-      Number.isFinite(startX) ? startX : DEFAULT_POS_X,
-      Number.isFinite(startY) ? startY : DEFAULT_POS_Y,
-    );
+    const [originX, originY] = readPos();
     handle.style.cursor = 'grabbing';
 
     const move = (me) => {
@@ -491,11 +523,7 @@ export function initSubtitleDrag({ handle, stage, onCommit }) {
       const pctX = ((me.clientX - rect.left) / rect.width) * 100;
       // pos_y is BOTTOM-offset (0=bottom, 100=top), so invert top-relative coords.
       const pctY = ((rect.bottom - me.clientY) / rect.height) * 100;
-      const [cx, cy] = clampPositionPct(pctX, pctY);
-      el.style.setProperty('--st-pos-x', `${cx}%`);
-      el.style.setProperty('--st-pos-y', `${cy}%`);
-      el.dataset.posX = String(cx);
-      el.dataset.posY = String(cy);
+      applyPos(pctX, pctY);
     };
 
     const endDrag = (commit) => {
@@ -506,20 +534,12 @@ export function initSubtitleDrag({ handle, stage, onCommit }) {
       document.removeEventListener('pointerup', up);
       document.removeEventListener('pointercancel', cancel);
       if (!commit) {
-        el.style.setProperty('--st-pos-x', `${originX}%`);
-        el.style.setProperty('--st-pos-y', `${originY}%`);
-        el.dataset.posX = String(originX);
-        el.dataset.posY = String(originY);
+        applyPos(originX, originY);
         return;
       }
       // Guard against release with no prior move (NaN / stale values).
-      const cx = Number(el.dataset.posX);
-      const cy = Number(el.dataset.posY);
-      const sx = Number.isFinite(cx) ? cx : originX;
-      const sy = Number.isFinite(cy) ? cy : originY;
-      el.style.setProperty('--st-pos-x', `${sx}%`);
-      el.style.setProperty('--st-pos-y', `${sy}%`);
-      if (typeof onCommit === 'function') onCommit({ x: sx, y: sy });
+      const [sx, sy] = readPos();
+      applyPos(sx, sy, { commit: true });
     };
     const up = () => { endDrag(true); };
     const cancel = () => { endDrag(false); };

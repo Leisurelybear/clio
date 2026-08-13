@@ -335,7 +335,9 @@ function renderVideoItem(v) {
     .join('');
   const menuHtml = videoMenuItemsToHtml(buildVideoMenuItems(v, state.source, state.deps));
 
-  const durHtml = v.duration_sec ? `<span class="video-duration">${Math.round(v.duration_sec)}s</span>` : '';
+  const durHtml = (v.duration_sec != null && Number(v.duration_sec) >= 0)
+    ? `<span class="video-duration">${Math.round(Number(v.duration_sec))}s</span>`
+    : '';
 
   li.innerHTML = `${videoThumbHtml(v)}
     <div class="video-info">

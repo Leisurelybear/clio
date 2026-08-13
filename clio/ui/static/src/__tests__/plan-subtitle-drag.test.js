@@ -81,4 +81,18 @@ describe('initSubtitleDrag', () => {
     expect(el.style.getPropertyValue('--st-pos-x')).toBe('20%');
     expect(el.style.getPropertyValue('--st-pos-y')).toBe('10%');
   });
+
+  it('arrow keys nudge position and commit', () => {
+    const el = mount();
+    el.dataset.posX = '50';
+    el.dataset.posY = '8';
+    const commits = [];
+    const handle = el.querySelector('.plan-subtitle-handle');
+    const stage = document.createElement('div');
+    initSubtitleDrag({ handle, stage, onCommit: (p) => commits.push(p) });
+
+    handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    expect(el.style.getPropertyValue('--st-pos-x')).toBe('51%');
+    expect(commits.at(-1)).toEqual({ x: 51, y: 8 });
+  });
 });
