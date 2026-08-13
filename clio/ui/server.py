@@ -362,11 +362,20 @@ def make_handler(
             self.end_headers()
             self.wfile.write(body)
 
-        def _send_bytes(self, data: bytes, content_type: str = "application/octet-stream") -> None:
+        def _send_bytes(
+            self,
+            data: bytes,
+            content_type: str = "application/octet-stream",
+            *,
+            extra_headers: dict[str, str] | None = None,
+        ) -> None:
             self.send_response(200)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")
+            if extra_headers:
+                for key, value in extra_headers.items():
+                    self.send_header(key, value)
             self.end_headers()
             self.wfile.write(data)
 

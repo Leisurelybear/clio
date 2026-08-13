@@ -106,3 +106,44 @@ class TestHandlePutVoiceover:
         handle_put_voiceover(handler, {"file": ["001.json"]}, {"voiceover": "test"})
         mock_save.assert_called_once()
         handler._send_json.assert_called_once_with({"ok": True, "path": str(handler._resolve_in.return_value)})
+
+
+class TestHandleGetCover:
+    def test_rejects_non_image_extension(self, handler):
+        from clio.ui.routes.texts import handle_get_cover
+
+        handle_get_cover(handler, {"file": ["evil.html"]})
+        handler._send_json.assert_called_once()
+        payload, status = handler._send_json.call_args[0][0], handler._send_json.call_args[0][1]
+        assert status == 403
+        assert payload["ok"] is False
+        handler._resolve_in.assert_not_called()
+
+    def test_rejects_mismatched_magic_bytes(self, handler):
+        from clio.ui.routes.texts import handle_get_cover
+
+        path = MagicMock()
+        path.name = "001.jpg"
+        path.suffix = ".jpg"
+        path.read_bytes.return_value = b"<script>alert(1)</script>"
+        handler._resolve_in.return_value = path
+        handle_get_cover(handler, {"file": ["001.jpg"]})
+        payload, status = handler._send_json.call_args[0][0], handler._send_json.call_args[0][1]
+        assert status == 403
+        assert payload["ok"] is False
+
+    def test_sends_jpeg_with_security_headers(self, handler):
+        from clio.ui.routes.texts import handle_get_cover
+
+        path = MagicMock()
+        path.name = "001.jpg"
+        path.suffix = ".jpg"
+        path.read_bytes.return_value = b"\xff\xd8\xff\xe0" + b"\x00" * 16
+        handler._resolve_in.return_value = path
+        handle_get_cover(handler, {"file": ["001.jpg"]})
+        args, kwargs = handler._send_bytes.call_args
+        assert args[1].startswith("image/jpeg")
+        headers = kwargs.get("extra_headers") or (args[2] if len(args) > 2 else {})
+        assert headers.get("X-Content-Type-Options") == "nosniff"
+        assert "Content-Security-Policy" in headers
+        assert "Content-Disposition" in headers
