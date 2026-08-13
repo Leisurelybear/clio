@@ -1,5 +1,51 @@
 # Changelog
 
+## 2026-08-13
+
+Review remediation batch #3 for `E:\Downloads\clio-review-20260808.csv`
+(full regression: 1572 pytest passed, 12 skipped; 458 Vitest).
+
+### UI polish & a11y (P2-P37…P2-P51)
+- fix(ui): latest-wins request slots abort stale loads (P2-P37)
+- fix(ui): stop detached logs polling; ring-buffer session lines (P2-P38)
+- fix(ui): preserve video list order, refuse ambiguous stems, fix segment
+  offsets (P2-P39)
+- fix(ui): strict Range parsing with 416 `Content-Range` and HEAD (P2-P40)
+- fix(ui): strict timecode parse; trailing zero-duration seek (P2-P43)
+- fix(ui): subtitle drag restores origin on `pointercancel`; style whitelist
+  (P2-P44)
+- fix(ui): strip only `token` from URL; sticky toast `duration=0`; Ctrl/Meta
+  panel shortcuts; waveform/subtitle keyboard + ARIA (P2-P49)
+- fix(export): CapCut text tracks driven by `plan.subtitle` only; narration
+  uses `voiceover_hint` (P2-P51)
+
+### Paths, atomic IO, HTTP hardening
+- fix(ui): honor custom `texts`/`scripts`/`plans` subdirs via AppConfig in
+  plan/config/videos routes and step detection (GAP-P2-01)
+- fix(core): atomic write fsyncs parent dir, preserves POSIX mode, cleans
+  stale `*.tmp` siblings (GAP-P2-10); `_save_atomic` aligned
+- fix(ui): bound HTTP workers with request timeouts and header budget
+  (GAP-P2-09)
+- fix(ui): cover responses typed + `nosniff` (GAP-P2-11)
+- fix(ui): preserve backups; refuse rewriting corrupt `projects.json`
+  (GAP-P2-02)
+- fix(ui): require unique project identity on remove (GAP-P2-13)
+
+### Security, setup, docs, CI
+- fix(security): exclusive temps / symlink-root rejection / output-subdir
+  re-validation (GAP-P1-02…04, GAP-P1-01 path confinement)
+- fix(log): redact secrets in durable logs; clear-on-demand (GAP-P2-05)
+- fix(setup): pin and hash-verify `get-pip.py` fallback (GAP-P2-14)
+- fix(docs): restore valid UTF-8 for `README.en.md` (GAP-P2-18)
+- chore(ci): job timeouts, least-privilege `contents: read`, failure
+  artifacts, advisory `pip-audit`, coverage omit tests (GAP-P2-16/17,
+  P2-P29, P2-P30 partial)
+
+### Test fixes
+- videos route artifact-dir helpers tolerate incomplete config mocks
+- `_wrap_with_context` / Whisper cancel tests updated for symlink-safe
+  `validate_within_root`
+
 ## 2026-08-11
 
 Review remediation batch #2 for `E:\Downloads\clio-review-20260808.csv`

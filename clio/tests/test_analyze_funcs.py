@@ -78,11 +78,12 @@ class TestWrapWithContext:
                 return "Trip: Paris"
             return orig_read_text(self, **kw)
 
-        def mock_stat(self):
+        def mock_stat(self, *args, **kwargs):
             from unittest.mock import MagicMock
 
             st = MagicMock()
             st.st_mtime = 1234567890.0
+            st.st_mode = 0o100644
             return st
 
         monkeypatch.setattr("pathlib.Path.is_file", mock_is_file)

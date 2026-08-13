@@ -379,20 +379,23 @@ class TestRunTranscribeAll:
             result = run_transcribe_all(config)
             assert result == 0
 
-    def test_cancel_during_extract_marks_cancelled(self):
+    def test_cancel_during_extract_marks_cancelled(self, tmp_path: Path):
         """_extract_audio 因取消返回 None 时标记为 cancelled 并中止"""
         from threading import Event
 
         cancel_event = Event()
+        out = tmp_path / "output"
+        (out / "compressed").mkdir(parents=True)
         config = AppConfig(
             global_cfg=GlobalConfig(),
             project_cfg=ProjectConfig(
                 paths=ProjectPathsConfig(
-                    output_dir=MagicMock(),
+                    output_dir=out,
                 ),
                 whisper=ProjectWhisperConfig(enabled=True, model_size="small", language="zh", device="cpu"),
                 analyze=AnalyzeConfig(skip_existing=False),
             ),
+            project_dir=tmp_path,
         )
 
         mock_state = MagicMock()

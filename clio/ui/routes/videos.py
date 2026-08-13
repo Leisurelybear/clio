@@ -271,9 +271,34 @@ def _file_fingerprint(path: Path) -> tuple[Any, ...]:
         return ("missing", str(path))
 
 
+def _artifact_dirs(cfg: Any, proj_out: Path) -> tuple[Path, Path, Path]:
+    """Resolve texts/scripts/transcripts dirs from AppConfig with safe fallbacks."""
+
+    def _path_attr(name: str) -> Path | None:
+        val = getattr(cfg, name, None)
+        return val if isinstance(val, Path) else None
+
+    def _subdir(section: Any, name: str, default: str) -> str:
+        val = getattr(section, name, None) if section is not None else None
+        if isinstance(val, str) and val.strip():
+            leaf = Path(val).name
+            if leaf and leaf not in (".", ".."):
+                return leaf
+        return default
+
+    texts = _path_attr("texts_dir") or (proj_out / _subdir(getattr(cfg, "analyze", None), "texts_subdir", "texts"))
+    scripts = _path_attr("scripts_dir") or (
+        proj_out / _subdir(getattr(cfg, "script", None), "scripts_subdir", "scripts")
+    )
+    transcripts = _path_attr("transcripts_dir") or (
+        proj_out / _subdir(getattr(cfg, "whisper", None), "transcripts_subdir", "transcripts")
+    )
+    return texts, scripts, transcripts
+
+
 def _videos_cache_signature(proj_dir: Path, proj_out: Path, comp_dir: Path, cfg: Any) -> tuple[Any, ...]:
-    texts_subdir = getattr(getattr(cfg, "analyze", None), "texts_subdir", None) or "texts"
-    text_dirs = tuple(_find_texts_dirs(proj_out, preferred_subdir=str(texts_subdir)))
+    texts_dir, scripts_dir, transcripts_dir = _artifact_dirs(cfg, proj_out)
+    text_dirs = tuple(_find_texts_dirs(proj_out, preferred_subdir=texts_dir.name))
     videos_json = proj_dir / "videos.json"
     selected_videos = load_selected_videos(proj_dir)
     selected_fingerprints: list[tuple[str, tuple[Any, ...]]] = []
@@ -281,17 +306,21 @@ def _videos_cache_signature(proj_dir: Path, proj_out: Path, comp_dir: Path, cfg:
         # Source files may live outside the project (including on a NAS), so
         # project-dir fingerprints alone cannot invalidate an offline payload.
         selected_fingerprints.append((str(video), _file_fingerprint(video)))
+    whisper_subdir = getattr(getattr(cfg, "whisper", None), "transcripts_subdir", None)
+    if not isinstance(whisper_subdir, str):
+        whisper_subdir = transcripts_dir.name
+    ffprobe = getattr(getattr(cfg, "paths", None), "ffprobe", None)
     return (
         _file_fingerprint(videos_json),  # must invalidate when selection changes
         tuple(selected_fingerprints),  # must invalidate when external media returns
         _dir_fingerprint(proj_dir, video_only=True),
         _dir_fingerprint(comp_dir),
         tuple((str(td), _dir_fingerprint(td, json_only=True)) for td in text_dirs),
-        _dir_fingerprint(cfg.scripts_dir, json_only=True),
-        _dir_fingerprint(cfg.transcripts_dir, json_only=True),
+        _dir_fingerprint(scripts_dir, json_only=True),
+        _dir_fingerprint(transcripts_dir, json_only=True),
         _dir_fingerprint(proj_out / "covers"),  # AI cover thumbs
-        cfg.whisper.transcripts_subdir,
-        cfg.paths.ffprobe,
+        whisper_subdir,
+        ffprobe,
     )
 
 
@@ -369,13 +398,14 @@ def _build_videos_payload(
     selected_ordered: list[Path] | None = None,
 ) -> dict[str, Any]:
     # -- Build artifact index ------------------------------------------------
+    texts_dir, scripts_dir, transcripts_dir = _artifact_dirs(cfg, proj_out)
     index = ArtifactIndex(
         output_dir=proj_out,
         project_dir=proj_dir,
         compressed_dir=comp_dir,
-        texts_dir=cfg.texts_dir,
-        scripts_dir=cfg.scripts_dir,
-        transcripts_dir=cfg.transcripts_dir,
+        texts_dir=texts_dir,
+        scripts_dir=scripts_dir,
+        transcripts_dir=transcripts_dir,
     )
     index.build()
 
