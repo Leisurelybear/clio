@@ -179,6 +179,39 @@ class TestLoadContext:
     def test_no_context_configured(self, tmp_path):
         assert _load_context({}, tmp_path) == ""
 
+    def test_context_file_parent_escape_rejected(self, tmp_path):
+        """GAP-P1-01: context_file must not read files outside the trusted root."""
+        secret = tmp_path / "secret.md"
+        secret.write_text("LEAKED", encoding="utf-8")
+        base = tmp_path / "cfg"
+        base.mkdir()
+        ai_raw = {"context_file": "../secret.md"}
+        with pytest.raises(ValueError, match=r"escapes root|symlink not allowed"):
+            _load_context(ai_raw, base)
+
+    def test_context_file_absolute_outside_rejected(self, tmp_path):
+        secret = tmp_path / "secret.md"
+        secret.write_text("LEAKED", encoding="utf-8")
+        base = tmp_path / "cfg"
+        base.mkdir()
+        ai_raw = {"context_file": str(secret)}
+        with pytest.raises(ValueError, match=r"escapes root|symlink not allowed"):
+            _load_context(ai_raw, base)
+
+    def test_context_file_symlink_rejected(self, tmp_path):
+        secret = tmp_path / "secret.md"
+        secret.write_text("LEAKED", encoding="utf-8")
+        base = tmp_path / "cfg"
+        base.mkdir()
+        link = base / "ctx.md"
+        try:
+            link.symlink_to(secret)
+        except OSError:
+            pytest.skip("symlink creation not permitted on this host")
+        ai_raw = {"context_file": "ctx.md"}
+        with pytest.raises(ValueError, match=r"^symlink not allowed:"):
+            _load_context(ai_raw, base)
+
 
 # ── _validate_config ────────────────────────────────────────────────
 

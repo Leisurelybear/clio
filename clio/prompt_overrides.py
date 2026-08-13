@@ -90,6 +90,13 @@ def resolve_prompt_template(
 
     override_path = prompt_override_dir(config) / f"{prompt_name}.md"
     if isinstance(override_path, Path) and override_path.is_file():
+        from clio.utils import validate_within_root
+
+        root = _project_dir(config)
+        try:
+            validate_within_root(override_path, root)
+        except ValueError:
+            return builtin_template
         text = override_path.read_text(encoding="utf-8").strip()
         if text:
             return text

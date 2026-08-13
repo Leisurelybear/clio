@@ -666,6 +666,10 @@ def handle_get_vmeta(handler: HandlerProtocol, qs: dict[str, Any], stem: str) ->
 
     for p in sorted(comp_dir.glob(f"{stem}.*")):
         if p.is_file() and p.suffix.lower() in VIDEO_EXTS:
+            try:
+                validate_within_root(p, proj_out)
+            except ValueError:
+                continue
             meta = VideoMeta.read(p)
             if meta is not None:
                 return handler._send_json(_meta_to_dict(meta))

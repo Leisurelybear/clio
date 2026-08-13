@@ -259,19 +259,45 @@ def _upgrade_config_file(yaml_path: Path, *, section_map: dict[str, type]) -> No
 
 
 def _load_context(ai_raw: dict, base: Path, project_dir: Path | None = None) -> str:
+    """Load AI context text from inline config or a trusted context_file.
+
+    *context_file* must resolve inside the project_dir (preferred) or config base
+    directory. Absolute paths, ``..`` escapes and symlinks are rejected (GAP-P1-01).
+    """
+    from clio.utils import validate_within_root
+
     inline = (ai_raw.get("context") or "").strip()
     if inline:
         return inline
     file_ref = (ai_raw.get("context_file") or "").strip()
     if not file_ref:
         return ""
+
+    def _read_under(root: Path) -> str | None:
+        root_abs = root if root.is_absolute() else root.resolve()
+        ref = Path(file_ref)
+        candidate = ref if ref.is_absolute() else (root_abs / ref)
+        safe = validate_within_root(candidate, root_abs)
+        if not safe.is_file():
+            return None
+        return safe.read_text(encoding="utf-8").strip()
+
+    roots: list[Path] = []
     if project_dir is not None:
-        path = _path(file_ref, project_dir)
-        if path.is_file():
-            return path.read_text(encoding="utf-8").strip()
-    path = _path(file_ref, base)
-    if path.is_file():
-        return path.read_text(encoding="utf-8").strip()
+        roots.append(Path(project_dir))
+    roots.append(Path(base))
+
+    last_escape: ValueError | None = None
+    for root in roots:
+        try:
+            text = _read_under(root)
+        except ValueError as exc:
+            last_escape = exc
+            continue
+        if text is not None:
+            return text
+    if last_escape is not None:
+        raise last_escape
     return ""
 
 
