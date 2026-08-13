@@ -440,3 +440,45 @@ class TestValidateWithinRoot:
 
         result = validate_within_root(tmp_path / "root" / "child.txt", tmp_path)
         assert result == child.resolve()
+
+
+# ── write_bytes_atomic (GAP-P2-10) ───────────────────────────────────
+
+
+class TestWriteBytesAtomic:
+    def test_writes_and_replaces(self, tmp_path: Path):
+        from clio.utils import write_bytes_atomic
+
+        target = tmp_path / "data.bin"
+        write_bytes_atomic(target, b"hello")
+        assert target.read_bytes() == b"hello"
+        write_bytes_atomic(target, b"world")
+        assert target.read_bytes() == b"world"
+
+    def test_preserves_mode_on_posix(self, tmp_path: Path):
+        import sys
+
+        if sys.platform == "win32":
+            return
+        from clio.utils import write_bytes_atomic
+
+        target = tmp_path / "mode.bin"
+        target.write_bytes(b"old")
+        target.chmod(0o640)
+        write_bytes_atomic(target, b"new")
+        assert target.read_bytes() == b"new"
+        assert (target.stat().st_mode & 0o777) == 0o640
+
+    def test_cleans_stale_tmp(self, tmp_path: Path, monkeypatch):
+        import time
+
+        from clio import utils as u
+
+        target = tmp_path / "x.json"
+        stale = tmp_path / f".{target.name}.deadbeef.tmp"
+        stale.write_bytes(b"stale")
+        old = time.time() - (u._STALE_TMP_MAX_AGE_SEC + 10)
+        os.utime(stale, (old, old))
+        u.write_bytes_atomic(target, b"ok")
+        assert target.read_bytes() == b"ok"
+        assert not stale.exists()

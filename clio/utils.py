@@ -441,14 +441,33 @@ def write_text_atomic(path: Path, text: str) -> None:
 
 
 def write_bytes_atomic(path: Path, data: bytes) -> None:
-    """Write bytes via a random exclusive temp file then atomically replace."""
+    """Write bytes via exclusive temp → fsync → atomic replace → parent fsync.
+
+    Preserves the previous file mode when replacing an existing path (POSIX).
+    Best-effort cleanup of stale ``.<name>.*.tmp`` siblings older than 24h.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _cleanup_stale_atomic_tmps(path)
+    existing_mode: int | None = None
+    if path.exists():
+        try:
+            existing_mode = path.stat().st_mode & 0o777
+        except OSError:
+            existing_mode = None
     tmp, fd = _exclusive_random_tmp(path)
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(data)
             f.flush()
             os.fsync(f.fileno())
+        if existing_mode is not None:
+            try:
+                os.chmod(tmp, existing_mode)
+            except OSError:
+                pass
         os.replace(tmp, path)
+        _fsync_dir(path.parent)
     except BaseException:
         try:
             os.close(fd)
@@ -456,6 +475,53 @@ def write_bytes_atomic(path: Path, data: bytes) -> None:
             pass
         tmp.unlink(missing_ok=True)
         raise
+
+
+_STALE_TMP_MAX_AGE_SEC = 24 * 3600
+
+
+def _cleanup_stale_atomic_tmps(path: Path, *, max_age_sec: float = _STALE_TMP_MAX_AGE_SEC) -> None:
+    """Remove abandoned exclusive temp siblings left by crashed writers."""
+    parent = path.parent
+    if not parent.is_dir():
+        return
+    prefix = f".{path.name}."
+    now = time.time()
+    try:
+        entries = list(parent.iterdir())
+    except OSError:
+        return
+    for p in entries:
+        name = p.name
+        if not (name.startswith(prefix) and name.endswith(".tmp")):
+            continue
+        try:
+            age = now - p.stat().st_mtime
+        except OSError:
+            continue
+        if age < max_age_sec:
+            continue
+        try:
+            p.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _fsync_dir(dir_path: Path) -> None:
+    """Best-effort fsync of a directory so rename durability sticks on crash."""
+    try:
+        fd = os.open(str(dir_path), os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
 
 
 def _secret_has_insecure_perms(path: Path) -> bool:
