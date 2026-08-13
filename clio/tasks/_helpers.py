@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import io
 import json
 import re
 from dataclasses import dataclass
@@ -11,7 +12,14 @@ from pathlib import Path
 from clio.config import AppConfig
 from clio.identity import MediaIdentity
 from clio.log import format_duration
-from clio.utils import format_index, probe_video_info, resolve_binary, sanitize_name, write_text_atomic
+from clio.utils import (
+    format_index,
+    probe_video_info,
+    resolve_binary,
+    sanitize_name,
+    write_bytes_atomic,
+    write_text_atomic,
+)
 from clio.vmeta import VideoMeta
 
 
@@ -277,31 +285,32 @@ def _write_csv(path: Path, records: list[ClipRecord], config: AppConfig) -> None
         "duration_sec",
         "source_size_mb",
     ]
-    with path.open("w", newline="", encoding="utf-8-sig") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        for rec in records:
-            a = rec.analysis or {}
-            if not rec.duration_sec:
-                info = _get_video_info(rec, ffprobe)
-                duration_sec = info.get("duration_sec", "")
-                source_size_mb = info.get("size_mb", "")
-            else:
-                duration_sec = rec.duration_sec
-                source_size_mb = ""
-            writer.writerow(
-                {
-                    "index": format_index(rec.index, config.naming.index_width),
-                    "stem": rec.stem,
-                    "title": a.get("title", ""),
-                    "summary": a.get("summary", ""),
-                    "location": a.get("location", ""),
-                    "mood": a.get("mood", ""),
-                    "suggested_use": a.get("suggested_use", ""),
-                    "source_file": str(rec.source_path),
-                    "compressed_file": str(rec.compressed_path) if rec.compressed_path else "",
-                    "text_file": str(rec.text_path) if rec.text_path else "",
-                    "duration_sec": duration_sec,
-                    "source_size_mb": source_size_mb,
-                }
-            )
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=fieldnames)
+    writer.writeheader()
+    for rec in records:
+        a = rec.analysis or {}
+        if not rec.duration_sec:
+            info = _get_video_info(rec, ffprobe)
+            duration_sec = info.get("duration_sec", "")
+            source_size_mb = info.get("size_mb", "")
+        else:
+            duration_sec = rec.duration_sec
+            source_size_mb = ""
+        writer.writerow(
+            {
+                "index": format_index(rec.index, config.naming.index_width),
+                "stem": rec.stem,
+                "title": a.get("title", ""),
+                "summary": a.get("summary", ""),
+                "location": a.get("location", ""),
+                "mood": a.get("mood", ""),
+                "suggested_use": a.get("suggested_use", ""),
+                "source_file": str(rec.source_path),
+                "compressed_file": str(rec.compressed_path) if rec.compressed_path else "",
+                "text_file": str(rec.text_path) if rec.text_path else "",
+                "duration_sec": duration_sec,
+                "source_size_mb": source_size_mb,
+            }
+        )
+    write_bytes_atomic(path, buf.getvalue().encode("utf-8-sig"))

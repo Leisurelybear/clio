@@ -194,6 +194,16 @@ class TestWriteCsv:
         assert "Test" in text
         assert "Paris" in text
 
+    def test_atomic_write_leaves_no_tmp(self, tmp_path: Path, monkeypatch):
+        """P2-P2-01: summary.csv must be committed via exclusive temp + replace."""
+        monkeypatch.setattr("clio.tasks._helpers.resolve_binary", lambda *a: "ffprobe")
+        monkeypatch.setattr("clio.tasks._helpers.probe_video_info", lambda *a, **kw: {})
+        out = tmp_path / "summary.csv"
+        out.write_text("old", encoding="utf-8-sig")
+        _write_csv(out, [], _fake_config())
+        assert out.read_text(encoding="utf-8-sig").strip() != ""
+        assert list(tmp_path.glob(".summary.csv.*.tmp")) == []
+
     def test_empty_records(self, tmp_path: Path, monkeypatch):
         monkeypatch.setattr("clio.tasks._helpers.resolve_binary", lambda *a: "ffprobe")
         monkeypatch.setattr("clio.tasks._helpers.probe_video_info", lambda *a, **kw: {})
@@ -201,6 +211,24 @@ class TestWriteCsv:
         _write_csv(out, [], _fake_config())
         assert out.exists()
         assert out.read_text(encoding="utf-8-sig").strip() != ""
+
+
+class TestMergeSummaryRecords:
+    def test_keeps_existing_rows_not_in_new_batch(self):
+        """P2-P2-01: partial success must not drop untouched / failed rows."""
+        from clio.tasks._helpers import _merge_summary_records
+
+        existing = [
+            ClipRecord(index=1, stem="a", source_path=Path("a.mp4"), analysis={"title": "keep"}),
+            ClipRecord(index=2, stem="b", source_path=Path("b.mp4"), analysis={"title": "old"}),
+        ]
+        new = [
+            ClipRecord(index=2, stem="b", source_path=Path("b.mp4"), analysis={"title": "new"}),
+        ]
+        merged = _merge_summary_records(existing, new)
+        assert [r.index for r in merged] == [1, 2]
+        assert merged[0].analysis["title"] == "keep"
+        assert merged[1].analysis["title"] == "new"
 
 
 class TestGetVideoInfo:
