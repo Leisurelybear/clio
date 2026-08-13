@@ -26,6 +26,7 @@ from clio.config.models import (
     PlanConfig,
     ProjectAIConfig,
     ProjectConfig,
+    ProjectPathsConfig,
     ProjectWhisperConfig,
     ProviderConfig,
     ProxyConfig,
@@ -237,6 +238,32 @@ class TestValidateConfig:
             project_cfg=ProjectConfig(script=ScriptConfig(scripts_subdir="nested/deep")),
         )
         assert _validate_config(cfg) is None
+
+    def test_output_subdir_symlink_rejected_at_join(self, tmp_path: Path):
+        """GAP-P1-03: join-time containment must reject a planted subdir symlink."""
+        out = tmp_path / "out"
+        out.mkdir()
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (out / "compressed").symlink_to(outside)
+        cfg = AppConfig(
+            global_cfg=GlobalConfig(),
+            project_cfg=ProjectConfig(paths=ProjectPathsConfig(output_dir=out)),
+        )
+        with pytest.raises(ValueError, match=r"^symlink not allowed:"):
+            _ = cfg.compressed_dir
+
+    def test_output_subdir_join_stays_inside_root(self, tmp_path: Path):
+        out = tmp_path / "out"
+        out.mkdir()
+        cfg = AppConfig(
+            global_cfg=GlobalConfig(),
+            project_cfg=ProjectConfig(
+                paths=ProjectPathsConfig(output_dir=out),
+                script=ScriptConfig(scripts_subdir="nested/deep"),
+            ),
+        )
+        assert cfg.scripts_dir == (out / "nested" / "deep").resolve()
 
     def test_task_refers_to_nonexistent_provider(self):
         cfg = AppConfig(

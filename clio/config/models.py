@@ -612,26 +612,33 @@ class AppConfig:
 
     # -- computed paths (unchanged) --
 
+    def _resolved_output_subdir(self, subdir: str) -> Path:
+        """Join *subdir* under output_dir and re-check root containment (GAP-P1-03)."""
+        from clio.utils import validate_within_root
+
+        root = self.paths.output_dir
+        return validate_within_root(root / subdir, root)
+
     @property
     def compressed_dir(self) -> Path:
-        return self.paths.output_dir / self.analyze.compressed_subdir
+        return self._resolved_output_subdir(self.analyze.compressed_subdir)
 
     @property
     def texts_dir(self) -> Path:
-        return self.paths.output_dir / self.analyze.texts_subdir
+        return self._resolved_output_subdir(self.analyze.texts_subdir)
 
     @property
     def scripts_dir(self) -> Path:
-        return self.paths.output_dir / self.script.scripts_subdir
+        return self._resolved_output_subdir(self.script.scripts_subdir)
 
     @property
     def plans_dir(self) -> Path:
-        return self.paths.output_dir / self.plan.plans_subdir
+        return self._resolved_output_subdir(self.plan.plans_subdir)
 
     @property
     def transcripts_dir(self) -> Path:
-        return self.paths.output_dir / self.whisper.transcripts_subdir
+        return self._resolved_output_subdir(self.whisper.transcripts_subdir)
 
     @property
     def summary_csv(self) -> Path:
-        return self.paths.output_dir / "summary.csv"
+        return self._resolved_output_subdir("summary.csv")
