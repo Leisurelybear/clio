@@ -15,6 +15,9 @@ jobs:
   quality:
     name: Quality (lint + import)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
     strategy:
       matrix:
         python-version: ["3.11"]
@@ -54,6 +57,9 @@ jobs:
   test:
     name: Test (${{ matrix.os }}, Python ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -78,7 +84,17 @@ jobs:
 
     - name: Run tests with coverage
       run: |
-        python -m pytest clio/tests/ --cov=clio --cov-branch --cov-report=term --cov-report=xml
+        python -m pytest clio/tests/ --cov=clio --cov-branch --cov-report=term --cov-report=xml --cov-config=pyproject.toml
+
+    - name: Upload pytest logs on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: pytest-logs-${{ matrix.os }}-py${{ matrix.python-version }}
+        path: |
+          .pytest_cache/
+          coverage.xml
+        if-no-files-found: ignore
 
     - name: Upload coverage to Codecov
       if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
@@ -88,9 +104,32 @@ jobs:
         files: coverage.xml
         fail_ci_if_error: false
 
+  pip-audit:
+    name: pip-audit (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    continue-on-error: true
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+        cache: pip
+        cache-dependency-path: requirements-locked.txt
+    - name: Install and audit
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements-locked.txt pip-audit
+        pip-audit -r requirements-locked.txt
+
   ui-test:
     name: UI tests (Vitest)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
 
     steps:
     - uses: actions/checkout@v4
@@ -111,6 +150,9 @@ jobs:
   setup:
     name: Setup script validation
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
     strategy:
       matrix:
         python-version: ["3.11"]
@@ -156,6 +198,9 @@ jobs:
   setup-windows:
     name: Setup script validation (Windows PowerShell)
     runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
 
     steps:
     - uses: actions/checkout@v4
@@ -188,6 +233,9 @@ jobs:
   packaging:
     name: Package build + install verify
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
     strategy:
       matrix:
         python-version: ["3.11"]

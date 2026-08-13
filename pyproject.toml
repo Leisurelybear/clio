@@ -52,3 +52,18 @@ line-ending = "auto"
 python_version = "3.11"
 strict = false
 ignore_missing_imports = true
+[tool.coverage.run]
+branch = true
+source = ["clio"]
+omit = [
+    "clio/tests/*",
+    "*/tests/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+]

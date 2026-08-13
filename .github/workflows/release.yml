@@ -62,6 +62,7 @@ jobs:
     name: Build onedir (Windows x64)
     runs-on: windows-latest
     needs: version
+    timeout-minutes: 60
     permissions:
       contents: read
     steps:
@@ -137,6 +138,7 @@ jobs:
     name: Build onedir (macOS universal2)
     runs-on: macos-26-intel
     needs: version
+    timeout-minutes: 90
     permissions:
       contents: read
     steps:
