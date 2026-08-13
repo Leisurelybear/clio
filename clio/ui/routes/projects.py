@@ -210,33 +210,83 @@ def handle_post_project_add(handler: HandlerProtocol, obj: dict) -> None:
 
 
 def handle_post_project_remove(handler: HandlerProtocol, obj: dict) -> None:
-    """Handle POST /api/project/remove."""
+    """Handle POST /api/project/remove.
+
+    Prefer stable ``project_dir`` / ``input_dir``. Name-only delete is allowed
+    only when exactly one registry entry matches; ambiguous names return 409
+    (GAP-P2-13).
+    """
     config_path = handler.config_path
     project_name = (obj.get("name") or "").strip()
     input_dir_raw = (obj.get("project_dir") or obj.get("input_dir") or "").strip()
     if not project_name and not input_dir_raw:
-        return handler._send_json({"ok": False, "error": "name or project_dir required"}, 400)
+        return handler._send_json({"ok": False, "error": "需要 project_dir 或唯一的 name"}, 400)
+
+    targets: list[tuple[str, str]] = []  # (path, display_name)
+
     if input_dir_raw:
-        _remove_from_registry(input_dir_raw, config_path)
-    elif project_name:
-        # Remove ALL matches (not just first) to handle same-name projects in different dirs.
+        try:
+            normalized = str(Path(input_dir_raw).resolve())
+        except OSError:
+            normalized = str(Path(input_dir_raw))
+        display = project_name or Path(normalized).name
+        proj_file = Path(normalized) / "project.json"
+        if proj_file.is_file():
+            try:
+                display = json.loads(proj_file.read_text(encoding="utf-8")).get("name") or display
+            except (json.JSONDecodeError, OSError):
+                pass
+        targets.append((normalized, display))
+    else:
         reg_file = _registry_path(config_path)
+        matches: list[tuple[str, str]] = []
         if reg_file.is_file():
             try:
                 reg = json.loads(reg_file.read_text(encoding="utf-8"))
             except (json.JSONDecodeError, OSError):
                 reg = {"projects": []}
-            for p_str in list(_registry_project_paths(reg)):
+            for p_str in _registry_project_paths(reg):
                 p = Path(p_str)
                 proj_file = p / "project.json"
+                name = p.name
                 if proj_file.is_file():
                     try:
-                        data = json.loads(proj_file.read_text(encoding="utf-8"))
-                        if data.get("name") == project_name:
-                            _remove_from_registry(p_str, config_path)
+                        name = json.loads(proj_file.read_text(encoding="utf-8")).get("name") or name
                     except (json.JSONDecodeError, OSError):
                         continue
-    handler._send_json({"ok": True})
+                if name == project_name:
+                    try:
+                        matches.append((str(p.resolve()), name))
+                    except OSError:
+                        matches.append((p_str, name))
+        if not matches:
+            return handler._send_json(
+                {"ok": False, "error": f"未找到名为 {project_name!r} 的项目", "removed_count": 0},
+                404,
+            )
+        if len(matches) > 1:
+            return handler._send_json(
+                {
+                    "ok": False,
+                    "error": f"存在 {len(matches)} 个同名项目，请使用 project_dir 精确删除",
+                    "matches": [{"name": n, "project_dir": d} for d, n in matches],
+                    "count": len(matches),
+                },
+                409,
+            )
+        targets = matches
+
+    removed: list[dict[str, str]] = []
+    for path_str, name in targets:
+        if _remove_from_registry(path_str, config_path):
+            removed.append({"name": name, "project_dir": path_str})
+
+    if not removed:
+        return handler._send_json(
+            {"ok": False, "error": "项目不在注册表中", "removed_count": 0},
+            404,
+        )
+    handler._send_json({"ok": True, "removed": removed, "removed_count": len(removed)})
 
 
 def handle_post_project_migrate(handler: HandlerProtocol, obj: dict) -> None:

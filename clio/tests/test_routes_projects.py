@@ -294,3 +294,110 @@ class TestProjectCreateVideosJson:
         assert handler._send_json.call_args[0][0]["ok"] is True
         assert (proj / "videos.json").is_file()
         assert json.loads((proj / "videos.json").read_text(encoding="utf-8")) == []
+
+
+class TestHandlePostProjectRemove:
+    def _handler(self, tmp_path: Path) -> MagicMock:
+        handler = MagicMock()
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text("paths: {}\n", encoding="utf-8")
+        handler.config_path = cfg
+        handler._send_json = MagicMock()
+        return handler
+
+    def _seed_registry(self, tmp_path: Path, *proj_dirs: Path) -> None:
+        from clio.ui.services.project_service import _registry_path
+
+        handler = self._handler(tmp_path)
+        reg = _registry_path(handler.config_path)
+        reg.write_text(
+            json.dumps({"projects": [str(p.resolve()) for p in proj_dirs]}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def test_ambiguous_name_returns_409(self, tmp_path: Path):
+        """GAP-P2-13: same display name in two dirs must not mass-delete."""
+        from clio.ui.routes.projects import handle_post_project_remove
+        from clio.ui.services.project_service import _registry_path
+
+        a = tmp_path / "a"
+        b = tmp_path / "b"
+        a.mkdir()
+        b.mkdir()
+        (a / "project.json").write_text(json.dumps({"name": "Twin"}), encoding="utf-8")
+        (b / "project.json").write_text(json.dumps({"name": "Twin"}), encoding="utf-8")
+        handler = self._handler(tmp_path)
+        self._seed_registry(tmp_path, a, b)
+
+        handle_post_project_remove(handler, {"name": "Twin"})
+
+        payload, status = handler._send_json.call_args[0][0], handler._send_json.call_args[0][1]
+        assert status == 409
+        assert payload["ok"] is False
+        assert payload.get("count", 0) >= 2 or len(payload.get("matches", [])) >= 2
+        reg = json.loads(_registry_path(handler.config_path).read_text(encoding="utf-8"))
+        assert len(reg["projects"]) == 2
+
+    def test_unique_name_removes_one_and_reports_identity(self, tmp_path: Path):
+        from clio.ui.routes.projects import handle_post_project_remove
+        from clio.ui.services.project_service import _registry_path
+
+        a = tmp_path / "solo"
+        a.mkdir()
+        (a / "project.json").write_text(json.dumps({"name": "Solo"}), encoding="utf-8")
+        handler = self._handler(tmp_path)
+        self._seed_registry(tmp_path, a)
+
+        handle_post_project_remove(handler, {"name": "Solo"})
+
+        payload = handler._send_json.call_args[0][0]
+        assert payload["ok"] is True
+        assert payload["removed_count"] == 1
+        assert str(a.resolve()) in payload["removed"][0]["project_dir"]
+        reg = json.loads(_registry_path(handler.config_path).read_text(encoding="utf-8"))
+        assert reg["projects"] == []
+
+    def test_project_dir_removes_exact_path(self, tmp_path: Path):
+        from clio.ui.routes.projects import handle_post_project_remove
+        from clio.ui.services.project_service import _registry_path
+
+        a = tmp_path / "keep"
+        b = tmp_path / "drop"
+        a.mkdir()
+        b.mkdir()
+        (a / "project.json").write_text(json.dumps({"name": "Same"}), encoding="utf-8")
+        (b / "project.json").write_text(json.dumps({"name": "Same"}), encoding="utf-8")
+        handler = self._handler(tmp_path)
+        self._seed_registry(tmp_path, a, b)
+
+        handle_post_project_remove(handler, {"project_dir": str(b)})
+
+        payload = handler._send_json.call_args[0][0]
+        assert payload["ok"] is True
+        assert payload["removed_count"] == 1
+        reg = json.loads(_registry_path(handler.config_path).read_text(encoding="utf-8"))
+        assert [str(Path(p).resolve()) for p in reg["projects"]] == [str(a.resolve())]
+
+    def test_unknown_name_returns_404(self, tmp_path: Path):
+        from clio.ui.routes.projects import handle_post_project_remove
+
+        handler = self._handler(tmp_path)
+        self._seed_registry(tmp_path)
+
+        handle_post_project_remove(handler, {"name": "Missing"})
+
+        payload, status = handler._send_json.call_args[0][0], handler._send_json.call_args[0][1]
+        assert status == 404
+        assert payload["ok"] is False
+
+    def test_unknown_project_dir_returns_404(self, tmp_path: Path):
+        from clio.ui.routes.projects import handle_post_project_remove
+
+        handler = self._handler(tmp_path)
+        self._seed_registry(tmp_path)
+
+        handle_post_project_remove(handler, {"project_dir": str(tmp_path / "nope")})
+
+        payload, status = handler._send_json.call_args[0][0], handler._send_json.call_args[0][1]
+        assert status == 404
+        assert payload["ok"] is False

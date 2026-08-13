@@ -132,16 +132,16 @@ def _registry_project_paths(reg: dict[str, Any]) -> list[str]:
     return out
 
 
-def _remove_from_registry(dir_path: str, config_path: Path | None) -> None:
-    """Remove a project from the registry."""
+def _remove_from_registry(dir_path: str, config_path: Path | None) -> bool:
+    """Remove a project from the registry. Returns True if an entry was removed."""
     with _REGISTRY_LOCK:
         registry_file = _registry_path(config_path)
         if not registry_file.is_file():
-            return
+            return False
         try:
             reg = json.loads(registry_file.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
-            return
+            return False
         try:
             normalized = str(Path(dir_path).resolve())
         except OSError:
@@ -157,7 +157,7 @@ def _remove_from_registry(dir_path: str, config_path: Path | None) -> None:
                     continue
             kept.append(p)
         if kept == paths:
-            return
+            return False
         data: dict[str, Any] = {"projects": kept}
         last_project = reg.get("last_project")
         if last_project:
@@ -165,6 +165,7 @@ def _remove_from_registry(dir_path: str, config_path: Path | None) -> None:
             if last_name in {Path(p).name for p in kept}:
                 data["last_project"] = last_project
         _save_atomic(registry_file, json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"))
+        return True
 
 
 def _add_to_registry(dir_path: str, config_path: Path | None) -> None:
