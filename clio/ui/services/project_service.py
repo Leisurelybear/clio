@@ -16,6 +16,8 @@ All functions take explicit parameters instead of relying on closure variables.
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import threading
 from pathlib import Path
 from typing import Any
@@ -112,6 +114,28 @@ def _registry_path(config_path: Path | None) -> Path:
     return Path("projects.json")
 
 
+def _read_registry(registry_file: Path) -> dict[str, Any]:
+    """Load projects.json or raise if the on-disk file is corrupt (GAP-P2-02).
+
+    A missing file is treated as empty. A present but unparseable file is
+    copied to a ``.corrupt.*`` sidecar and must not be rewritten from defaults.
+    """
+    if not registry_file.is_file():
+        return {"projects": []}
+    try:
+        reg = json.loads(registry_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeError) as exc:
+        quarantine = registry_file.with_name(registry_file.name + f".corrupt.{os.urandom(4).hex()}")
+        try:
+            shutil.copy2(registry_file, quarantine)
+        except OSError:
+            pass
+        raise ValueError(f"projects.json 已损坏，已隔离为 {quarantine.name}；拒绝覆盖") from exc
+    if not isinstance(reg, dict):
+        raise ValueError("projects.json 结构无效；拒绝覆盖")
+    return reg
+
+
 def _registry_entry_path(entry: Any) -> str | None:
     """Normalize a projects.json entry to a directory path string."""
     if isinstance(entry, dict):
@@ -139,8 +163,8 @@ def _remove_from_registry(dir_path: str, config_path: Path | None) -> bool:
         if not registry_file.is_file():
             return False
         try:
-            reg = json.loads(registry_file.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
+            reg = _read_registry(registry_file)
+        except ValueError:
             return False
         try:
             normalized = str(Path(dir_path).resolve())
@@ -171,15 +195,9 @@ def _remove_from_registry(dir_path: str, config_path: Path | None) -> bool:
 def _add_to_registry(dir_path: str, config_path: Path | None) -> None:
     with _REGISTRY_LOCK:
         registry_file = _registry_path(config_path)
-        paths: list[str] = []
-        last_project = None
-        if registry_file.is_file():
-            try:
-                reg = json.loads(registry_file.read_text(encoding="utf-8"))
-                paths = _registry_project_paths(reg)
-                last_project = reg.get("last_project")
-            except (json.JSONDecodeError, OSError):
-                paths = []
+        reg = _read_registry(registry_file)
+        paths = _registry_project_paths(reg)
+        last_project = reg.get("last_project")
         try:
             normalized = str(Path(dir_path).resolve())
         except OSError:
@@ -207,13 +225,8 @@ def _save_last_project(
     """
     with _REGISTRY_LOCK:
         registry_file = _registry_path(config_path)
-        paths: list[str] = []
-        if registry_file.is_file():
-            try:
-                reg = json.loads(registry_file.read_text(encoding="utf-8"))
-                paths = _registry_project_paths(reg)
-            except (json.JSONDecodeError, OSError):
-                paths = []
+        reg = _read_registry(registry_file)
+        paths = _registry_project_paths(reg)
         dir_value = project_dir or input_dir
         last_project: str | dict[str, str] = {"name": name, "project_dir": dir_value} if dir_value else name
         data: dict[str, Any] = {"projects": paths, "last_project": last_project}

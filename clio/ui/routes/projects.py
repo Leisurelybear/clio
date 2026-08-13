@@ -46,7 +46,10 @@ def handle_post_project_select(handler: HandlerProtocol, qs: dict[str, Any], obj
         return handler._send_json({"ok": False, "error": "missing project"}, 400)
     proj_dir = handler._resolve_project_dir(qs)
     config_path = handler.config_path
-    _save_last_project(qs_project, config_path, project_dir=str(proj_dir))
+    try:
+        _save_last_project(qs_project, config_path, project_dir=str(proj_dir))
+    except ValueError as exc:
+        return handler._send_json({"ok": False, "error": str(exc)}, 500)
     handler._send_json({"ok": True})
 
 
@@ -103,7 +106,10 @@ def handle_put_project(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) 
     proj_dir.mkdir(parents=True, exist_ok=True)
     _save_atomic(proj_file, json.dumps(merged, ensure_ascii=False, indent=2).encode("utf-8"))
     config_path = handler.config_path
-    _save_last_project(merged.get("name") or proj_dir.name, config_path, project_dir=str(proj_dir))
+    try:
+        _save_last_project(merged.get("name") or proj_dir.name, config_path, project_dir=str(proj_dir))
+    except ValueError as exc:
+        return handler._send_json({"ok": False, "error": str(exc)}, 500)
     handler._send_json({"ok": True})
 
 
@@ -152,7 +158,10 @@ def handle_post_project_create(handler: HandlerProtocol, obj: dict) -> None:
     if not (input_path / "videos.json").is_file():
         save_selected_videos(input_path, [])
     handler.__class__._config_cache.invalidate_key(str(input_path.resolve()))
-    _add_to_registry(str(input_path), config_path)
+    try:
+        _add_to_registry(str(input_path), config_path)
+    except ValueError as exc:
+        return handler._send_json({"ok": False, "error": str(exc)}, 500)
     handler._send_json(
         {"ok": True, "project": {"name": name, "project_dir": str(input_path), "output_dir": str(proj_out)}}
     )
@@ -205,7 +214,10 @@ def handle_post_project_add(handler: HandlerProtocol, obj: dict) -> None:
 
         if not (input_path / "videos.json").is_file():
             save_selected_videos(input_path, [])
-    _add_to_registry(str(input_path), config_path)
+    try:
+        _add_to_registry(str(input_path), config_path)
+    except ValueError as exc:
+        return handler._send_json({"ok": False, "error": str(exc)}, 500)
     handler._send_json({"ok": True, "project": {"name": name, "project_dir": str(input_path)}})
 
 

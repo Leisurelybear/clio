@@ -95,6 +95,22 @@ class TestAddToRegistry:
         data = json.loads(reg.read_text(encoding="utf-8"))
         assert data["last_project"] == "paris"
 
+    def test_corrupt_registry_refuses_overwrite(self, tmp_path: Path):
+        """GAP-P2-02: corrupt projects.json must not be treated as empty and saved."""
+        import pytest
+
+        cfg = tmp_path / "config.yaml"
+        cfg.write_bytes(b"")
+        reg = tmp_path / "projects.json"
+        good_bak = tmp_path / "projects.json.bak"
+        reg.write_text("{not-json", encoding="utf-8")
+        good_bak.write_text(json.dumps({"projects": [str(tmp_path / "keep")]}), encoding="utf-8")
+        with pytest.raises(ValueError, match="损坏"):
+            _add_to_registry(str(tmp_path / "new"), cfg)
+        assert reg.read_text(encoding="utf-8") == "{not-json"
+        assert "keep" in good_bak.read_text(encoding="utf-8")
+        assert any(p.name.startswith("projects.json.corrupt.") for p in tmp_path.iterdir())
+
 
 class TestSaveLastProject:
     def test_saves_last_project(self, tmp_path: Path):

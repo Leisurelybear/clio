@@ -164,6 +164,27 @@ class TestSaveAtomic:
         assert victim.read_bytes() == b"keep me"
         assert target.read_bytes() == b"new content"
 
+    def test_existing_bak_not_clobbered_by_corrupt_current(self, tmp_path: Path):
+        """GAP-P2-02: saving must rotate bak aside, not overwrite it with corrupt current."""
+        target = tmp_path / "data.json"
+        bak = tmp_path / "data.json.bak"
+        target.write_bytes(b"{corrupt")
+        bak.write_bytes(b'{"projects":["good"]}')
+        _save_atomic(target, b'{"projects":[]}')
+        assert target.read_bytes() == b'{"projects":[]}'
+        survivors = list(tmp_path.glob("data.json.bak*"))
+        assert any(p.read_bytes() == b'{"projects":["good"]}' for p in survivors)
+
+    def test_does_not_delete_lone_bak_before_create(self, tmp_path: Path):
+        """GAP-P2-02: creating a new primary must not unlink the only backup first."""
+        target = tmp_path / "data.json"
+        bak = tmp_path / "data.json.bak"
+        bak.write_bytes(b'{"projects":["only-good"]}')
+        _save_atomic(target, b'{"projects":["new"]}')
+        assert target.read_bytes() == b'{"projects":["new"]}'
+        assert bak.exists()
+        assert bak.read_bytes() == b'{"projects":["only-good"]}'
+
 
 # ===================== _find_original_for_compressed =====================
 

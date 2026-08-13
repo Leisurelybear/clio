@@ -47,15 +47,63 @@ def _find_texts_dirs(output_dir: Path) -> list[Path]:
 
 
 def _save_atomic(path: Path, data: bytes) -> None:
-    from clio.utils import write_bytes_atomic
+    """Atomically write *data* while preserving prior backups (GAP-P2-02).
+
+    - New content is written to an exclusive temp and renamed into place.
+    - If *path* exists and ``.bak`` already exists, the previous ``.bak`` is
+      rotated aside (timestamped) before the current file becomes the new bak —
+      so a corrupt primary cannot clobber the last known-good backup.
+    - If only ``.bak`` exists (no primary), it is left untouched.
+    """
+    import os
+    import time
+
+    from clio.utils import _exclusive_random_tmp
 
     path.parent.mkdir(parents=True, exist_ok=True)
     bak = path.with_suffix(path.suffix + ".bak")
-    if path.exists():
-        shutil.copy2(path, bak)
-    elif bak.exists():
-        bak.unlink()
-    write_bytes_atomic(path, data)
+    tmp, fd = _exclusive_random_tmp(path)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        if path.exists():
+            if bak.exists():
+                rotated = path.with_suffix(path.suffix + f".bak.{time.time_ns()}")
+                try:
+                    bak.replace(rotated)
+                except OSError:
+                    shutil.copy2(bak, rotated)
+            try:
+                path.replace(bak)
+            except OSError:
+                shutil.copy2(path, bak)
+                path.unlink(missing_ok=True)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        tmp.unlink(missing_ok=True)
+        raise
+    _prune_rotated_backups(path)
+
+
+def _prune_rotated_backups(path: Path, keep: int = 3) -> None:
+    """Keep at most *keep* timestamped ``.bak.*`` sidecars besides ``.bak``."""
+    bak = path.with_suffix(path.suffix + ".bak")
+    rotated = sorted(
+        (p for p in path.parent.glob(path.name + ".bak.*") if p.is_file() and p != bak),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    for old in rotated[keep:]:
+        try:
+            old.unlink()
+        except OSError:
+            pass
 
 
 def _create_project_yaml(proj_dir: Path, config_path: Path | None, proj_out: Path) -> Path | None:
