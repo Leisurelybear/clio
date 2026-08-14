@@ -92,11 +92,15 @@ jobs:
           if (-not (Test-Path "dist/clio/_internal/clio/ui/static/index.html")) { throw "static assets missing" }
           Write-Output "onedir OK"
 
-      - name: Copy desktop README next to exe
+      - name: Copy desktop README and license notices next to exe
         shell: pwsh
         run: |
           Copy-Item "packaging/README-desktop.md" (Join-Path "dist/clio" "README-desktop.md") -Force
+          Copy-Item "LICENSE" (Join-Path "dist/clio" "LICENSE") -Force
+          Copy-Item "THIRD_PARTY.md" (Join-Path "dist/clio" "THIRD_PARTY.md") -Force
           if (-not (Test-Path "dist/clio/README-desktop.md")) { throw "README-desktop.md missing in bundle" }
+          if (-not (Test-Path "dist/clio/LICENSE")) { throw "LICENSE missing in bundle" }
+          if (-not (Test-Path "dist/clio/THIRD_PARTY.md")) { throw "THIRD_PARTY.md missing in bundle" }
 
       - name: Smoke test server startup
         shell: pwsh
@@ -228,14 +232,18 @@ jobs:
           fi
           echo "launch smoke OK"
 
-      - name: Package app as zip (app + README)
+      - name: Package app as zip (app + README + license notices)
         run: |
           name="clio-${{ needs.version.outputs.version }}-macos-universal2"
           staging="$RUNNER_TEMP/$name"
           mkdir -p "$staging"
           cp -R dist/clio.app "$staging/clio.app"
           cp packaging/README-desktop.md "$staging/README-desktop.md"
+          cp LICENSE "$staging/LICENSE"
+          cp THIRD_PARTY.md "$staging/THIRD_PARTY.md"
           test -f "$staging/README-desktop.md" || { echo "README-desktop.md missing in bundle"; exit 1; }
+          test -f "$staging/LICENSE" || { echo "LICENSE missing in bundle"; exit 1; }
+          test -f "$staging/THIRD_PARTY.md" || { echo "THIRD_PARTY.md missing in bundle"; exit 1; }
           ditto -c -k --sequesterRsrc --keepParent "$staging" "$name.zip"
           test -f "$name.zip" || { echo "zip not created"; exit 1; }
           echo "artifact=$name.zip"
