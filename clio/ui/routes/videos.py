@@ -520,16 +520,9 @@ def _build_videos_payload(
                 missing = [m for m in members if m[0] not in offsets]
                 if missing and total > 1 and _ffprobe:
                     orig_video: Path | None = None
-                    for ext in VIDEO_EXTS:
-                        candidate = proj_dir / f"{gk}{ext}"
-                        if candidate.is_file():
-                            orig_video = candidate
-                            break
-                    if orig_video is None and selected_ordered:
-                        for cand in selected_ordered:
-                            if cand.stem.lower() == gk.lower() and cand.is_file():
-                                orig_video = cand
-                                break
+                    found = _find_original_for_compressed(f"000_{gk}", proj_dir, comp_dir, project_dir=proj_dir)
+                    if found:
+                        orig_video = Path(found)
                     if orig_video is not None:
                         try:
                             dur = get_duration_sec(orig_video, _ffprobe)
