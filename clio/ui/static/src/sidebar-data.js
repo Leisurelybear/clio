@@ -490,11 +490,23 @@ export function renderVideoList() {
           <p>未找到压缩后的视频文件（output/compressed/）</p>
           <p class="hint">请先压缩原视频，或切换到「原视频」视图查看素材</p>
           <p style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
-            <button class="sidebar-btn" onclick="switchToOriginalThenCompress()" style="background:var(--accent);color:#fff;border:none;padding:7px 14px;border-radius:var(--radius-sm);cursor:pointer;font:inherit;font-size:var(--text-sm)">${icon('folder', 14)} 切换到原视频</button>
-            <button class="sidebar-btn" onclick="goToRunTab()" title="运行流水线中的压缩步骤" style="background:var(--bg-surface-2);color:var(--text-primary);border:1px solid var(--border);padding:7px 14px;border-radius:var(--radius-sm);cursor:pointer;font:inherit;font-size:var(--text-sm)">${icon('play', 14)} 去压缩视频</button>
+            <button class="sidebar-btn" id="empty-go-original" style="background:var(--accent);color:#fff;border:none;padding:7px 14px;border-radius:var(--radius-sm);cursor:pointer;font:inherit;font-size:var(--text-sm)">${icon('folder', 14)} 切换到原视频</button>
+            <button class="sidebar-btn" id="empty-go-run" title="运行流水线中的压缩步骤" style="background:var(--bg-surface-2);color:var(--text-primary);border:1px solid var(--border);padding:7px 14px;border-radius:var(--radius-sm);cursor:pointer;font:inherit;font-size:var(--text-sm)">${icon('play', 14)} 去压缩视频</button>
           </p>
         </li>
       `;
+      const goOriginalBtn = ul.querySelector('#empty-go-original');
+      if (goOriginalBtn) {
+        goOriginalBtn.onclick = () => {
+          import('./sidebar.js').then(m => m.switchToOriginalThenCompress());
+        };
+      }
+      const goRunBtn = ul.querySelector('#empty-go-run');
+      if (goRunBtn) {
+        goRunBtn.onclick = () => {
+          import('./sidebar.js').then(m => m.goToRunTab());
+        };
+      }
     } else {
       ul.innerHTML = `
         <li class="empty-state">

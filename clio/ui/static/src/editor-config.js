@@ -1082,7 +1082,7 @@ function _tabBtn(label, tabKey, active) {
 function _renderFallbackWarn() {
   return `<div class="config-fallback-warn" style="background:var(--warning-bg,#fff3cd);border:1px solid var(--warning-border,#ffc107);border-radius:6px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:flex-start;gap:8px;font-size:var(--text-sm);color:var(--text-primary)">
     <span style="font-size:18px;line-height:1">⚠️</span>
-    <span>当前显示的是全局配置（回退）。该项目没有专属 <code>project.yaml</code>，修改将影响所有项目。建议<a href="#" onclick="initProjectConfig();return false" style="text-decoration:underline;color:var(--accent)">创建专属配置</a>。</span>
+    <span>当前显示的是全局配置（回退）。该项目没有专属 <code>project.yaml</code>，修改将影响所有项目。建议<a href="#" id="link-create-project-config" style="text-decoration:underline;color:var(--accent)">创建专属配置</a>。</span>
   </div>`;
 }
 
@@ -1262,6 +1262,14 @@ export function renderConfig() {
 
   // Hide desktop-only browse buttons in serve mode after each config re-render
   setBrowseButtonsVisible(pane);
+
+  const createConfigLink = pane.querySelector('#link-create-project-config');
+  if (createConfigLink) {
+    createConfigLink.onclick = (e) => {
+      e.preventDefault();
+      initProjectConfig();
+    };
+  }
 
   // Tab switching
   pane.querySelectorAll('.config-tab-btn').forEach(btn => {

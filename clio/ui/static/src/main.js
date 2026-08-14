@@ -575,8 +575,10 @@ async function init() {
         if (check.needs_init) {
           // 在状态栏显示可操作的提示
           const el = $('status');
-          el.innerHTML = `Project has no project.yaml, <button onclick="initProjectConfig()" style="background:none;border:1px solid currentColor;border-radius:3px;padding:2px 8px;cursor:pointer;color:inherit;font:inherit">create one now</button>`;
+          el.innerHTML = `Project has no project.yaml, <button id="btn-create-project-config" style="background:none;border:1px solid currentColor;border-radius:3px;padding:2px 8px;cursor:pointer;color:inherit;font:inherit">create one now</button>`;
           el.className = 'status warn';
+          const createBtn = $('btn-create-project-config');
+          if (createBtn) createBtn.onclick = initProjectConfig;
         }
       } catch {
         // ignore

@@ -399,7 +399,7 @@ async function refreshVideosAfterRun() {
 /** Stale-progress warning box; Whisper model hint only for the transcribe phase. */
 function staleWarningHtml(phase) {
   const whisperHint = phase === 'transcribe'
-    ? `<span style="color:var(--text-secondary)">可前往 <a href="#" id="link-stale-settings" style="text-decoration:underline;color:var(--accent)" onclick="event.preventDefault();import('./sidebar.js').then(function(m){m.selectConfig()})">设置 → Whisper 模型管理</a> 检查模型状态</span>`
+    ? `<span style="color:var(--text-secondary)">可前往 <a href="#" id="link-stale-settings" style="text-decoration:underline;color:var(--accent)">设置 → Whisper 模型管理</a> 检查模型状态</span>`
     : '';
   return `
     <div id="stale-warn" style="display:none;margin-top:8px;padding:8px;background:var(--warning-bg,#2a2520);border:1px solid var(--warning-border,#b8860b);border-radius:6px;font-size:var(--text-sm)">
@@ -476,6 +476,10 @@ async function _handleRunStatus(s) {
           } else if (now - _lastProgressSnapshot.timestamp > 60000) {
             var staleEl = $('stale-warn');
             if (staleEl) staleEl.style.display = '';
+            var staleSettingsLink = $('link-stale-settings');
+            if (staleSettingsLink) {
+              staleSettingsLink.onclick = function(e) { e.preventDefault(); import('./sidebar.js').then(function(s) { s.selectConfig(); }); };
+            }
           }
         }
       }
