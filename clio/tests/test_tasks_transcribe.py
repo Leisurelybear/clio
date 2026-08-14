@@ -34,6 +34,78 @@ def cfg(tmp_path):
     return c
 
 
+class TestTmpSafety:
+    """GAP-P2-08: task-owned temp dir, stale cleanup, and space pre-check."""
+
+    def test_tmp_dir_under_output(self, cfg, tmp_path):
+        from clio.tasks.transcribe import _transcribe_tmp_dir
+
+        cfg.paths.output_dir = tmp_path / "out"
+        d = _transcribe_tmp_dir(cfg)
+        assert d == tmp_path / "out" / ".clio_tmp"
+        assert d.is_dir()
+
+    def test_cleanup_removes_stale_keeps_fresh(self, cfg, tmp_path):
+        from clio.tasks.transcribe import _cleanup_stale_audio_tmp, _transcribe_tmp_dir
+
+        cfg.paths.output_dir = tmp_path / "out"
+        d = _transcribe_tmp_dir(cfg)
+        stale = d / "stale.wav"
+        stale.write_bytes(b"x")
+        fresh = d / "fresh.wav"
+        fresh.write_bytes(b"x")
+        import os
+        import time
+
+        os.utime(stale, (time.time() - 7200, time.time() - 7200))
+        assert _cleanup_stale_audio_tmp(d) == 1
+        assert not stale.exists()
+        assert fresh.exists()
+
+    def test_cleanup_missing_dir_returns_zero(self, tmp_path):
+        from clio.tasks.transcribe import _cleanup_stale_audio_tmp
+
+        assert _cleanup_stale_audio_tmp(tmp_path / "nope") == 0
+
+    def test_extract_rejects_insufficient_space(self, tmp_path):
+        from types import SimpleNamespace
+
+        from clio.tasks.transcribe import _extract_audio
+
+        with (
+            patch("clio.tasks.transcribe.shutil.disk_usage", return_value=SimpleNamespace(free=1_000)) as mock_usage,
+            patch("clio.tasks.transcribe.tempfile.NamedTemporaryFile") as mock_tmp,
+        ):
+            result = _extract_audio(tmp_path / "v.mp4", "ffmpeg", total_duration=600.0, tmp_dir=tmp_path)
+        assert result is None
+        mock_usage.assert_called_once()
+        mock_tmp.assert_not_called()
+
+    def test_extract_writes_into_task_tmp_dir(self, tmp_path):
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        from clio.tasks.transcribe import _extract_audio
+
+        task_tmp = tmp_path / "out" / ".clio_tmp"
+        task_tmp.mkdir(parents=True)
+        fake = MagicMock()
+        fake.name = str(tmp_path / "aud.wav")
+        fake.close = lambda: None
+        with (
+            patch("clio.tasks.transcribe.shutil.disk_usage", return_value=SimpleNamespace(free=10**12)),
+            patch("clio.tasks.transcribe.tempfile.NamedTemporaryFile", return_value=fake) as mock_tmp,
+            patch("clio.tasks.transcribe.popen_subprocess") as mock_popen,
+        ):
+            proc = MagicMock()
+            proc.stderr = None
+            proc.returncode = 0
+            mock_popen.return_value = proc
+            result = _extract_audio(tmp_path / "v.mp4", "ffmpeg", total_duration=10.0, tmp_dir=task_tmp)
+        assert result == tmp_path / "aud.wav"
+        mock_tmp.assert_called_once_with(suffix=".wav", delete=False, dir=str(task_tmp))
+
+
 class TestRunTranscribeAll:
     @patch("clio.tasks.transcribe._extract_audio")
     @patch("clio.tasks.transcribe.transcribe_audio")

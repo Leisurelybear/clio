@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -25,8 +26,42 @@ from clio.utils import find_videos, no_console_kwargs, popen_subprocess, resolve
 # isort: split
 from clio.shutdown import register_process, unregister_process
 
+# Task-owned temp area for WAV extraction (GAP-P2-08): PCM is decoded to the
+# project's own volume instead of the system temp so crashes cannot fill the OS
+# temp disk, and stale leftovers are swept at the next run.
+_TMP_DIRNAME = ".clio_tmp"
+_STALE_TMP_MAX_AGE_S = 3600
+
+
+def _transcribe_tmp_dir(config: AppConfig) -> Path:
+    tmp = config.paths.output_dir / _TMP_DIRNAME
+    tmp.mkdir(parents=True, exist_ok=True)
+    return tmp
+
+
+def _cleanup_stale_audio_tmp(tmp_dir: Path) -> int:
+    """Remove ``*.wav`` crash leftovers older than an hour. Newly-created files
+    during a live run are never that old, so in-flight work is left alone."""
+    now = time.time()
+    removed = 0
+    if not tmp_dir.is_dir():
+        return 0
+    for p in tmp_dir.glob("*.wav"):
+        try:
+            if now - p.stat().st_mtime > _STALE_TMP_MAX_AGE_S:
+                p.unlink(missing_ok=True)
+                removed += 1
+        except OSError:
+            continue
+    return removed
+
 
 def _extract_orig_stem(compressed_stem: str) -> str:
+    if "_" in compressed_stem:
+        _, orig_stem = compressed_stem.split("_", 1)
+    else:
+        orig_stem = compressed_stem
+    return re.sub(r"_seg\d+$", "", orig_stem)
     if "_" in compressed_stem:
         _, orig_stem = compressed_stem.split("_", 1)
     else:
@@ -60,9 +95,24 @@ def _extract_audio(
     progress_callback: Callable[[int], None] | None = None,
     cancel_event: threading.Event | None = None,
     total_duration: float = 0.0,
+    tmp_dir: Path | None = None,
 ) -> Path | None:
     """ffmpeg 提取 16kHz 单声道 WAV，返回临时文件路径。实时输出进度（百分比）。"""
-    tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+    if tmp_dir is None:
+        tmp_dir = Path(tempfile.gettempdir())
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    # 预估并预留 PCM 空间（16kHz 单声道 16bit = 32000 B/s）——磁盘不足时在写满
+    # 之前就失败，而不是把临时盘撑爆（GAP-P2-08）。
+    if total_duration > 0:
+        need_bytes = int(total_duration * 16000 * 2 * 1.2)
+        try:
+            free_bytes = shutil.disk_usage(tmp_dir).free
+        except OSError:
+            free_bytes = -1
+        if free_bytes >= 0 and free_bytes < need_bytes:
+            print(f"  [提取音频] 临时盘空间不足：需要约 {need_bytes / 1e6:.0f}MB，当前剩余 {free_bytes / 1e6:.0f}MB")
+            return None
+    tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False, dir=str(tmp_dir))
     tmp.close()
     tmp_path = Path(tmp.name)
     cmd = [
@@ -169,6 +219,9 @@ def run_transcribe_all(
     original_cache = _build_original_stem_map(config.project_dir)
     error_count = 0
 
+    tmp_dir = _transcribe_tmp_dir(config)
+    _cleanup_stale_audio_tmp(tmp_dir)
+
     start_time = time.time()
     for i, compressed_video in enumerate(videos):
         compressed_stem = compressed_video.stem
@@ -222,6 +275,7 @@ def run_transcribe_all(
             progress_callback=_on_extract_progress,
             cancel_event=cancel_event,
             total_duration=audio_dur,
+            tmp_dir=tmp_dir,
         )
         if wav_path is None:
             if cancel_event and cancel_event.is_set():
@@ -316,6 +370,8 @@ def run_transcribe_one(
     print("  [transcribe_one] 提取音频...")
     if progress_callback:
         progress_callback(0)
+    tmp_dir = _transcribe_tmp_dir(config)
+    _cleanup_stale_audio_tmp(tmp_dir)
     ffmpeg = resolve_binary(config.paths.ffmpeg, "ffmpeg")
     ffprobe = resolve_binary(config.paths.ffprobe, "ffprobe")
     audio_dur = _get_video_duration(video_path, ffprobe)
@@ -325,7 +381,12 @@ def run_transcribe_one(
             progress_callback(int(pct * 0.1))
 
     wav_path = _extract_audio(
-        video_path, ffmpeg, progress_callback=_on_extract, cancel_event=cancel_event, total_duration=audio_dur
+        video_path,
+        ffmpeg,
+        progress_callback=_on_extract,
+        cancel_event=cancel_event,
+        total_duration=audio_dur,
+        tmp_dir=tmp_dir,
     )
     if wav_path is None:
         return {"error": "音频提取失败"}
