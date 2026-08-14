@@ -148,6 +148,9 @@ jobs:
     - name: Run UI tests
       run: npm test
 
+    - name: UI coverage gate
+      run: npm run test:coverage
+
   setup:
     name: Setup script validation
     runs-on: ubuntu-latest
