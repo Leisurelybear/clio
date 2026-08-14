@@ -181,8 +181,10 @@ Pre-commit hook auto-runs ruff on staged `.py` files (`.githooks/pre-commit`).
 CI also gates a mypy subset (Phase 4d). Reproduce locally with:
 
 ```bash
-mypy clio/config/ clio/progress.py clio/export/__init__.py clio/log.py clio/schema.py clio/_str_enum.py --check-untyped-defs --show-error-codes
+mypy --check-untyped-defs --show-error-codes
 ```
+
+The gate scope lives in `[tool.mypy] files` in pyproject.toml (progressive, per-module; only add modules that report zero issues).
 
 ### Verification Flow
 

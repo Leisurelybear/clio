@@ -54,6 +54,31 @@ line-ending = "auto"
 python_version = "3.11"
 strict = false
 ignore_missing_imports = true
+# Progressive type-hardening scope (P2-P30): modules that pass under
+# --check-untyped-defs. Expand as more modules are hardened; do not add a
+# module here until `mypy <module> --check-untyped-defs --show-error-codes`
+# reports zero issues.
+files = [
+    "clio/config/",
+    "clio/progress.py",
+    "clio/export/__init__.py",
+    "clio/log.py",
+    "clio/schema.py",
+    "clio/_str_enum.py",
+    "clio/identity.py",
+    "clio/vmeta.py",
+    "clio/utils.py",
+    "clio/plan_model.py",
+    "clio/plan_readiness.py",
+    "clio/compress.py",
+    "clio/analyze_windows.py",
+    "clio/cut.py",
+    "clio/shutdown.py",
+    "clio/ai/",
+    "clio/tasks/_helpers.py",
+    "clio/tasks/transcript_align.py",
+]
+
 [tool.coverage.run]
 branch = true
 source = ["clio"]
@@ -69,3 +94,8 @@ exclude_lines = [
     "pragma: no cover",
     "if TYPE_CHECKING:",
 ]
+# P2-P30: real production metrics against an explicit floor. Measured total
+# on a local Python 3.11 Windows run is ~76% (branch enabled); keep the gate
+# below the measured values so it catches regressions without being flaky
+# across the 3x2 CI matrix.
+fail_under = 70

@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-08-14
+
+Complete the P2-P30 partial: quality gates for the entire codebase surface.
+
+- chore(ci): coverage `fail_under = 70` (real production metrics, previously no
+  gate; measured 75.63% total on the Python 3.11 Windows run)
+- chore(ci): mypy scope now lives in `[tool.mypy] files` (pyproject.toml) and
+  expands from 12 to 29 source files; adds `clio/ai/`, `clio/utils.py`,
+  `clio/plan_model.py`, `clio/plan_readiness.py`, `clio/compress.py`,
+  `clio/analyze_windows.py`, `clio/cut.py`, `clio/vmeta.py`, `clio/identity.py`,
+  `clio/tasks/_helpers.py`, `clio/tasks/transcript_align.py`, `clio/shutdown.py`
+  (all zero issues under `--check-untyped-defs`)
+- docs(AGENTS): local mypy repro is now config-driven (`mypy
+  --check-untyped-defs --show-error-codes`), matching CI
+
 ## 2026-08-13
 
 Review remediation batch #3 for `E:\Downloads\clio-review-20260808.csv`

@@ -47,8 +47,9 @@ jobs:
     - name: Type check (mypy)
       run: |
         # Phase 4d: CI gate for type hardening
-        # Core modules with strict checking (excluding AI module)
-        mypy clio/config/ clio/progress.py clio/export/__init__.py clio/log.py clio/schema.py clio/_str_enum.py --check-untyped-defs --show-error-codes
+        # Progressive scope driven by [tool.mypy] files in pyproject.toml
+        # (P2-P30): every listed module passes --check-untyped-defs.
+        mypy --check-untyped-defs --show-error-codes
         echo "Core module type check passed"
 
     - name: Import check
