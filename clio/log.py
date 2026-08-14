@@ -50,9 +50,15 @@ class _HourlyFileHandler(logging.Handler):
                 self._current_file.close()
             except Exception:
                 pass
+            self._current_file = None
         self._logs_dir.mkdir(parents=True, exist_ok=True)
         log_path = self._logs_dir / f"{hour_key}.log"
-        self._current_file = open(log_path, "a", encoding="utf-8")
+        try:
+            self._current_file = open(log_path, "a", encoding="utf-8")
+        except OSError as e:
+            self._emergency(f"[clio] 日志写入失败: {e}（已停用文件日志）")
+            self._failed = True
+            return
         try:
             import os
 
@@ -91,6 +97,8 @@ class _HourlyFileHandler(logging.Handler):
             return
         try:
             self._rotate(datetime.fromtimestamp(record.created))
+            if self._failed:
+                return
             assert self._current_file is not None
             msg = redact_sensitive(self.format(record)) + "\n"
             self._current_file.write(msg)

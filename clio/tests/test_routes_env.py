@@ -128,6 +128,8 @@ class TestHandlePutEnv:
         handler._send_json = MagicMock()
         dotenv = tmp_path / ".env"
         dotenv.write_text("MY_KEY=new_value\n", encoding="utf-8")
+        if os.name != "nt":
+            os.chmod(dotenv, 0o600)
 
         with patch("clio.ui.routes.env_routes._load_dotenv") as mock_load:
             handle_put_env(handler, {}, {"content": "MY_KEY=new_value\n"})
