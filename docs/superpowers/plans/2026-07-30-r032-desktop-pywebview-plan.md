@@ -1065,11 +1065,11 @@ export async function openVideoManager() {
 
 Extract `_addPaths(paths: string[])` from current `_vmAddSelected` body.
 
-- [ ] **Step 1: Refactor add-paths core + desktop branch**
-- [ ] **Step 2: Serve paste fallback (minimal)**
-- [ ] **Step 3: Remove dir-tree rendering code paths once unused (`_vmLoadDir` tree) — delete dead functions
-- [ ] **Step 4: Manual smoke desktop add videos; serve paste path
-- [ ] **Step 5: Commit**
+- [x] **Step 1: Refactor add-paths core + desktop branch**
+- [x] **Step 2: Serve paste fallback (minimal)**
+- [x] **Step 3: Remove dir-tree rendering code paths once unused (`_vmLoadDir` tree) — delete dead functions
+- [x] **Step 4: Manual smoke desktop add videos; serve paste path
+- [x] **Step 5: Commit**
 
 ```bash
 git add clio/ui/static/src/sidebar-video-manage.js clio/ui/static/index.html
@@ -1095,11 +1095,11 @@ git commit -m "feat(ui): add videos via native multi-file dialog"
 - Serve: prompt/textarea for folder path + 扫描 button (manual path).
 - Delete `_loadDir` tree UI / `#br-list` navigation.
 
-- [ ] **Step 1: Relink native file pick + strip panel**
-- [ ] **Step 2: Batch folder pick + strip list navigation**
-- [ ] **Step 3: Update HTML**
-- [ ] **Step 4: Manual smoke both flows**
-- [ ] **Step 5: Commit**
+- [x] **Step 1: Relink native file pick + strip panel**
+- [x] **Step 2: Batch folder pick + strip list navigation**
+- [x] **Step 3: Update HTML**
+- [x] **Step 4: Manual smoke both flows**
+- [x] **Step 5: Commit**
 
 ```bash
 git add clio/ui/static/src/sidebar-relink.js clio/ui/static/src/sidebar-batch-relink.js clio/ui/static/index.html
@@ -1119,8 +1119,8 @@ git commit -m "feat(ui): native dialogs for relink and batch relink"
   - `clio/ui/static/src/__tests__/sidebar-select-video.test.js`
   - any other `vi.mock('../sidebar-browse.js'`
 
-- [ ] **Step 1: Remove HTML modal + JS module + exports**
-- [ ] **Step 2: Fix Vitest mocks/imports**
+- [x] **Step 1: Remove HTML modal + JS module + exports**
+- [x] **Step 2: Fix Vitest mocks/imports**
 
 ```bash
 npx vitest run
@@ -1128,7 +1128,7 @@ npx vitest run
 
 Expected: all green.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add -u clio/ui/static clio/ui/static/src/__tests__
@@ -1162,8 +1162,8 @@ def _closing():
 Check pywebview version docs for `closing` return value semantics during spike; implement the strongest available.
 
 - [x] **Step 1: Implement closing hook + cancel POST**
-- [ ] **Step 2: Manual: start a run, close window, confirm no orphan `python` / port free**
-- [ ] **Step 3: Commit**
+- [x] **Step 2: Manual: start a run, close window, confirm no orphan `python` / port free**
+- [x] **Step 3: Commit**
 
 ```bash
 git add clio/desktop/app.py
@@ -1209,7 +1209,7 @@ pyinstaller packaging/clio.spec
   - SPA loads, pick folder works, add video e2e
   - Record cold-start seconds in README
 - [x] **Step 4: Document WebView2 Evergreen + SmartScreen unsigned warning**
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packaging/

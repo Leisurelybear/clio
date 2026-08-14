@@ -1,7 +1,7 @@
 # Design: Plan-preview floating subtitles
 
 **Date**: 2026-08-05  
-**Status**: Draft — awaiting implementation plan  
+**Status**: Implemented ✅ — landed via `2026-08-05-plan-subtitles.md` (core overlay) + `2026-08-07-plan-subtitle-settings-plan.md` (customization); see `clio/ui/static/src/plan-subtitle.js` and `preview.subtitles` config (P2-P33 sync)  
 **Scope**: Plan entity preview — overlay spoken `voiceover` text as floating subtitles on the main player  
 **Approach**: A — pure-frontend on-demand load (new `plan-subtitle.js`, no backend/plan-file changes)  
 **Related**: R-031 plan composite preview (`viewer.js` preview bar), `/api/voiceover` route, plan `use_timeline` per segment

@@ -48,7 +48,7 @@ preview:
     font_color: "#ffffff"
     background: "rgba(0,0,0,0.55)"
     outline: "1px solid #000"
-pos_x: 50              # horizontal center (percent of player width)
+    pos_x: 50              # horizontal center (percent of player width)
     pos_y: 8               # vertical offset from bottom (percent of player height); 0=bottom, 100=top
 ```
 

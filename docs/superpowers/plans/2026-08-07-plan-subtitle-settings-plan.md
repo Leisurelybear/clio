@@ -42,7 +42,7 @@
 - Modify: `clio/config/loader.py`
 - Test: `clio/tests/test_config.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `clio/tests/test_config.py`:
 
@@ -66,12 +66,12 @@ def test_preview_subtitles_defaults():
     assert s.pos_y == 8
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `python -m pytest clio/tests/test_config.py::test_preview_subtitles_defaults`
 Expected: FAIL with `ImportError: cannot import name 'PreviewConfig'`
 
-- [ ] **Step 3: Add the dataclasses to `models.py`**
+- [x] **Step 3: Add the dataclasses to `models.py`**
 
 Add after the `PlanConfig` class (around line 74):
 
@@ -100,7 +100,7 @@ class PreviewConfig:
     subtitles: PreviewSubtitlesConfig = field(default_factory=PreviewSubtitlesConfig)
 ```
 
-- [ ] **Step 4: Wire it into `ProjectConfig`**
+- [x] **Step 4: Wire it into `ProjectConfig`**
 
 In `models.py`, add the field to `ProjectConfig` (near `export` around line 191):
 
@@ -118,7 +118,7 @@ Also add the `AppConfig` merged property near `export` (around line 485):
         return _EMPTY_PROJECT.preview
 ```
 
-- [ ] **Step 5: Register the section in `loader.py`**
+- [x] **Step 5: Register the section in `loader.py`**
 
 In `loader.py`, add to `_PROJECT_SECTION_DC_MAP` (line 51-60):
 
@@ -144,12 +144,12 @@ Add the import at the top of `loader.py` (the existing `from clio.config.models 
     PreviewConfig,
 ```
 
-- [ ] **Step 6: Run the tests**
+- [x] **Step 6: Run the tests**
 
 Run: `python -m pytest clio/tests/test_config.py -v`
 Expected: PASS (new test + no regressions)
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add clio/config/models.py clio/config/loader.py clio/tests/test_config.py
@@ -163,7 +163,7 @@ git commit -m "feat(config): add preview.subtitles project config section"
 - Modify: `clio/config/descriptions.py`
 - Test: `clio/tests/test_config.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `clio/tests/test_config.py`:
 
@@ -182,12 +182,12 @@ def test_validate_preview_subtitles_mode():
 
 Note: check `validators.py` for the actual function name/signature during implementation and adjust — the important behavior is "invalid mode / out-of-range pos raises ValueError".
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `python -m pytest clio/tests/test_config.py::test_validate_subtitle_subtitles`
 Expected: FAIL — no validation exists yet.
 
-- [ ] **Step 3: Add validation in `validators.py`**
+- [x] **Step 3: Add validation in `validators.py`**
 
 Find the project config validation function in `clio/config/validators.py` and add inside it:
 
@@ -204,12 +204,12 @@ Find the project config validation function in `clio/config/validators.py` and a
 
 (Check the existing helper names — `_require_min`, `_require_choice` etc. at the top of `validators.py`; use what exists, adding small helpers if needed.)
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `python -m pytest clio/tests/test_config.py::test_preview_subtitles_defaults clio/tests/test_config.py::test_validate_subtitle_subtitles -v`
 Expected: PASS
 
-- [ ] **Step 5: Add descriptions to `descriptions.py`**
+- [x] **Step 5: Add descriptions to `descriptions.py`**
 
 Append to `clio/config/descriptions.py`:
 
@@ -230,7 +230,7 @@ Append to `clio/config/descriptions.py`:
     "preview.subtitles.pos_y": "字幕垂直偏移 (自播放器底部 %, 0=底部)",
 ```
 
-- [ ] **Step 6: Verify descriptions test + commit**
+- [x] **Step 6: Verify descriptions test + commit**
 
 Run: `python -m pytest clio/tests/test_config_descriptions.py clio/tests/test_config.py -v`
 Expected: PASS
@@ -248,7 +248,7 @@ git commit -m "feat(config): validate and describe preview.subtitles"
 
 Refactor the pure line logic to support modes. `splitSubtitleLines(text, maxLen)` is kept for compat, but a new `planSubtitleBatches(text, opts)` replaces scheduling.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `clio/ui/static/src/__tests__/plan-subtitle-modes.test.js`:
 
@@ -317,14 +317,14 @@ describe('computeFontShrink', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm run test -- --run clio/ui/static/src/__tests__/plan-subtitle-modes.test.js`
 Expected: FAIL — `<function> is not a function`
 
 (Adjust to the actual npm test command; repo runs `npm test` → vitest.)
 
-- [ ] **Step 3: Implement the pure helpers in `plan-subtitle.js`**
+- [x] **Step 3: Implement the pure helpers in `plan-subtitle.js`**
 
 Add to `plan-subtitle.js` after `splitSubtitleLines`:
 
@@ -412,12 +412,12 @@ export function computeFontShrink(text, basePx, containerMaxChars, minFontSize) 
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `npm test`
 Expected: PASS (new + existing)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add clio/ui/static/src/plan-subtitle.js clio/ui/static/src/__tests__/plan-subtitle-modes.test.js
@@ -432,7 +432,7 @@ git commit -m "feat(ui): subtitle batch/scroll pure helpers"
 - Modify: `clio/ui/static/src/plan-subtitle.js`
 - Test: `clio/ui/static/src/__tests__/plan-subtitle-modes.test.js`
 
-- [ ] **Step 1: Update HTML to add the handle**
+- [x] **Step 1: Update HTML to add the handle**
 
 In `index.html` line ~99, replace:
 
@@ -449,7 +449,7 @@ with:
 </div>
 ```
 
-- [ ] **Step 2: Update CSS to use custom properties + handle**
+- [x] **Step 2: Update CSS to use custom properties + handle**
 
 Replace the `.plan-subtitle` rule (style.css:778-787) with:
 
@@ -478,7 +478,7 @@ Replace the `.plan-subtitle` rule (style.css:778-787) with:
 .plan-subtitle-text { white-space: pre-wrap; }
 ```
 
-- [ ] **Step 3: Write the failing test for style + content (scroll mode render)**
+- [x] **Step 3: Write the failing test for style + content (scroll mode render)**
 
 Add to `plan-subtitle-modes.test.js`:
 
@@ -525,12 +525,12 @@ describe('renderPlanSubtitle (style + batched)', () => {
 });
 ```
 
-- [ ] **Step 4: Run to verify it fails**
+- [x] **Step 4: Run to verify it fails**
 
 Run: `npm test`
 Expected: FAIL — new renderer not applied / `textContent` vs `.plan-subtitle-text` mismatch
 
-- [ ] **Step 5: Refactor `renderPlanSubtitle` in `plan-subtitle.js`**
+- [x] **Step 5: Refactor `renderPlanSubtitle` in `plan-subtitle.js`**
 
 Rewrite lines 149-194 to use `planSubtitleBatches`, `scheduleBatchTiming`, `packAtTime`, and write into `.plan-subtitle-text`, applying config via custom properties:
 
@@ -621,7 +621,7 @@ export async function renderPlanSubtitle(opts = {}) {
 }
 ```
 
-- [ ] **Step 6: Export new helpers (already exported in Task 3)**
+- [x] **Step 6: Export new helpers (already exported in Task 3)**
 
 Ensure `hidePlanSubtitle` clears `.plan-subtitle-text` too (update):
 
@@ -632,12 +632,12 @@ export function hidePlanSubtitle() {
 }
 ```
 
-- [ ] **Step 7: Run all frontend tests**
+- [x] **Step 7: Run all frontend tests**
 
 Run: `npm test`
 Expected: PASS. Existing tests in `plan-subtitle.test.js` that assert `el.textContent` need updating — see Task 5 note.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add clio/ui/static/index.html clio/ui/static/style.css clio/ui/static/src/plan-subtitle.js clio/ui/static/src/__tests__/plan-subtitle-modes.test.js
@@ -650,7 +650,7 @@ git commit -m "feat(ui): config-driven subtitle style and batched render"
 - Modify: `clio/ui/static/src/plan-subtitle.js`
 - Test: `clio/ui/static/src/__tests__/plan-subtitle-modes.test.js`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `plan-subtitle-modes.test.js`:
 
@@ -673,12 +673,12 @@ describe('invalidateVoiceoverCache', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `npm test`
 Expected: FAIL — `invalidateVoiceoverCache is not a function`
 
-- [ ] **Step 3: Implement in `plan-subtitle.js`**
+- [x] **Step 3: Implement in `plan-subtitle.js`**
 
 Add near the cache definition (after line ~118):
 
@@ -690,12 +690,12 @@ export function invalidateVoiceoverCache(index) {
 }
 ```
 
-- [ ] **Step 4: Run to verify it passes**
+- [x] **Step 4: Run to verify it passes**
 
 Run: `npm test`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add clio/ui/static/src/plan-subtitle.js clio/ui/static/src/__tests__/plan-subtitle-modes.test.js
@@ -709,7 +709,7 @@ git commit -m "feat(ui): voiceover cache invalidation helper"
 - Modify: `clio/ui/static/src/state.js`
 - Test: `clio/ui/static/src/__tests__/plan-subtitle-drag.test.js`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `clio/ui/static/src/__tests__/plan-subtitle-drag.test.js`:
 
@@ -739,12 +739,12 @@ describe('initSubtitleDrag', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `npm test`
 Expected: FAIL — `initSubtitleDrag not defined`
 
-- [ ] **Step 3: Add drag state + helpers to `plan-subtitle.js` / `state.js`**
+- [x] **Step 3: Add drag state + helpers to `plan-subtitle.js` / `state.js`**
 
 In `state.js` add after `_previewEndTime`:
 
@@ -793,12 +793,12 @@ export function initSubtitleDrag({ getPlayer, onPositionChange } = {}) {
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `npm test`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add clio/ui/static/src/plan-subtitle.js clio/ui/static/src/state.js clio/ui/static/src/__tests__/plan-subtitle-drag.test.js
@@ -812,7 +812,7 @@ git commit -m "feat(ui): subtitle drag handle + position compute"
 - Modify: `clio/ui/static/src/editor-save.js`
 - Test: `clio/ui/static/src/__tests__/editor-plan-subtitle.test.js`
 
-- [ ] **Step 1: Write failing test for subtitle edit block**
+- [x] **Step 1: Write failing test for subtitle edit block**
 
 Create `clio/ui/static/src/__tests__/editor-plan-subtitle.test.js`:
 
@@ -839,12 +839,12 @@ describe('subtitle draft save', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify fail**
+- [x] **Step 2: Run to verify fail**
 
 Run: `npm test`
 Expected: FAIL — functions not exported/defined
 
-- [ ] **Step 3: Implement in `editor-plan.js`**
+- [x] **Step 3: Implement in `editor-plan.js`**
 
 Add near top imports; export pure helpers + save:
 
@@ -905,7 +905,7 @@ subSave.addEventListener('click', async () => {
 });
 ```
 
-- [ ] **Step 4: Extend `editor-save.js` dirty logic**
+- [x] **Step 4: Extend `editor-save.js` dirty logic**
 
 In `editor-save.js`, add a pure helper:
 
@@ -927,7 +927,7 @@ if (state.subtitleDirtyIndexes && state.subtitleDirtyIndexes.size > 0) {
 }
 ```
 
-- [ ] **Step 5: Wire drag persist into `editor-plan.js` render**
+- [x] **Step 5: Wire drag persist into `editor-plan.js` render**
 
 In the plan-mode branch (renderPlan) call once:
 
@@ -952,12 +952,12 @@ initSubtitleDrag({
 
 (Add a debounced `putSubtitlePosition` helper that fires `api('PUT','/api/config/project', state.configProject)` after drag ends.)
 
-- [ ] **Step 6: Run tests to verify pass**
+- [x] **Step 6: Run tests to verify pass**
 
 Run: `npm test`
 Expected: PASS
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add clio/ui/static/src/editor-plan.js clio/ui/static/src/editor-save.js clio/ui/static/src/__tests__/editor-plan-subtitle.test.js
@@ -971,7 +971,7 @@ git commit -m "feat(ui): plan subtitle edit + drag persist wiring"
 - Modify: `docs/project.example.yaml`
 - Modify: `docs/project.example.yaml` (`project-only example`)
 
-- [ ] **Step 1: Update existing tests to new DOM/text (`.plan-subtitle-text`)**
+- [x] **Step 1: Update existing tests to new DOM/text (`.plan-subtitle-text`)**
 
 In `plan-subtitle.test.js`, the assertions `el.textContent` need to read `.plan-subtitle-text`. Update `setPlayerSubtitleEl` to mount the two-span structure, and change `renderPlanSubtitle` assertions accordingly:
 
@@ -986,12 +986,12 @@ function setPlayerSubtitleEl() {
 }
 ```
 
-- [ ] **Step 2: Run the test suite**
+- [x] **Step 2: Run the test suite**
 
 Run: `npm test` and `python -m pytest clio/tests/`
 PASS (frontend + backend)
 
-- [ ] **Step 3: Add `preview.subtitles` to `docs/project.example.yaml`**
+- [x] **Step 3: Add `preview.subtitles` to `docs/project.example.yaml`**
 
 Append to `docs/project.example.yaml` after the `export:` block:
 
@@ -1014,7 +1014,7 @@ preview:
     pos_y: 8
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add clio/ui/static/src/__tests__/plan-subtitle.test.js docs/project.example.yaml
@@ -1027,15 +1027,15 @@ git commit -m "docs(examples): preview.subtitles sample config; fix subtitle tes
 - Modify: `clio/ui/static/src/editor-config.js`
 - Test: none (guard only; verified by existing config tests)
 
-- [ ] **Step 1: Confirm `preview` is excluded from config-order (do not add it)**
+- [x] **Step 1: Confirm `preview` is excluded from config-order (do not add it)**
 
 The `_renderConfigProject` order array (line 345) does not include `preview`; that is intentional per spec §2 — subtitle styling is only in plan page. No code change needed; just verify with `npm test` and `grep`.
 
-- [ ] **Step 2: Run the full suite + lint**
+- [x] **Step 2: Run the full suite + lint**
 
 Run: `npm test`; `python -m pytest clio/tests/`; `ruff check clio main.py`; `ruff format clio main.py`
 
-- [ ] **Step 3: Commit (if anything touched)**
+- [x] **Step 3: Commit (if anything touched)**
 
 If you needed no changes, skip the commit. Otherwise commit:
 

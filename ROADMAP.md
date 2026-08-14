@@ -252,10 +252,10 @@ Spec/plan: `docs/superpowers/specs|plans/2026-07-23-r033-hardening-and-pipeline-
 
 | Phase | ID | Status | Scope |
 | --- | --- | --- | --- |
-| 0 | R-032a | Open | Design: process model (server thread vs child), port, token, single-instance, ffmpeg discovery, upgrade path |
-| 1 | R-032b | Open | Dev desktop launcher: `python -m clio.desktop` starts server + pywebview window (no installer yet) |
-| 2 | R-032c | Open | Windows PyInstaller (or equivalent) onedir/onefile; scripts for build; document unsigned-run caveats |
-| 3 | R-032d | Open | UX: tray / quit stops server; open data/log folders; first-run wizard (config / ffmpeg / Whisper) |
+| 0 | R-032a | Done | Design: process model (server thread vs child), port, token, single-instance, ffmpeg discovery, upgrade path → `docs/superpowers/specs/2026-07-29-r032-desktop-pywebview-design.md` |
+| 1 | R-032b | Done | Dev desktop launcher: `python -m clio.desktop` starts server + pywebview window (no installer yet) |
+| 2 | R-032c | Done | Windows PyInstaller (or equivalent) onedir/onefile; scripts for build; document unsigned-run caveats → `packaging/clio.spec`, `packaging/build-desktop.ps1`, macOS in `build-desktop-macos.sh` (R-040) |
+| 3 | R-032d | Done | UX: quit stops server; native file/folder dialogs via pywebview bridge (`desktop-pick.js`); broken-lock handling; run-cancel on close (R-039 covers single-instance + coexistence) |
 | 4 | R-032e | Open | Optional: auto-bundle or download ffmpeg (ties R-028b/c); optional code-sign / InnoSetup installer |
 
 **Non-goals (initial):**

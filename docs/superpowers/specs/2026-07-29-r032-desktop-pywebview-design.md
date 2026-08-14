@@ -1,7 +1,7 @@
 # Design: R-032 Desktop app + native file/folder dialogs (pywebview)
 
 **Date**: 2026-07-29  
-**Status**: Draft — awaiting implementation plan  
+**Status**: Implemented ✅ — landed via `2026-07-30-r032-desktop-pywebview-plan.md`; refined by R-039 (single-instance + coexistence) and R-040 (out-of-box gaps); see `clio/desktop/*` and `packaging/` (P2-P33 sync)  
 **Scope**: Ship Clio as a double-click Windows desktop app; replace custom in-browser directory/file pickers with native OS dialogs; keep the existing localhost HTTP transport for API, media, SSE, and static assets; polish config-page path inputs.  
 **Approach**: **Hybrid (ROADMAP Option A)** — pywebview (system WebView2) hosts the existing SPA over `http://127.0.0.1:<port>`; existing `ThreadingHTTPServer` + handlers stay; native dialogs only via a thin `js_api` (`pick_*`); PyInstaller onedir for packaging.  
 **Related**: R-032a–e (`ROADMAP.md:151`); R-038 done; config path inputs (`editor-config.js:185`); custom browse modal (`sidebar-browse.js`); video player (`viewer.js:140`); run SSE (`runner.js:351`, `routes/run.py:84`).

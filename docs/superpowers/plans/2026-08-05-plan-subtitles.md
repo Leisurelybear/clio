@@ -18,7 +18,7 @@
 - Create: `clio/ui/static/src/plan-subtitle.js`
 - Test: `clio/ui/static/src/__tests__/plan-subtitle.test.js`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```js
 // clio/ui/static/src/__tests__/plan-subtitle.test.js
@@ -50,12 +50,12 @@ describe('splitSubtitleLines', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx vitest run clio/ui/static/src/__tests__/plan-subtitle.test.js -t splitSubtitleLines`
 Note: module `plan-subtitle.js` does not exist yet → FAIL.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```js
 // clio/ui/static/src/plan-subtitle.js
@@ -104,12 +104,12 @@ export function splitSubtitleLines(text, maxLen = 16) {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `npx vitest run clio/ui/static/src/__tests__/plan-subtitle.test.js -t splitSubtitleLines`
 Expected: PASS (5 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add clio/ui/static/src/plan-subtitle.js clio/ui/static/src/__tests__/plan-subtitle.test.js
@@ -126,7 +126,7 @@ git commit -m "feat(ui): subtitle line splitter pure helper"
 
 > Add to the existing test file's import list: `scheduleSubtitleTiming`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```js
 // append inside plan-subtitle.test.js
@@ -167,12 +167,12 @@ describe('scheduleSubtitleTiming', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx vitest run clio/ui/static/src/__tests__/plan-subtitle.test.js -t scheduleSubtitleTiming`
 Expected: FAIL (function not defined).
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```js
 // append to plan-subtitle.js
@@ -199,12 +199,12 @@ export function scheduleSubtitleTiming(durationSec, lineCount) {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `npx vitest run clio/ui/static/src/__tests__/plan-subtitle.test.js -t scheduleSubtitleTiming`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add clio/ui/static/src/plan-subtitle.js clio/ui/static/src/__tests__/plan-subtitle.test.js
@@ -221,7 +221,7 @@ git commit -m "feat(ui): subtitle timing scheduler pure helper"
 
 > Add `subtitleIndexAtTime` to the import list.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```js
 // append inside plan-subtitle.test.js
@@ -254,12 +254,12 @@ describe('subtitleIndexAtTime', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx vitest run clio/ui/static/src/__tests__/plan-subtitle.test.js -t subtitleIndexAtTime`
 Expected: FAIL (function not defined).
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```js
 // append to plan-subtitle.js
@@ -282,12 +282,12 @@ export function subtitleIndexAtTime(schedule, localSec) {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `npx vitest run clio/ui/static/src/__tests__/plan-subtitle.test.js -t subtitleIndexAtTime`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add clio/ui/static/src/plan-subtitle.js clio/ui/static/src/__tests__/plan-subtitle.test.js
@@ -302,7 +302,7 @@ git commit -m "feat(ui): subtitle line-at-time lookup pure helper"
 - Modify: `clio/ui/static/index.html:97-99`
 - Modify: `clio/ui/static/style.css:765-776`
 
-- [ ] **Step 1: Add the subtitle div in the player wrap**
+- [x] **Step 1: Add the subtitle div in the player wrap**
 
 In `clio/ui/static/index.html`, inside `.player-wrap`, after `<video id="player" ...></video>` (line 98), insert:
 
@@ -313,7 +313,7 @@ In `clio/ui/static/index.html`, inside `.player-wrap`, after `<video id="player"
 </div>
 ```
 
-- [ ] **Step 2: Add CSS position + subtitle style**
+- [x] **Step 2: Add CSS position + subtitle style**
 
 In `clio/ui/static/style.css`, at `.player-wrap` rule (line 765), add `position: relative;`:
 
@@ -341,12 +341,12 @@ Then add a new rule below `#player` (after line 776):
 .plan-subtitle[hidden] { display: none; }
 ```
 
-- [ ] **Step 3: Verify CSS via existing tests**
+- [x] **Step 3: Verify CSS via existing tests**
 
 Run: `npx vitest run clio/ui/static/src/__tests__/player-layout.test.js`
 Expected: PASS (existing layout test still passes with the added property).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add clio/ui/static/index.html clio/ui/static/style.css
@@ -363,7 +363,7 @@ git commit -m "feat(ui): plan subtitle overlay element and styles"
 
 > Add `loadVoiceoverText` to the import list.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```js
 // append inside plan-subtitle.test.js
@@ -404,12 +404,12 @@ describe('loadVoiceoverText', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx vitest run clio/ui/static/src/__tests__/plan-subtitle.test.js -t loadVoiceoverText`
 Expected: FAIL (function not defined or signature mismatch).
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Signature: `loadVoiceoverText(index, scriptJson, fetchFn = apiFetch)`. Third param is the **injectable fetch** used by tests (avoids depending on network / `api()` in jsdom). When absent, default to `api()`.
 
@@ -457,12 +457,12 @@ export function loadVoiceoverText(index, scriptJson, fetchFn = apiFetch) {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `npx vitest run clio/ui/static/src/__tests__/plan-subtitle.test.js -t loadVoiceoverText`
 Expected: PASS (4 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add clio/ui/static/src/plan-subtitle.js clio/ui/static/src/__tests__/plan-subtitle.test.js
@@ -479,7 +479,7 @@ git commit -m "feat(ui): cached voiceover subtitle loader"
 
 > This renders into the real `#plan-subtitle` element (jsdom). Tests pass an **options object** with an injected `ctx` and `textFor` so no `state`/network is needed. Signature: `renderPlanSubtitle(opts)` where `opts = { ctx?, textFor? }`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```js
 // append inside plan-subtitle.test.js
@@ -570,12 +570,12 @@ describe('renderPlanSubtitle / hidePlanSubtitle', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx vitest run clio/ui/static/src/__tests__/plan-subtitle.test.js -t renderPlanSubtitle`
 Expected: FAIL (functions not defined).
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 `renderPlanSubtitle` reads a context object (`opts.ctx`, or `readStateContext()` for production) and an injectable `opts.textFor(index, scriptJson) -> Promise<string|null>` (defaults to `loadVoiceoverText`). All production entry points use `renderPlanSubtitleFromState()`; tests pass `ctx` + a stub `textFor`.
 
@@ -671,12 +671,12 @@ export function renderPlanSubtitleFromState() {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `npx vitest run clio/ui/static/src/__tests__/plan-subtitle.test.js -t renderPlanSubtitle`
 Expected: PASS (8 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add clio/ui/static/src/plan-subtitle.js clio/ui/static/src/__tests__/plan-subtitle.test.js
@@ -690,7 +690,7 @@ git commit -m "feat(ui): plan subtitle DOM renderer"
 **Files:**
 - Modify: `clio/ui/static/src/viewer.js` (imports line 1-22; `seekToGlobal` ~line 201; `ontimeupdate` ~line 660-677; `stopPreview` ~line 542; `renderPreviewBar` non-plan branch ~line 356-360)
 
-- [ ] **Step 1: Import the renderers**
+- [x] **Step 1: Import the renderers**
 
 Near the top import block (after line 22), add:
 
@@ -698,7 +698,7 @@ Near the top import block (after line 22), add:
 import { renderPlanSubtitleFromState, hidePlanSubtitle } from './plan-subtitle.js';
 ```
 
-- [ ] **Step 2: Render after seeking to a segment**
+- [x] **Step 2: Render after seeking to a segment**
 
 In `seekToGlobal`, after `_loadAndSeekSource(v, seekSec, wantPlay);` (around line 201), add:
 
@@ -706,7 +706,7 @@ In `seekToGlobal`, after `_loadAndSeekSource(v, seekSec, wantPlay);` (around lin
   renderPlanSubtitleFromState();
 ```
 
-- [ ] **Step 3: Render on timeupdate**
+- [x] **Step 3: Render on timeupdate**
 
 In `player.ontimeupdate`, inside the `isGlobalTimelineUi() && state.previewIndex >= 0` block, after `updateCompositeClock();` (near line 677), add:
 
@@ -714,7 +714,7 @@ In `player.ontimeupdate`, inside the `isGlobalTimelineUi() && state.previewIndex
       renderPlanSubtitleFromState();
 ```
 
-- [ ] **Step 4: Hide on stopPreview**
+- [x] **Step 4: Hide on stopPreview**
 
 In `stopPreview` (after `player.pause();`, near line 547), add:
 
@@ -722,7 +722,7 @@ In `stopPreview` (after `player.pause();`, near line 547), add:
   hidePlanSubtitle();
 ```
 
-- [ ] **Step 5: Hide when leaving plan mode**
+- [x] **Step 5: Hide when leaving plan mode**
 
 In `renderPreviewBar`, the non-plan branch `if (!isPlan) { ... return; }` (line 356), add `hidePlanSubtitle();` **before** the `return;`:
 
@@ -736,17 +736,17 @@ In `renderPreviewBar`, the non-plan branch `if (!isPlan) { ... return; }` (line 
   }
 ```
 
-- [ ] **Step 6: Verify no syntax errors**
+- [x] **Step 6: Verify no syntax errors**
 
 Run: `node --check clio/ui/static/src/viewer.js`
 Expected: no output (valid).
 
-- [ ] **Step 7: Run frontend suite**
+- [x] **Step 7: Run frontend suite**
 
 Run: `npx vitest run`
 Expected: all existing frontend tests pass (incl. `viewer`/`preview-bar` consumer tests unaffected).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add clio/ui/static/src/viewer.js
@@ -759,21 +759,21 @@ git commit -m "feat(ui): drive plan subtitles from preview playback"
 
 **Files:** none (verification only).
 
-- [ ] **Step 1: Run entire frontend suite**
+- [x] **Step 1: Run entire frontend suite**
 
 Run: `npm test`
 Expected: all Vitest suites pass, including new `plan-subtitle.test.js`.
 
-- [ ] **Step 2: Run Python tests (confirm no backend change regressions)**
+- [x] **Step 2: Run Python tests (confirm no backend change regressions)**
 
 Run: `python -m pytest clio/tests/ -q`
 Expected: pass (no Python code touched by this feature; should be unchanged from baseline).
 
-- [ ] **Step 3: Update AGENTS.md / CHANGELOG if appropriate**
+- [x] **Step 3: Update AGENTS.md / CHANGELOG if appropriate**
 
 No AGENTS.md change needed (no new conventions). Add a CHANGELOG entry for the feature if the project tracks per-feature changelog entries (see `CHANGELOG.md` format used by prior 2026-08-05 entry).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add CHANGELOG.md
