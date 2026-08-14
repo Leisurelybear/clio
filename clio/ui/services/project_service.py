@@ -16,6 +16,7 @@ All functions take explicit parameters instead of relying on closure variables.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import threading
@@ -26,6 +27,8 @@ import yaml
 
 from clio.config import AppConfig, load_config
 from clio.ui.services.file_service import _save_atomic
+
+logger = logging.getLogger(__name__)
 
 _REGISTRY_LOCK = threading.RLock()
 
@@ -557,7 +560,12 @@ def resolve_last_project_config(config: AppConfig, config_path: Path | None) -> 
             if data.get("name") == last_name:
                 return load_config(config_path, project_dir=p)
         return config
-    except Exception:
+    # Expected resume failures (corrupt registry/config JSON or YAML, unreadable
+    # fs, bad legacy-shaped data, invalid project config) fall back to the
+    # default config — but logged so a broken last project is never silently
+    # digested. Anything outside this set (a coding bug) now propagates loudly.
+    except (json.JSONDecodeError, OSError, AttributeError, yaml.YAMLError, ValueError) as e:
+        logger.warning("resolve_last_project_config: falling back to default config (%s: %s)", type(e).__name__, e)
         return config
 
 

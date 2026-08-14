@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -15,6 +17,7 @@ from clio.ui.services.project_service import (
     _project_output_dir,
     _registry_path,
     _save_last_project,
+    resolve_last_project_config,
     resolve_project_input,
 )
 
@@ -239,6 +242,88 @@ class TestListProjects:
         names = [p["name"] for p in projects]
         assert "Tokyo" not in names
         assert "Current" in names
+
+
+class TestResolveLastProjectConfig:
+    """P2-P47: last-project resume must not silently swallow / corrupt.
+
+    Registry/project.json parse failures and bad legacy-shaped data fall back
+    to the default config (logged), while genuine bugs propagate.
+    """
+
+    def _cfg_with_registry(self, tmp_path: Path, payload: object) -> Path:
+        cfg = tmp_path / "config.yaml"
+        cfg.write_bytes(b"")
+        reg = tmp_path / "projects.json"
+        reg.write_text(json.dumps(payload), encoding="utf-8")
+        return cfg
+
+    def test_no_config_returns_passthrough(self):
+        base = MagicMock()
+        assert resolve_last_project_config(base, None) is base
+
+    def test_no_registry_returns_passthrough(self, tmp_path: Path):
+        base = MagicMock()
+        cfg = tmp_path / "config.yaml"
+        cfg.write_bytes(b"")
+        assert resolve_last_project_config(base, cfg) is base
+
+    def test_no_last_project_returns_passthrough(self, tmp_path: Path):
+        base = MagicMock()
+        cfg = self._cfg_with_registry(tmp_path, {"projects": []})
+        assert resolve_last_project_config(base, cfg) is base
+
+    @patch("clio.ui.services.project_service.load_config")
+    def test_new_dict_format_resolves_direct(self, mock_load, tmp_path: Path):
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        fake = MagicMock()
+        mock_load.return_value = fake
+        cfg = self._cfg_with_registry(
+            tmp_path,
+            {"projects": [], "last_project": {"project_dir": str(proj), "name": "x"}},
+        )
+        result = resolve_last_project_config(MagicMock(), cfg)
+        assert result is fake
+        mock_load.assert_called_once_with(cfg, project_dir=proj)
+
+    @patch("clio.ui.services.project_service.load_config")
+    def test_legacy_string_matches_project_name(self, mock_load, tmp_path: Path):
+        proj = tmp_path / "Paris"
+        proj.mkdir()
+        (proj / "project.json").write_text(json.dumps({"name": "Paris Trip"}), encoding="utf-8")
+        fake = MagicMock()
+        mock_load.return_value = fake
+        cfg = self._cfg_with_registry(
+            tmp_path,
+            {"projects": [str(proj)], "last_project": "Paris Trip"},
+        )
+        result = resolve_last_project_config(MagicMock(), cfg)
+        assert result is fake
+        mock_load.assert_called_once_with(cfg, project_dir=proj)
+
+    def test_corrupt_registry_falls_back_with_warning(self, tmp_path: Path, caplog):
+        base = MagicMock()
+        cfg = tmp_path / "config.yaml"
+        cfg.write_bytes(b"")
+        (tmp_path / "projects.json").write_text("{not-json", encoding="utf-8")
+        with caplog.at_level(logging.WARNING, logger="clio.ui.services.project_service"):
+            result = resolve_last_project_config(base, cfg)
+        assert result is base
+        assert any("resolve_last_project_config" in r.message for r in caplog.records)
+
+    def test_legacy_dict_form_broken_project_json_falls_back(self, tmp_path: Path, caplog):
+        """A project.json containing a JSON list (not a dict) must fall back to
+        the default config instead of corrupting or crashing."""
+        base = MagicMock()
+        proj = tmp_path / "Paris"
+        proj.mkdir()
+        (proj / "project.json").write_text("[]", encoding="utf-8")
+        cfg = self._cfg_with_registry(tmp_path, {"projects": [str(proj)], "last_project": "Paris Trip"})
+        with caplog.at_level(logging.WARNING, logger="clio.ui.services.project_service"):
+            result = resolve_last_project_config(base, cfg)
+        assert result is base
+        assert any("resolve_last_project_config" in r.message for r in caplog.records)
 
 
 class TestResolveProjectInput:
