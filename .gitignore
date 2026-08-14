@@ -36,6 +36,7 @@ node_modules/
 .coverage
 coverage.xml
 htmlcov/
+coverage/
 .mypy_cache/
 
 # PyInstaller build artifacts (packaging/clio.spec)

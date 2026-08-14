@@ -234,6 +234,41 @@ jobs:
         & ./setup.ps1
         Write-Output "setup.ps1 dry-run OK"
 
+  desktop-build:
+    name: Desktop bundle build (PyInstaller)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    # P2-P32: the PR workflow never built the desktop bundle, so spec/datas
+    # regressions surfaced only at release time. Validate the bundle builds on
+    # every PR that touches packaging or the desktop/UI it bundles.
+    if: startsWith(github.ref, 'refs/pull/')
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+        cache: pip
+        cache-dependency-path: requirements-locked.txt
+
+    - name: Install build dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements-locked.txt
+        pip install pyinstaller
+
+    - name: Build onedir with the release spec
+      run: python -m PyInstaller packaging/clio.spec --noconfirm --clean
+
+    - name: Verify artifacts
+      run: |
+        test -f "dist/clio/clio" || { echo "clio binary not built"; exit 1; }
+        find "dist/clio" -name "index.html" -path "*ui/static*" | grep -q . || { echo "static assets missing"; exit 1; }
+        echo "desktop bundle build OK"
+
   packaging:
     name: Package build + install verify
     runs-on: ubuntu-latest

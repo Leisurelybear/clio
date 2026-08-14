@@ -65,6 +65,8 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: read
+      id-token: write
+      attestations: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -138,6 +140,11 @@ jobs:
           path: clio-${{ needs.version.outputs.version }}-windows-x64.zip
           if-no-files-found: error
 
+      - name: Attest build provenance (SLSA)
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: clio-${{ needs.version.outputs.version }}-windows-x64.zip
+
   build-macos:
     name: Build onedir (macOS universal2)
     runs-on: macos-26-intel
@@ -145,6 +152,8 @@ jobs:
     timeout-minutes: 90
     permissions:
       contents: read
+      id-token: write
+      attestations: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -255,6 +264,11 @@ jobs:
           path: clio-${{ needs.version.outputs.version }}-macos-universal2.zip
           if-no-files-found: error
 
+      - name: Attest build provenance (SLSA)
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: clio-${{ needs.version.outputs.version }}-macos-universal2.zip
+
   release:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
@@ -263,10 +277,42 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-locked.txt
+
+      - name: Generate Python SBOM
+        run: |
+          python -m pip install --upgrade pip
+          pip install cyclonedx-bom
+          grep -v '^#' requirements-locked.txt > /tmp/reqs-clean.txt
+          cyclonedx-py requirements /tmp/reqs-clean.txt --output-format json -o python-sbom.json
+          test -s python-sbom.json || { echo "python SBOM empty"; exit 1; }
+          echo "python SBOM OK"
+
+      - name: Generate frontend SBOM
+        run: |
+          npm ci
+          npm sbom --sbom-format spdx > frontend-sbom.spdx.json
+          test -s frontend-sbom.spdx.json || { echo "frontend SBOM empty"; exit 1; }
+          echo "frontend SBOM OK"
+
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          find . -name '*.zip' -type f | sort | xargs sha256sum > SHA256SUMS
+          cat SHA256SUMS
 
       - name: Create GitHub Release
         env:
@@ -274,9 +320,13 @@ jobs:
         run: |
           VER="${{ needs.version.outputs.version }}"
           tag="${{ github.ref_name }}"
+          cp python-sbom.json frontend-sbom.spdx.json artifacts/
           gh release create "$tag" \
             artifacts/clio-${VER}-windows-x64/*.zip \
             artifacts/clio-${VER}-macos-universal2/*.zip \
+            artifacts/python-sbom.json \
+            artifacts/frontend-sbom.spdx.json \
+            artifacts/SHA256SUMS \
             --title "Clio $tag" \
-            --notes "Desktop builds for Windows x64 and macOS (universal2, Intel + Apple Silicon). See packaging/README-desktop.md for WebView2 / ffmpeg / SmartScreen notes. Windows ARM64: use the x64 build (runs under emulation)." \
+            --notes "Desktop builds for Windows x64 and macOS (universal2, Intel + Apple Silicon). See packaging/README-desktop.md for WebView2 / ffmpeg / SmartScreen notes. Windows ARM64: use the x64 build (runs under emulation). SBOM + SHA256SUMS attached for supply-chain verification (P2-P32)." \
             --repo "${{ github.repository }}"
