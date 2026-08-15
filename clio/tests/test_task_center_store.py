@@ -237,3 +237,41 @@ def test_store_enables_wal_mode(tmp_path):
 
     with sqlite3.connect(path) as connection:
         assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+
+
+def test_store_repairs_missing_event_table_on_existing_database(tmp_path):
+    path = tmp_path / "tasks.sqlite3"
+    store = TaskStore(path)
+    with sqlite3.connect(path) as connection:
+        connection.execute("DROP TABLE task_events")
+
+    # The store may remain alive while a stale/partial database is restored.
+    # A changed SQLite schema identity must trigger the idempotent bootstrap.
+    assert store.events() == []
+    with sqlite3.connect(path) as connection:
+        assert (
+            connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'task_events'"
+            ).fetchone()
+            is not None
+        )
+
+
+def test_snapshot_returns_matching_tasks_count_and_event_cursor(tmp_path):
+    store = TaskStore(tmp_path / "tasks.sqlite3")
+    store.create(create_task(TaskKind.PIPELINE, "前台", task_id="foreground", project_id="p1"))
+    store.create(
+        create_task(
+            TaskKind.WAVEFORM,
+            "后台",
+            task_id="background",
+            project_id="p1",
+            visibility=TaskVisibility.BACKGROUND,
+        )
+    )
+
+    tasks, total, cursor = store.snapshot(TaskQuery(project_id="p1", visibility=TaskVisibility.FOREGROUND))
+
+    assert [task.id for task in tasks] == ["foreground"]
+    assert total == 1
+    assert cursor == 2

@@ -1,6 +1,6 @@
 """Unified background task lifecycle and persistence."""
 
-from clio.task_center.manager import TaskManager
+from clio.task_center.manager import TaskAlreadyRunningError, TaskManager
 from clio.task_center.models import (
     TaskEvent,
     TaskEventLevel,
@@ -22,6 +22,7 @@ __all__ = [
     "TaskEventType",
     "TaskKind",
     "TaskManager",
+    "TaskAlreadyRunningError",
     "TaskRecord",
     "TaskReporter",
     "TaskProgressReporter",

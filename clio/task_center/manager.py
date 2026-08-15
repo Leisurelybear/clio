@@ -5,7 +5,12 @@ import time
 from dataclasses import dataclass, replace
 from typing import Any
 
-from clio.task_center.executor import TaskContext, TaskExecutorRegistry, TaskHandler
+from clio.task_center.executor import (
+    TaskContext,
+    TaskExecutorRegistry,
+    TaskHandler,
+    TaskHandlerNotRegisteredError,
+)
 from clio.task_center.models import (
     TaskEvent,
     TaskEventLevel,
@@ -33,6 +38,10 @@ class TaskManagerClosedError(RuntimeError):
 
 class TaskConcurrencyPolicyError(RuntimeError):
     pass
+
+
+class TaskAlreadyRunningError(TaskConcurrencyPolicyError):
+    """Raised when a caller requests a single active task per concurrency key."""
 
 
 @dataclass(slots=True)
@@ -70,13 +79,35 @@ class TaskManager:
         max_concurrency: int = 1,
         cancellable: bool = False,
     ):
-        return self.registry.register(
-            kind,
-            handler,
-            concurrency_key=concurrency_key,
-            max_concurrency=max_concurrency,
-            cancellable=cancellable,
-        )
+        with self._lock:
+            return self.registry.register(
+                kind,
+                handler,
+                concurrency_key=concurrency_key,
+                max_concurrency=max_concurrency,
+                cancellable=cancellable,
+            )
+
+    def ensure_registered(
+        self,
+        kind: TaskKind,
+        handler: TaskHandler,
+        *,
+        concurrency_key=None,
+        max_concurrency: int = 1,
+        cancellable: bool = False,
+    ):
+        """Register a lazy route handler once, atomically across request threads."""
+        with self._lock:
+            if kind in self.registry.kinds():
+                return self.registry.require(kind)
+            return self.registry.register(
+                kind,
+                handler,
+                concurrency_key=concurrency_key,
+                max_concurrency=max_concurrency,
+                cancellable=cancellable,
+            )
 
     def submit(
         self,
@@ -92,6 +123,7 @@ class TaskManager:
         visibility: TaskVisibility = TaskVisibility.FOREGROUND,
         input_data: dict[str, Any] | None = None,
         input_summary: dict[str, Any] | None = None,
+        reject_if_active: bool = False,
     ) -> TaskRecord:
         registration = self.registry.require(kind)
         task = create_task(
@@ -118,6 +150,21 @@ class TaskManager:
         with self._condition:
             if self._closed:
                 raise TaskManagerClosedError("task manager is closed")
+            if reject_if_active:
+                key = registration.key_for(task)
+                if key is not None:
+                    active = self.store.active_tasks()
+                    for existing in active:
+                        if existing.id == task.id:
+                            continue
+                        try:
+                            existing_registration = self.registry.require(existing.kind)
+                        except TaskHandlerNotRegisteredError:
+                            continue
+                        if existing_registration.key_for(existing) == key:
+                            raise TaskAlreadyRunningError(
+                                f"an active task already uses concurrency key {key!r}: {existing.id}"
+                            )
             self.store.create(task)
             self._runtime[task.id] = _RuntimeTask(thread=thread, cancel_event=cancel_event)
             self._task_locks.setdefault(task.id, threading.Lock())
@@ -141,6 +188,7 @@ class TaskManager:
             visibility=original.visibility,
             input_data=original.input_data,
             input_summary=original.input_summary,
+            reject_if_active=True,
         )
 
     def request_cancel(self, task_id: str) -> TaskRecord:
@@ -396,8 +444,11 @@ class TaskManager:
             if task.is_terminal:
                 return task
             changed_at = utc_now_iso()
+            completed = transition_task(task, TaskStatus.SUCCEEDED, at=changed_at, message="任务完成")
             updated = replace(
-                transition_task(task, TaskStatus.SUCCEEDED, at=changed_at, message="任务完成"),
+                completed,
+                current=completed.total if completed.total > 0 else completed.current,
+                progress_pct=100.0 if completed.total > 0 else completed.progress_pct,
                 result_summary=dict(result),
             )
             event = TaskEvent(

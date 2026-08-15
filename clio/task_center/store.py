@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
@@ -65,9 +66,13 @@ class TaskStore:
             raise ValueError("busy_timeout_ms must be positive")
         self.path = path
         self._busy_timeout_ms = busy_timeout_ms
+        self._schema_lock = threading.Lock()
+        self._schema_identity: tuple[int, int, int] | None = None
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as connection:
-            initialize_schema(connection)
+        # Create the database eagerly so startup failures are reported at the
+        # owner boundary rather than on the first asynchronous event query.
+        with self._connect():
+            pass
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -77,14 +82,27 @@ class TaskStore:
             isolation_level=None,
         )
         connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute(f"PRAGMA busy_timeout = {self._busy_timeout_ms}")
-        connection.execute("PRAGMA journal_mode = WAL")
-        connection.execute("PRAGMA synchronous = NORMAL")
         try:
+            connection.execute("PRAGMA foreign_keys = ON")
+            connection.execute(f"PRAGMA busy_timeout = {self._busy_timeout_ms}")
+            connection.execute("PRAGMA journal_mode = WAL")
+            connection.execute("PRAGMA synchronous = NORMAL")
+            self._ensure_schema(connection)
             yield connection
         finally:
             connection.close()
+
+    def _ensure_schema(self, connection: sqlite3.Connection) -> None:
+        with self._schema_lock:
+            stat = self.path.stat()
+            schema_version = int(connection.execute("PRAGMA schema_version").fetchone()[0])
+            identity = (stat.st_dev, stat.st_ino, schema_version)
+            if identity == self._schema_identity:
+                return
+            initialize_schema(connection)
+            stat = self.path.stat()
+            schema_version = int(connection.execute("PRAGMA schema_version").fetchone()[0])
+            self._schema_identity = (stat.st_dev, stat.st_ino, schema_version)
 
     def create(self, task: TaskRecord) -> TaskRecord:
         event = TaskEvent(
@@ -153,6 +171,43 @@ class TaskStore:
             sql += " WHERE " + " AND ".join(where)
         with self._connect() as connection:
             return int(connection.execute(sql, params).fetchone()[0])
+
+    def active_tasks(self) -> list[TaskRecord]:
+        statuses = (TaskStatus.QUEUED, TaskStatus.RUNNING, TaskStatus.CANCELLING)
+        placeholders = ", ".join("?" for _ in statuses)
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"SELECT * FROM tasks WHERE status IN ({placeholders}) ORDER BY updated_at DESC, id DESC",  # noqa: S608
+                [status.value for status in statuses],
+            ).fetchall()
+        return [self._row_to_task(row) for row in rows]
+
+    def snapshot(self, query: TaskQuery | None = None) -> tuple[list[TaskRecord], int, int]:
+        """Return list, count and event cursor from one SQLite read snapshot."""
+        query = query or TaskQuery()
+        where: list[str] = []
+        params: list[Any] = []
+        if query.project_id is not None:
+            where.append("project_id = ?")
+            params.append(query.project_id)
+        self._append_enum_filter(where, params, "status", query.statuses)
+        self._append_enum_filter(where, params, "kind", query.kinds)
+        if query.visibility is not None:
+            where.append("visibility = ?")
+            params.append(query.visibility.value)
+        clause = " WHERE " + " AND ".join(where) if where else ""
+        list_sql = f"SELECT * FROM tasks{clause} ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?"  # noqa: S608
+        count_sql = f"SELECT COUNT(*) FROM tasks{clause}"  # noqa: S608
+        with self._connect() as connection:
+            connection.execute("BEGIN")
+            # Establish the read snapshot with the cursor first. A task created
+            # afterwards is absent from the list and will therefore be replayed
+            # by SSE after this cursor; a task created before it appears in both.
+            latest_seq = int(connection.execute("SELECT COALESCE(MAX(seq), 0) FROM task_events").fetchone()[0])
+            rows = connection.execute(list_sql, [*params, query.limit, query.offset]).fetchall()
+            total = int(connection.execute(count_sql, params).fetchone()[0])
+            connection.commit()
+        return [self._row_to_task(row) for row in rows], total, latest_seq
 
     def save_with_event(
         self,

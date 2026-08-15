@@ -60,13 +60,14 @@ CREATE INDEX IF NOT EXISTS idx_task_events_task_seq ON task_events(task_id, seq)
 
 def initialize_schema(connection: sqlite3.Connection) -> None:
     connection.executescript(_SCHEMA_SQL)
+    # Multiple server threads/processes can open the same new database at
+    # startup.  INSERT OR IGNORE makes the bootstrap idempotent instead of
+    # allowing a race between SELECT and INSERT to abort initialization.
+    connection.execute(
+        "INSERT OR IGNORE INTO task_meta(key, value) VALUES ('schema_version', ?)",
+        (str(TASK_STORE_SCHEMA_VERSION),),
+    )
     row = connection.execute("SELECT value FROM task_meta WHERE key = 'schema_version'").fetchone()
-    if row is None:
-        connection.execute(
-            "INSERT INTO task_meta(key, value) VALUES ('schema_version', ?)",
-            (str(TASK_STORE_SCHEMA_VERSION),),
-        )
-        return
     try:
         version = int(row[0])
     except (TypeError, ValueError) as e:

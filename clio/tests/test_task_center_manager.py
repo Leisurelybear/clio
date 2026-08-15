@@ -11,6 +11,7 @@ from clio.task_center.executor import (
     TaskHandlerNotRegisteredError,
 )
 from clio.task_center.manager import (
+    TaskAlreadyRunningError,
     TaskConcurrencyPolicyError,
     TaskManager,
     TaskManagerClosedError,
@@ -62,7 +63,8 @@ def test_submit_runs_handler_and_persists_result_and_status_events(tmp_path):
 
     assert finished.status is TaskStatus.SUCCEEDED
     assert finished.phase == "analyze"
-    assert finished.progress_pct == 50.0
+    assert finished.current == 2
+    assert finished.progress_pct == 100.0
     assert finished.result_summary == {"output": "plan.json"}
     events = manager.store.events(task_id=submitted.id)
     assert [event.type for event in events] == [
@@ -72,6 +74,68 @@ def test_submit_runs_handler_and_persists_result_and_status_events(tmp_path):
         TaskEventType.LOG,
         TaskEventType.STATUS,
     ]
+
+
+def test_reject_if_active_is_atomic_for_shared_concurrency_key(tmp_path):
+    manager = _manager(tmp_path)
+    entered = threading.Event()
+    release = threading.Event()
+
+    def handler(context):
+        entered.set()
+        release.wait(timeout=2)
+        return None
+
+    manager.register(
+        TaskKind.PIPELINE,
+        handler,
+        concurrency_key=lambda task: f"run:{task.project_id}",
+        max_concurrency=1,
+    )
+    first = manager.submit(
+        TaskKind.PIPELINE,
+        "一",
+        project_id="project-1",
+        reject_if_active=True,
+    )
+    assert entered.wait(timeout=2)
+
+    with pytest.raises(TaskAlreadyRunningError):
+        manager.submit(
+            TaskKind.PIPELINE,
+            "二",
+            project_id="project-1",
+            reject_if_active=True,
+        )
+    release.set()
+    assert manager.wait(first.id).status is TaskStatus.SUCCEEDED
+
+
+def test_reject_if_active_checks_beyond_api_page_limit(tmp_path):
+    manager = _manager(tmp_path)
+    manager.register(
+        TaskKind.PIPELINE,
+        lambda context: None,
+        concurrency_key=lambda task: f"run:{task.project_id}",
+    )
+    manager.store.create(create_task(TaskKind.PIPELINE, "冲突任务", task_id="oldest", project_id="conflict"))
+    for index in range(200):
+        manager.store.create(
+            create_task(
+                TaskKind.PIPELINE,
+                f"其它任务 {index}",
+                task_id=f"newer-{index:03d}",
+                project_id=f"other-{index}",
+            )
+        )
+
+    with pytest.raises(TaskAlreadyRunningError):
+        manager.submit(
+            TaskKind.PIPELINE,
+            "重复任务",
+            project_id="conflict",
+            reject_if_active=True,
+        )
 
 
 def test_handler_failure_is_persisted(tmp_path):
