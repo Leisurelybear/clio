@@ -13,8 +13,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from clio._constants import VIDEO_EXTS
+from clio.config import load_config
 from clio.pipeline import run_analyze_all, run_compress_all, run_generate_scripts, run_pipeline_steps
 from clio.progress import ProgressTracker
+from clio.task_center.manager import TaskManager, TaskNotCancellableError
+from clio.task_center.models import TaskKind, TaskStatus
+from clio.task_center.reporter import TaskCancelled, TaskProgressReporter
+from clio.task_center.store import TaskNotFoundError, TaskQuery
 from clio.tasks._video_loader import load_selected_videos
 from clio.tasks.transcribe import run_transcribe_one
 from clio.ui.services.file_service import _find_original_for_compressed, _find_texts_dirs, _is_safe_basename
@@ -24,6 +29,159 @@ from clio.vmeta import VideoMeta
 
 if TYPE_CHECKING:
     from clio.ui.handler_protocol import HandlerProtocol
+
+
+def _managed_task_manager(handler: Any) -> TaskManager | None:
+    """Return the real manager on an HTTP handler; legacy test doubles return MagicMock."""
+    try:
+        manager = handler._get_task_manager()
+    except (AttributeError, TypeError):
+        return None
+    return manager if isinstance(manager, TaskManager) else None
+
+
+def _active_managed_run(manager: TaskManager, project_id: str):
+    tasks = manager.store.list(
+        TaskQuery(
+            project_id=project_id,
+            statuses=(TaskStatus.QUEUED, TaskStatus.RUNNING, TaskStatus.CANCELLING),
+            kinds=(TaskKind.PIPELINE, TaskKind.RERUN),
+            visibility=None,
+            limit=1,
+        )
+    )
+    return tasks[0] if tasks else None
+
+
+def _ensure_run_handlers(manager: TaskManager) -> None:
+    if TaskKind.PIPELINE not in manager.registry.kinds():
+        manager.register(
+            TaskKind.PIPELINE,
+            _run_pipeline_task,
+            concurrency_key=lambda task: f"run:{task.project_id or task.project_path}",
+            max_concurrency=1,
+            cancellable=True,
+        )
+    if TaskKind.RERUN not in manager.registry.kinds():
+        manager.register(
+            TaskKind.RERUN,
+            _run_rerun_task,
+            concurrency_key=lambda task: f"run:{task.project_id or task.project_path}",
+            max_concurrency=1,
+            cancellable=True,
+        )
+
+
+def _task_config(context) -> Any:
+    config_path = context.input_data.get("config_path") or "config.yaml"
+    project_path = Path(context.task.project_path or context.input_data["project_dir"])
+    cfg = load_config(config_path, project_dir=project_path)
+    cfg = copy.deepcopy(cfg)
+    if "use_transcripts" in context.input_data:
+        cfg.plan.use_transcripts = bool(context.input_data["use_transcripts"])
+    return cfg
+
+
+def _run_pipeline_task(context) -> dict[str, Any]:
+    cfg = _task_config(context)
+    input_data = context.input_data
+    legacy = ProgressTracker(cfg.paths.output_dir)
+    tracker = TaskProgressReporter(context.reporter, legacy)
+    try:
+        run_pipeline_steps(
+            cfg,
+            input_data.get("day_label", "day1"),
+            input_data.get("steps"),
+            tracker=tracker,
+            cancel_event=context.cancel_event,
+            files=input_data.get("files"),
+            overwrite=bool(input_data.get("overwrite", False)),
+            context_override=input_data.get("context_override"),
+            task_prompts=input_data.get("task_prompts"),
+        )
+    except TaskCancelled:
+        tracker.cancelled("任务已取消")
+        raise
+    except Exception as e:
+        tracker.error(f"pipeline failed: {e}")
+        raise
+    return {"steps": input_data.get("steps") or [], "output_dir": str(cfg.paths.output_dir)}
+
+
+def _run_rerun_task(context) -> dict[str, Any]:
+    input_data = context.input_data
+    cfg = _task_config(context)
+    cfg.analyze.skip_existing = False
+    video_basename = str(input_data["video_basename"])
+    task_name = str(input_data["task"])
+    original_video = Path(input_data["original_video"])
+    texts_raw = input_data.get("texts_json")
+    texts_json = Path(texts_raw) if texts_raw else None
+    legacy = ProgressTracker(cfg.paths.output_dir, rerun=True, rerun_video=video_basename)
+    tracker = TaskProgressReporter(context.reporter, legacy)
+
+    def _log(message: str) -> None:
+        print(f"  [rerun] {message}")
+        tracker.log(message)
+
+    try:
+        _log(f"▶ Starting rerun {task_name} — {video_basename}")
+        for step_name, step_fn, step_label in [
+            (
+                "compress",
+                lambda: run_compress_all(
+                    cfg, tracker=tracker, single_file=original_video, cancel_event=context.cancel_event
+                ),
+                "压缩视频",
+            ),
+            (
+                "analyze",
+                lambda: run_analyze_all(
+                    cfg, tracker=tracker, single_file=original_video, cancel_event=context.cancel_event
+                ),
+                "AI 分析",
+            ),
+            (
+                "voiceover",
+                lambda: run_generate_scripts(
+                    cfg, tracker=tracker, single_file=texts_json, cancel_event=context.cancel_event
+                ),
+                "生成口播",
+            ),
+        ]:
+            if task_name not in (step_name, "all"):
+                continue
+            context.reporter.raise_if_cancelled()
+            _log(f"Step: {step_label}...")
+            step_fn()
+            _log(f"✓ {step_label} complete")
+        if task_name in ("transcribe", "all"):
+            context.reporter.raise_if_cancelled()
+            _log("Step: transcribing audio...")
+            from clio.transcribe import check_whisper
+
+            if not check_whisper():
+                raise RuntimeError("faster-whisper 未安装。执行: python main.py whisper install")
+            result = run_transcribe_one(
+                cfg,
+                original_video,
+                cancel_event=context.cancel_event,
+                progress_callback=lambda pct: tracker.update(
+                    phase="transcribe", current=pct, total=100, message=f"{video_basename}: 转录 ({pct}%)"
+                ),
+            )
+            if "error" in result:
+                raise RuntimeError(result["error"])
+            _log("✓ transcription complete")
+        context.reporter.raise_if_cancelled()
+        tracker.done(f"{task_name} → {video_basename} complete")
+    except TaskCancelled:
+        tracker.cancelled("任务已取消")
+        raise
+    except Exception as e:
+        tracker.error(f"rerun failed: {e}")
+        raise
+    return {"task": task_name, "video": video_basename}
 
 
 def _resolve_run_project_dir(
@@ -121,6 +279,8 @@ def handle_get_run_stream(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     proj_dir = handler._resolve_project_dir(qs)
     state = handler._get_state(str(proj_dir.resolve()))
     progress_file = handler._get_project_output(qs) / ".progress.json"
+    manager = _managed_task_manager(handler)
+    project_id = str(proj_dir.resolve())
 
     handler.send_response(200)
     handler.send_header("Content-Type", "text/event-stream")
@@ -134,12 +294,28 @@ def handle_get_run_stream(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     try:
         while True:
             parsed = _read_progress_file(progress_file)
+            managed_task = _active_managed_run(manager, project_id) if manager is not None else None
+            if parsed is None and managed_task is not None:
+                parsed = {
+                    "status": "running",
+                    "phase": managed_task.phase,
+                    "current": managed_task.current,
+                    "total": managed_task.total,
+                    "message": managed_task.message,
+                    "task_id": managed_task.id,
+                    "rerun": managed_task.kind is TaskKind.RERUN,
+                    "rerun_video": managed_task.input_summary.get("video"),
+                }
             if parsed is not None:
                 raw = json.dumps(parsed, ensure_ascii=False)
                 if raw != last_data:
                     last_data = raw
-                    with state.run_lock:
-                        running = state.run_thread is not None and state.run_thread.is_alive()
+                    if managed_task is not None:
+                        running = True
+                        parsed["task_id"] = managed_task.id
+                    else:
+                        with state.run_lock:
+                            running = state.run_thread is not None and state.run_thread.is_alive()
                     parsed["running"] = running
                     if parsed.get("status") == "running" and not running:
                         parsed["status"] = "idle"
@@ -179,6 +355,24 @@ def handle_get_run_status(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
         data = _read_progress_file(progress_file)
         if data is None:
             data = {"status": "unknown"}
+    manager = _managed_task_manager(handler)
+    if manager is not None:
+        task = _active_managed_run(manager, str(proj_dir.resolve()))
+        if task is not None:
+            data.update(
+                {
+                    "task_id": task.id,
+                    "status": "running",
+                    "running": True,
+                    "phase": task.phase,
+                    "current": task.current,
+                    "total": task.total,
+                    "message": task.message,
+                    "rerun": task.kind is TaskKind.RERUN,
+                    "rerun_video": task.input_summary.get("video"),
+                }
+            )
+            return handler._send_json(data)
     with state.run_lock:
         running = state.run_thread is not None and state.run_thread.is_alive()
     data["running"] = running
@@ -236,6 +430,46 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
     overwrite = obj.get("overwrite", False)
     context_override = obj.get("context_override") or None
     task_prompts = obj.get("task_prompts") or None
+
+    manager = _managed_task_manager(handler)
+    if manager is not None:
+        _ensure_run_handlers(manager)
+        project_id = str(proj_dir.resolve())
+        if _active_managed_run(manager, project_id) is not None:
+            return handler._send_json({"ok": False, "error": "pipeline is already running"}, 409)
+        input_data = {
+            "config_path": str(config_path) if config_path is not None else None,
+            "project_dir": project_id,
+            "day_label": day_label,
+            "steps": steps,
+            "files": files_list,
+            "overwrite": bool(overwrite),
+            "use_transcripts": cfg.plan.use_transcripts,
+            "context_override": context_override,
+            "task_prompts": task_prompts,
+        }
+        task = manager.submit(
+            TaskKind.PIPELINE,
+            "运行素材处理流水线",
+            project_id=project_id,
+            project_name=proj_dir.name,
+            project_path=project_id,
+            input_data=input_data,
+            input_summary={
+                "steps": list(steps or []),
+                "file_count": len(files_list) if files_list is not None else None,
+                "day_label": day_label,
+            },
+        )
+        label = "+".join(steps) if steps else "all"
+        return handler._send_json(
+            {
+                "ok": True,
+                "message": f"pipeline started ({label})",
+                "task_id": task.id,
+                "task": task.to_dict(),
+            }
+        )
 
     with state.run_lock:
         if state.run_thread is not None and state.run_thread.is_alive():
@@ -315,6 +549,19 @@ def handle_post_run_preview(handler: HandlerProtocol, qs: dict[str, Any], obj: d
 def handle_post_run_cancel(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
     """Handle POST /api/run/cancel."""
     proj_dir = handler._resolve_project_dir(qs)
+    manager = _managed_task_manager(handler)
+    if manager is not None:
+        task_id = obj.get("task_id") if isinstance(obj.get("task_id"), str) else None
+        task = manager.store.get(task_id) if task_id else _active_managed_run(manager, str(proj_dir.resolve()))
+        if task is not None:
+            try:
+                cancelled = manager.request_cancel(task.id)
+            except (TaskNotFoundError, TaskNotCancellableError) as e:
+                return handler._send_json({"ok": False, "error": str(e)}, 409)
+            return handler._send_json(
+                {"ok": True, "message": "取消请求已发送", "task_id": cancelled.id, "task": cancelled.to_dict()}
+            )
+        return handler._send_json({"ok": True, "message": "当前没有运行中的任务"})
     state = handler._get_state(str(proj_dir.resolve()))
     state.cancel_event.set()
     handler._send_json({"ok": True, "message": "取消请求已发送"})
@@ -324,6 +571,9 @@ def handle_post_rerun(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -
     """Handle POST /api/rerun."""
     proj_dir = handler._resolve_project_dir(qs)
     cfg = handler._get_config(proj_dir)
+    config_path = getattr(handler, "config_path", None)
+    if not isinstance(config_path, Path):
+        config_path = None
     state = handler._get_state(str(proj_dir.resolve()))
     proj_out = _project_output_dir(proj_dir)
 
@@ -420,6 +670,37 @@ def handle_post_rerun(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -
                 break
         if texts_json is None:
             return handler._send_json({"ok": False, "error": f"no analysis result found for {stem}"}, 404)
+
+    manager = _managed_task_manager(handler)
+    if manager is not None:
+        _ensure_run_handlers(manager)
+        project_id = str(proj_dir.resolve())
+        if _active_managed_run(manager, project_id) is not None:
+            return handler._send_json({"ok": False, "error": "a task is already running"}, 409)
+        managed_task = manager.submit(
+            TaskKind.RERUN,
+            f"重跑 {task}: {video_basename}",
+            project_id=project_id,
+            project_name=proj_dir.name,
+            project_path=project_id,
+            input_data={
+                "config_path": str(config_path) if config_path is not None else None,
+                "project_dir": project_id,
+                "task": task,
+                "video_basename": video_basename,
+                "original_video": str(original_video),
+                "texts_json": str(texts_json) if texts_json is not None else None,
+            },
+            input_summary={"task": task, "video": video_basename},
+        )
+        return handler._send_json(
+            {
+                "ok": True,
+                "message": f"started rerun {task} ({video_basename})",
+                "task_id": managed_task.id,
+                "task": managed_task.to_dict(),
+            }
+        )
 
     def _rerun_worker(
         cfg=cfg,

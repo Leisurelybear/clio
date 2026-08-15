@@ -11,7 +11,7 @@ from clio.task_center.models import (
     TaskVisibility,
     create_task,
 )
-from clio.task_center.reporter import TaskCancelled, TaskReporter
+from clio.task_center.reporter import TaskCancelled, TaskProgressReporter, TaskReporter
 from clio.task_center.state_machine import InvalidTaskTransition, transition_task
 from clio.task_center.store import TaskQuery, TaskStore
 
@@ -24,6 +24,7 @@ __all__ = [
     "TaskManager",
     "TaskRecord",
     "TaskReporter",
+    "TaskProgressReporter",
     "TaskQuery",
     "TaskStatus",
     "TaskStore",

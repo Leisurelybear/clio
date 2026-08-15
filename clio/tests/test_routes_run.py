@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -18,6 +20,33 @@ from clio.ui.routes.run import (
     handle_post_run_preview,
     handle_post_run_start,
 )
+
+
+def _managed_handler(tmp_path, manager):
+    from threading import Event, Lock
+
+    class _State:
+        def __init__(self):
+            self.run_lock = Lock()
+            self.run_thread = None
+            self.cancel_event = Event()
+
+    project_dir = tmp_path / "project"
+    output_dir = tmp_path / "output"
+    project_dir.mkdir(exist_ok=True)
+    output_dir.mkdir(exist_ok=True)
+    cfg = SimpleNamespace(
+        paths=SimpleNamespace(output_dir=output_dir),
+        plan=SimpleNamespace(use_transcripts=True),
+    )
+    handler = MagicMock()
+    handler.config_path = None
+    handler._resolve_project_dir.return_value = project_dir
+    handler._get_config.return_value = cfg
+    handler._get_task_manager = lambda: manager
+    handler._get_state.return_value = _State()
+    handler._get_project_output.return_value = output_dir
+    return handler, project_dir, output_dir
 
 
 @pytest.fixture
@@ -505,3 +534,113 @@ class TestHandlePostRunCancel:
 
         assert handler.__class__._fake_state.cancel_event.is_set()
         handler._send_json.assert_called_once_with({"ok": True, "message": "取消请求已发送"})
+
+
+class TestManagedRunIntegration:
+    def test_start_submits_managed_pipeline_and_returns_task_id(self, tmp_path, monkeypatch):
+        from clio.task_center.manager import TaskManager
+        from clio.task_center.models import TaskKind, TaskStatus
+        from clio.task_center.store import TaskStore
+
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+        captured = {}
+
+        def worker(context):
+            captured.update(context.input_data)
+            return {"ok": True}
+
+        monkeypatch.setattr("clio.ui.routes.run._run_pipeline_task", worker)
+        handler, project_dir, _ = _managed_handler(tmp_path, manager)
+
+        handle_post_run_start(handler, {}, {"steps": ["compress", "analyze"], "files": ["A.mp4"]})
+
+        payload = handler._send_json.call_args.args[0]
+        task = manager.wait(payload["task_id"])
+        assert payload["ok"] is True
+        assert task.kind is TaskKind.PIPELINE
+        assert task.status is TaskStatus.SUCCEEDED
+        assert task.project_id == str(project_dir.resolve())
+        assert captured["steps"] == ["compress", "analyze"]
+        assert captured["files"] == ["A.mp4"]
+
+    def test_duplicate_managed_run_returns_409(self, tmp_path, monkeypatch):
+        from clio.task_center.manager import TaskManager
+        from clio.task_center.store import TaskStore
+
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+        entered = threading.Event()
+        release = threading.Event()
+
+        def worker(context):
+            entered.set()
+            release.wait(timeout=2)
+
+        monkeypatch.setattr("clio.ui.routes.run._run_pipeline_task", worker)
+        handler, _, _ = _managed_handler(tmp_path, manager)
+        handle_post_run_start(handler, {}, {"steps": ["compress"]})
+        assert entered.wait(timeout=2)
+        handler._send_json.reset_mock()
+
+        handle_post_run_start(handler, {}, {"steps": ["analyze"]})
+
+        assert handler._send_json.call_args.args[1] == 409
+        release.set()
+
+    def test_managed_cancel_targets_current_project_task(self, tmp_path, monkeypatch):
+        from clio.task_center.manager import TaskManager
+        from clio.task_center.models import TaskStatus
+        from clio.task_center.store import TaskStore
+
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+        entered = threading.Event()
+
+        def worker(context):
+            entered.set()
+            while True:
+                context.reporter.raise_if_cancelled()
+                time.sleep(0.005)
+
+        monkeypatch.setattr("clio.ui.routes.run._run_pipeline_task", worker)
+        handler, _, _ = _managed_handler(tmp_path, manager)
+        handle_post_run_start(handler, {}, {"steps": ["compress"]})
+        task_id = handler._send_json.call_args.args[0]["task_id"]
+        assert entered.wait(timeout=2)
+        handler._send_json.reset_mock()
+
+        handle_post_run_cancel(handler, {}, {})
+
+        assert manager.wait(task_id).status is TaskStatus.CANCELLED
+        assert handler._send_json.call_args.args[0]["task_id"] == task_id
+
+    def test_pipeline_reporter_keeps_legacy_progress_projection(self, tmp_path, monkeypatch):
+        from clio.task_center.manager import TaskManager
+        from clio.task_center.models import TaskKind, TaskStatus
+        from clio.task_center.store import TaskStore
+        from clio.ui.routes.run import _run_pipeline_task
+
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"), recover_on_start=False)
+        _, project_dir, output_dir = _managed_handler(tmp_path, manager)
+        cfg = SimpleNamespace(paths=SimpleNamespace(output_dir=output_dir), plan=SimpleNamespace(use_transcripts=True))
+        monkeypatch.setattr("clio.ui.routes.run.load_config", lambda *args, **kwargs: cfg)
+
+        def pipeline(config, day_label, steps, tracker, **kwargs):
+            tracker.update(phase="analyze", current=1, total=2, message="分析中")
+            tracker.next(message="分析完成")
+            tracker.done("完成")
+
+        monkeypatch.setattr("clio.ui.routes.run.run_pipeline_steps", pipeline)
+        manager.register(TaskKind.PIPELINE, _run_pipeline_task, cancellable=True)
+        task = manager.submit(
+            TaskKind.PIPELINE,
+            "处理素材",
+            project_id=str(project_dir.resolve()),
+            project_path=str(project_dir.resolve()),
+            input_data={"project_dir": str(project_dir.resolve()), "steps": ["analyze"]},
+        )
+
+        finished = manager.wait(task.id)
+        progress = json.loads((output_dir / ".progress.json").read_text(encoding="utf-8"))
+        assert finished.status is TaskStatus.SUCCEEDED
+        assert finished.current == 2
+        assert finished.total == 2
+        assert progress["status"] == "done"
