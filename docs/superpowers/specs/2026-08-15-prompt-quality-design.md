@@ -65,7 +65,7 @@
   格式改为**对象**: `{"start": "00:08", "description": "...", "reason": "..."}`，同时声明兼容纯字符串。
 - **cover_timestamp 更准**: 主体清晰、光线好、构图稳定、有代表性；必须是 timeline 真实存在的点。
 - **summary / mood 去套路**: 提炼这段素材独有的具体内容（去了哪、做了什么、什么特别），禁止「风景优美、令人难忘」类空话；mood 给具体情绪 + 依据。
-- **`_confidence` 细化**: 分开评估地点判断 / 时间线准确性 / 亮点判断。
+- **`_confidence`**: 保持单一数字（下游 `_coerce_number` 强校验，改为对象会破坏契约）。prompt 里要求 AI 对存疑处降低置信度，并在 summary/description 中注明不确定之处（如「无法确认的招牌文字」）。
 
 ### 3.2 `PLAN_PROMPT`
 
@@ -102,9 +102,9 @@
 
 ### 3.7 模型默认升级
 
-- `clio/config/loader.py:508` 默认 `gemini-2.5-flash` → `gemini-3-flash`
-- `docs/project.example.yaml` 的 `video_analyze` 示例同步
-- 受影响测试更新（`test_ai.py`、`conftest.py`、`test_compare_models.py` 等断言默认模型的地方）
+- `clio/config/loader.py:509` legacy 配置 `video_model` 默认 `gemini-2.5-flash-lite` → `gemini-3-flash`（视频分析走的是 `video_model`，不是 `model`；`model` 仍服务 voiceover/vlog_plan legacy 绑定，可保持不变）
+- `docs/project.example.yaml` 的 `video_analyze` 示例同步为 `gemini-3-flash`
+- 受影响测试更新（`test_ai.py`、`conftest.py` 等断言默认模型的地方）
 - 用户本地真实 `project.yaml` 若显式绑定旧模型，需手动改（文档提示）
 
 ### 3.8 highlights 渲染兼容（最小适配）
