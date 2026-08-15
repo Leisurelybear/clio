@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, ClassVar, Protocol
 
 from clio.config import AppConfig
+from clio.task_center.manager import TaskManager
 
 
 class HandlerProtocol(Protocol):
@@ -35,6 +36,7 @@ class HandlerProtocol(Protocol):
     def _get_config(self, project_dir: Path | None = None) -> AppConfig: ...
     def _send_video_range(self, path: Path) -> None: ...
     def _get_state(self, project_key: str) -> Any: ...
+    def _get_task_manager(self) -> TaskManager: ...
     def _resolve_texts(self, basename: str, proj_out: Path | None = None) -> Path | None: ...
     def _resolve_in(self, subdir: str, basename: str, proj_out: Path | None = None) -> Path | None: ...
 
@@ -45,3 +47,4 @@ class HandlerProtocol(Protocol):
     DEFAULT_PROJECT: dict[str, Any]
     _api_token: str | None
     _config_cache: ClassVar[Any]
+    _task_manager: ClassVar[TaskManager | None]

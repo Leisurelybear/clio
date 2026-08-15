@@ -15,7 +15,7 @@ from clio.config import AppConfig
 from clio.shutdown import before_stop, install_hooks
 from clio.tasks.reindex import auto_reindex_if_needed
 from clio.ui.http_server import BoundedThreadingHTTPServer
-from clio.ui.server import make_handler
+from clio.ui.server import make_handler, shutdown_task_manager
 from clio.ui.services.project_service import resolve_last_project_config
 
 
@@ -86,6 +86,7 @@ def stop_server(handle: ServerHandle, timeout: float = 5.0) -> None:
     finally:
         handle.server.server_close()
         handle.thread.join(timeout=timeout)
+        shutdown_task_manager(handle.server.RequestHandlerClass, timeout=timeout)
         before_stop()
 
 

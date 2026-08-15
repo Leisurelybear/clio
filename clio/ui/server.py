@@ -26,6 +26,8 @@ from clio.config import AppConfig
 from clio.session_log import clear as clear_session_log
 from clio.session_log import read as read_session_log
 from clio.shutdown import before_stop, install_hooks
+from clio.task_center.manager import TaskManager
+from clio.task_center.store import TaskStore
 from clio.tasks.reindex import auto_reindex_if_needed
 from clio.ui.http_server import (
     REQUEST_TIMEOUT_SEC,
@@ -87,6 +89,13 @@ from clio.ui.routes.run import (
     handle_post_run_start,
 )
 from clio.ui.routes.static_files import handle_favicon, handle_index, handle_static
+from clio.ui.routes.tasks import (
+    handle_get_task,
+    handle_get_tasks,
+    handle_get_tasks_stream,
+    handle_post_task_cancel,
+    handle_post_task_retry,
+)
 from clio.ui.routes.texts import (
     handle_get_cover,
     handle_get_texts,
@@ -137,6 +146,7 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 _desktop_focus_callback: Callable[[], None] | None = None
 _STATE_CREATE_LOCK = threading.Lock()
+_TASK_MANAGER_CREATE_LOCK = threading.Lock()
 
 
 def set_desktop_focus_callback(callback: Callable[[], None] | None) -> None:
@@ -231,6 +241,7 @@ def make_handler(
     bound_host: str = "127.0.0.1",
     bound_port: int = 0,
     enforce_local_session: bool = False,
+    task_manager: TaskManager | None = None,
 ) -> type[BaseHTTPRequestHandler]:
     output_dir = config.paths.output_dir
     project_dir = config.project_dir or Path.cwd()
@@ -270,6 +281,8 @@ def make_handler(
         timeout = REQUEST_TIMEOUT_SEC
         _project_states: dict[str, _ServerState]
         _config_cache: ClassVar[ConfigCache]
+        _task_manager: ClassVar[TaskManager | None]
+        _task_store_path: ClassVar[Path]
         DEFAULT_PROJECT: dict[str, Any] = {}
         project_dir: Path
         output_dir: Path
@@ -297,6 +310,17 @@ def make_handler(
                 if project_key not in states:
                     states[project_key] = _ServerState()
                 return states[project_key]
+
+        def _get_task_manager(self) -> TaskManager:
+            manager = self.__class__._task_manager
+            if manager is not None:
+                return manager
+            with _TASK_MANAGER_CREATE_LOCK:
+                manager = self.__class__._task_manager
+                if manager is None:
+                    manager = TaskManager(TaskStore(self.__class__._task_store_path))
+                    self.__class__._task_manager = manager
+            return manager
 
         def log_message(self, fmt, *args):
             msg = fmt % args
@@ -635,6 +659,9 @@ def make_handler(
             Route("GET", "/api/whisper/install/status", "handle_get_whisper_install_status"),
             Route("GET", "/api/whisper/models", "handle_get_whisper_models"),
             Route("GET", "/api/token-usage", "handle_get_token_usage"),
+            Route("GET", "/api/tasks", "handle_get_tasks"),
+            Route("GET", "/api/tasks/stream", "handle_get_tasks_stream"),
+            Route("GET", "/api/tasks/{task_id}", "handle_get_task"),
             Route("GET", "/api/env", "handle_get_env"),
             Route("GET", "/api/prompts", "handle_get_prompts"),
             Route("GET", "/api/logs", "_handle_get_logs"),
@@ -673,6 +700,8 @@ def make_handler(
             Route("POST", "/api/whisper/install/cancel", "handle_post_whisper_install_cancel"),
             Route("POST", "/api/whisper/models/delete", "handle_post_whisper_model_delete"),
             Route("POST", "/api/logs/clear", "_handle_post_logs_clear"),
+            Route("POST", "/api/tasks/{task_id}/cancel", "handle_post_task_cancel"),
+            Route("POST", "/api/tasks/{task_id}/retry", "handle_post_task_retry"),
             Route("DELETE", "/api/prompts/{name}", "handle_delete_prompt"),
             Route("DELETE", "/api/providers/{name}", "handle_delete_provider"),
         ]
@@ -681,6 +710,8 @@ def make_handler(
     # Per-project state dict and config cache (set from closure, not class default)
     Handler._project_states = {}
     Handler._config_cache = ConfigCache(config_path, on_load=auto_reindex_if_needed)
+    Handler._task_manager = task_manager
+    Handler._task_store_path = (config_path.parent if config_path is not None else output_dir) / "task-center.sqlite3"
     Handler._api_token = api_token
     Handler.DEFAULT_PROJECT = DEFAULT_PROJECT
     Handler.project_dir = project_dir
@@ -690,6 +721,14 @@ def make_handler(
     Handler._enforce_local_session = enforce_local_session
     Handler._enforce_json_ct = enforce_local_session
     return Handler
+
+
+def shutdown_task_manager(handler_class: type[BaseHTTPRequestHandler], *, timeout: float = 5.0) -> None:
+    manager = getattr(handler_class, "_task_manager", None)
+    if manager is None:
+        return
+    manager.shutdown(timeout=timeout)
+    handler_class._task_manager = None
 
 
 def _loopback_hosts(host: str, port: int) -> tuple[str, ...]:
@@ -808,6 +847,7 @@ def run(
     finally:
         server.shutdown()
         server.server_close()
+        shutdown_task_manager(handler)
         before_stop()
     return 0
 

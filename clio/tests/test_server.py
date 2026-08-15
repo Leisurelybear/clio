@@ -488,6 +488,24 @@ class TestDoGET:
         handler.do_GET()
         mock_fn.assert_called_once()
 
+    @patch("clio.ui.server.handle_get_tasks")
+    def test_api_tasks(self, mock_fn, handler_cls):
+        handler = _build_handler(handler_cls, path="/api/tasks")
+        handler.do_GET()
+        mock_fn.assert_called_once_with(handler, {})
+
+    @patch("clio.ui.server.handle_get_tasks_stream")
+    def test_api_tasks_stream(self, mock_fn, handler_cls):
+        handler = _build_handler(handler_cls, path="/api/tasks/stream")
+        handler.do_GET()
+        mock_fn.assert_called_once_with(handler, {})
+
+    @patch("clio.ui.server.handle_get_task")
+    def test_api_task_detail(self, mock_fn, handler_cls):
+        handler = _build_handler(handler_cls, path="/api/tasks/task-1")
+        handler.do_GET()
+        mock_fn.assert_called_once_with(handler, {}, task_id="task-1")
+
     @patch("clio.ui.server.handle_get_plan")
     def test_api_plan(self, mock_fn, handler_cls):
         handler = _build_handler(handler_cls, path="/api/plan")
@@ -792,6 +810,18 @@ class TestDoPOST:
         handler = self._post_handler(handler_cls, {}, "/api/run/cancel")
         handler.do_POST()
         mock_fn.assert_called_once()
+
+    @patch("clio.ui.server.handle_post_task_cancel")
+    def test_post_task_cancel(self, mock_fn, handler_cls):
+        handler = self._post_handler(handler_cls, {}, "/api/tasks/task-1/cancel")
+        handler.do_POST()
+        mock_fn.assert_called_once_with(handler, qs={}, obj={}, task_id="task-1")
+
+    @patch("clio.ui.server.handle_post_task_retry")
+    def test_post_task_retry(self, mock_fn, handler_cls):
+        handler = self._post_handler(handler_cls, {}, "/api/tasks/task-1/retry")
+        handler.do_POST()
+        mock_fn.assert_called_once_with(handler, qs={}, obj={}, task_id="task-1")
 
     @patch("clio.ui.server.handle_post_config_init")
     def test_post_config_init(self, mock_fn, handler_cls):

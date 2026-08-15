@@ -233,6 +233,16 @@ class TaskStore:
             row = connection.execute("SELECT COALESCE(MAX(seq), 0) FROM task_events").fetchone()
         return int(row[0])
 
+    def recent_events(self, task_id: str, *, limit: int = 200) -> list[TaskEvent]:
+        if not 1 <= limit <= 1000:
+            raise ValueError("event limit must be between 1 and 1000")
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM task_events WHERE task_id = ? ORDER BY seq DESC LIMIT ?",
+                (task_id, limit),
+            ).fetchall()
+        return [self._row_to_event(row) for row in reversed(rows)]
+
     def delete(self, task_id: str) -> bool:
         with self._connect() as connection:
             cursor = connection.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
