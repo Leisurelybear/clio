@@ -143,7 +143,16 @@ class TestProgressTracker:
         # update current=2: compute with start=200
         times += [202.0]
         it = iter(times)
-        with mock.patch("clio.progress.time.monotonic", side_effect=lambda: next(it)):
+        import time as _real_time
+
+        class _FakeTime:
+            def monotonic(self):
+                return next(it)
+
+            def __getattr__(self, name):
+                return getattr(_real_time, name)
+
+        with mock.patch("clio.progress.time", _FakeTime()):
             t = ProgressTracker(tmp_path)
             t.update(phase="a", total=10, current=5)
             t.update(phase="b", total=10)

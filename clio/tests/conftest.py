@@ -34,6 +34,20 @@ def _clear_session_log() -> None:
     session_log.clear()
 
 
+@pytest.fixture(autouse=True)
+def _reset_logging_state() -> None:
+    """Reset clio.log global state between tests.
+
+    CLI tests run the real ``main()`` which calls ``setup_logging()`` without
+    a matching ``teardown_logging()``. If the logging globals leak into later
+    tests, the next ``setup_logging()`` returns early (already initialized) and
+    ``test_log``'s stdout/stderr restore assertions fail depending on order.
+    """
+    from clio import log as _log
+
+    _log.teardown_logging()
+
+
 @pytest.fixture
 def tmp_config(tmp_path: Path) -> Path:
     """Create a minimal config.yaml + project.yaml at tmp_path and return its path."""

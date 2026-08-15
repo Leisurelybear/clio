@@ -372,9 +372,14 @@ class TestHandlePostWhisperInstall:
     def test_starts_download(self, tmp_path: Path):
         handler = self._make_handler(tmp_path)
         handler._send_json = MagicMock()
-        with patch.dict("clio.ui.routes.whisper_download._PROJECT_TASKS", {}, clear=True):
+        with (
+            patch.dict("clio.ui.routes.whisper_download._PROJECT_TASKS", {}, clear=True),
+            patch("clio.ui.routes.whisper_download._run_install") as mock_run,
+        ):
             handle_post_whisper_install(handler, {})
         handler._send_json.assert_called_once_with({"ok": True, "message": "whisper install started"})
+        mock_run.wait(timeout=5)
+        mock_run.assert_called_once()
 
     def test_rejects_concurrent(self, tmp_path: Path):
         handler = self._make_handler(tmp_path)
