@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from clio.prompts import load_prompt, render_prompt_template
+from clio.prompts import ANALYZE_PROMPT, load_prompt, render_prompt_template
 
 
 def test_load_prompt_uses_project_override(tmp_path):
@@ -72,3 +72,25 @@ def test_render_prompt_template_allows_json_braces():
 def test_render_prompt_template_rejects_unknown_placeholder():
     with pytest.raises(ValueError, match="unknown"):
         render_prompt_template("SCRIPT_PROMPT", "hello {missing}", index="001")
+
+
+def test_analyze_prompt_requires_high_detail_timeline():
+    assert "镜头运动" in ANALYZE_PROMPT
+    assert "实际能看到" in ANALYZE_PROMPT
+    assert "禁止编造" in ANALYZE_PROMPT
+
+
+def test_analyze_prompt_requires_specific_summary_and_mood():
+    assert "独有的具体内容" in ANALYZE_PROMPT
+    assert "空泛" in ANALYZE_PROMPT
+
+
+def test_analyze_prompt_highlights_support_object():
+    assert '"start"' in ANALYZE_PROMPT
+    assert '"reason"' in ANALYZE_PROMPT
+    assert "纯字符串" in ANALYZE_PROMPT
+
+
+def test_analyze_prompt_cover_timestamp_rules():
+    assert "主体清晰" in ANALYZE_PROMPT
+    assert "真实存在" in ANALYZE_PROMPT

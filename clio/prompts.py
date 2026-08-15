@@ -83,32 +83,53 @@ def render_prompt(name: str, default: str, project_dir: str | Path | None = None
     return render_prompt_template(name, load_prompt(name, default, project_dir), **values)
 
 
-ANALYZE_PROMPT = """请分析这段旅行 vlog 原始素材视频，用中文回复。
+ANALYZE_PROMPT = """请仔细分析这段旅行 vlog 原始素材视频，用中文回复。
 
 请严格按以下 JSON 格式输出（不要 markdown 代码块，只输出 JSON）：
 {
-  "title": "10字以内的简短标题，适合作为文件名",
-  "summary": "2-3句话的内容简介",
+  "title": "10字以内的简短标题，适合作为文件名，不要含特殊符号",
+  "summary": "2-3句话简介，必须提炼这段素材独有的具体内容（去了哪、做了什么、有什么特别），禁止空泛套话",
   "location": "地点（若无法判断填未知）",
-  "mood": "氛围/情绪关键词",
+  "mood": "氛围/情绪关键词，附上判断依据，如：轻松（海边、微风、笑声）",
   "timeline": [
-    {"start": "00:00", "end": "00:15", "description": "该时间段画面内容"},
-    {"start": "00:15", "end": "00:30", "description": "..."}
+    {"start": "00:00", "end": "00:08", "description": "2-3句细节描述"},
+    {"start": "00:08", "end": "00:15", "description": "..."}
   ],
-  "highlights": ["值得保留的亮点1", "亮点2"],
+  "highlights": [
+    {"start": "00:08", "description": "亮点画面一句话", "reason": "为什么值得保留"}
+  ],
   "suggested_use": "适合放在日 vlog 的哪个环节（开场/途中/美食/结尾等）",
   "cover_timestamp": "建议作为封面的画面时间点，如 00:08",
   "_confidence": 0.82
 }
 
 要求：
-- timeline 优先选取画面质量高、光线好、构图稳定的片段；抖动、过暗、画面被遮挡的段落可以跳过或缩短
-- 每个 timeline 条目尽量在 5-30 秒之间，确保剪辑时有足够的可用素材
-- 优先保留有叙事价值的画面（人物互动、风景变化、有趣事件），减少静态/单调的过渡段落
-- 时间格式 MM:SS 或 HH:MM:SS
-- cover_timestamp 选择画面清晰、主体明确、适合作为封面的单个时间点
-- _confidence 填 0 到 1 的小数，表示你对地点、时间线、亮点判断的整体把握
-- title 不要含特殊符号
+## timeline（重点）
+- 分段要细：每段 5-30 秒，优先接近 5-10 秒粒度，宁可多分几段也不要一句话带过整段
+- 每条 description 写 2-3 句，包含：
+  1. 画面主体在做什么（人物动作 / 景物状态）
+  2. 镜头运动方式（固定 / 跟拍 / 平移 / 变焦 / 手持晃动）
+  3. 场景内容细节（建筑、店铺、招牌文字、自然环境、天气）
+  4. 明显的人物互动或事件
+- 只描述画面里**实际能看到**的内容，禁止编造看不到的细节
+- 画面抖动、过暗、被遮挡的段落可以跳过或缩短，但要在 description 里注明（如「画面晃动」）
+
+## highlights
+- 每条 = 画面质量高 + 有叙事价值 + 能代表这段素材的特色
+- 格式为对象 {"start", "description", "reason"}；也兼容纯字符串
+- start 必须是 timeline 里真实存在的时间点
+
+## summary / mood
+- summary 写这段素材独有的具体内容，禁止「风景优美、令人难忘」类空话
+- mood 给具体情绪关键词并说明画面依据
+
+## cover_timestamp
+- 选择主体清晰、光线好、构图稳定、有代表性的单个时间点
+- 必须是 timeline 中真实存在的画面点，时间格式 MM:SS 或 HH:MM:SS
+
+## _confidence
+- 填 0 到 1 的小数，表示对地点、时间线、亮点判断的整体把握
+- 对无法确认的信息（如看不清的招牌文字、不确定的地点）主动降低置信度，并在 description 里注明存疑
 """
 
 SCRIPT_PROMPT = """你是旅行 vlog 口播文案写手。根据以下素材分析结果和口播模板，为编号 {index} 的片段写口播文案。
