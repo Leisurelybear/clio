@@ -110,6 +110,8 @@ class TaskRecord:
             raise ValueError("task progress_pct must be between 0 and 100")
         if self.progress_pct is not None and expected_pct is None:
             raise ValueError("task progress_pct requires a positive total")
+        if self.progress_pct is not None and self.progress_pct != expected_pct:
+            raise ValueError("task progress_pct does not match current and total")
         if self.status in TERMINAL_TASK_STATUSES and self.finished_at is None:
             raise ValueError("terminal task must have finished_at")
         if self.status is TaskStatus.CANCELLING and not self.cancel_requested:
