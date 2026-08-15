@@ -7,6 +7,50 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
 
 ## Remaining Open Items (2026-07-26)
 
+### R-042 Notification center
+
+**Status:** Planned; depends on the R-041 task event contract.
+
+**Goal:** Add a persistent notification inbox for task completion, failure, interruption,
+and other conditions that need user attention. Notifications must survive page/project
+switches and link directly to the relevant task, project, video, plan, or settings page.
+
+- [ ] Define notification schema, severity, source deduplication, unread/read state, and retention
+- [ ] Consume R-041 terminal/attention events without duplicating task lifecycle state
+- [ ] Add global inbox, unread badge, filters, mark-read/mark-all-read, and deep links
+- [ ] Add opt-in desktop OS notifications when the app is backgrounded
+- [ ] Keep email, remote push, and webhook delivery out of the first release
+
+### R-041 Unified task management center
+
+**Status:** Design/plan drafted (2026-08-15); awaiting confirmation before implementation.
+
+**Goal:** Make one cross-project task center the source of truth for background execution,
+including lifecycle state, progress, logs, cancellation, errors, interruption recovery,
+history, and live updates.
+
+**Scope:** Pipeline runs, single-video reruns, cut exports, Whisper installs/downloads,
+and waveform generation. Internal AI/ffmpeg workers remain phases or child items instead
+of flooding the top-level list.
+
+| Phase | Status | Scope |
+| --- | --- | --- |
+| A | Planned | Task domain model, strict state machine, SQLite task/event store |
+| B | Planned | TaskManager, executor registry, concurrency/cancel/recovery policies |
+| C | Planned | Unified list/detail/cancel/retry APIs and cursor-based global SSE |
+| D | Planned | Migrate pipeline + rerun; preserve `.progress.json` compatibility projection |
+| E | Planned | Migrate cut, Whisper, and background waveform jobs |
+| F | Planned | Global task center UI, filters, detail timeline, logs, cancel/retry |
+| G | Planned | Migrate old frontend consumers and audit legacy status-file/API removal |
+
+**Boundary:** `.processing.json` remains the artifact-readiness matrix; it is not a task
+history store. Task inputs/events must be secret-safe. Service restart changes leftover
+active tasks to `interrupted` rather than silently reporting `idle`.
+
+Design: `docs/superpowers/specs/2026-08-15-r041-unified-task-center-design.md`
+
+Plan: `docs/superpowers/plans/2026-08-15-r041-unified-task-center-plan.md`
+
 ### R-040 Desktop out-of-box usability gaps (direct download)
 
 **Status:** Done (2026-08-01)
