@@ -11,6 +11,7 @@ from clio.task_center.models import (
     create_task,
 )
 from clio.task_center.state_machine import InvalidTaskTransition, transition_task
+from clio.task_center.store import TaskQuery, TaskStore
 
 __all__ = [
     "InvalidTaskTransition",
@@ -19,7 +20,9 @@ __all__ = [
     "TaskEventType",
     "TaskKind",
     "TaskRecord",
+    "TaskQuery",
     "TaskStatus",
+    "TaskStore",
     "TaskVisibility",
     "create_task",
     "transition_task",

@@ -7,7 +7,7 @@ from typing import Any
 
 from clio._str_enum import StrEnum
 
-_UTC = getattr(dt, "UTC", dt.timezone.utc)  # noqa: UP017  # Python 3.10 local tooling compatibility
+UTC_TZ = getattr(dt, "UTC", dt.timezone.utc)  # noqa: UP017  # Python 3.10 local tooling compatibility
 
 
 class TaskStatus(StrEnum):
@@ -58,7 +58,7 @@ class TaskEventLevel(StrEnum):
 
 
 def utc_now_iso() -> str:
-    return dt.datetime.now(_UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    return dt.datetime.now(UTC_TZ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def normalized_progress(current: int, total: int) -> float | None:
