@@ -202,3 +202,34 @@ def test_sprint_falls_back_when_print_raises_unicode_error(capsys):
 def test_sprint_prints_normally_when_encodable(capsys):
     shutdown_mod._sprint("[beforeStop] ok")
     assert capsys.readouterr().out == "[beforeStop] ok\n"
+
+
+def test_sprint_does_not_raise_when_stdout_closed():
+    """A closed stdout at interpreter exit must be swallowed (exit code 120 guard)."""
+    with (
+        patch("builtins.print", side_effect=OSError(9, "Bad file descriptor")),
+        patch.object(shutdown_mod.sys, "stdout", type("Closed", (), {})()),
+    ):
+        shutdown_mod._sprint("  [beforeStop] 清理完成")
+
+
+def test_sprint_flushes_after_print():
+    """Messages must be flushed immediately so nothing is left buffered at exit."""
+    stdout = MagicMock()
+    stdout.encoding = "utf-8"
+    stdout.flush = MagicMock()
+
+    with patch("builtins.print", return_value=None), patch.object(shutdown_mod.sys, "stdout", stdout):
+        shutdown_mod._sprint("hello")
+
+    stdout.flush.assert_called_once()
+
+
+def test_sprint_survives_flush_error():
+    """A failing flush must not propagate out of _sprint."""
+    stdout = MagicMock()
+    stdout.encoding = "utf-8"
+    stdout.flush.side_effect = OSError(9, "Bad file descriptor")
+
+    with patch("builtins.print", return_value=None), patch.object(shutdown_mod.sys, "stdout", stdout):
+        shutdown_mod._sprint("hello")

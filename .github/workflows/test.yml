@@ -88,6 +88,8 @@ jobs:
         python -m pytest clio/tests/ -p randomly --cov=clio --cov-branch --cov-report=term --cov-report=xml --cov-config=pyproject.toml
 
     - name: Check tests left the working tree clean
+      # bash syntax; the default Windows runner shell is PowerShell.
+      shell: bash
       run: |
         dirty=$(git status --porcelain --untracked-files=all)
         if [ -n "$dirty" ]; then

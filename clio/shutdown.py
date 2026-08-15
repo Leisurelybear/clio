@@ -16,7 +16,17 @@ _called_lock = threading.Lock()
 
 
 def _sprint(msg: str) -> None:
-    """Print that never raises UnicodeEncodeError (e.g. Windows cp1252 console)."""
+    """Print a shutdown message without ever raising.
+
+    - UnicodeEncodeError (e.g. Windows cp1252 console) → fall back to a
+      lossy re-encode.
+    - OSError (stdout already closed during interpreter shutdown) → give up
+      silently; raising here would surface as "Exception ignored" and flip the
+      process exit code to 120.
+    - Always flush right away so nothing stays buffered: at interpreter exit
+      CPython flushes stdout *after* fd 1 is closed, and any leftover buffered
+      bytes turn into `OSError: Bad file descriptor` + exit code 120.
+    """
     try:
         print(msg)
     except UnicodeEncodeError:
@@ -24,7 +34,15 @@ def _sprint(msg: str) -> None:
         try:
             print(msg.encode(enc, errors="replace").decode(enc))
         except Exception:
-            pass
+            return
+    except OSError:
+        return
+    try:
+        flush = getattr(sys.stdout, "flush", None)
+        if flush is not None:
+            flush()
+    except Exception:
+        pass
 
 
 def register_process(proc: subprocess.Popen) -> None:
