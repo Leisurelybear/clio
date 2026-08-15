@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from clio.prompt_overrides import PROMPT_PLACEHOLDERS, validate_prompt_template
 from clio.prompts import (
     ANALYZE_PROMPT,
     PLAN_PROMPT,
@@ -174,3 +175,45 @@ def test_transcript_context_explains_purpose_and_confidence():
     assert "avg_logprob" in TRANSCRIPT_CONTEXT
     assert "置信度低" in TRANSCRIPT_CONTEXT
     assert "过度依赖" in TRANSCRIPT_CONTEXT
+
+
+def test_builtin_prompts_match_placeholder_contract():
+    from clio.prompts import PROMPT_DEFAULTS
+
+    mapping = {
+        "SCRIPT_PROMPT": "voiceover",
+        "PLAN_PROMPT": "vlog_plan",
+        "REFINE_TEXT_PROMPT": "refine_text",
+        "REFINE_TEXT_FIX_PROMPT": "refine_text_fix",
+        "REFINE_SCRIPT_PROMPT": "refine_script",
+        "REFINE_SCRIPT_FIX_PROMPT": "refine_script_fix",
+    }
+    for const_name, task_name in mapping.items():
+        tpl = PROMPT_DEFAULTS[const_name]
+        validate_prompt_template(task_name, tpl)
+
+
+def test_transcript_context_matches_placeholder_contract():
+    validate_prompt_template("transcript_context", TRANSCRIPT_CONTEXT)
+
+
+def test_placeholder_contract_lists_all_formatted_prompts():
+    formatted_tasks = {
+        "voiceover",
+        "vlog_plan",
+        "refine_text",
+        "refine_text_fix",
+        "refine_script",
+        "refine_script_fix",
+        "transcript_context",
+    }
+    for task in formatted_tasks:
+        assert task in PROMPT_PLACEHOLDERS
+
+
+def test_analyze_prompt_is_not_format_template():
+    from clio.prompts import PROMPT_DEFAULTS
+
+    assert PROMPT_PLACEHOLDERS["video_analyze"] == set()
+    assert '"title"' in PROMPT_DEFAULTS["ANALYZE_PROMPT"]
+    assert "{{" not in PROMPT_DEFAULTS["ANALYZE_PROMPT"]
