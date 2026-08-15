@@ -131,6 +131,23 @@ def _eta_line(label: str, i: int, total: int, name: str, completed: int, elapsed
     return f"[{label} {i}/{total}] {name}"
 
 
+def _format_highlight(highlight: object) -> str:
+    """渲染一条 highlight：兼容纯字符串与 {start, description, reason} 对象。"""
+    if isinstance(highlight, dict):
+        start = highlight.get("start")
+        desc = highlight.get("description")
+        reason = highlight.get("reason")
+        parts = []
+        if start is not None:
+            parts.append(f"[{start}]")
+        if desc:
+            parts.append(str(desc))
+        if reason:
+            parts.append(f"({reason})")
+        return " ".join(parts) if parts else "-"
+    return str(highlight)
+
+
 def _write_text_file(path: Path, analysis: dict, source: Path, compressed: Path) -> None:
     lines = [
         f"# {analysis.get('title', '未命名')}",
@@ -153,7 +170,7 @@ def _write_text_file(path: Path, analysis: dict, source: Path, compressed: Path)
             lines.append(f"  - 同期声: {item.get('transcript')}")
     lines.extend(["", "## 亮点"])
     for h in analysis.get("highlights", []):
-        lines.append(f"- {h}")
+        lines.append(f"- {_format_highlight(h)}")
 
     write_text_atomic(path, "\n".join(lines))
 
@@ -181,7 +198,7 @@ def _rewrite_text_file(path: Path, analysis: dict) -> None:
             lines.append(f"  - 同期声: {item.get('transcript')}")
     lines.extend(["", "## 亮点"])
     for h in analysis.get("highlights", []):
-        lines.append(f"- {h}")
+        lines.append(f"- {_format_highlight(h)}")
     if analysis.get("_changelog"):
         lines.extend(["", "## 本次 refine 改动"])
         for item in analysis["_changelog"]:

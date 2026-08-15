@@ -114,6 +114,23 @@ class TestWriteTextFile:
         text = out.read_text(encoding="utf-8")
         assert "未命名" in text
 
+    def test_renders_dict_highlights(self, tmp_path: Path):
+        out = tmp_path / "001_test.txt"
+        analysis = {
+            "title": "T",
+            "highlights": [
+                "plain shot",
+                {"start": "0:10", "description": "sunset", "reason": "golden light"},
+                {"start": "1:20", "description": "wave"},
+            ],
+        }
+        _write_text_file(out, analysis, tmp_path / "source.mp4", tmp_path / "compressed.mp4")
+        text = out.read_text(encoding="utf-8")
+        assert "- plain shot" in text
+        assert "- [0:10] sunset" in text
+        assert "golden light" in text
+        assert "- [1:20] wave" in text
+
 
 class TestRewriteTextFile:
     def test_rewrites_without_changelog(self, tmp_path: Path):
@@ -147,6 +164,22 @@ class TestRewriteTextFile:
         assert "本次 refine 改动" in text
         assert "fixed typo" in text
         assert "updated title" in text
+
+    def test_rewrite_renders_dict_highlights(self, tmp_path: Path):
+        out = tmp_path / "001_test.txt"
+        analysis = {
+            "title": "T",
+            "source_file": "s.mp4",
+            "highlights": [
+                {"start": "0:05", "description": "closeup", "reason": "detail"},
+                {"start": "2:00", "description": "pan"},
+            ],
+        }
+        _rewrite_text_file(out, analysis)
+        text = out.read_text(encoding="utf-8")
+        assert "- [0:05] closeup" in text
+        assert "detail" in text
+        assert "- [2:00] pan" in text
 
 
 class TestRewriteScriptMd:
