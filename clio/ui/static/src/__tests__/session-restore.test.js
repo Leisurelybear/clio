@@ -79,8 +79,8 @@ describe('resolveSessionRestore', () => {
     })).toEqual({ entity: 'video', video: '001_a.mp4' });
   });
 
-  it('restores plan/run/config/logs/tokens without requiring a video', () => {
-    for (const entity of ['plan', 'run', 'config', 'logs', 'tokens']) {
+  it('restores plan/run/config/logs/tokens/tasks without requiring a video', () => {
+    for (const entity of ['plan', 'run', 'config', 'logs', 'tokens', 'tasks']) {
       expect(resolveSessionRestore({
         lastEntity: entity,
         lastVideo: '003_c.mp4',

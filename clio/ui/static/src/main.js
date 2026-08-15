@@ -22,6 +22,7 @@ import {
   selectConfig,
   selectLogs,
   selectTokens,
+  selectTasks,
   setSource,
   switchToOriginalThenCompress,
   goToRunTab,
@@ -375,6 +376,7 @@ async function init() {
       else if (p.dataset.entity === 'config') selectConfig();
       else if (p.dataset.entity === 'logs') selectLogs();
       else if (p.dataset.entity === 'tokens') selectTokens();
+      else if (p.dataset.entity === 'tasks') selectTasks();
     };
   });
   document.body.addEventListener('click', async (e) => {
@@ -494,7 +496,7 @@ async function init() {
         }
       }
     }
-    if (mod && e.key >= '1' && e.key <= '5') {
+    if (mod && e.key >= '1' && e.key <= '6') {
       e.preventDefault();
       const items = $$('.project-item');
       const idx = parseInt(e.key) - 1;
@@ -617,6 +619,8 @@ async function init() {
       await selectLogs();
     } else if (restore.entity === 'tokens') {
       await selectTokens();
+    } else if (restore.entity === 'tasks') {
+      await selectTasks();
     } else if (restore.video) {
       await selectVideo(restore.video);
     } else if (state.videos.length) {

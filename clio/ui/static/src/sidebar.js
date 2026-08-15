@@ -207,6 +207,21 @@ function sameVideoIndex(a, b) {
   return Number.isFinite(leftNum) && Number.isFinite(rightNum) && leftNum === rightNum;
 }
 
+async function selectTasks() {
+  if (state.dirty) {
+    if (!confirm('当前 tab 有未保存的修改，确定切换到任务中心吗？')) return;
+  }
+  if (state.previewActive) stopPreview();
+  $('player-pane').classList.remove('plan-mode');
+  state.currentEntity = 'tasks';
+  clearDirty();
+  updateEntityUI();
+  updateSelectBtnVisibility();
+  const mod = await import('./task-center.js');
+  mod.renderTasks();
+  saveProject();
+}
+
 function _sourceSwitchSeekTime(currentTime, fromSource, oldVideo, toSource, targetVideo) {
   const time = Number.isFinite(currentTime) ? currentTime : 0;
   const oldOffset = fromSource === 'original' ? Number(oldVideo?.offset_sec) || 0 : 0;
@@ -385,6 +400,7 @@ export {
   selectConfig,
   selectLogs,
   selectTokens,
+  selectTasks,
   setSource,
   jumpToCounterpart,
   _findSourceSwitchTarget,

@@ -10,6 +10,7 @@ import {
   _renderConfigForm, labelFromPath, _renderTooltip,
 } from './editor-config.js';
 import { renderRefineUI, refineCurrentFile } from './editor-refine.js';
+import { renderTasks } from './task-center.js';
 
 
 export function renderActiveTab() {
@@ -36,6 +37,10 @@ export function renderActiveTab() {
     renderTokens();
     return;
   }
+  if (state.currentEntity === 'tasks') {
+    renderTasks();
+    return;
+  }
   $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === state.currentTab));
   $$('.tab-pane').forEach(p => p.classList.toggle('active', p.id === `tab-${state.currentTab}`));
   if (state.currentTab === 'texts') renderTexts();
@@ -58,6 +63,7 @@ export {
   renderLogs,
   stopLogsPolling,
   renderTokens,
+  renderTasks,
   _renderConfigForm,
   labelFromPath,
   _renderTooltip,

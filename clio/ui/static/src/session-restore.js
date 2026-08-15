@@ -1,4 +1,4 @@
-const VALID_ENTITIES = new Set(['video', 'plan', 'run', 'config', 'logs', 'tokens']);
+const VALID_ENTITIES = new Set(['video', 'plan', 'run', 'config', 'logs', 'tokens', 'tasks']);
 
 /**
  * Build PUT /api/project body for session fields.

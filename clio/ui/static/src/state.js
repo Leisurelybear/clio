@@ -9,7 +9,7 @@ const state = {
   currentPromptName: null,
   source: 'compressed',
   videos: [],
-  currentEntity: 'video',  // 'video' | 'plan' | 'run' | 'config'
+  currentEntity: 'video',  // 'video' | 'plan' | 'run' | 'config' | 'tasks'
   currentVideo: null,
   currentDay: 'day1',
   availablePlans: [],
@@ -37,6 +37,11 @@ const state = {
   _previewEndTime: null,
   selectionMode: false,
   selectedFiles: [],
+  tasks: [],
+  taskFilters: { status: 'all', kind: 'all', project: 'all' },
+  selectedTaskId: null,
+  taskDetail: null,
+  taskLatestSeq: 0,
 refining: null,  // {type: 'texts'|'scripts', file: string} when AI refine in progress
   deps: null,  // { ok, ffmpeg, ffprobe, missing, detail } from GET /api/deps/ffmpeg
   videoFilter: { q: '', stage: '', mode: 'missing' },  // stage: '' | compress/analyze/voiceover/transcribe/offline; mode: 'missing' (chips) | 'done' (count bar)

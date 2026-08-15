@@ -23,7 +23,7 @@ switches and link directly to the relevant task, project, video, plan, or settin
 
 ### R-041 Unified task management center
 
-**Status:** Design/plan drafted (2026-08-15); awaiting confirmation before implementation.
+**Status:** In progress (2026-08-16); backend and first global UI pass implemented.
 
 **Goal:** Make one cross-project task center the source of truth for background execution,
 including lifecycle state, progress, logs, cancellation, errors, interruption recovery,
@@ -35,12 +35,12 @@ of flooding the top-level list.
 
 | Phase | Status | Scope |
 | --- | --- | --- |
-| A | Planned | Task domain model, strict state machine, SQLite task/event store |
-| B | Planned | TaskManager, executor registry, concurrency/cancel/recovery policies |
-| C | Planned | Unified list/detail/cancel/retry APIs and cursor-based global SSE |
-| D | Planned | Migrate pipeline + rerun; preserve `.progress.json` compatibility projection |
-| E | Planned | Migrate cut, Whisper, and background waveform jobs |
-| F | Planned | Global task center UI, filters, detail timeline, logs, cancel/retry |
+| A | Done | Task domain model, strict state machine, SQLite task/event store |
+| B | Done | TaskManager, executor registry, concurrency/cancel/recovery policies |
+| C | Done | Unified list/detail/cancel/retry APIs and cursor-based global SSE |
+| D | Done | Migrate pipeline + rerun; preserve `.progress.json` compatibility projection |
+| E | Done | Migrate cut, Whisper, and background waveform jobs |
+| F | Done | Global task center UI, filters, detail timeline, logs, cancel/retry |
 | G | Planned | Migrate old frontend consumers and audit legacy status-file/API removal |
 
 **Boundary:** `.processing.json` remains the artifact-readiness matrix; it is not a task
