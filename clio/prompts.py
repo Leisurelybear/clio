@@ -268,19 +268,17 @@ REFINE_SCRIPT_PROMPT = """请审阅下面这段 vlog 口播文案。
 """
 
 
-REFINE_TEXT_FIX_PROMPT = """用户对下面这段 vlog 素材分析给出了**具体修改意见**，请严格按意见修正，其它字段保持原样。
+REFINE_TEXT_FIX_PROMPT = """用户对下面这段 vlog 素材分析给出了**具体修改意见**，请严格按意见修正。
 
 ## 用户修改意见
-
 {fix_instruction}
 
 ## 要求
 - 保持原有 JSON 字段结构，不要新增/删除与意见无关的字段
-- 只改用户意见里明确提到的字段
+- **只改用户意见里明确提到的字段，其余字段逐字节原样保留**
 - 修正后请在末尾加一个 `_changelog` 字段（数组），**第一条写"按用户意见修改了 XXX"**，不要自己加额外解释
 
 ## 待修正的 JSON
-
 {existing_json}
 """
 
@@ -291,23 +289,20 @@ TRANSCRIPT_CONTEXT = """
 {transcripts_json}
 """
 
-REFINE_SCRIPT_FIX_PROMPT = """用户对下面这段 vlog 口播文案给出了**具体修改意见**，请严格按意见修正，其它部分保持原样。
+REFINE_SCRIPT_FIX_PROMPT = """用户对下面这段 vlog 口播文案给出了**具体修改意见**，请严格按意见修正。
 
 ## 用户修改意见
-
 {fix_instruction}
 
 ## 对应的素材分析（参考）
-
 {analysis_json}
 
 ## 要求
 - 保持原有 JSON 字段结构
-- 只改用户意见里明确提到的字段
+- **只改用户意见里明确提到的字段，其余字段逐字节原样保留**
 - 修正后请在末尾加一个 `_changelog` 字段（数组），**第一条写"按用户意见修改了 XXX"**
 
 ## 待修正的口播 JSON
-
 {existing_json}
 """
 

@@ -9,7 +9,9 @@ import pytest
 from clio.prompts import (
     ANALYZE_PROMPT,
     PLAN_PROMPT,
+    REFINE_SCRIPT_FIX_PROMPT,
     REFINE_SCRIPT_PROMPT,
+    REFINE_TEXT_FIX_PROMPT,
     REFINE_TEXT_PROMPT,
     SCRIPT_PROMPT,
     load_prompt,
@@ -158,3 +160,9 @@ def test_refine_script_prompt_is_conservative():
 
 def test_refine_script_prompt_keeps_reference():
     assert "素材分析" in REFINE_SCRIPT_PROMPT
+
+
+def test_refine_fix_prompts_touch_only_mentioned_fields():
+    assert "逐字节" in REFINE_TEXT_FIX_PROMPT
+    assert "明确提到" in REFINE_TEXT_FIX_PROMPT
+    assert "逐字节" in REFINE_SCRIPT_FIX_PROMPT
