@@ -16,6 +16,7 @@ let _lastProgressSnapshot = null;
 let _lastRunSteps = [];
 let _expectDoneNavigation = false;
 let _seenNonTerminal = false;
+let _managedTaskId = null;
 
 const STEPS_KEY = 'vlog_ui_run_steps';
 
@@ -107,6 +108,7 @@ function renderRun() {
     </div>
     <div id="run-preview" style="margin-top:12px"></div>
     <div id="run-progress" style="margin-top:12px"></div>
+    <div id="run-task-link" class="run-task-link" hidden></div>
     <div id="run-state-container"></div>
   `;
 
@@ -318,7 +320,9 @@ async function startRun() {
   _stopRunSSE();
   try {
     const r = await api('POST', '/api/run/start', options);
-    if (r.ok) {
+  if (r.ok) {
+      _managedTaskId = r.task_id || r.task?.id || null;
+      renderManagedTaskLink();
       _runActive = true;
       const msg = r.message || '流水线已启动';
       setStatus(msg, 'ok');
@@ -342,7 +346,7 @@ async function cancelRun() {
   const btn = $('btn-run-cancel');
   if (btn) { btn.disabled = true; btn.innerHTML = '⏹ 正在取消...'; }
   try {
-    const r = await api('POST', '/api/run/cancel', {});
+    const r = await api('POST', '/api/run/cancel', _managedTaskId ? { task_id: _managedTaskId } : {});
     const msg = r.message || '取消请求已发送';
     setStatus(msg, 'warn');
     addToast(msg, 'warning');
@@ -352,6 +356,14 @@ async function cancelRun() {
     addToast(msg, 'error', 6000);
     if (btn) { btn.disabled = false; btn.innerHTML = '取消'; }
   }
+}
+
+function renderManagedTaskLink() {
+  const el = $('run-task-link');
+  if (!el || !_managedTaskId) return;
+  el.hidden = false;
+  el.innerHTML = '<button type="button" class="btn-secondary">在任务中心查看</button>';
+  el.querySelector('button').onclick = () => import('./sidebar.js').then(mod => mod.selectTasks());
 }
 
 function _startRunSSE() {
@@ -374,6 +386,7 @@ function _startRunSSE() {
   _runEventSource.onmessage = (event) => {
     try {
       const s = JSON.parse(event.data);
+      if (s.task_id) { _managedTaskId = s.task_id; renderManagedTaskLink(); }
       _handleRunStatus(s);
     } catch { /* ignore parse errors */ }
   };

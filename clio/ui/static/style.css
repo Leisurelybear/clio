@@ -1277,6 +1277,7 @@ button.match-badge:focus-visible { outline: 2px solid var(--border-focus); outli
 #editor.entity-tasks .editor-actions { display: none; }
 
 .task-center-toolbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 8px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.run-task-link { margin-top: 8px; }
 .task-center-title { font-size: var(--text-md); font-weight: 600; margin-right: auto; }
 .task-count-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; margin-left: 4px; padding: 0 5px; border-radius: 999px; background: var(--accent); color: #fff; font-size: var(--text-xs); }
 .task-center-toolbar select { max-width: 140px; padding: 4px 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-base); color: var(--text-primary); font-size: var(--text-xs); }
