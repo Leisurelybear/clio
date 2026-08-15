@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from clio._constants import VIDEO_EXTENSIONS, VIDEO_EXTS
+from clio.task_center.manager import TaskManager
 from clio.tasks._video_loader import load_selected_videos
 from clio.tasks.waveform import ensure_waveform
 from clio.ui.services.file_service import _is_safe_basename
@@ -96,6 +97,12 @@ def handle_get_waveform(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     # Bare "ffmpeg" is treated as a configured path and raises FileNotFoundError.
     ffmpeg = getattr(paths, "ffmpeg", "") or ""
     ffprobe = getattr(paths, "ffprobe", "") or ""
+    try:
+        task_manager = handler._get_task_manager()
+    except (AttributeError, TypeError):
+        task_manager = None
+    if not isinstance(task_manager, TaskManager):
+        task_manager = None
 
     result = ensure_waveform(
         proj_out,
@@ -103,6 +110,9 @@ def handle_get_waveform(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
         ffmpeg,
         audio_source=audio_source,
         ffprobe=ffprobe,
+        task_manager=task_manager,
+        project_id=str(proj_dir.resolve()),
+        project_path=str(proj_dir.resolve()),
     )
     status = result.get("status")
     if status == "pending":

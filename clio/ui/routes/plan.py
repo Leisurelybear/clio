@@ -7,6 +7,7 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from clio.config import load_config
 from clio.pipeline import run_cut_all
 from clio.plan_model import Plan
 from clio.plan_readiness import (
@@ -15,6 +16,10 @@ from clio.plan_readiness import (
     readiness_block_payload,
 )
 from clio.schema import add_schema_version
+from clio.task_center.manager import TaskManager
+from clio.task_center.models import TaskKind, TaskStatus
+from clio.task_center.reporter import TaskCancelled, TaskProgressReporter
+from clio.task_center.store import TaskQuery
 from clio.tasks.cut import (
     list_existing_cut_videos,
     list_orphaned_cut_backups,
@@ -25,6 +30,60 @@ from clio.ui.services.file_service import _is_safe_basename, _save_atomic
 
 if TYPE_CHECKING:
     from clio.ui.handler_protocol import HandlerProtocol
+
+
+def _managed_task_manager(handler: Any) -> TaskManager | None:
+    try:
+        manager = handler._get_task_manager()
+    except (AttributeError, TypeError):
+        return None
+    return manager if isinstance(manager, TaskManager) else None
+
+
+def _run_cut_task(context) -> dict[str, Any]:
+    input_data = context.input_data
+    config_path = input_data.get("config_path") or "config.yaml"
+    project_dir = Path(context.task.project_path or input_data["project_dir"])
+    cfg = load_config(config_path, project_dir=project_dir)
+    output_raw = input_data.get("output_dir")
+    tracker = TaskProgressReporter(context.reporter)
+    clips = run_cut_all(
+        cfg,
+        day_label=input_data.get("day_label", "day1"),
+        output_dir=Path(output_raw) if output_raw else None,
+        reencode=bool(input_data.get("reencode", False)),
+        source=input_data.get("source", "compressed"),
+        overwrite=True,
+        cancel_event=context.cancel_event,
+        tracker=tracker,
+    )
+    if context.cancel_event.is_set():
+        raise TaskCancelled("剪辑导出已取消")
+    return {"clip_count": len(clips), "output_dir": input_data.get("actual_output_dir")}
+
+
+def _ensure_cut_handler(manager: TaskManager) -> None:
+    if TaskKind.CUT_EXPORT not in manager.registry.kinds():
+        manager.register(
+            TaskKind.CUT_EXPORT,
+            _run_cut_task,
+            concurrency_key=lambda task: f"cut:{task.project_id or task.project_path}",
+            max_concurrency=1,
+            cancellable=True,
+        )
+
+
+def _active_cut_task(manager: TaskManager, project_id: str):
+    tasks = manager.store.list(
+        TaskQuery(
+            project_id=project_id,
+            statuses=(TaskStatus.QUEUED, TaskStatus.RUNNING, TaskStatus.CANCELLING),
+            kinds=(TaskKind.CUT_EXPORT,),
+            visibility=None,
+            limit=1,
+        )
+    )
+    return tasks[0] if tasks else None
 
 
 def _plans_dir(handler: HandlerProtocol, qs: dict[str, Any]) -> Path:
@@ -179,6 +238,45 @@ def handle_post_cut(handler: HandlerProtocol, qs: dict[str, list[str]], obj: dic
                 "output_dir": str(actual_out_path),
             },
             409,
+        )
+
+    manager = _managed_task_manager(handler)
+    if manager is not None:
+        _ensure_cut_handler(manager)
+        project_id = str(proj_dir.resolve())
+        if _active_cut_task(manager, project_id) is not None:
+            return handler._send_json({"ok": False, "error": "另一个剪辑任务正在运行"}, 409)
+        config_path = getattr(handler, "config_path", None)
+        task = manager.submit(
+            TaskKind.CUT_EXPORT,
+            f"导出剪辑片段: {day_label}",
+            project_id=project_id,
+            project_name=proj_dir.name,
+            project_path=project_id,
+            input_data={
+                "config_path": str(config_path) if isinstance(config_path, Path) else None,
+                "project_dir": project_id,
+                "day_label": day_label,
+                "output_dir": str(out_path) if out_path is not None else None,
+                "actual_output_dir": str(actual_out_path),
+                "reencode": reencode,
+                "source": source,
+            },
+            input_summary={
+                "day_label": day_label,
+                "segment_count": len(plan.sequence),
+                "source": source,
+            },
+        )
+        return handler._send_json(
+            {
+                "ok": True,
+                "output_dir": str(actual_out_path),
+                "day_label": day_label,
+                "started": True,
+                "task_id": task.id,
+                "task": task.to_dict(),
+            }
         )
 
     state = handler._get_state(str(proj_dir.resolve()))

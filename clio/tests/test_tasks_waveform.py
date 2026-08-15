@@ -14,6 +14,43 @@ import pytest
 from clio.tasks import waveform as wf
 
 
+class TestManagedWaveform:
+    def test_generation_runs_as_background_managed_task(self, tmp_path: Path):
+        from clio.task_center.manager import TaskManager
+        from clio.task_center.models import TaskStatus, TaskVisibility
+        from clio.task_center.store import TaskStore
+
+        source = tmp_path / "video.mp4"
+        source.write_bytes(b"video")
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+        payload = {
+            "source_path": str(source),
+            "audio_source": "original",
+            "duration_sec": 1.0,
+            "bin_count": 2,
+            "peaks": [0.1, 0.2],
+        }
+
+        with (
+            patch("clio.utils.probe_ffmpeg_deps", return_value={"ok": True, "detail": ""}),
+            patch("clio.tasks.waveform.extract_peaks_for_video", return_value=payload),
+        ):
+            pending = wf.ensure_waveform(
+                tmp_path,
+                source,
+                ffmpeg="ffmpeg",
+                task_manager=manager,
+                project_id="project-1",
+                project_path=str(tmp_path),
+            )
+            task = manager.wait(pending["task_id"])
+
+        assert task.status is TaskStatus.SUCCEEDED
+        assert task.visibility is TaskVisibility.BACKGROUND
+        assert wf.read_peaks(tmp_path, pending["key"])["peaks"] == [0.1, 0.2]
+        assert not wf.lock_path(tmp_path, pending["key"]).exists()
+
+
 class TestCacheKey:
     def test_stable_and_hex(self, tmp_path: Path):
         p = tmp_path / "GL010695.MP4"

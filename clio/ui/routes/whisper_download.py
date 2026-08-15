@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextvars
 import dataclasses
 import json
 import os
@@ -15,6 +16,11 @@ from typing import Any
 
 import requests as _req
 
+from clio.config import load_config
+from clio.task_center.manager import TaskManager, TaskNotCancellableError
+from clio.task_center.models import TaskKind, TaskStatus
+from clio.task_center.reporter import TaskCancelled
+from clio.task_center.store import TaskNotFoundError, TaskQuery
 from clio.transcribe import (
     PROJECT_ROOT,
     _clear_model_cache,
@@ -44,6 +50,9 @@ class _DownloadTask:
 
 
 _PROJECT_TASKS: dict[str, _DownloadTask] = {}
+_INSTALL_REPORTER: contextvars.ContextVar[Any | None] = contextvars.ContextVar(
+    "clio_whisper_install_reporter", default=None
+)
 
 
 def _is_frozen() -> bool:
@@ -72,6 +81,15 @@ def _write_install_progress(path: Path, data: dict) -> None:
         tmp.replace(path)
     except OSError:
         tmp.unlink(missing_ok=True)
+    reporter = _INSTALL_REPORTER.get()
+    if reporter is not None:
+        pct = data.get("progress_pct")
+        reporter.progress(
+            phase="whisper_install",
+            current=int(pct) if isinstance(pct, (int, float)) else 0,
+            total=100,
+            message=str(data.get("message") or ""),
+        )
 
 
 _PIP_PROGRESS_RE = re.compile(r"([\d.]+)\s*/\s*[\d.]+\s*MB\s*([\d.]+)%")
@@ -176,7 +194,94 @@ def _project_id_from_qs(handler: HandlerProtocol, qs: dict[str, Any]) -> str:
     return str(handler._resolve_project_dir(qs).resolve())
 
 
+def _managed_task_manager(handler: Any) -> TaskManager | None:
+    try:
+        manager = handler._get_task_manager()
+    except (AttributeError, TypeError):
+        return None
+    return manager if isinstance(manager, TaskManager) else None
+
+
+class _ManagedInstallHandler:
+    def __init__(self, context):
+        self._context = context
+
+    def _resolve_project_dir(self, qs: dict[str, Any]) -> Path:
+        del qs
+        return Path(self._context.task.project_path or self._context.input_data["project_dir"])
+
+    def _get_config(self, project_dir: Path):
+        config_path = self._context.input_data.get("config_path") or "config.yaml"
+        return load_config(config_path, project_dir=project_dir)
+
+
+def _run_whisper_install_task(context) -> dict[str, Any]:
+    progress_path = Path(context.input_data["progress_path"])
+    token = _INSTALL_REPORTER.set(context.reporter)
+    try:
+        try:
+            _run_install(_ManagedInstallHandler(context), {}, progress_path, context.cancel_event)
+        except TaskCancelled:
+            raise
+        except Exception as e:
+            _write_install_progress(
+                progress_path,
+                {"status": "error", "progress_pct": 0, "message": f"安装失败: {e}"},
+            )
+            raise
+        if context.cancel_event.is_set():
+            raise TaskCancelled("下载已取消")
+        try:
+            data = json.loads(progress_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as e:
+            raise RuntimeError(f"无法读取 Whisper 安装状态: {e}") from e
+        if data.get("status") == "error":
+            raise RuntimeError(str(data.get("message") or "Whisper 安装失败"))
+        if data.get("status") != "done":
+            raise RuntimeError(str(data.get("message") or "Whisper 安装未完成"))
+        return {"model": context.input_data.get("model"), "progress_path": str(progress_path)}
+    finally:
+        _INSTALL_REPORTER.reset(token)
+
+
+def _ensure_whisper_handler(manager: TaskManager) -> None:
+    if TaskKind.WHISPER_INSTALL not in manager.registry.kinds():
+        manager.register(
+            TaskKind.WHISPER_INSTALL,
+            _run_whisper_install_task,
+            concurrency_key=lambda task: f"whisper:{task.project_id or task.project_path}",
+            max_concurrency=1,
+            cancellable=True,
+        )
+
+
+def _active_whisper_task(manager: TaskManager, project_id: str):
+    tasks = manager.store.list(
+        TaskQuery(
+            project_id=project_id,
+            statuses=(TaskStatus.QUEUED, TaskStatus.RUNNING, TaskStatus.CANCELLING),
+            kinds=(TaskKind.WHISPER_INSTALL,),
+            visibility=None,
+            limit=1,
+        )
+    )
+    return tasks[0] if tasks else None
+
+
 def handle_get_whisper_install_status(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
+    manager = _managed_task_manager(handler)
+    if manager is not None:
+        task = _active_whisper_task(manager, _project_id_from_qs(handler, qs))
+        if task is not None:
+            return handler._send_json(
+                {
+                    "status": "downloading",
+                    "running": True,
+                    "task_id": task.id,
+                    "progress_pct": task.progress_pct or 0,
+                    "message": task.message,
+                }
+            )
     path = _install_progress_path(handler, qs)
     if path.is_file():
         try:
@@ -197,6 +302,33 @@ def handle_get_whisper_install_status(handler: HandlerProtocol, qs: dict[str, An
 
 def handle_post_whisper_install(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     proj_id = _project_id_from_qs(handler, qs)
+
+    manager = _managed_task_manager(handler)
+    if manager is not None:
+        _ensure_whisper_handler(manager)
+        if _active_whisper_task(manager, proj_id) is not None:
+            return handler._send_json({"ok": False, "error": "download is already running"}, 409)
+        proj_dir = handler._resolve_project_dir(qs)
+        cfg = handler._get_config(proj_dir)
+        progress_path = _install_progress_path(handler, qs)
+        config_path = getattr(handler, "config_path", None)
+        task = manager.submit(
+            TaskKind.WHISPER_INSTALL,
+            "安装 Whisper 依赖和模型",
+            project_id=proj_id,
+            project_name=proj_dir.name,
+            project_path=proj_id,
+            input_data={
+                "config_path": str(config_path) if isinstance(config_path, Path) else None,
+                "project_dir": proj_id,
+                "progress_path": str(progress_path),
+                "model": getattr(getattr(cfg, "whisper", None), "model_size", None),
+            },
+            input_summary={"model": getattr(getattr(cfg, "whisper", None), "model_size", None)},
+        )
+        return handler._send_json(
+            {"ok": True, "message": "whisper install started", "task_id": task.id, "task": task.to_dict()}
+        )
 
     with _INSTALL_LOCK:
         task = _PROJECT_TASKS.get(proj_id)
@@ -228,6 +360,18 @@ def handle_post_whisper_install(handler: HandlerProtocol, qs: dict[str, Any]) ->
 
 def handle_post_whisper_install_cancel(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     proj_id = _project_id_from_qs(handler, qs)
+    manager = _managed_task_manager(handler)
+    if manager is not None:
+        task = _active_whisper_task(manager, proj_id)
+        if task is None:
+            return handler._send_json({"ok": True, "message": "当前没有运行中的 Whisper 安装任务"})
+        try:
+            cancelled = manager.request_cancel(task.id)
+        except (TaskNotFoundError, TaskNotCancellableError) as e:
+            return handler._send_json({"ok": False, "error": str(e)}, 409)
+        return handler._send_json(
+            {"ok": True, "message": "cancel requested", "task_id": cancelled.id, "task": cancelled.to_dict()}
+        )
     with _INSTALL_LOCK:
         task = _PROJECT_TASKS.get(proj_id)
         if task is not None:

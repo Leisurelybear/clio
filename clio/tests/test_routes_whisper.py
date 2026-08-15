@@ -14,6 +14,9 @@ from clio.ui.routes.whisper_download import (
     _install_progress_path,
     _pip_install_streaming,
     _run_install,
+    _write_install_progress,
+    handle_get_whisper_install_status,
+    handle_post_whisper_install,
     handle_post_whisper_install_cancel,
 )
 from clio.ui.routes.whisper_models import _get_cache_dir
@@ -402,6 +405,110 @@ class TestRunWhisperInstall:
             cache_dir / "models--Systran--faster-whisper-small" / "snapshots" / "downloaded" / "config.json"
         ).exists()
 
+
+class TestManagedWhisperInstall:
+    def test_install_submits_managed_task_and_reports_progress(self, tmp_path: Path) -> None:
+        from clio.task_center.manager import TaskManager
+        from clio.task_center.models import TaskKind, TaskStatus
+        from clio.task_center.store import TaskStore
+
+        proj_dir = tmp_path / "project"
+        proj_dir.mkdir()
+        proj_output = tmp_path / "output"
+        proj_output.mkdir()
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+        handler = _make_handler(proj_dir, proj_output)
+        handler._get_task_manager = lambda: manager
+        handler.config_path = None
+
+        def install(adapter, qs, progress_path, cancel):
+            _write_install_progress(
+                progress_path,
+                {"status": "downloading", "progress_pct": 40, "message": "下载中"},
+            )
+            _write_install_progress(
+                progress_path,
+                {"status": "done", "progress_pct": 100, "message": "完成"},
+            )
+
+        with patch("clio.ui.routes.whisper_download._run_install", side_effect=install):
+            handle_post_whisper_install(handler, {})
+            payload = handler._send_json.call_args.args[0]
+            task = manager.wait(payload["task_id"])
+
+        assert task.kind is TaskKind.WHISPER_INSTALL
+        assert task.status is TaskStatus.SUCCEEDED
+        assert task.progress_pct == 100
+        assert json.loads((proj_output / ".whisper_install.json").read_text(encoding="utf-8"))["status"] == "done"
+
+    def test_cancel_managed_install(self, tmp_path: Path) -> None:
+        from clio.task_center.manager import TaskManager
+        from clio.task_center.models import TaskStatus
+        from clio.task_center.store import TaskStore
+
+        proj_dir = tmp_path / "project"
+        proj_dir.mkdir()
+        proj_output = tmp_path / "output"
+        proj_output.mkdir()
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+        handler = _make_handler(proj_dir, proj_output)
+        handler._get_task_manager = lambda: manager
+        handler.config_path = None
+        entered = threading.Event()
+
+        def install(adapter, qs, progress_path, cancel):
+            entered.set()
+            cancel.wait(timeout=2)
+            _write_install_progress(
+                progress_path,
+                {"status": "idle", "progress_pct": 0, "message": "下载已取消"},
+            )
+
+        with patch("clio.ui.routes.whisper_download._run_install", side_effect=install):
+            handle_post_whisper_install(handler, {})
+            task_id = handler._send_json.call_args.args[0]["task_id"]
+            assert entered.wait(timeout=2)
+            handler._send_json.reset_mock()
+            handle_post_whisper_install_cancel(handler, {})
+            task = manager.wait(task_id)
+
+        assert task.status is TaskStatus.CANCELLED
+        assert handler._send_json.call_args.args[0]["task_id"] == task_id
+
+    def test_status_reads_active_managed_task(self, tmp_path: Path) -> None:
+        from clio.task_center.manager import TaskManager
+        from clio.task_center.models import TaskKind
+        from clio.task_center.store import TaskStore
+
+        proj_dir = tmp_path / "project"
+        proj_dir.mkdir()
+        proj_output = tmp_path / "output"
+        proj_output.mkdir()
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+        release = threading.Event()
+
+        def worker(context):
+            release.wait(timeout=2)
+
+        manager.register(TaskKind.WHISPER_INSTALL, worker, cancellable=True)
+        task = manager.submit(
+            TaskKind.WHISPER_INSTALL,
+            "安装",
+            project_id=str(proj_dir.resolve()),
+            project_path=str(proj_dir.resolve()),
+        )
+        handler = _make_handler(proj_dir, proj_output)
+        handler._get_task_manager = lambda: manager
+
+        handle_get_whisper_install_status(handler, {})
+
+        payload = handler._send_json.call_args.args[0]
+        assert payload["running"] is True
+        assert payload["task_id"] == task.id
+        release.set()
+
+
+class TestLegacyWhisperCancellation:
     def test_cancel_with_corrupted_progress_file(self, tmp_path: Path) -> None:
         """Cancel should not crash on corrupted progress file."""
         proj_dir = tmp_path / "input"

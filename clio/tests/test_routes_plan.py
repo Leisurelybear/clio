@@ -277,6 +277,51 @@ class TestHandlePostCut:
         assert payload["count"] == 1
         assert "old.mp4" in payload["files"]
 
+    def test_managed_cut_returns_task_id(self, tmp_path: Path, monkeypatch):
+        from clio.task_center.manager import TaskManager
+        from clio.task_center.models import TaskKind, TaskStatus
+        from clio.task_center.store import TaskStore
+
+        project_dir = tmp_path / "project"
+        plans_dir = tmp_path / "plans"
+        output_dir = tmp_path / "cuts" / "day1"
+        project_dir.mkdir()
+        plans_dir.mkdir()
+        output_dir.mkdir(parents=True)
+        plan = {
+            "day_title": "d",
+            "sequence": [{"index": "001", "title": "A", "use_timeline": "00:00-00:05", "reason": "r"}],
+        }
+        (plans_dir / "day1_plan.json").write_text(json.dumps(plan), encoding="utf-8")
+        cfg = MagicMock()
+        cfg.plans_dir = plans_dir
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+        handler = MagicMock()
+        handler.config_path = None
+        handler._resolve_project_dir.return_value = project_dir
+        handler._get_config.return_value = cfg
+        handler._get_task_manager = lambda: manager
+        captured = {}
+
+        def worker(context):
+            captured.update(context.input_data)
+            return {"clip_count": 1}
+
+        monkeypatch.setattr("clio.ui.routes.plan._run_cut_task", worker)
+        monkeypatch.setattr("clio.ui.routes.plan.collect_project_indices", lambda cfg: ({"001"}, set()))
+        monkeypatch.setattr("clio.ui.routes.plan.readiness_block_payload", lambda result, force: None)
+        monkeypatch.setattr("clio.ui.routes.plan.resolve_cut_output_dir", lambda *args: output_dir)
+        monkeypatch.setattr("clio.ui.routes.plan.list_existing_cut_videos", lambda path: [])
+
+        handle_post_cut(handler, {}, {"day_label": "day1", "source": "compressed"})
+
+        payload = handler._send_json.call_args.args[0]
+        task = manager.wait(payload["task_id"])
+        assert payload["started"] is True
+        assert task.kind is TaskKind.CUT_EXPORT
+        assert task.status is TaskStatus.SUCCEEDED
+        assert captured["day_label"] == "day1"
+
 
 class TestOrphanedCutBackupRoutes:
     def test_get_lists_backups(self, tmp_path: Path):

@@ -262,6 +262,7 @@ def run_cut_all(
     source: str = "compressed",
     cancel_event: threading.Event | None = None,
     overwrite: bool = True,
+    tracker: Any | None = None,
 ) -> list[dict]:
     """根据 plan 按时间区间裁剪视频片段。
 
@@ -281,6 +282,8 @@ def run_cut_all(
     if not seq:
         print(f"规划文件中没有 sequence 段: {plan_path.name}")
         return []
+    if tracker is not None:
+        tracker.update(phase="cut", current=0, total=len(seq), message=f"准备裁剪 {len(seq)} 个片段")
 
     out_root = resolve_cut_output_dir(config, day_label, output_dir)
     existing = list_existing_cut_videos(out_root)
@@ -355,12 +358,16 @@ def run_cut_all(
             timeline = (seg.get("use_timeline") or "").strip()
             if not idx or not timeline:
                 print(f"  [跳过] 第 {i} 段缺少 index 或 use_timeline")
+                if tracker is not None:
+                    tracker.next(message=f"跳过第 {i} 段：缺少索引或时间范围")
                 continue
 
             video_path = _resolve_video_path(idx)
             if video_path is None:
                 src = "compressed" if source != "original" else "original"
                 print(f"  [跳过] 找不到 index={idx} 的视频（{src}）: {seg.get('title', '')}")
+                if tracker is not None:
+                    tracker.next(message=f"跳过第 {i} 段：找不到视频")
                 continue
 
             try:
@@ -370,6 +377,8 @@ def run_cut_all(
                 orig_stem = _orig_stem_from_path(video_path) if video_path else ""
                 if orig_stem:
                     state.mark(orig_stem, "cut", "skipped")
+                if tracker is not None:
+                    tracker.next(message=f"跳过第 {i} 段：时间格式错误")
                 continue
 
             if end <= start:
@@ -377,6 +386,8 @@ def run_cut_all(
                 orig_stem = _orig_stem_from_path(video_path) if video_path else ""
                 if orig_stem:
                     state.mark(orig_stem, "cut", "skipped")
+                if tracker is not None:
+                    tracker.next(message=f"跳过第 {i} 段：时间范围无效")
                 continue
 
             try:
@@ -477,6 +488,8 @@ def run_cut_all(
                     "text_file": text_json or "",
                 }
             )
+            if tracker is not None:
+                tracker.next(message=f"完成片段 {i}/{len(seq)}")
 
     manifest_path = out_root / "manifest.md"
     lines = [

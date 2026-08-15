@@ -18,6 +18,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 
+from clio.task_center.manager import TaskManager
+from clio.task_center.models import TaskKind, TaskVisibility
+
 WAVEFORM_VERSION = 1
 STALE_SEC = 900
 # After a failed extract, do not re-kick until this cool-down elapses.
@@ -233,6 +236,45 @@ def _spawn_job(fn: Callable[[], None]) -> None:
     t.start()
 
 
+def _run_managed_waveform_task(context) -> dict[str, Any]:
+    input_data = context.input_data
+    project_output = Path(input_data["project_output"])
+    source_path = Path(input_data["source_path"])
+    key = str(input_data["key"])
+    try:
+        payload = extract_peaks_for_video(
+            source_path,
+            str(input_data["ffmpeg"]),
+            duration_sec=input_data.get("duration_sec"),
+            audio_source=str(input_data.get("audio_source") or "original"),
+            ffprobe=str(input_data.get("ffprobe") or ""),
+        )
+        write_peaks_atomic(project_output, key, payload)
+        clear_error(project_output, key)
+        return {"key": key, "bin_count": payload.get("bin_count", 0)}
+    except Exception as e:
+        try:
+            error_path(project_output, key).write_text(str(e)[:500], encoding="utf-8")
+        except OSError:
+            pass
+        raise
+    finally:
+        clear_lock(project_output, key)
+        with _jobs_lock:
+            _active_job_keys.discard(key)
+
+
+def _ensure_waveform_handler(manager: TaskManager) -> None:
+    if TaskKind.WAVEFORM not in manager.registry.kinds():
+        manager.register(
+            TaskKind.WAVEFORM,
+            _run_managed_waveform_task,
+            concurrency_key="waveform",
+            max_concurrency=MAX_CONCURRENT_JOBS,
+            cancellable=False,
+        )
+
+
 def has_audio_stream(video_path: Path, ffprobe: str) -> bool:
     """True if the media file has at least one audio stream (via ffprobe).
 
@@ -361,6 +403,9 @@ def ensure_waveform(
     duration_sec: float | None = None,
     audio_source: str = "original",
     ffprobe: str = "",
+    task_manager: TaskManager | None = None,
+    project_id: str | None = None,
+    project_path: str | None = None,
 ) -> dict[str, Any]:
     source_path = Path(source_path)
     key = cache_key(source_path)
@@ -397,6 +442,36 @@ def ensure_waveform(
         write_lock(project_output, key, source_path)
         clear_error(project_output, key)
         started_at = time.time()
+
+        if task_manager is not None:
+            _ensure_waveform_handler(task_manager)
+            with _jobs_lock:
+                _active_job_keys.add(key)
+            try:
+                task = task_manager.submit(
+                    TaskKind.WAVEFORM,
+                    f"生成波形: {source_path.name}",
+                    project_id=project_id,
+                    project_name=Path(project_path).name if project_path else None,
+                    project_path=project_path,
+                    visibility=TaskVisibility.BACKGROUND,
+                    input_data={
+                        "project_output": str(project_output),
+                        "source_path": str(source_path),
+                        "key": key,
+                        "ffmpeg": ffmpeg,
+                        "duration_sec": duration_sec,
+                        "audio_source": audio_source,
+                        "ffprobe": ffprobe,
+                    },
+                    input_summary={"source": source_path.name, "key": key},
+                )
+            except Exception:
+                with _jobs_lock:
+                    _active_job_keys.discard(key)
+                clear_lock(project_output, key)
+                raise
+            return {"status": "pending", "started_at": started_at, "key": key, "task_id": task.id}
 
         def _job() -> None:
             _job_slots.acquire()

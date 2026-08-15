@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import threading
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -338,6 +338,22 @@ class TestRunCutAll:
         assert len(result) == 2
         assert result[0]["video_index"] == "001"
         assert mock_cut.call_count == 2
+
+    @patch("clio.tasks.cut.cut_one")
+    @patch("clio.tasks.cut.resolve_binary")
+    def test_reports_segment_progress(self, mock_resolve, mock_cut, cfg):
+        _write_plan(cfg)
+        (cfg.compressed_dir / "001_src.mp4").write_bytes(b"\x00")
+        (cfg.compressed_dir / "002_src.mp4").write_bytes(b"\x00")
+        mock_resolve.return_value = "ffmpeg"
+        tracker = MagicMock()
+
+        from clio.tasks.cut import run_cut_all
+
+        run_cut_all(cfg, "day1", tracker=tracker)
+
+        tracker.update.assert_called_once_with(phase="cut", current=0, total=2, message="准备裁剪 2 个片段")
+        assert tracker.next.call_count == 2
 
     @patch("clio.tasks.cut.cut_one")
     @patch("clio.tasks.cut.resolve_binary")
