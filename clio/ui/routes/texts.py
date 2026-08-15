@@ -7,6 +7,7 @@ import re
 from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 from clio.ui.services.file_service import _save_atomic
 
@@ -14,7 +15,19 @@ if TYPE_CHECKING:
     from clio.ui.handler_protocol import HandlerProtocol
 
 _COVER_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
-_SAFE_COVER_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
+_SAFE_COVER_NAME = re.compile(r"^[^\x00-\x1f\x7f/\\<>:\"|?*]+$")
+
+
+def _content_disposition(basename: str) -> str:
+    """RFC 6266 header — ASCII fallback + UTF-8 encoded filename* for non-ASCII names.
+
+    Python's BaseHTTPRequestHandler encodes header values as latin-1, so a raw
+    non-ASCII filename would crash the request (ERR_EMPTY_RESPONSE).
+    """
+    if basename.isascii():
+        return f'inline; filename="{basename}"'
+    fallback = basename.encode("ascii", "replace").decode("ascii")
+    return f"inline; filename=\"{fallback}\"; filename*=UTF-8''{quote(basename, safe='')}"
 
 
 def _detect_cover_content_type(data: bytes) -> str | None:
@@ -72,7 +85,7 @@ def handle_get_cover(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
         ct,
         extra_headers={
             "X-Content-Type-Options": "nosniff",
-            "Content-Disposition": f'inline; filename="{basename}"',
+            "Content-Disposition": _content_disposition(basename),
             "Content-Security-Policy": "default-src 'none'; img-src 'self'; sandbox",
         },
     )

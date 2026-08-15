@@ -132,6 +132,26 @@ class TestHandleGetCover:
         assert status == 403
         assert payload["ok"] is False
 
+    def test_allows_chinese_cover_filename(self, handler):
+        from clio.ui.routes.texts import handle_get_cover
+
+        path = MagicMock()
+        path.name = "028_巴黎蒙马特街头漫步.jpg"
+        path.suffix = ".jpg"
+        path.read_bytes.return_value = b"\xff\xd8\xff\xe0" + b"\x00" * 16
+        handler._resolve_in.return_value = path
+        handle_get_cover(handler, {"file": ["028_巴黎蒙马特街头漫步.jpg"]})
+        handler._resolve_in.assert_called_once()
+        handler._send_bytes.assert_called_once()
+
+    def test_rejects_name_with_dangerous_char(self, handler):
+        from clio.ui.routes.texts import handle_get_cover
+
+        handle_get_cover(handler, {"file": ["evil<>.jpg"]})
+        status = handler._send_json.call_args[0][1]
+        assert status == 403
+        handler._resolve_in.assert_not_called()
+
     def test_sends_jpeg_with_security_headers(self, handler):
         from clio.ui.routes.texts import handle_get_cover
 
@@ -147,3 +167,19 @@ class TestHandleGetCover:
         assert headers.get("X-Content-Type-Options") == "nosniff"
         assert "Content-Security-Policy" in headers
         assert "Content-Disposition" in headers
+
+    def test_content_disposition_is_ascii_safe_for_chinese(self, handler):
+        from clio.ui.routes.texts import handle_get_cover
+
+        path = MagicMock()
+        path.name = "026_巴黎蒙马特街头漫步.jpg"
+        path.suffix = ".jpg"
+        path.read_bytes.return_value = b"\xff\xd8\xff\xe0" + b"\x00" * 16
+        handler._resolve_in.return_value = path
+        handle_get_cover(handler, {"file": ["026_巴黎蒙马特街头漫步.jpg"]})
+        args, kwargs = handler._send_bytes.call_args
+        headers = kwargs.get("extra_headers") or (args[2] if len(args) > 2 else {})
+        cd = headers.get("Content-Disposition", "")
+        assert cd
+        cd.encode("latin-1")
+        assert "filename*=UTF-8''" in cd or cd.isascii()
