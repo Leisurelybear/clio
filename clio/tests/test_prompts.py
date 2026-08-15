@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from clio.prompts import ANALYZE_PROMPT, PLAN_PROMPT, load_prompt, render_prompt_template
+from clio.prompts import ANALYZE_PROMPT, PLAN_PROMPT, SCRIPT_PROMPT, load_prompt, render_prompt_template
 
 
 def test_load_prompt_uses_project_override(tmp_path):
@@ -111,3 +111,21 @@ def test_plan_prompt_reason_needs_evidence():
 def test_plan_prompt_voiceover_hint_specific():
     assert "空泛" in PLAN_PROMPT
     assert "voiceover_hint" in PLAN_PROMPT
+
+
+def test_script_prompt_binds_to_timeline_details():
+    assert "timeline_text" in SCRIPT_PROMPT
+    assert "具体地点" in SCRIPT_PROMPT
+    assert "禁止" in SCRIPT_PROMPT
+
+
+def test_script_prompt_duration_matches_timeline():
+    assert "duration_hint_sec" in SCRIPT_PROMPT
+    assert "匹配" in SCRIPT_PROMPT
+
+
+def test_script_prompt_has_clear_structure():
+    assert "开头" in SCRIPT_PROMPT
+    assert "过程" in SCRIPT_PROMPT
+    assert "感受" in SCRIPT_PROMPT
+    assert "过渡" in SCRIPT_PROMPT
