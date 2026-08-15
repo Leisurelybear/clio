@@ -9,7 +9,6 @@ from typing import Any
 import yaml
 
 from clio.config.models import (
-    AIConfig,
     AnalyzeConfig,
     AppConfig,
     ExportConfig,
@@ -500,29 +499,6 @@ def _migrate_if_needed(config_path: Path) -> None:
     if version == _V2:
         return
     _migrate_v1_to_v2(config_path)
-
-
-def _legacy_ai_config(raw: dict) -> AIConfig:
-    gemini_raw = raw.get("gemini", {})
-    api_key = os.environ.get("GEMINI_API_KEY") or gemini_raw.get("api_key", "")
-    model = gemini_raw.get("model", "gemini-2.5-flash")
-    video_model = gemini_raw.get("video_model", "gemini-3-flash")
-    return AIConfig(
-        providers={
-            "gemini": ProviderConfig(
-                name="gemini",
-                type="gemini",
-                api_key=api_key,
-                api_key_env="GEMINI_API_KEY",
-                poll_interval_sec=gemini_raw.get("poll_interval_sec", 5),
-            ),
-        },
-        tasks={
-            "video_analyze": TaskConfig(provider="gemini", model=video_model),
-            "voiceover": TaskConfig(provider="gemini", model=model),
-            "vlog_plan": TaskConfig(provider="gemini", model=model),
-        },
-    )
 
 
 def load_global_config(config_path: str | Path = "config.yaml") -> GlobalConfig:

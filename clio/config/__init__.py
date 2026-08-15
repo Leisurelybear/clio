@@ -1,7 +1,6 @@
 from clio.config.descriptions import CONFIG_DESCRIPTIONS
 from clio.config.enums import WhisperDevice, WhisperLang, WhisperModelSize
 from clio.config.loader import (
-    _legacy_ai_config,
     _load_context,
     _load_dotenv,
     _path,
@@ -89,7 +88,6 @@ __all__ = [
     "load_config",
     "load_global_config",
     "load_project_config",
-    "_legacy_ai_config",
     "_load_context",
     "_parse_providers",
     "_parse_tasks",

@@ -347,7 +347,7 @@ class CombinedWhisperConfig:
 # ---------------------------------------------------------------------------
 
 # These old merged dataclasses are kept temporarily so that callers
-# (parsers, validators, _legacy_ai_config, tests) continue to compile
+# (parsers, validators, tests) continue to compile
 # during the transition. They are NOT used by the new loader or AppConfig.
 
 
