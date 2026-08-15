@@ -3,7 +3,7 @@ import { $, escapeHtml, setStatus, updateEntityUI } from './utils.js';
 import { api } from './api.js';
 import { addToast } from './toast.js';
 import { loadVideos, renderVideoList } from './sidebar-data.js';
-import { subscribeTaskEvents } from './task-center.js';
+import { subscribeTaskEvents, fetchTask } from './task-center.js';
 
 let _rerunPollTimer = null;
 let _rerunPollStart = 0;
@@ -42,6 +42,9 @@ export function showRerunProgress(task, file, taskId = null) {
       if (!current || current.id !== taskId || current.kind !== 'rerun') return;
       _applyTaskEvent(task, file, current, payload.event);
     });
+    fetchTask(taskId).then(current => {
+      if (current && current.id === taskId) _applyTaskEvent(task, file, current);
+    }).catch(() => {});
   } else {
     _rerunPollTimer = setInterval(() => pollRerunStatus(task, file), 1500);
     pollRerunStatus(task, file);

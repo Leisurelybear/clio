@@ -3,7 +3,7 @@ import { api } from './api.js';
 import { $ } from './utils.js';
 import { buildTimeline } from './plan-timeline.js';
 import { composePlanPeaks } from './plan-waveform.js';
-import { subscribeTaskEvents } from './task-center.js';
+import { subscribeTaskEvents, fetchTask } from './task-center.js';
 
 /** @type {number} */
 let _pollToken = 0;
@@ -30,6 +30,17 @@ function _watchWaveformTask(taskId, callback) {
       _waveformTaskUnsubscribe = null;
     }
   });
+  fetchTask(taskId).then(task => {
+    if (!task || !_waveformTaskWaiters.has(taskId)) return;
+    if (!['succeeded', 'failed', 'cancelled', 'interrupted'].includes(task.status)) return;
+    const waiter = _waveformTaskWaiters.get(taskId);
+    _waveformTaskWaiters.delete(taskId);
+    try { waiter(task); } catch { /* stale waveform view */ }
+    if (!_waveformTaskWaiters.size && _waveformTaskUnsubscribe) {
+      _waveformTaskUnsubscribe();
+      _waveformTaskUnsubscribe = null;
+    }
+  }).catch(() => {});
 }
 
 /** @type {'source' | 'plan'} */

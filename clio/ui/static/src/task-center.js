@@ -17,6 +17,7 @@ let _stream = null;
 let _streamCursor = 0;
 let _detailRequest = 0;
 const _eventListeners = new Set();
+const _taskEventSeq = new Map();
 
 export function statusLabel(status) { return STATUS_LABELS[status] || status || '未知'; }
 export function kindLabel(kind) { return KIND_LABELS[kind] || kind || '任务'; }
@@ -36,7 +37,8 @@ function _upsertTask(task) {
   const index = state.tasks.findIndex(item => item.id === task.id);
   if (index >= 0) state.tasks[index] = task;
   else state.tasks.unshift(task);
-  state.tasks.sort((a, b) => String(b.updated_at || b.created_at || '').localeCompare(String(a.updated_at || a.created_at || '')));
+  state.tasks.sort((a, b) => String(b.finished_at || b.heartbeat_at || b.updated_at || b.started_at || b.created_at || '')
+    .localeCompare(String(a.finished_at || a.heartbeat_at || a.updated_at || a.started_at || a.created_at || '')));
   if (state.tasks.length > 200) state.tasks.length = 200;
 }
 
@@ -79,7 +81,7 @@ function _detailHtml(detail) {
   const task = detail.task || detail;
   const events = detail.events || [];
   const canCancel = task.cancellable && ACTIVE.has(task.status) && !task.cancel_requested;
-  const canRetry = TERMINAL.has(task.status) && (task.status === 'failed' || task.status === 'interrupted');
+  const canRetry = task.status === 'failed' || task.status === 'interrupted' || task.status === 'cancelled';
   const error = task.error_message ? `<div class="task-error"><strong>错误：</strong>${escapeHtml(task.error_message)}</div>` : '';
   const timeline = events.length
     ? events.slice().reverse().map(event => `<li class="task-event task-event-${escapeHtml(event.level || 'info')}">
@@ -119,10 +121,19 @@ function _render() {
 export async function loadTasks() {
   try {
     const result = await api('GET', '/api/tasks?visibility=all&limit=200');
+    const snapshotSeq = Number(result?.latest_seq) || 0;
+    const liveTasks = state.tasks.filter(task => (_taskEventSeq.get(task.id) || 0) > snapshotSeq);
     state.tasks = Array.isArray(result?.tasks) ? result.tasks : [];
-    state.taskLatestSeq = Number(result?.latest_seq) || state.taskLatestSeq;
+    liveTasks.forEach(_upsertTask);
+    state.taskLatestSeq = Math.max(state.taskLatestSeq, snapshotSeq);
     _streamCursor = Math.max(_streamCursor, state.taskLatestSeq);
-    if (state.selectedTaskId && !state.tasks.some(task => task.id === state.selectedTaskId)) state.selectedTaskId = null;
+    for (const [taskId, seq] of _taskEventSeq) {
+      if (seq <= snapshotSeq) _taskEventSeq.delete(taskId);
+    }
+    if (state.selectedTaskId && !state.tasks.some(task => task.id === state.selectedTaskId)) {
+      state.selectedTaskId = null;
+      state.taskDetail = null;
+    }
     _render();
   } catch (error) {
     setStatus(`任务加载失败: ${error.message}`, 'err');
@@ -142,18 +153,29 @@ export async function selectTask(taskId) {
   } catch (error) { setStatus(`任务详情加载失败: ${error.message}`, 'err'); }
 }
 
+/** Fetch one task snapshot for consumers that may subscribe after a fast task finished. */
+export async function fetchTask(taskId) {
+  if (!taskId) return null;
+  const result = await api('GET', `${_taskUrl(taskId)}?event_limit=1`);
+  return result?.task || null;
+}
+
 async function mutateTask(action) {
   const id = state.selectedTaskId;
   if (!id) return;
   try {
     const result = await api('POST', `${_taskUrl(id)}/${action}`, {});
+    let targetId = id;
     if (result?.task) {
       _upsertTask(result.task);
-      state.selectedTaskId = result.task.id;
-      state.taskDetail = { task: result.task, events: state.taskDetail?.events || [] };
+      targetId = result.task.id;
+      state.selectedTaskId = targetId;
+      const events = action === 'retry' ? [] : (state.taskDetail?.events || []);
+      state.taskDetail = { task: result.task, events };
     }
     addToast(action === 'cancel' ? '已发送取消请求' : '已创建重试任务', 'success');
     await loadTasks();
+    await selectTask(targetId);
   } catch (error) { addToast(`${action === 'cancel' ? '取消' : '重试'}失败: ${error.message}`, 'error', 6000); }
 }
 
@@ -167,12 +189,19 @@ export function startTaskStream() {
     try {
       const payload = JSON.parse(event.data);
       const seq = Number(payload.seq) || 0;
+      if (seq <= _streamCursor) return;
       if (seq > _streamCursor) _streamCursor = seq;
       if (payload.task) {
+        _taskEventSeq.set(payload.task.id, seq);
         _upsertTask(payload.task);
         state.taskLatestSeq = Math.max(state.taskLatestSeq, seq);
         if (state.taskDetail?.task?.id === payload.task.id) {
-          state.taskDetail = { ...state.taskDetail, task: payload.task };
+          const events = [...(state.taskDetail.events || [])];
+          if (payload.event && !events.some(item => item.seq === payload.event.seq)) {
+            events.push(payload.event);
+            if (events.length > 300) events.splice(0, events.length - 300);
+          }
+          state.taskDetail = { ...state.taskDetail, task: payload.task, events };
         }
         if (state.currentEntity === 'tasks') _render();
       }

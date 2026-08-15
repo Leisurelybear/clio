@@ -8,7 +8,7 @@ import {
 import { api, icon } from './api.js';
 import { beginLatest, endLatest, isLatest, isAbortError } from './latest.js';
 import { addToast } from './toast.js';
-import { subscribeTaskEvents } from './task-center.js';
+import { subscribeTaskEvents, fetchTask } from './task-center.js';
 
 let _runEventSource = null;
 let _lastRunDay = 'day1';
@@ -332,7 +332,10 @@ async function startRun() {
       setStatus(msg, 'ok');
       addToast(msg, 'success');
       $('run-progress').innerHTML = '<p class="muted">流水线已启动，等待进度...</p>';
-      if (_managedTaskId) _subscribeManagedRunEvents();
+      if (_managedTaskId) {
+        _subscribeManagedRunEvents();
+        _syncManagedTaskSnapshot(_managedTaskId);
+      }
       else _startRunSSE(); // compatibility with servers predating the task center
     } else {
       throw new Error(r.error || '启动失败');
@@ -410,6 +413,14 @@ function _subscribeManagedRunEvents() {
     renderManagedTaskLink();
     _handleRunStatus(_taskToRunStatus(task, payload));
   });
+}
+
+async function _syncManagedTaskSnapshot(taskId) {
+  try {
+    const task = await fetchTask(taskId);
+    if (!task || task.id !== _managedTaskId || task.kind !== 'pipeline') return;
+    _handleRunStatus(_taskToRunStatus(task));
+  } catch { /* stream remains the primary source */ }
 }
 
 async function _syncManagedRunTask() {

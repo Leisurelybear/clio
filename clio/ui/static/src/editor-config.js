@@ -1,7 +1,7 @@
 import { state } from './state.js';
 import { $, $$, escapeHtml, markDirty, clearDirty, setStatus, setDeep } from './utils.js';
 import { api, icon } from './api.js';
-import { subscribeTaskEvents } from './task-center.js';
+import { subscribeTaskEvents, fetchTask } from './task-center.js';
 import { setBrowseButtonsVisible } from './desktop-pick.js';
 import {
   filterLogEntries,
@@ -1634,6 +1634,9 @@ function _subscribeWhisperTask(taskId) {
     if (!task || task.id !== taskId || task.kind !== 'whisper_install') return;
     _applyWhisperTask(task, payload.event);
   });
+  fetchTask(taskId).then(task => {
+    if (task && task.id === taskId) _applyWhisperTask(task);
+  }).catch(() => {});
 }
 
 function _applyWhisperTask(task, event = null) {
