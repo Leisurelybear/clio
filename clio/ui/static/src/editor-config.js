@@ -1,6 +1,7 @@
 import { state } from './state.js';
 import { $, $$, escapeHtml, markDirty, clearDirty, setStatus, setDeep } from './utils.js';
 import { api, icon } from './api.js';
+import { subscribeTaskEvents } from './task-center.js';
 import { setBrowseButtonsVisible } from './desktop-pick.js';
 import {
   filterLogEntries,
@@ -1613,6 +1614,56 @@ export async function renderTokens() {
 
 
 let _installPollTimer = null;
+let _installTaskId = null;
+let _installTaskUnsubscribe = null;
+
+function _clearWhisperTaskSubscription() {
+  if (_installTaskUnsubscribe) {
+    _installTaskUnsubscribe();
+    _installTaskUnsubscribe = null;
+  }
+  _installTaskId = null;
+}
+
+function _subscribeWhisperTask(taskId) {
+  _clearWhisperTaskSubscription();
+  if (!taskId) return;
+  _installTaskId = taskId;
+  _installTaskUnsubscribe = subscribeTaskEvents(payload => {
+    const task = payload?.task;
+    if (!task || task.id !== taskId || task.kind !== 'whisper_install') return;
+    _applyWhisperTask(task, payload.event);
+  });
+}
+
+function _applyWhisperTask(task, event = null) {
+  const prog = $('model-dl-progress');
+  const bar = $('model-dl-bar');
+  const msg = $('model-dl-msg');
+  const cancelBtn = $('btn-cancel-dl');
+  const dlBtn = $('btn-model-download');
+  const pct = Number.isFinite(task.progress_pct) ? task.progress_pct : 0;
+  if (prog) prog.style.display = task.status === 'queued' || task.status === 'running' || task.status === 'cancelling' ? 'block' : 'none';
+  if (bar) bar.style.width = `${Math.min(100, Math.max(0, pct))}%`;
+  if (msg) msg.textContent = event?.message || task.message || task.phase || '下载中...';
+  if (cancelBtn) cancelBtn.style.display = task.status === 'queued' || task.status === 'running' || task.status === 'cancelling' ? '' : 'none';
+  if (dlBtn && (task.status === 'queued' || task.status === 'running' || task.status === 'cancelling')) {
+    dlBtn.disabled = true;
+    dlBtn.textContent = task.status === 'cancelling' ? '取消中...' : '下载中...';
+  }
+  if (!['succeeded', 'failed', 'cancelled', 'interrupted'].includes(task.status)) return;
+  if (_installPollTimer) { clearInterval(_installPollTimer); _installPollTimer = null; }
+  _clearWhisperTaskSubscription();
+  if (dlBtn) { dlBtn.disabled = false; dlBtn.innerHTML = `${icon('download', 14)} 下载模型`; }
+  if (task.status === 'succeeded') {
+    setStatus('Whisper 模型下载完成', 'ok');
+    _loadModelMgmt();
+  } else if (task.status === 'cancelled') {
+    setStatus('Whisper 模型下载已取消', 'warn');
+  } else {
+    setStatus(`Whisper 模型下载失败: ${task.error_message || task.message || '未知错误'}`, 'err');
+  }
+}
 
 function renderModelManagement() {
   const div = document.createElement('div');
@@ -1761,9 +1812,14 @@ async function _loadModelMgmt() {
           const r = await api('POST', '/api/whisper/install', {});
           if (!r.ok) throw new Error(r.error || '启动失败');
           dlBtn.textContent = '下载中...';
-          if (_installPollTimer) clearInterval(_installPollTimer);
-          _installPollTimer = setInterval(_pollModelDl, 1000);
-          _pollModelDl();
+          if (r.task_id || r.task?.id) {
+            if (_installPollTimer) { clearInterval(_installPollTimer); _installPollTimer = null; }
+            _subscribeWhisperTask(r.task_id || r.task.id);
+            _applyWhisperTask(r.task || { id: r.task_id, kind: 'whisper_install', status: 'queued' });
+          } else {
+            _installPollTimer = setInterval(_pollModelDl, 1000);
+            _pollModelDl();
+          }
         } catch (e) {
           dlBtn.disabled = false;
           dlBtn.innerHTML = `${icon('download', 14)} 下载模型`;
@@ -1776,9 +1832,16 @@ async function _loadModelMgmt() {
     const cancelBtn = $('btn-cancel-dl');
     if (cancelBtn) {
       cancelBtn.onclick = async () => {
+        const managedCancel = Boolean(_installTaskId);
         try {
-          await api('POST', '/api/whisper/install/cancel', {});
+          if (_installTaskId) await api('POST', `/api/tasks/${encodeURIComponent(_installTaskId)}/cancel`, {});
+          else await api('POST', '/api/whisper/install/cancel', {});
         } catch { /* ignore */ }
+        if (managedCancel) {
+          cancelBtn.disabled = true;
+          cancelBtn.textContent = '取消中...';
+          return;
+        }
         if (_installPollTimer) { clearInterval(_installPollTimer); _installPollTimer = null; }
         const prog = $('model-dl-progress');
         if (prog) prog.style.display = 'none';
@@ -1807,19 +1870,30 @@ async function _loadModelMgmt() {
     });
     clearTimeout(timeoutId);
     try {
-      const st = await api('GET', '/api/whisper/install/status');
-      if (st.running || st.status === 'downloading') {
+      const tasksResult = await api('GET', '/api/tasks?kind=whisper_install&visibility=all&limit=20');
+      const managed = (tasksResult.tasks || []).find(task => ['queued', 'running', 'cancelling'].includes(task.status)
+        && (!state.currentProjectDir || !task.project_id || task.project_id === state.currentProjectDir));
+      if (managed) {
         const prog = $('model-dl-progress');
         if (prog) prog.style.display = 'block';
         const cancelBtn = $('btn-cancel-dl');
         if (cancelBtn) cancelBtn.style.display = '';
         const dlBtn = $('btn-model-download');
         if (dlBtn) { dlBtn.disabled = true; dlBtn.textContent = '下载中...'; }
-        if (_installPollTimer) clearInterval(_installPollTimer);
-        _installPollTimer = setInterval(_pollModelDl, 1000);
-        _pollModelDl();
+        if (_installPollTimer) { clearInterval(_installPollTimer); _installPollTimer = null; }
+        _subscribeWhisperTask(managed.id);
+        _applyWhisperTask(managed);
       }
-    } catch { /* polling resume not critical */ }
+    } catch {
+      try {
+        const st = await api('GET', '/api/whisper/install/status');
+        if (st.running || st.status === 'downloading') {
+          if (_installPollTimer) clearInterval(_installPollTimer);
+          _installPollTimer = setInterval(_pollModelDl, 1000);
+          _pollModelDl();
+        }
+      } catch { /* compatibility resume is not critical */ }
+    }
   } catch (e) {
     clearTimeout(timeoutId);
     if (container) container.innerHTML = `<p class="err">加载失败: ${escapeHtml(e.message)}</p>`;

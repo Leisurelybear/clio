@@ -8,6 +8,7 @@ import {
 import { api, icon } from './api.js';
 import { beginLatest, endLatest, isLatest, isAbortError } from './latest.js';
 import { addToast } from './toast.js';
+import { subscribeTaskEvents } from './task-center.js';
 
 let _runEventSource = null;
 let _lastRunDay = 'day1';
@@ -17,6 +18,7 @@ let _lastRunSteps = [];
 let _expectDoneNavigation = false;
 let _seenNonTerminal = false;
 let _managedTaskId = null;
+let _taskEventsUnsubscribe = null;
 
 const STEPS_KEY = 'vlog_ui_run_steps';
 
@@ -152,7 +154,9 @@ function renderRun() {
   if (_runActive) { runBtn.disabled = true; runBtn.textContent = '运行中...'; }
   const cancelBtn = $('btn-run-cancel');
   if (cancelBtn) cancelBtn.onclick = cancelRun;
-  _startRunSSE();
+  _stopRunSSE();
+  _subscribeManagedRunEvents();
+  _syncManagedRunTask();
 }
 
 function _shouldResetRunNavigationOnRender(runActive) {
@@ -328,7 +332,8 @@ async function startRun() {
       setStatus(msg, 'ok');
       addToast(msg, 'success');
       $('run-progress').innerHTML = '<p class="muted">流水线已启动，等待进度...</p>';
-      _startRunSSE();
+      if (_managedTaskId) _subscribeManagedRunEvents();
+      else _startRunSSE(); // compatibility with servers predating the task center
     } else {
       throw new Error(r.error || '启动失败');
     }
@@ -346,7 +351,9 @@ async function cancelRun() {
   const btn = $('btn-run-cancel');
   if (btn) { btn.disabled = true; btn.innerHTML = '⏹ 正在取消...'; }
   try {
-    const r = await api('POST', '/api/run/cancel', _managedTaskId ? { task_id: _managedTaskId } : {});
+    const r = _managedTaskId
+      ? await api('POST', `/api/tasks/${encodeURIComponent(_managedTaskId)}/cancel`, {})
+      : await api('POST', '/api/run/cancel', {});
     const msg = r.message || '取消请求已发送';
     setStatus(msg, 'warn');
     addToast(msg, 'warning');
@@ -364,6 +371,58 @@ function renderManagedTaskLink() {
   el.hidden = false;
   el.innerHTML = '<button type="button" class="btn-secondary">在任务中心查看</button>';
   el.querySelector('button').onclick = () => import('./sidebar.js').then(mod => mod.selectTasks());
+}
+
+function _taskToRunStatus(task, event = null) {
+  const status = task?.status;
+  const mapped = status === 'succeeded' ? 'done'
+    : status === 'failed' || status === 'interrupted' ? 'error'
+      : status === 'cancelled' ? 'cancelled'
+        : status === 'queued' || status === 'cancelling' || status === 'running' ? 'running'
+          : 'unknown';
+  const current = Number(task?.current) || 0;
+  const total = Number(task?.total) || 0;
+  return {
+    status: mapped,
+    running: mapped === 'running',
+    current,
+    total,
+    progress_pct: task?.progress_pct,
+    phase: task?.phase || '',
+    message: event?.event?.message || task?.message || task?.error_message || '',
+    task_id: task?.id,
+    steps: task?.input_summary?.steps || _lastRunSteps,
+  };
+}
+
+function _sameRunProject(task) {
+  const project = state.currentProjectDir || state.config?.project_dir;
+  return !project || !task?.project_id || String(task.project_id) === String(project);
+}
+
+function _subscribeManagedRunEvents() {
+  if (_taskEventsUnsubscribe) return;
+  _taskEventsUnsubscribe = subscribeTaskEvents(payload => {
+    const task = payload?.task;
+    if (!task || task.kind !== 'pipeline' || !_sameRunProject(task)) return;
+    if (_managedTaskId && task.id !== _managedTaskId) return;
+    _managedTaskId = task.id;
+    renderManagedTaskLink();
+    _handleRunStatus(_taskToRunStatus(task, payload));
+  });
+}
+
+async function _syncManagedRunTask() {
+  try {
+    const result = await api('GET', '/api/tasks?kind=pipeline&visibility=all&limit=20');
+    const task = (result.tasks || []).find(item => _sameRunProject(item)
+      && ['queued', 'running', 'cancelling'].includes(item.status));
+    if (task) {
+      _managedTaskId = task.id;
+      renderManagedTaskLink();
+      _handleRunStatus(_taskToRunStatus(task));
+    }
+  } catch { /* compatibility fallback handles older servers */ }
 }
 
 function _startRunSSE() {

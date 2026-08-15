@@ -37,7 +37,7 @@ export function renderVoiceover() {
           });
           if (r.ok) {
             setStatus(r.message || `${task} 已启动`, 'ok');
-            import('./sidebar-rerun.js').then(mod => mod.showRerunProgress(task, file));
+            import('./sidebar-rerun.js').then(mod => mod.showRerunProgress(task, file, r.task_id));
           } else {
             throw new Error(r.error || '重跑失败');
           }

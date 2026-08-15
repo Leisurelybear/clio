@@ -24,6 +24,7 @@ opencode_session_import.json
 .vscode/
 
 .progress.json
+task-center.sqlite3
 node_modules/
 
 # Superpowers temp artifacts (brainstorm mockups, etc.)

@@ -16,6 +16,7 @@ const TERMINAL = new Set(['succeeded', 'failed', 'cancelled', 'interrupted']);
 let _stream = null;
 let _streamCursor = 0;
 let _detailRequest = 0;
+const _eventListeners = new Set();
 
 export function statusLabel(status) { return STATUS_LABELS[status] || status || '未知'; }
 export function kindLabel(kind) { return KIND_LABELS[kind] || kind || '任务'; }
@@ -175,8 +176,19 @@ export function startTaskStream() {
         }
         if (state.currentEntity === 'tasks') _render();
       }
+      _eventListeners.forEach(listener => {
+        try { listener(payload); } catch { /* one consumer must not break the stream */ }
+      });
     } catch { /* ignore malformed event */ }
   };
+}
+
+/** Subscribe to the process-wide task event stream without owning its EventSource. */
+export function subscribeTaskEvents(listener) {
+  if (typeof listener !== 'function') return () => {};
+  _eventListeners.add(listener);
+  startTaskStream();
+  return () => _eventListeners.delete(listener);
 }
 
 export function renderTasks() {

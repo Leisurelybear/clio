@@ -3,6 +3,7 @@ import { api } from './api.js';
 import { $ } from './utils.js';
 import { buildTimeline } from './plan-timeline.js';
 import { composePlanPeaks } from './plan-waveform.js';
+import { subscribeTaskEvents } from './task-center.js';
 
 /** @type {number} */
 let _pollToken = 0;
@@ -10,6 +11,26 @@ let _pollToken = 0;
 let _lastPeaks = [];
 /** @type {ReturnType<typeof setTimeout> | null} */
 let _pollTimer = null;
+let _waveformTaskUnsubscribe = null;
+const _waveformTaskWaiters = new Map();
+
+function _watchWaveformTask(taskId, callback) {
+  if (!taskId || typeof callback !== 'function') return;
+  _waveformTaskWaiters.set(taskId, callback);
+  if (_waveformTaskUnsubscribe) return;
+  _waveformTaskUnsubscribe = subscribeTaskEvents(payload => {
+    const task = payload?.task;
+    if (!task || task.kind !== 'waveform' || !_waveformTaskWaiters.has(task.id)) return;
+    if (!['succeeded', 'failed', 'cancelled', 'interrupted'].includes(task.status)) return;
+    const waiter = _waveformTaskWaiters.get(task.id);
+    _waveformTaskWaiters.delete(task.id);
+    try { waiter(task); } catch { /* stale waveform view */ }
+    if (!_waveformTaskWaiters.size && _waveformTaskUnsubscribe) {
+      _waveformTaskUnsubscribe();
+      _waveformTaskUnsubscribe = null;
+    }
+  });
+}
 
 /** @type {'source' | 'plan'} */
 let _mode = 'source';
@@ -372,6 +393,7 @@ export async function loadPlanWaveform() {
 
   /** @type {string[]} */
   let pendingKeys = [];
+  let managedPending = 0;
 
   await Promise.all(indexes.map(async (idx) => {
     if (token !== _planLoadToken) return;
@@ -391,6 +413,12 @@ export async function loadPlanWaveform() {
       if (body.status === 'pending') {
         _planCache.set(idx, 'pending');
         pendingKeys.push(idx);
+        if (body.task_id) {
+          managedPending += 1;
+          _watchWaveformTask(body.task_id, () => {
+            if (token === _planLoadToken) loadPlanWaveform();
+          });
+        }
         return;
       }
       if (body.no_audio) {
@@ -477,7 +505,9 @@ export async function loadPlanWaveform() {
         _pollTimer = setTimeout(() => pollPending(attempt + 1), 2500);
       }
     };
-    _pollTimer = setTimeout(() => pollPending(0), 2500);
+    if (managedPending < pendingKeys.length) {
+      _pollTimer = setTimeout(() => pollPending(0), 2500);
+    }
   }
 }
 
@@ -516,6 +546,12 @@ export async function loadWaveformForCurrentVideo() {
       if (token !== _pollToken || !body) return;
       if (body.status === 'pending') {
         setWaveformStatus('波形生成中…');
+        if (body.task_id) {
+          _watchWaveformTask(body.task_id, () => {
+            if (token === _pollToken) loadWaveformForCurrentVideo();
+          });
+          return;
+        }
         if (attempt < 120) {
           _pollTimer = setTimeout(() => poll(attempt + 1), 2500);
         } else {
