@@ -16,7 +16,7 @@ from clio._constants import VIDEO_EXTS
 from clio.config import load_config
 from clio.pipeline import run_analyze_all, run_compress_all, run_generate_scripts, run_pipeline_steps
 from clio.progress import ProgressTracker
-from clio.task_center.manager import TaskManager, TaskNotCancellableError
+from clio.task_center.manager import TaskAlreadyRunningError, TaskManager, TaskNotCancellableError
 from clio.task_center.models import TaskKind, TaskStatus
 from clio.task_center.reporter import TaskCancelled, TaskProgressReporter
 from clio.task_center.store import TaskNotFoundError, TaskQuery
@@ -54,22 +54,20 @@ def _active_managed_run(manager: TaskManager, project_id: str):
 
 
 def _ensure_run_handlers(manager: TaskManager) -> None:
-    if TaskKind.PIPELINE not in manager.registry.kinds():
-        manager.register(
-            TaskKind.PIPELINE,
-            _run_pipeline_task,
-            concurrency_key=lambda task: f"run:{task.project_id or task.project_path}",
-            max_concurrency=1,
-            cancellable=True,
-        )
-    if TaskKind.RERUN not in manager.registry.kinds():
-        manager.register(
-            TaskKind.RERUN,
-            _run_rerun_task,
-            concurrency_key=lambda task: f"run:{task.project_id or task.project_path}",
-            max_concurrency=1,
-            cancellable=True,
-        )
+    manager.ensure_registered(
+        TaskKind.PIPELINE,
+        _run_pipeline_task,
+        concurrency_key=lambda task: f"run:{task.project_id or task.project_path}",
+        max_concurrency=1,
+        cancellable=True,
+    )
+    manager.ensure_registered(
+        TaskKind.RERUN,
+        _run_rerun_task,
+        concurrency_key=lambda task: f"run:{task.project_id or task.project_path}",
+        max_concurrency=1,
+        cancellable=True,
+    )
 
 
 def _task_config(context) -> Any:
@@ -427,9 +425,22 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
     files_list = obj.get("files")
     if files_list is not None and not isinstance(files_list, list):
         return handler._send_json({"ok": False, "error": "files must be a list of video names"}, 400)
+    if files_list is not None and not all(isinstance(item, str) for item in files_list):
+        return handler._send_json({"ok": False, "error": "files items must be strings"}, 400)
     overwrite = obj.get("overwrite", False)
-    context_override = obj.get("context_override") or None
-    task_prompts = obj.get("task_prompts") or None
+    if not isinstance(overwrite, bool):
+        return handler._send_json({"ok": False, "error": "overwrite must be a boolean"}, 400)
+    context_override = obj.get("context_override")
+    if context_override is not None and not isinstance(context_override, str):
+        return handler._send_json({"ok": False, "error": "context_override must be a string"}, 400)
+    context_override = context_override or None
+    task_prompts = obj.get("task_prompts")
+    if task_prompts is not None and (
+        not isinstance(task_prompts, dict)
+        or not all(isinstance(key, str) and isinstance(value, str) for key, value in task_prompts.items())
+    ):
+        return handler._send_json({"ok": False, "error": "task_prompts must be an object of strings"}, 400)
+    task_prompts = task_prompts or None
 
     manager = _managed_task_manager(handler)
     if manager is not None:
@@ -443,24 +454,28 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
             "day_label": day_label,
             "steps": steps,
             "files": files_list,
-            "overwrite": bool(overwrite),
+            "overwrite": overwrite,
             "use_transcripts": cfg.plan.use_transcripts,
             "context_override": context_override,
             "task_prompts": task_prompts,
         }
-        task = manager.submit(
-            TaskKind.PIPELINE,
-            "运行素材处理流水线",
-            project_id=project_id,
-            project_name=proj_dir.name,
-            project_path=project_id,
-            input_data=input_data,
-            input_summary={
-                "steps": list(steps or []),
-                "file_count": len(files_list) if files_list is not None else None,
-                "day_label": day_label,
-            },
-        )
+        try:
+            task = manager.submit(
+                TaskKind.PIPELINE,
+                "运行素材处理流水线",
+                project_id=project_id,
+                project_name=proj_dir.name,
+                project_path=project_id,
+                input_data=input_data,
+                input_summary={
+                    "steps": list(steps or []),
+                    "file_count": len(files_list) if files_list is not None else None,
+                    "day_label": day_label,
+                },
+                reject_if_active=True,
+            )
+        except TaskAlreadyRunningError:
+            return handler._send_json({"ok": False, "error": "pipeline is already running"}, 409)
         label = "+".join(steps) if steps else "all"
         return handler._send_json(
             {
@@ -520,6 +535,16 @@ def handle_post_run_preview(handler: HandlerProtocol, qs: dict[str, Any], obj: d
     files_list = obj.get("files")
     if files_list is not None and not isinstance(files_list, list):
         return handler._send_json({"ok": False, "error": "files must be a list of video names"}, 400)
+    if files_list is not None and not all(isinstance(item, str) for item in files_list):
+        return handler._send_json({"ok": False, "error": "files items must be strings"}, 400)
+    overwrite = obj.get("overwrite", False)
+    if not isinstance(overwrite, bool):
+        return handler._send_json({"ok": False, "error": "overwrite must be a boolean"}, 400)
+    use_transcripts = obj.get("use_transcripts", True)
+    if not isinstance(use_transcripts, bool):
+        return handler._send_json({"ok": False, "error": "use_transcripts must be a boolean"}, 400)
+    if steps is not None and (not isinstance(steps, list) or not all(isinstance(step, str) for step in steps)):
+        return handler._send_json({"ok": False, "error": "steps must be a list of strings"}, 400)
 
     proj_dir = handler._resolve_project_dir(qs)
     config_path = getattr(handler, "config_path", None)
@@ -538,8 +563,8 @@ def handle_post_run_preview(handler: HandlerProtocol, qs: dict[str, Any], obj: d
     preview = build_run_preview(
         cfg,
         steps or [],
-        force=bool(obj.get("overwrite", False)),
-        use_transcripts=obj.get("use_transcripts", True),
+        force=overwrite,
+        use_transcripts=use_transcripts,
         files=files_list,
         day_label=day_label,
     )
@@ -677,22 +702,26 @@ def handle_post_rerun(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -
         project_id = str(proj_dir.resolve())
         if _active_managed_run(manager, project_id) is not None:
             return handler._send_json({"ok": False, "error": "a task is already running"}, 409)
-        managed_task = manager.submit(
-            TaskKind.RERUN,
-            f"重跑 {task}: {video_basename}",
-            project_id=project_id,
-            project_name=proj_dir.name,
-            project_path=project_id,
-            input_data={
-                "config_path": str(config_path) if config_path is not None else None,
-                "project_dir": project_id,
-                "task": task,
-                "video_basename": video_basename,
-                "original_video": str(original_video),
-                "texts_json": str(texts_json) if texts_json is not None else None,
-            },
-            input_summary={"task": task, "video": video_basename},
-        )
+        try:
+            managed_task = manager.submit(
+                TaskKind.RERUN,
+                f"重跑 {task}: {video_basename}",
+                project_id=project_id,
+                project_name=proj_dir.name,
+                project_path=project_id,
+                input_data={
+                    "config_path": str(config_path) if config_path is not None else None,
+                    "project_dir": project_id,
+                    "task": task,
+                    "video_basename": video_basename,
+                    "original_video": str(original_video),
+                    "texts_json": str(texts_json) if texts_json is not None else None,
+                },
+                input_summary={"task": task, "video": video_basename},
+                reject_if_active=True,
+            )
+        except TaskAlreadyRunningError:
+            return handler._send_json({"ok": False, "error": "a task is already running"}, 409)
         return handler._send_json(
             {
                 "ok": True,

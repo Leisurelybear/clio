@@ -16,7 +16,7 @@ from clio.plan_readiness import (
     readiness_block_payload,
 )
 from clio.schema import add_schema_version
-from clio.task_center.manager import TaskManager
+from clio.task_center.manager import TaskAlreadyRunningError, TaskManager
 from clio.task_center.models import TaskKind, TaskStatus
 from clio.task_center.reporter import TaskCancelled, TaskProgressReporter
 from clio.task_center.store import TaskQuery
@@ -63,14 +63,13 @@ def _run_cut_task(context) -> dict[str, Any]:
 
 
 def _ensure_cut_handler(manager: TaskManager) -> None:
-    if TaskKind.CUT_EXPORT not in manager.registry.kinds():
-        manager.register(
-            TaskKind.CUT_EXPORT,
-            _run_cut_task,
-            concurrency_key=lambda task: f"cut:{task.project_id or task.project_path}",
-            max_concurrency=1,
-            cancellable=True,
-        )
+    manager.ensure_registered(
+        TaskKind.CUT_EXPORT,
+        _run_cut_task,
+        concurrency_key=lambda task: f"cut:{task.project_id or task.project_path}",
+        max_concurrency=1,
+        cancellable=True,
+    )
 
 
 def _active_cut_task(manager: TaskManager, project_id: str):
@@ -247,27 +246,31 @@ def handle_post_cut(handler: HandlerProtocol, qs: dict[str, list[str]], obj: dic
         if _active_cut_task(manager, project_id) is not None:
             return handler._send_json({"ok": False, "error": "另一个剪辑任务正在运行"}, 409)
         config_path = getattr(handler, "config_path", None)
-        task = manager.submit(
-            TaskKind.CUT_EXPORT,
-            f"导出剪辑片段: {day_label}",
-            project_id=project_id,
-            project_name=proj_dir.name,
-            project_path=project_id,
-            input_data={
-                "config_path": str(config_path) if isinstance(config_path, Path) else None,
-                "project_dir": project_id,
-                "day_label": day_label,
-                "output_dir": str(out_path) if out_path is not None else None,
-                "actual_output_dir": str(actual_out_path),
-                "reencode": reencode,
-                "source": source,
-            },
-            input_summary={
-                "day_label": day_label,
-                "segment_count": len(plan.sequence),
-                "source": source,
-            },
-        )
+        try:
+            task = manager.submit(
+                TaskKind.CUT_EXPORT,
+                f"导出剪辑片段: {day_label}",
+                project_id=project_id,
+                project_name=proj_dir.name,
+                project_path=project_id,
+                input_data={
+                    "config_path": str(config_path) if isinstance(config_path, Path) else None,
+                    "project_dir": project_id,
+                    "day_label": day_label,
+                    "output_dir": str(out_path) if out_path is not None else None,
+                    "actual_output_dir": str(actual_out_path),
+                    "reencode": reencode,
+                    "source": source,
+                },
+                input_summary={
+                    "day_label": day_label,
+                    "segment_count": len(plan.sequence),
+                    "source": source,
+                },
+                reject_if_active=True,
+            )
+        except TaskAlreadyRunningError:
+            return handler._send_json({"ok": False, "error": "另一个剪辑任务正在运行"}, 409)
         return handler._send_json(
             {
                 "ok": True,

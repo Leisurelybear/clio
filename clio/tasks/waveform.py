@@ -265,14 +265,13 @@ def _run_managed_waveform_task(context) -> dict[str, Any]:
 
 
 def _ensure_waveform_handler(manager: TaskManager) -> None:
-    if TaskKind.WAVEFORM not in manager.registry.kinds():
-        manager.register(
-            TaskKind.WAVEFORM,
-            _run_managed_waveform_task,
-            concurrency_key="waveform",
-            max_concurrency=MAX_CONCURRENT_JOBS,
-            cancellable=False,
-        )
+    manager.ensure_registered(
+        TaskKind.WAVEFORM,
+        _run_managed_waveform_task,
+        concurrency_key="waveform",
+        max_concurrency=MAX_CONCURRENT_JOBS,
+        cancellable=False,
+    )
 
 
 def has_audio_stream(video_path: Path, ffprobe: str) -> bool:

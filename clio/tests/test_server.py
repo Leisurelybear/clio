@@ -11,17 +11,36 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
+from clio.task_center.manager import TaskManager
+from clio.task_center.models import TaskKind
+from clio.task_center.store import TaskStore
 from clio.ui.server import (
     MAX_JSON_BODY_BYTES,
     STATIC_DIR,
     _parse_json_content_length,
     _ServerState,
     make_handler,
+    register_builtin_task_handlers,
 )
 
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
+
+def test_builtin_task_handlers_are_registered_for_cold_start(tmp_path):
+    manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"), recover_on_start=False)
+
+    register_builtin_task_handlers(manager)
+    register_builtin_task_handlers(manager)
+
+    assert set(manager.registry.kinds()) == {
+        TaskKind.PIPELINE,
+        TaskKind.RERUN,
+        TaskKind.CUT_EXPORT,
+        TaskKind.WHISPER_INSTALL,
+        TaskKind.WAVEFORM,
+    }
 
 
 def _build_handler(handler_cls, path="/", method="GET"):

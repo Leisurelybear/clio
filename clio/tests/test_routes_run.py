@@ -265,6 +265,24 @@ class TestHandlePostRunStart:
         handler._send_json.assert_called_once()
         assert handler._send_json.call_args[0][0]["ok"] is True
 
+    @pytest.mark.parametrize(
+        ("payload", "error"),
+        [
+            ({"overwrite": "false"}, "overwrite must be a boolean"),
+            ({"files": ["A.mp4", 2]}, "files items must be strings"),
+            ({"context_override": 2}, "context_override must be a string"),
+            ({"task_prompts": {"analyze": 2}}, "task_prompts must be an object of strings"),
+        ],
+    )
+    def test_rejects_invalid_typed_options(self, tmp_path: Path, _handler, payload, error):
+        handler = _handler
+        handler._resolve_project_dir.return_value = tmp_path / "input"
+        handler._get_config.return_value = MagicMock()
+
+        handle_post_run_start(handler, {}, payload)
+
+        handler._send_json.assert_called_once_with({"ok": False, "error": error}, 400)
+
     def test_rejects_missing_input_dir_override(self, tmp_path: Path, _handler):
         handler = _handler
         handler._resolve_project_dir.return_value = tmp_path / "input"
@@ -373,6 +391,20 @@ class TestHandlePostRunPreview:
         handle_post_run_preview(handler, {}, {"files": "A.mp4"})
 
         handler._send_json.assert_called_once_with({"ok": False, "error": "files must be a list of video names"}, 400)
+
+    @pytest.mark.parametrize(
+        ("payload", "error"),
+        [
+            ({"overwrite": "false"}, "overwrite must be a boolean"),
+            ({"use_transcripts": 1}, "use_transcripts must be a boolean"),
+            ({"steps": ["compress", 2]}, "steps must be a list of strings"),
+            ({"files": ["A.mp4", 2]}, "files items must be strings"),
+        ],
+    )
+    def test_rejects_invalid_typed_options(self, _handler, payload, error):
+        handle_post_run_preview(_handler, {}, payload)
+
+        _handler._send_json.assert_called_once_with({"ok": False, "error": error}, 400)
 
     def test_override_applies_to_preview(self, tmp_path: Path, _handler, monkeypatch):
         """Preview must honor the same body project_dir override as run start (P1-P31)."""

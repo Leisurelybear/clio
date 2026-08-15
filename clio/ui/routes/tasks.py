@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 from clio._str_enum import StrEnum
 from clio.task_center.executor import TaskHandlerNotRegisteredError
-from clio.task_center.manager import TaskNotCancellableError
+from clio.task_center.manager import TaskAlreadyRunningError, TaskNotCancellableError
 from clio.task_center.models import TaskKind, TaskStatus, TaskVisibility
 from clio.task_center.state_machine import InvalidTaskTransition
 from clio.task_center.store import TaskNotFoundError, TaskQuery
@@ -86,14 +86,14 @@ def handle_get_tasks(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     except ValueError as e:
         return handler._send_json({"ok": False, "error": str(e)}, 400)
     manager = handler._get_task_manager()
-    tasks = manager.store.list(query)
+    tasks, total, latest_seq = manager.store.snapshot(query)
     handler._send_json(
         {
             "tasks": [task.to_dict() for task in tasks],
-            "total": manager.store.count(query),
+            "total": total,
             "limit": query.limit,
             "offset": query.offset,
-            "latest_seq": manager.store.latest_event_seq(),
+            "latest_seq": latest_seq,
         }
     )
 
@@ -123,6 +123,16 @@ def handle_get_tasks_stream(handler: HandlerProtocol, qs: dict[str, Any]) -> Non
     except ValueError as e:
         return handler._send_json({"ok": False, "error": str(e)}, 400)
     manager = handler._get_task_manager()
+    # EventSource reconnects include Last-Event-ID. Honor it so a transient
+    # network drop resumes from the browser cursor instead of replaying the
+    # entire task history from the original query parameter.
+    headers = getattr(handler, "headers", None)
+    try:
+        last_event_id = int(headers.get("Last-Event-ID", "0") or "0") if headers is not None else 0
+    except (TypeError, ValueError):
+        last_event_id = 0
+    if last_event_id > cursor:
+        cursor = last_event_id
     handler.send_response(200)
     handler.send_header("Content-Type", "text/event-stream")
     handler.send_header("Cache-Control", "no-cache")
@@ -177,6 +187,6 @@ def handle_post_task_retry(handler: HandlerProtocol, qs: dict[str, Any], obj: di
         task = manager.retry(task_id)
     except TaskNotFoundError:
         return handler._send_json({"ok": False, "error": "task not found"}, 404)
-    except (InvalidTaskTransition, TaskHandlerNotRegisteredError, ValueError) as e:
+    except (InvalidTaskTransition, TaskHandlerNotRegisteredError, TaskAlreadyRunningError, ValueError) as e:
         return handler._send_json({"ok": False, "error": str(e)}, 409)
     handler._send_json({"ok": True, "task": task.to_dict()}, 201)

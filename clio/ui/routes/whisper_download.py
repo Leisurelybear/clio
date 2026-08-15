@@ -17,7 +17,7 @@ from typing import Any
 import requests as _req
 
 from clio.config import load_config
-from clio.task_center.manager import TaskManager, TaskNotCancellableError
+from clio.task_center.manager import TaskAlreadyRunningError, TaskManager, TaskNotCancellableError
 from clio.task_center.models import TaskKind, TaskStatus
 from clio.task_center.reporter import TaskCancelled
 from clio.task_center.store import TaskNotFoundError, TaskQuery
@@ -245,14 +245,13 @@ def _run_whisper_install_task(context) -> dict[str, Any]:
 
 
 def _ensure_whisper_handler(manager: TaskManager) -> None:
-    if TaskKind.WHISPER_INSTALL not in manager.registry.kinds():
-        manager.register(
-            TaskKind.WHISPER_INSTALL,
-            _run_whisper_install_task,
-            concurrency_key=lambda task: f"whisper:{task.project_id or task.project_path}",
-            max_concurrency=1,
-            cancellable=True,
-        )
+    manager.ensure_registered(
+        TaskKind.WHISPER_INSTALL,
+        _run_whisper_install_task,
+        concurrency_key=lambda task: f"whisper:{task.project_id or task.project_path}",
+        max_concurrency=1,
+        cancellable=True,
+    )
 
 
 def _active_whisper_task(manager: TaskManager, project_id: str):
@@ -312,20 +311,24 @@ def handle_post_whisper_install(handler: HandlerProtocol, qs: dict[str, Any]) ->
         cfg = handler._get_config(proj_dir)
         progress_path = _install_progress_path(handler, qs)
         config_path = getattr(handler, "config_path", None)
-        task = manager.submit(
-            TaskKind.WHISPER_INSTALL,
-            "安装 Whisper 依赖和模型",
-            project_id=proj_id,
-            project_name=proj_dir.name,
-            project_path=proj_id,
-            input_data={
-                "config_path": str(config_path) if isinstance(config_path, Path) else None,
-                "project_dir": proj_id,
-                "progress_path": str(progress_path),
-                "model": getattr(getattr(cfg, "whisper", None), "model_size", None),
-            },
-            input_summary={"model": getattr(getattr(cfg, "whisper", None), "model_size", None)},
-        )
+        try:
+            task = manager.submit(
+                TaskKind.WHISPER_INSTALL,
+                "安装 Whisper 依赖和模型",
+                project_id=proj_id,
+                project_name=proj_dir.name,
+                project_path=proj_id,
+                input_data={
+                    "config_path": str(config_path) if isinstance(config_path, Path) else None,
+                    "project_dir": proj_id,
+                    "progress_path": str(progress_path),
+                    "model": getattr(getattr(cfg, "whisper", None), "model_size", None),
+                },
+                input_summary={"model": getattr(getattr(cfg, "whisper", None), "model_size", None)},
+                reject_if_active=True,
+            )
+        except TaskAlreadyRunningError:
+            return handler._send_json({"ok": False, "error": "download is already running"}, 409)
         return handler._send_json(
             {"ok": True, "message": "whisper install started", "task_id": task.id, "task": task.to_dict()}
         )

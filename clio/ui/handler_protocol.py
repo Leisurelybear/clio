@@ -19,6 +19,7 @@ class HandlerProtocol(Protocol):
     def send_error(self, code: int, message: str | None = None) -> None: ...
 
     wfile: Any  # io.BufferedIOBase
+    headers: Any
 
     # -- Custom instance methods --
     def _send_json(self, data: Any, status: int = 200) -> None: ...

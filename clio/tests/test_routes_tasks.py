@@ -202,6 +202,21 @@ def test_stream_sends_cursor_event_and_public_task_snapshot(tmp_path):
     assert "secret" not in output
 
 
+def test_stream_honors_eventsource_last_event_id_on_reconnect(tmp_path):
+    manager = _manager(tmp_path)
+    manager.store.create(create_task(TaskKind.PIPELINE, "一", task_id="task-1"))
+    manager.store.create(create_task(TaskKind.PIPELINE, "二", task_id="task-2"))
+    handler = _Handler(manager)
+    handler.headers = {"Last-Event-ID": "1"}
+    handler.wfile = _DisconnectOnFlush()
+
+    handle_get_tasks_stream(handler, {"after": ["0"]})
+
+    output = handler.wfile.getvalue().decode("utf-8")
+    assert "id: 1" not in output
+    assert "id: 2" in output
+
+
 def test_cancel_unknown_task_returns_404(tmp_path):
     handler = _Handler(_manager(tmp_path))
 
