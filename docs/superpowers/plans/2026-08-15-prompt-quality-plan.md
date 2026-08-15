@@ -672,26 +672,18 @@ git commit -m "feat: render dict-format highlights in text files"
 
 ### Task 8: 升级 legacy video_analyze 默认模型
 
+> **审查修正**：`_legacy_ai_config`（含 `video_model` 默认值）是**死代码**——全仓库无调用点，`_migrate_v1_to_v2` 直接操作 raw YAML，不经过它。默认值改动不产生运行时效果。最终处理：删除该死代码，默认模型升级仅通过 `docs/project.example.yaml` 示例生效。
+
 **Files:**
-- Modify: `clio/config/loader.py:509`
 - Modify: `docs/project.example.yaml:26`
+- Refactor: 删除 `clio/config/loader.py` 的 `_legacy_ai_config`（commit 55c4109）
 - Test: `clio/tests/test_config.py`（确认无断言该默认值）
 
-- [ ] **Step 1: 修改 loader.py**
+- [x] **Step 1: 删除死代码 `_legacy_ai_config`**
 
-将 `clio/config/loader.py:509` 从：
+`clio/config/loader.py` 的 `_legacy_ai_config` 定义、`clio/config/__init__.py` 的导入与导出、`clio/config/models.py:350` 注释引用一并移除。
 
-```python
-    video_model = gemini_raw.get("video_model", "gemini-2.5-flash-lite")
-```
-
-改为：
-
-```python
-    video_model = gemini_raw.get("video_model", "gemini-3-flash")
-```
-
-- [ ] **Step 2: 修改 project.example.yaml**
+- [x] **Step 2: 修改 project.example.yaml**
 
 将 `docs/project.example.yaml` 的 `video_analyze` 任务：
 
@@ -709,12 +701,12 @@ git commit -m "feat: render dict-format highlights in text files"
       model: gemini-3-flash
 ```
 
-- [ ] **Step 3: 运行全量配置测试**
+- [x] **Step 3: 运行全量配置测试**
 
 Run: `python -m pytest clio/tests/test_config.py clio/tests/test_config_v2.py clio/tests/test_ai.py -v`
 Expected: PASS（无测试断言旧默认值；若发现 fixture 显式绑定则保留，因为它们定义的是显式值）
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add clio/config/loader.py docs/project.example.yaml
@@ -771,7 +763,9 @@ Expected: PASS（若 Node 环境可用；prompt 改动不涉及前端，如失�
 
 - [ ] **Step 4: 最终确认占位符契约（全量）**
 
-Run: `python -c "from clio.prompts import PROMPT_DEFAULTS; from clio.prompt_overrides import validate_prompt_template; P={'ANALYZE_PROMPT':'video_analyze','SCRIPT_PROMPT':'voiceover','PLAN_PROMPT':'vlog_plan','REFINE_TEXT_PROMPT':'refine_text','REFINE_TEXT_FIX_PROMPT':'refine_text_fix','REFINE_SCRIPT_PROMPT':'refine_script','REFINE_SCRIPT_FIX_PROMPT':'refine_script_fix'}; [validate_prompt_template(k, PROMPT_DEFAULTS[k]) for k in P]; print('all OK')"`
+> **审查修正**：原命令误含 `ANALYZE_PROMPT`（含字面 JSON 花括号，占位符集为空，不经 `str.format`，不能过 `validate_prompt_template`）；且 `validate_prompt_template` 第一参数应为**任务名**（`voiceover` 等）而非常量名。此验证现已固化为 `clio/tests/test_prompts.py` 的契约测试，此处仅作手动兜底：
+
+Run: `python -c "from clio.prompts import PROMPT_DEFAULTS; from clio.prompt_overrides import validate_prompt_template; P={'SCRIPT_PROMPT':'voiceover','PLAN_PROMPT':'vlog_plan','REFINE_TEXT_PROMPT':'refine_text','REFINE_TEXT_FIX_PROMPT':'refine_text_fix','REFINE_SCRIPT_PROMPT':'refine_script','REFINE_SCRIPT_FIX_PROMPT':'refine_script_fix'}; [validate_prompt_template(task, PROMPT_DEFAULTS[name]) for name, task in P.items()]; print('all OK')"`
 Expected: `all OK`
 
 - [ ] **Step 5: 检查 git 状态干净**

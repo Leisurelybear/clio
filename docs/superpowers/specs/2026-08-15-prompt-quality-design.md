@@ -102,26 +102,28 @@
 
 ### 3.7 模型默认升级
 
-- `clio/config/loader.py:509` legacy 配置 `video_model` 默认 `gemini-2.5-flash-lite` → `gemini-3-flash`（视频分析走的是 `video_model`，不是 `model`；`model` 仍服务 voiceover/vlog_plan legacy 绑定，可保持不变）
+> **审查修正**：`_legacy_ai_config` 是死代码（全仓库无调用点，V1→V2 迁移直接操作 raw YAML）。原计划改其 `video_model` 默认值不产生运行时效果，故改为**删除该死代码**，默认模型升级仅通过示例文件生效。
+
 - `docs/project.example.yaml` 的 `video_analyze` 示例同步为 `gemini-3-flash`
+- 删除 `clio/config/loader.py` 的 `_legacy_ai_config`（含 `__init__.py` 导出、`models.py` 注释引用）
 - 受影响测试更新（`test_ai.py`、`conftest.py` 等断言默认模型的地方）
 - 用户本地真实 `project.yaml` 若显式绑定旧模型，需手动改（文档提示）
 
 ### 3.8 highlights 渲染兼容（最小适配）
 
-`_helpers.py:156,184` 的 `f"- {h}"` 在 `h` 为 dict 时显示不优雅。改为：
-- dict 时渲染 `[start] description`（或仅有 description）
+`_helpers.py` 的 `f"- {h}"` 在 `h` 为 dict 时显示不优雅。新增 `_format_highlight()`，两处渲染点（`_write_text_file`、`_rewrite_text_file`）改用：
+- dict 时渲染 `[start] description (reason)`（start/reason 可选，仅有描述时省略方括号）
 - 字符串时保持原样
 
 ## 4. 验证方案
 
 1. 更新受影响的测试：
-   - `test_prompts.py` — prompt 占位符渲染仍通过
+   - `test_prompts.py` — prompt 占位符渲染仍通过；新增占位符契约守护（`test_builtin_prompts_match_placeholder_contract`、`test_transcript_context_matches_placeholder_contract`、`test_placeholder_contract_lists_all_formatted_prompts`、`test_analyze_prompt_is_not_format_template`）
+   - `test_helpers.py` — 新增 highlights dict 渲染测试
    - `test_ai.py` / `test_compare_models.py` / `conftest.py` — 默认模型断言更新
-   - 新增/更新：highlights dict 渲染测试
 2. `python -m pytest clio/tests/ -v` 全绿
 3. `ruff check clio main.py` 通过
-4. 文档同步：`templates/prompts/README.md`（提示 highlights 支持对象格式）、`config/descriptions.py`（如模型名引用）
+4. 文档同步：`templates/prompts/README.md`（提示 highlights 支持对象格式 + 占位符契约说明）、`config/descriptions.py`（如模型名引用）
 
 ## 5. 不在范围内
 
