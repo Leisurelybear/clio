@@ -146,7 +146,11 @@ async function mutateTask(action) {
   if (!id) return;
   try {
     const result = await api('POST', `${_taskUrl(id)}/${action}`, {});
-    if (result?.task) { _upsertTask(result.task); state.taskDetail = { task: result.task, events: state.taskDetail?.events || [] }; }
+    if (result?.task) {
+      _upsertTask(result.task);
+      state.selectedTaskId = result.task.id;
+      state.taskDetail = { task: result.task, events: state.taskDetail?.events || [] };
+    }
     addToast(action === 'cancel' ? '已发送取消请求' : '已创建重试任务', 'success');
     await loadTasks();
   } catch (error) { addToast(`${action === 'cancel' ? '取消' : '重试'}失败: ${error.message}`, 'error', 6000); }
