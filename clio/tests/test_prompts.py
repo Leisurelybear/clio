@@ -6,7 +6,15 @@ from pathlib import Path
 
 import pytest
 
-from clio.prompts import ANALYZE_PROMPT, PLAN_PROMPT, SCRIPT_PROMPT, load_prompt, render_prompt_template
+from clio.prompts import (
+    ANALYZE_PROMPT,
+    PLAN_PROMPT,
+    REFINE_SCRIPT_PROMPT,
+    REFINE_TEXT_PROMPT,
+    SCRIPT_PROMPT,
+    load_prompt,
+    render_prompt_template,
+)
 
 
 def test_load_prompt_uses_project_override(tmp_path):
@@ -129,3 +137,24 @@ def test_script_prompt_has_clear_structure():
     assert "过程" in SCRIPT_PROMPT
     assert "感受" in SCRIPT_PROMPT
     assert "过渡" in SCRIPT_PROMPT
+
+
+def test_refine_text_prompt_is_conservative():
+    assert "只改" in REFINE_TEXT_PROMPT
+    assert "确凿" in REFINE_TEXT_PROMPT
+    assert "不是重写" in REFINE_TEXT_PROMPT
+
+
+def test_refine_text_prompt_checks_cross_field_consistency():
+    assert "一致性" in REFINE_TEXT_PROMPT
+    assert "location" in REFINE_TEXT_PROMPT
+    assert "cover_timestamp" in REFINE_TEXT_PROMPT
+
+
+def test_refine_script_prompt_is_conservative():
+    assert "只改" in REFINE_SCRIPT_PROMPT
+    assert "确凿" in REFINE_SCRIPT_PROMPT
+
+
+def test_refine_script_prompt_keeps_reference():
+    assert "素材分析" in REFINE_SCRIPT_PROMPT
