@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from clio.prompts import ANALYZE_PROMPT, load_prompt, render_prompt_template
+from clio.prompts import ANALYZE_PROMPT, PLAN_PROMPT, load_prompt, render_prompt_template
 
 
 def test_load_prompt_uses_project_override(tmp_path):
@@ -94,3 +94,20 @@ def test_analyze_prompt_highlights_support_object():
 def test_analyze_prompt_cover_timestamp_rules():
     assert "主体清晰" in ANALYZE_PROMPT
     assert "真实存在" in ANALYZE_PROMPT
+
+
+def test_plan_prompt_requires_precise_timeline_and_budget():
+    assert "use_timeline" in PLAN_PROMPT
+    assert "越界" in PLAN_PROMPT
+    assert "target_duration_sec" in PLAN_PROMPT
+    assert "预算" in PLAN_PROMPT
+
+
+def test_plan_prompt_reason_needs_evidence():
+    assert "叙事作用" in PLAN_PROMPT
+    assert "画面依据" in PLAN_PROMPT
+
+
+def test_plan_prompt_voiceover_hint_specific():
+    assert "空泛" in PLAN_PROMPT
+    assert "voiceover_hint" in PLAN_PROMPT

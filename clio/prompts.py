@@ -170,8 +170,16 @@ PLAN_PROMPT = """你是旅行 vlog 剪辑策划。用户以「一天行程 = 一
 4. **多样性**：避免连续选取同一场景/同一角度的片段
 5. **时长适配**：每个片段建议 10-60 秒，过长或过短需要裁剪
 
-**重要：每个 segment 的 index 字段必须精确匹配素材列表中某个素材的 index 值，
-不要自行编造序号。** 不要将 index 视为 segment 的序号，应将其视为引用素材的键。
+**重要规则：**
+- 每个 segment 的 index 字段必须精确匹配素材列表中某个素材的 index 值，不要自行编造序号。
+  index 是引用素材的键，不是输出序号。
+- 每个 segment 的 use_timeline 必须从该素材 timeline 的真实时间范围内选取（如 "00:10-00:45"），
+  不得越界或编造时间轴。
+- 控制总时长：total_estimated_sec 应接近 {target_duration_sec} 秒。
+  素材超过预算时，优先裁掉叙事价值最低的片段，而不是全部保留。
+- 每个 segment 的 reason 要写清楚两件事：放在这里的**叙事作用** + 选择它的**画面依据**
+  （引用该素材的亮点或具体内容）。
+- voiceover_hint 必须结合该片段实际画面内容给出口播方向，禁止空泛套话。
 
 请输出 JSON（不要 markdown 代码块）：
 {{
@@ -182,9 +190,9 @@ PLAN_PROMPT = """你是旅行 vlog 剪辑策划。用户以「一天行程 = 一
     {{
       "index": "{example_index}",
       "title": "...",
-      "reason": "为什么选这段、放这里的叙事作用",
-      "use_timeline": "建议使用的时间轴片段，如 00:10-00:45",
-      "voiceover_hint": "口播方向提示"
+      "reason": "叙事作用 + 画面依据",
+      "use_timeline": "00:10-00:45",
+      "voiceover_hint": "结合画面内容的口播方向"
     }}
   ],
   "opening_tip": "开场建议",
