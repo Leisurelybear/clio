@@ -14,6 +14,7 @@ from clio.prompts import (
     REFINE_TEXT_FIX_PROMPT,
     REFINE_TEXT_PROMPT,
     SCRIPT_PROMPT,
+    TRANSCRIPT_CONTEXT,
     load_prompt,
     render_prompt_template,
 )
@@ -166,3 +167,10 @@ def test_refine_fix_prompts_touch_only_mentioned_fields():
     assert "逐字节" in REFINE_TEXT_FIX_PROMPT
     assert "明确提到" in REFINE_TEXT_FIX_PROMPT
     assert "逐字节" in REFINE_SCRIPT_FIX_PROMPT
+
+
+def test_transcript_context_explains_purpose_and_confidence():
+    assert "优化" in TRANSCRIPT_CONTEXT
+    assert "avg_logprob" in TRANSCRIPT_CONTEXT
+    assert "置信度低" in TRANSCRIPT_CONTEXT
+    assert "过度依赖" in TRANSCRIPT_CONTEXT

@@ -284,7 +284,11 @@ REFINE_TEXT_FIX_PROMPT = """用户对下面这段 vlog 素材分析给出了**�
 
 
 TRANSCRIPT_CONTEXT = """
-以下是各素材的语音转录片段，请结合口播内容优化剪辑顺序和时间安排：
+## 语音转录参考
+以下是各素材的语音转录片段（有语音才列出）。可参考口播内容优化剪辑顺序和时间安排：
+- transcript_segments 里每段含 start/end（秒）、text（识别文字）、avg_logprob（平均对数概率，越大越可信）
+- avg_logprob 较低或标了 low_confidence 的片段识别置信度低，仅作参考，不要据此推导画面内容
+- 转录只能辅助排序与衔接判断，选片和内容判断仍以画面分析（timeline/highlights）为准，不要过度依赖转录
 
 {transcripts_json}
 """
