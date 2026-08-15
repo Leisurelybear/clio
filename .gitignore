@@ -9,6 +9,7 @@ __pycache__/
 *.bak
 projects.json
 projects.json.bak
+projects.json.bak.*
 *.migrate-bak
 .opencode/
 opencode_session_import.json
@@ -45,9 +46,6 @@ coverage/
 
 # Python packaging artifacts
 *.egg-info/
-
-# Test mock artifacts
-MagicMock/
 
 # Temp files (including atomic-write .tmp.XXXXXXXX)
 *.tmp
