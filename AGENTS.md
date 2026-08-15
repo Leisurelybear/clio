@@ -41,6 +41,7 @@ vlog-video-analysis/
 │   ├── identity.py            MediaIdentity + is_legacy_split_* gate
 │   ├── vmeta.py               .vmeta/.vindex sidecar metadata
 │   ├── progress.py            Progress tracker (used by UI + CLI)
+│   ├── task_center/            Unified task lifecycle, SQLite history, executors, and reporters
 │   ├── tasks/                 Pipeline steps (per-step modules)
 │   ├── desktop/               pywebview host + single-instance coordination
 │   │   ├── app.py             Window host, close policy, focus callback (R-039)
@@ -52,6 +53,7 @@ vlog-video-analysis/
 │   │   ├── routes/            Route handlers (split into focused modules)
 │   │   └── static/            Frontend (no build step, ES modules)
 │   │       └── src/           ES modules: editor-plan.js, plan-edit.js,
+│   │                           task-center.js,
 │   │                          sidebar.js, sidebar-data.js, sidebar-video-filter.js,
 │   │                          runner.js, editor-config.js, ...
 │   └── ai/                    AI providers
