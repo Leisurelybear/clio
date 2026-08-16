@@ -164,9 +164,10 @@ def run_generate_scripts(
         )
 
     max_workers = config.analyze.max_workers
+    failures = 0
     with timed(f"run_generate_scripts（{len(input_files)} 个，workers={max_workers}）"):
         if max_workers <= 1:
-            error_count = 0
+            sequential_error_count = 0
             for json_file in input_files:
                 if cancel_event and cancel_event.is_set():
                     print("[取消] voiceover 步骤被用户终止")
@@ -189,20 +190,21 @@ def run_generate_scripts(
                     )
                 except Exception as e:
                     print(f"  [错误] {json_file.stem}: {e}")
-                    error_count += 1
+                    sequential_error_count += 1
                     continue
                 elapsed = time.monotonic() - t0
                 if isinstance(result, str) and result == "cancelled":
                     break
                 if isinstance(result, str):
                     print(f"  [错误] {json_file.stem}: {result}")
-                    error_count += 1
+                    sequential_error_count += 1
                 elif result is True:
                     print(f"  ✓ {elapsed:.1f}s")
-            if error_count:
-                print(f"  [警告] {error_count} 个 voiceover 生成失败")
+            if sequential_error_count:
+                print(f"  [警告] {sequential_error_count} 个 voiceover 生成失败")
+            failures = sequential_error_count
         else:
-            error_count: list[int] = [0]
+            parallel_error_count: list[int] = [0]
             with ThreadPoolExecutor(max_workers=max_workers) as pool:
                 futures = {}
                 for json_file in input_files:
@@ -234,10 +236,10 @@ def run_generate_scripts(
                             break
                         if isinstance(result, str):
                             print(f"  [错误] {json_file.stem}: {result}")
-                            error_count[0] += 1
+                            parallel_error_count[0] += 1
                     except Exception as e:
                         print(f"  [错误] {json_file.stem}: {e}")
-                        error_count[0] += 1
+                        parallel_error_count[0] += 1
 
                 if cancel_event and cancel_event.is_set():
                     print("[取消] 取消未完成 voiceover 任务")
@@ -245,5 +247,8 @@ def run_generate_scripts(
                         if not f.done():
                             f.cancel()
 
-            if error_count[0]:
-                print(f"  [警告] {error_count[0]} 个 voiceover 生成失败")
+            if parallel_error_count[0]:
+                print(f"  [警告] {parallel_error_count[0]} 个 voiceover 生成失败")
+            failures = parallel_error_count[0]
+    if failures:
+        raise RuntimeError(f"口播文案未完整生成（{failures} 个失败）")

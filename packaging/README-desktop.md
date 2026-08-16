@@ -17,7 +17,7 @@ Microsoft's guidance for Win32 apps.
 
 ## Requirements (build machine)
 
-- Python 3.10+ (macOS universal2 builds need a **universal2** CPython, e.g. the
+- Python 3.11+ (macOS universal2 builds need a **universal2** CPython, e.g. the
   python.org installer — a single-arch Homebrew python cannot emit universal2)
 - Windows: `pip install pyinstaller pywebview pythonnet`
 - macOS: `pip install pyinstaller pywebview pyobjc-core pyobjc-framework-Cocoa

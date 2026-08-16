@@ -218,6 +218,38 @@ class TestArtifactIndexBuild:
         assert len(group.texts) == 1
         assert group.texts[0].title == "Sunset Beach"
 
+    def test_legacy_index_token_does_not_match_1_to_10(self, tmp_path: Path):
+        compressed_dir = tmp_path / "compressed"
+        texts_dir = tmp_path / "texts"
+        compressed_dir.mkdir()
+        texts_dir.mkdir()
+        (compressed_dir / "10_ten.mp4").write_bytes(b"video")
+        (compressed_dir / "1_one.mp4").write_bytes(b"video")
+        (texts_dir / "1_analysis.json").write_text(json.dumps({"title": "one"}), encoding="utf-8")
+
+        index = self._make_index(tmp_path)
+        index.build()
+
+        one = index.lookup(compressed_stem="1_one")
+        ten = index.lookup(compressed_stem="10_ten")
+        assert one is not None and [item.title for item in one.texts] == ["one"]
+        assert ten is not None and ten.texts == []
+
+    def test_equivalent_index_ambiguity_is_not_auto_assigned(self, tmp_path: Path):
+        compressed_dir = tmp_path / "compressed"
+        texts_dir = tmp_path / "texts"
+        compressed_dir.mkdir()
+        texts_dir.mkdir()
+        (compressed_dir / "1_one.mp4").write_bytes(b"video")
+        (compressed_dir / "001_other.mp4").write_bytes(b"video")
+        (texts_dir / "1_analysis.json").write_text(json.dumps({"title": "ambiguous"}), encoding="utf-8")
+
+        index = self._make_index(tmp_path)
+        index.build()
+
+        assert all(group.texts == [] for group in index.all_groups())
+        assert index.ambiguous_artifacts() == (texts_dir / "1_analysis.json",)
+
     def test_legacy_split_artifacts(self, tmp_path: Path):
         """One original mapped to multiple compressed segments."""
         compressed_dir = tmp_path / "compressed"

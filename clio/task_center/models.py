@@ -29,11 +29,35 @@ TERMINAL_TASK_STATUSES = frozenset(
     }
 )
 
+_PRIVATE_TASK_KEYS = frozenset(
+    {
+        "api_key",
+        "context_override",
+        "task_prompts",
+        "prompt",
+        "prompts",
+    }
+)
+
+
+def sanitize_task_payload(value: Any) -> Any:
+    """Keep task history retryable without persisting prompts, secrets, or paths."""
+    if isinstance(value, dict):
+        return {
+            str(key): sanitize_task_payload(item)
+            for key, item in value.items()
+            if str(key).lower() not in _PRIVATE_TASK_KEYS
+        }
+    if isinstance(value, list):
+        return [sanitize_task_payload(item) for item in value]
+    return value
+
 
 class TaskKind(StrEnum):
     PIPELINE = "pipeline"
     RERUN = "rerun"
     CUT_EXPORT = "cut_export"
+    EXPORT = "export"
     WHISPER_INSTALL = "whisper_install"
     WAVEFORM = "waveform"
 
@@ -87,6 +111,7 @@ class TaskRecord:
     started_at: str | None = None
     finished_at: str | None = None
     heartbeat_at: str | None = None
+    updated_at: str | None = None
     phase: str = ""
     current: int = 0
     total: int = 0
@@ -138,6 +163,7 @@ class TaskRecord:
             "started_at": self.started_at,
             "finished_at": self.finished_at,
             "heartbeat_at": self.heartbeat_at,
+            "updated_at": self.updated_at or self.heartbeat_at or self.created_at,
             "phase": self.phase,
             "current": self.current,
             "total": self.total,
@@ -147,8 +173,8 @@ class TaskRecord:
             "cancel_requested": self.cancel_requested,
             "error_code": self.error_code,
             "error_message": self.error_message,
-            "input_summary": dict(self.input_summary),
-            "result_summary": dict(self.result_summary),
+            "input_summary": sanitize_task_payload(self.input_summary),
+            "result_summary": sanitize_task_payload(self.result_summary),
         }
         if include_private:
             data["project_path"] = self.project_path
@@ -200,12 +226,14 @@ def create_task(
     input_data: dict[str, Any] | None = None,
     input_summary: dict[str, Any] | None = None,
 ) -> TaskRecord:
+    timestamp = created_at or utc_now_iso()
     return TaskRecord(
         id=task_id or uuid.uuid4().hex,
         kind=kind,
         status=TaskStatus.QUEUED,
         title=title,
-        created_at=created_at or utc_now_iso(),
+        created_at=timestamp,
+        updated_at=timestamp,
         project_id=project_id,
         project_name=project_name,
         project_path=project_path,

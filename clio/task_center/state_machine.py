@@ -62,7 +62,7 @@ def transition_task(
 ) -> TaskRecord:
     require_transition(task.status, target)
     changed_at = at or utc_now_iso()
-    changes: dict = {"status": target, "heartbeat_at": changed_at}
+    changes: dict = {"status": target, "heartbeat_at": changed_at, "updated_at": changed_at}
     if target is TaskStatus.RUNNING:
         changes["started_at"] = task.started_at or changed_at
     if target is TaskStatus.CANCELLING:

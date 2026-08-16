@@ -28,6 +28,10 @@ server:
   # Leave empty to disable auth on localhost; non-localhost serve mode auto-generates a token if this is empty.
   # Set to a long random string to persist a token across server restarts.
   api_token: ""
+  # Task Center history retention. Only terminal tasks are removed.
+  task_retention_days: 30
+  task_max_terminal_tasks: 1000
+  task_cleanup_interval_min: 60
 
 # AI 厂家配置（全局，密钥管理见下方说明）
 #

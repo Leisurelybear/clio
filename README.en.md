@@ -4,10 +4,10 @@
 >
 > A CLI + Web UI tool designed for solo travel vloggers. Feed your GoPro/phone 4K footage to AI, get summaries, timelines, voiceover scripts, and edit plans — then put the final touches (effects, lip-sync) in **CapCut (JianYing)**.
 
-[![CI](https://github.com/Leisurelybear/vlog-editing-helper/actions/workflows/test.yml/badge.svg)](https://github.com/Leisurelybear/vlog-editing-helper/actions/workflows/test.yml)
-[![codecov](https://codecov.io/gh/Leisurelybear/vlog-editing-helper/graph/badge.svg?token=CODECOV_TOKEN)](https://codecov.io/gh/Leisurelybear/vlog-editing-helper)
+[![CI](https://github.com/Leisurelybear/Clio/actions/workflows/test.yml/badge.svg)](https://github.com/Leisurelybear/Clio/actions/workflows/test.yml)
+[![codecov](https://codecov.io/gh/Leisurelybear/Clio/graph/badge.svg?token=CODECOV_TOKEN)](https://codecov.io/gh/Leisurelybear/Clio)
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
-![tests](https://img.shields.io/badge/tests-860%2B-brightgreen)
+![tests](https://img.shields.io/badge/tests-1800%2B-brightgreen)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **English** · [简体中文](README.md)
@@ -212,7 +212,7 @@ vlog-video-analysis/
 │   ├── ai/                    # 🧠 AI adapters (Gemini / OpenAI compat)
 │   ├── tasks/                 # 📂 Step implementations
 │   ├── ui/                    # 🌐 Web UI (stdlib only, zero deps)
-│   └── tests/                 # 🧪 1000+ unit tests
+│   └── tests/                 # 🧪 1800+ unit tests
 └── output/
     ├── compressed/            # 🗜️ Compressed videos
     ├── texts/                 # 📝 AI analysis JSON
@@ -230,7 +230,7 @@ vlog-video-analysis/
 ```bash
 python -m pytest clio/tests/ -v
 
-# 1000+ tests · GitHub Actions CI (Ubuntu + Windows · 3.11 / 3.12)
+# 1846 pytest + 470 Vitest · GitHub Actions CI (Ubuntu + Windows + macOS · Python 3.11 / 3.12; Node 22)
 # Code style: ruff (format + lint)
 ```
 
@@ -302,7 +302,7 @@ Delete the corresponding `.json`/`.txt` from `output/texts/`, or set `analyze.sk
 
 ## 🤝 Contributing
 
-Personal vlogger tool — [Issues](https://github.com/Leisurelybear/vlog-editing-helper/issues) and PRs welcome.
+Personal vlogger tool — [Issues](https://github.com/Leisurelybear/Clio/issues) and PRs welcome.
 
 ```bash
 .venv\Scripts\activate         # Windows
@@ -328,7 +328,7 @@ python -m pytest -v            # Test
 | 📊 **AI Edit Scoring** | Auto-evaluate pacing, shot diversity, give improvement suggestions |
 | 🏪 **Plugin Marketplace** | Third-party plugin system: custom AI steps, export templates, effects |
 
-**Got ideas? → [Open an Issue](https://github.com/Leisurelybear/vlog-editing-helper/issues) ✨**
+**Got ideas? → [Open an Issue](https://github.com/Leisurelybear/Clio/issues) ✨**
 
 ---
 

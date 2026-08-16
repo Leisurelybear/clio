@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-08-16
+
+Completed the full-project review follow-up (R-043). The changes are verified
+locally with 1846 pytest cases (12 skipped) and 470 Vitest cases.
+
+- fix(task-center): register built-in handlers at startup, make snapshots and
+  subscriptions race-safe, add cleanup retention, redaction, `updated_at`,
+  and v1 SQLite schema migration
+- fix(pipeline): propagate partial step failures and non-zero transcription
+  results instead of reporting false success
+- fix(export): run JianYing export through Task Center with concurrency guards,
+  cancellation, retry history, normalized legacy offsets, and atomic writes
+- fix(index): use complete numeric index tokens and report ambiguous matches
+- docs: align support matrix, package/repository links, configuration examples,
+  and Task Center retention settings
+
 ## 2026-08-14
 
 Complete the P2-P30 partial: quality gates for the entire codebase surface.

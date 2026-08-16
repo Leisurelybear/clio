@@ -7,6 +7,7 @@ import { buildTimeline, clampGlobal } from './plan-timeline.js';
 import { recomposePlanWaveformFromCache, isPlanWaveformMode } from './waveform.js';
 import { addToast } from './toast.js';
 import { resolveEditorSaveTarget } from './editor-save.js';
+import { exportJianyingDraft } from './plan-export.js';
 import { openPlanRangePicker } from './plan-range-picker.js';
 import {
   reorderSequence,
@@ -789,12 +790,8 @@ export function renderPlan() {
       btn.textContent = '导出中...';
     }
     try {
-      const r = await api('POST', '/api/export', {
-        day: state.currentDay || 'day1',
-        format: 'jianying',
-        force,
-      });
-      resultDiv.innerHTML = `<span style="color:var(--ok,#484)">✓ 已导出到 ${escapeHtml(r.path)}</span>`;
+      const { artifact } = await exportJianyingDraft(state.currentDay || 'day1', { force });
+      resultDiv.innerHTML = `<span style="color:var(--ok,#484)">✓ 已导出到 ${escapeHtml(artifact)}</span>`;
       addToast('已导出到剪映', 'success');
     } catch (e) {
       resultDiv.innerHTML = `<span style="color:var(--err,#c44)">✗ 导出失败: ${escapeHtml(e.message || e)}</span>`;

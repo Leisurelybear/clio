@@ -10,6 +10,7 @@ import pytest
 
 from clio.export import export_plan
 from clio.export.jianying import (
+    _build_index_to_offset,
     _build_index_to_source,
     _build_materials,
     _build_tracks,
@@ -115,13 +116,35 @@ class TestBuildIndexToSource:
 
         assert _build_index_to_source(texts_dir) == {}
 
-    def test_skips_missing_fields(self, tmp_path: Path) -> None:
-        texts_dir = tmp_path / "texts"
-        texts_dir.mkdir()
-        (texts_dir / "no_idx.json").write_text(json.dumps({"source_file": "GL010683.mp4"}), encoding="utf-8")
-        (texts_dir / "no_src.json").write_text(json.dumps({"index": 1}), encoding="utf-8")
 
-        assert _build_index_to_source(texts_dir) == {}
+def test_build_index_to_offset_expands_legacy_index_keys(tmp_path: Path) -> None:
+    texts_dir = tmp_path / "texts"
+    texts_dir.mkdir()
+    identity = {
+        "original_stem": "GX010001",
+        "original_path": "GX010001.mp4",
+        "compressed_stem": "001_GX010001_seg02",
+        "compressed_path": "001_GX010001_seg02.mp4",
+        "index": "001",
+        "segment_index": 2,
+        "segment_offset_sec": 30.0,
+        "segment_duration_sec": 30.0,
+    }
+    (texts_dir / "001.json").write_text(json.dumps({"media_identity": identity}), encoding="utf-8")
+
+    offsets = _build_index_to_offset(texts_dir)
+
+    assert offsets["1"] == 30.0
+    assert offsets["001"] == 30.0
+
+
+def test_build_index_to_source_skips_missing_fields(tmp_path: Path) -> None:
+    texts_dir = tmp_path / "texts"
+    texts_dir.mkdir()
+    (texts_dir / "no_idx.json").write_text(json.dumps({"source_file": "GL010683.mp4"}), encoding="utf-8")
+    (texts_dir / "no_src.json").write_text(json.dumps({"index": 1}), encoding="utf-8")
+
+    assert _build_index_to_source(texts_dir) == {}
 
 
 class TestResolveVideo:

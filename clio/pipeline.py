@@ -83,7 +83,7 @@ def run_pipeline_steps(
     overwrite: bool = False,
     context_override: str | None = None,
     task_prompts: dict[str, str] | None = None,
-) -> None:
+) -> dict[str, Any]:
     """运行指定步骤列表（可选的进度跟踪）。
 
     steps 取值: analyze, voiceover, plan, label（默认全部）。
@@ -100,6 +100,7 @@ def run_pipeline_steps(
     if unknown:
         raise ValueError(f"未知的 pipeline step: {', '.join(unknown)}（可选: {', '.join(_STEP_FUNCS)}）")
 
+    summary: dict[str, Any] = {"steps": [], "processed": 0, "warning_count": 0, "error_count": 0}
     try:
         for step in steps:
             if cancel_event and cancel_event.is_set():
@@ -125,11 +126,17 @@ def run_pipeline_steps(
                 if task_prompts:
                     kwargs["task_prompts"] = task_prompts
                 if step in _STEP_DAY_ARG:
-                    fn(config, day_label, tracker, **kwargs)
+                    result = fn(config, day_label, tracker, **kwargs)
                 else:
-                    fn(config, tracker, **kwargs)
+                    result = fn(config, tracker, **kwargs)
+                if isinstance(result, int) and not isinstance(result, bool) and result != 0:
+                    raise RuntimeError(f"{label}失败（退出码 {result}）")
+                processed = len(result) if isinstance(result, list) else int(result is not None)
+                summary["steps"].append({"name": step, "processed": processed, "failed": 0})
+                summary["processed"] += processed
         if not (cancel_event and cancel_event.is_set()):
             tracker.done(f"完成！输出目录: {config.paths.output_dir}")
     except Exception as e:
         tracker.error(str(e))
         raise
+    return summary

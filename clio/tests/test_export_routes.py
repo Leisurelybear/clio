@@ -147,3 +147,23 @@ class TestHandlePostExport:
         args = handler._send_json.call_args[0]
         assert args[1] == 400
         assert args[0].get("needs_force") is True
+
+    def test_real_manager_returns_export_task_id(self, handler: MagicMock, tmp_path: Path) -> None:
+        from clio.task_center.manager import TaskManager
+        from clio.task_center.models import TaskKind, TaskStatus
+        from clio.task_center.store import TaskStore
+
+        plan_path = handler._get_config.return_value.plans_dir / "day1_plan.json"
+        plan_path.write_text(json.dumps(_VALID_PLAN), encoding="utf-8")
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"), recover_on_start=False)
+        manager.register(TaskKind.EXPORT, lambda context: {"artifact": "export/day1_jianying"}, cancellable=True)
+        handler._get_task_manager.return_value = manager
+        handler._resolve_project_dir.return_value = tmp_path
+
+        with patch("clio.ui.routes.export.collect_project_indices", return_value=({"001"}, set())):
+            handle_post_export(handler, {}, {"day": "day1", "format": "jianying", "force": True})
+
+        payload, status = handler._send_json.call_args[0]
+        assert status == 202
+        assert payload["task_id"]
+        assert manager.wait(payload["task_id"]).status is TaskStatus.SUCCEEDED

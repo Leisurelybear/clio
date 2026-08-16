@@ -15,7 +15,7 @@ from clio.config.models import CANVAS_PRESETS
 from clio.cut import parse_time_range
 from clio.identity import legacy_segment_offset_sec, load_identity
 from clio.plan_readiness import expand_index_keys
-from clio.utils import get_duration_sec
+from clio.utils import get_duration_sec, write_text_atomic
 
 logger = logging.getLogger("clio.export.jianying")
 
@@ -89,7 +89,7 @@ def _build_index_to_source(texts_dir: Path, *, index_width: int = 3) -> dict[str
     return mapping
 
 
-def _build_index_to_offset(texts_dir: Path) -> dict[str, float]:
+def _build_index_to_offset(texts_dir: Path, *, index_width: int = 3) -> dict[str, float]:
     """Read segment offsets from analysis JSON media_identity blocks.
 
     Returns {index_str: offset_sec} for split clips, empty dict for non-split.
@@ -107,7 +107,8 @@ def _build_index_to_offset(texts_dir: Path) -> dict[str, float]:
             continue
         off = legacy_segment_offset_sec(identity)
         if off:
-            offsets[identity.index] = off
+            for key in expand_index_keys(identity.index, index_width=index_width):
+                offsets[key] = off
     return offsets
 
 
@@ -351,7 +352,7 @@ def export_plan_to_jianying(
         print(f"  [警告] plan 文件为空序列: {plan_path}")
 
     index_to_source = _build_index_to_source(texts_dir, index_width=index_width) if texts_dir else {}
-    index_to_offset = _build_index_to_offset(texts_dir) if texts_dir else {}
+    index_to_offset = _build_index_to_offset(texts_dir, index_width=index_width) if texts_dir else {}
     logger.debug("texts_dir=%s, index_to_source=%s", texts_dir, index_to_source)
     if texts_dir:
         logger.debug("texts_dir exists=%s, files=%s", texts_dir.is_dir(), list(texts_dir.glob("*.json")))
@@ -407,10 +408,7 @@ def export_plan_to_jianying(
 
     output_dir.mkdir(parents=True, exist_ok=True)
     draft_path = output_dir / "draft_content.json"
-    draft_path.write_text(
-        json.dumps(draft, indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
+    write_text_atomic(draft_path, json.dumps(draft, indent=2, ensure_ascii=False))
     print(f"  [导出] JianYing 草稿已生成: {output_dir}")
     total_sec = total_duration_us / 1_000_000
     print(f"  [导出] 共 {len(sequence)} 个片段，{len(materials['videos'])} 个视频素材，{total_sec:.1f} 秒")

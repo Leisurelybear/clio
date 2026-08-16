@@ -4,10 +4,10 @@
 >
 > 专为旅行 vlogger 打造的 CLI + Web UI 工具，把你的 GoPro / 手机 4K 素材喂给 AI，自动生成摘要、时间轴、口播稿和剪辑顺序，最后在 **剪映 (CapCut)** 里加特效、对口型收尾。
 
-[![CI](https://github.com/Leisurelybear/vlog-editing-helper/actions/workflows/test.yml/badge.svg)](https://github.com/Leisurelybear/vlog-editing-helper/actions/workflows/test.yml)
-[![codecov](https://codecov.io/gh/Leisurelybear/vlog-editing-helper/graph/badge.svg?token=CODECOV_TOKEN)](https://codecov.io/gh/Leisurelybear/vlog-editing-helper)
+[![CI](https://github.com/Leisurelybear/Clio/actions/workflows/test.yml/badge.svg)](https://github.com/Leisurelybear/Clio/actions/workflows/test.yml)
+[![codecov](https://codecov.io/gh/Leisurelybear/Clio/graph/badge.svg?token=CODECOV_TOKEN)](https://codecov.io/gh/Leisurelybear/Clio)
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
-![tests](https://img.shields.io/badge/tests-1200%2B-brightgreen)
+![tests](https://img.shields.io/badge/tests-1800%2B-brightgreen)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 [English](README.en.md) · **简体中文**
@@ -227,7 +227,7 @@ vlog-video-analysis/
 │   ├── ai/                    # 🧠 AI 适配层（Gemini / OpenAI 兼容）
 │   ├── tasks/                 # 📂 各步骤具体实现
 │   ├── ui/                    # 🌐 Web UI（零依赖纯 stdlib）
-│   └── tests/                 # 🧪 1200+ 单元测试
+│   └── tests/                 # 🧪 1800+ 单元测试
 └── output/
     ├── compressed/            # 🗜️ 压缩后的视频
     ├── texts/                 # 📝 AI 分析结果 JSON
@@ -246,7 +246,7 @@ vlog-video-analysis/
 # 跑全部测试
 python -m pytest clio/tests/ -v
 
-# 1200+ 用例 · GitHub Actions CI（Ubuntu + Windows · 3.11 / 3.12）
+# 1846 pytest + 470 Vitest · GitHub Actions CI（Ubuntu + Windows + macOS · Python 3.11 / 3.12；Node 22）
 # 代码风格: ruff (format + lint)
 ```
 
@@ -319,7 +319,7 @@ python -m pip install -r requirements.txt
 
 ## 🤝 贡献
 
-个人 vlogger 效率工具，欢迎 [Issue](https://github.com/Leisurelybear/vlog-editing-helper/issues) 反馈和 PR。
+个人 vlogger 效率工具，欢迎 [Issue](https://github.com/Leisurelybear/Clio/issues) 反馈和 PR。
 
 ```bash
 # 本地开发
@@ -346,7 +346,7 @@ python -m pytest -v         # 测试
 | 📊 **AI 剪辑评分** | 自动评估剪辑节奏、镜头多样性，给出改进建议 |
 | 🏪 **插件市场** | 第三方插件系统：自定义 AI 步骤、导出模板、特效预设 |
 
-**你的想法也欢迎 → [提 Issue](https://github.com/Leisurelybear/vlog-editing-helper/issues) ✨**
+**你的想法也欢迎 → [提 Issue](https://github.com/Leisurelybear/Clio/issues) ✨**
 
 ---
 

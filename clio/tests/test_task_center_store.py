@@ -239,6 +239,42 @@ def test_store_enables_wal_mode(tmp_path):
         assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
 
 
+def test_store_migrates_v1_database_with_updated_at(tmp_path):
+    path = tmp_path / "tasks.sqlite3"
+    with sqlite3.connect(path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE task_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            INSERT INTO task_meta(key, value) VALUES ('schema_version', '1');
+            CREATE TABLE tasks (
+                id TEXT PRIMARY KEY, kind TEXT NOT NULL, status TEXT NOT NULL,
+                title TEXT NOT NULL, project_id TEXT, project_name TEXT, project_path TEXT,
+                parent_id TEXT, retry_of TEXT, visibility TEXT NOT NULL,
+                created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT,
+                heartbeat_at TEXT, phase TEXT NOT NULL DEFAULT '', current INTEGER NOT NULL DEFAULT 0,
+                total INTEGER NOT NULL DEFAULT 0, progress_pct REAL, message TEXT NOT NULL DEFAULT '',
+                cancellable INTEGER NOT NULL DEFAULT 0, cancel_requested INTEGER NOT NULL DEFAULT 0,
+                error_code TEXT, error_message TEXT, input_data_json TEXT NOT NULL DEFAULT '{}',
+                input_summary_json TEXT NOT NULL DEFAULT '{}', result_summary_json TEXT NOT NULL DEFAULT '{}'
+            );
+            CREATE TABLE task_events (
+                seq INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL,
+                type TEXT NOT NULL, level TEXT NOT NULL, created_at TEXT NOT NULL,
+                message TEXT NOT NULL DEFAULT '', data_json TEXT NOT NULL DEFAULT '{}'
+            );
+            INSERT INTO tasks(id, kind, status, title, visibility, created_at, finished_at)
+            VALUES ('legacy', 'pipeline', 'succeeded', '旧任务', 'foreground',
+                    '2026-08-16T00:00:00.000Z', '2026-08-16T00:01:00.000Z');
+            """
+        )
+
+    store = TaskStore(path)
+    task = store.require("legacy")
+    assert task.updated_at == task.finished_at
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("SELECT value FROM task_meta WHERE key = 'schema_version'").fetchone()[0] == "2"
+
+
 def test_store_repairs_missing_event_table_on_existing_database(tmp_path):
     path = tmp_path / "tasks.sqlite3"
     store = TaskStore(path)

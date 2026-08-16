@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 import json
 import sqlite3
 import threading
@@ -133,10 +134,10 @@ class TaskStore:
             raise TaskNotFoundError(f"task not found: {task_id}")
         return task
 
-    def list(self, query: TaskQuery | None = None) -> list[TaskRecord]:
+    def list(self, query: TaskQuery | None = None) -> builtins.list[TaskRecord]:
         query = query or TaskQuery()
-        where: list[str] = []
-        params: list[Any] = []
+        where: builtins.list[str] = []
+        params: builtins.list[Any] = []
         if query.project_id is not None:
             where.append("project_id = ?")
             params.append(query.project_id)
@@ -156,8 +157,8 @@ class TaskStore:
 
     def count(self, query: TaskQuery | None = None) -> int:
         query = query or TaskQuery()
-        where: list[str] = []
-        params: list[Any] = []
+        where: builtins.list[str] = []
+        params: builtins.list[Any] = []
         if query.project_id is not None:
             where.append("project_id = ?")
             params.append(query.project_id)
@@ -172,7 +173,7 @@ class TaskStore:
         with self._connect() as connection:
             return int(connection.execute(sql, params).fetchone()[0])
 
-    def active_tasks(self) -> list[TaskRecord]:
+    def active_tasks(self) -> builtins.list[TaskRecord]:
         statuses = (TaskStatus.QUEUED, TaskStatus.RUNNING, TaskStatus.CANCELLING)
         placeholders = ", ".join("?" for _ in statuses)
         with self._connect() as connection:
@@ -182,11 +183,11 @@ class TaskStore:
             ).fetchall()
         return [self._row_to_task(row) for row in rows]
 
-    def snapshot(self, query: TaskQuery | None = None) -> tuple[list[TaskRecord], int, int]:
+    def snapshot(self, query: TaskQuery | None = None) -> tuple[builtins.list[TaskRecord], int, int]:
         """Return list, count and event cursor from one SQLite read snapshot."""
         query = query or TaskQuery()
-        where: list[str] = []
-        params: list[Any] = []
+        where: builtins.list[str] = []
+        params: builtins.list[Any] = []
         if query.project_id is not None:
             where.append("project_id = ?")
             params.append(query.project_id)
@@ -265,13 +266,13 @@ class TaskStore:
         after_seq: int = 0,
         task_id: str | None = None,
         limit: int = 200,
-    ) -> list[TaskEvent]:
+    ) -> builtins.list[TaskEvent]:
         if after_seq < 0:
             raise ValueError("after_seq must be non-negative")
         if not 1 <= limit <= 1000:
             raise ValueError("event limit must be between 1 and 1000")
         where = ["seq > ?"]
-        params: list[Any] = [after_seq]
+        params: builtins.list[Any] = [after_seq]
         if task_id is not None:
             where.append("task_id = ?")
             params.append(task_id)
@@ -288,7 +289,7 @@ class TaskStore:
             row = connection.execute("SELECT COALESCE(MAX(seq), 0) FROM task_events").fetchone()
         return int(row[0])
 
-    def recent_events(self, task_id: str, *, limit: int = 200) -> list[TaskEvent]:
+    def recent_events(self, task_id: str, *, limit: int = 200) -> builtins.list[TaskEvent]:
         if not 1 <= limit <= 1000:
             raise ValueError("event limit must be between 1 and 1000")
         with self._connect() as connection:
@@ -346,8 +347,8 @@ class TaskStore:
 
     @staticmethod
     def _append_enum_filter(
-        where: list[str],
-        params: list[Any],
+        where: builtins.list[str],
+        params: builtins.list[Any],
         column: str,
         values: Iterable[TaskStatus | TaskKind],
     ) -> None:
@@ -405,7 +406,7 @@ class TaskStore:
         )
 
     @classmethod
-    def _task_update_params(cls, task: TaskRecord, updated_at: str) -> list[Any]:
+    def _task_update_params(cls, task: TaskRecord, updated_at: str) -> builtins.list[Any]:
         return [
             task.kind.value,
             task.status.value,
@@ -452,6 +453,8 @@ class TaskStore:
                 cls._json(event.data),
             ),
         )
+        if cursor.lastrowid is None:
+            raise TaskStoreError("failed to allocate task event sequence")
         return replace(event, seq=int(cursor.lastrowid))
 
     @staticmethod
@@ -483,6 +486,7 @@ class TaskStore:
                 started_at=row["started_at"],
                 finished_at=row["finished_at"],
                 heartbeat_at=row["heartbeat_at"],
+                updated_at=row["updated_at"],
                 phase=row["phase"],
                 current=int(row["current"]),
                 total=int(row["total"]),

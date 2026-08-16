@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -409,6 +410,44 @@ def test_progress_rejects_negative_values(tmp_path):
 
     release.set()
     manager.wait(task.id)
+
+
+def test_private_runtime_input_is_available_but_not_persisted(tmp_path):
+    seen = {}
+    manager = _manager(tmp_path)
+
+    def handler(context):
+        seen.update(context.input_data)
+        return {"ok": True}
+
+    manager.register(TaskKind.PIPELINE, handler)
+    task = manager.submit(
+        TaskKind.PIPELINE,
+        "处理素材",
+        input_data={"files": ["001.mp4"]},
+        private_input_data={"context_override": "private context", "task_prompts": {"analyze": "secret"}},
+    )
+
+    manager.wait(task.id)
+    stored = manager.store.require(task.id)
+    assert seen["context_override"] == "private context"
+    assert "context_override" not in stored.input_data
+    assert "task_prompts" not in stored.input_data
+
+
+def test_cleanup_runs_after_task_completion_when_interval_elapsed(tmp_path):
+    manager = TaskManager(
+        TaskStore(tmp_path / "tasks.sqlite3"),
+        recover_on_start=False,
+        cleanup_interval_sec=0,
+    )
+    manager.store.cleanup = MagicMock(wraps=manager.store.cleanup)
+    manager.register(TaskKind.PIPELINE, lambda context: {})
+
+    task = manager.submit(TaskKind.PIPELINE, "处理素材")
+    manager.wait(task.id)
+
+    manager.store.cleanup.assert_called()
 
 
 def test_semaphore_policy_error_type_is_public():

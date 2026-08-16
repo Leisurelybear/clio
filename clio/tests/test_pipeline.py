@@ -6,6 +6,8 @@ from pathlib import Path
 from threading import Event
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from clio.pipeline import run_pipeline_steps
 
 
@@ -173,3 +175,24 @@ class TestRunPipelineStepsCancel:
             assert all_kwargs[step].get("overwrite") is True, (
                 f"{step} should receive overwrite=True, got: {all_kwargs[step]}"
             )
+
+    def test_nonzero_step_result_fails_pipeline(self, tmp_path: Path):
+        config = _mock_config(tmp_path)
+        tracker = MagicMock()
+        with patch("clio.pipeline._STEP_FUNCS", {"transcribe": lambda *args, **kwargs: 1}):
+            with pytest.raises(RuntimeError, match="退出码 1"):
+                run_pipeline_steps(config, steps=["transcribe"], tracker=tracker)
+        tracker.done.assert_not_called()
+        tracker.error.assert_called_once()
+
+    def test_returns_structured_summary(self, tmp_path: Path):
+        config = _mock_config(tmp_path)
+        tracker = MagicMock()
+        with patch("clio.pipeline._STEP_FUNCS", {"analyze": lambda *args, **kwargs: ["a", "b"]}):
+            result = run_pipeline_steps(config, steps=["analyze"], tracker=tracker)
+        assert result == {
+            "steps": [{"name": "analyze", "processed": 2, "failed": 0}],
+            "processed": 2,
+            "warning_count": 0,
+            "error_count": 0,
+        }

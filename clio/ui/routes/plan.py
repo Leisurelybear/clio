@@ -59,7 +59,7 @@ def _run_cut_task(context) -> dict[str, Any]:
     )
     if context.cancel_event.is_set():
         raise TaskCancelled("剪辑导出已取消")
-    return {"clip_count": len(clips), "output_dir": input_data.get("actual_output_dir")}
+    return {"clip_count": len(clips), "artifact": "cuts"}
 
 
 def _ensure_cut_handler(manager: TaskManager) -> None:

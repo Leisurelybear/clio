@@ -5,6 +5,21 @@ Mark `[ ]` as `[x]` when done, `[~]` for in-progress, `[!]` for blocked.
 
 Design discussions / decision history in `AGENTS.md`, implementation details in git log.
 
+### R-043 Full-project review follow-up (2026-08-16)
+
+**Status:** Actionable correctness findings addressed and verified locally; ready for push.
+
+Review: `docs/analysis/2026-08-16-full-project-code-review.md`
+
+- [x] Cold-start and concurrent built-in task-handler registration; export now has a first-class Task Center task
+- [x] Strict run input validation and pipeline failure/exit-code propagation
+- [x] Artifact index token-boundary matching with explicit ambiguity reporting
+- [x] Task history redaction, snapshot-first task subscription, live detail events, cleanup retention, and `updated_at`
+- [x] JianYing legacy offset normalization and atomic draft/copy writes
+- [x] Task Center mypy scope, lifecycle/event regression tests, and Python/frontend full validation
+- [x] Documentation/package/support-matrix alignment and configurable Task Center retention
+- [~] Larger frontend module decomposition and remaining non-Task-Center legacy mypy debt remain follow-up maintenance work
+
 ## Remaining Open Items (2026-07-26)
 
 ### R-042 Notification center
@@ -1405,4 +1420,4 @@ Sorted by priority: P0 (immediate) → P1 (near-term) → P2 (mid-term) → P3 (
 
 Older completed sections (commit log, test coverage verification, code review audit) archived to [`docs/archive/2026-07-01-roadmap-archive.md`](docs/archive/2026-07-01-roadmap-archive.md).
 
-### Test count: 1275 pytest + 265 vitest (as of 2026-07-20 review fixes on `main`)
+### Test count: 1846 pytest (12 skipped) + 470 Vitest (as of 2026-08-16 review follow-up)

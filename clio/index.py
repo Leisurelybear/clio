@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from clio.identity import MediaIdentity, _extract_original_stem, load_identity
+from clio.plan_readiness import expand_index_keys
 from clio.vmeta import VideoMeta
 
 # ── Data types ──────────────────────────────────────────────────────────
@@ -84,6 +85,12 @@ def _read_json_safe(path: Path) -> dict[str, Any] | None:
         return None
 
 
+def _stems_for_index(index: str, stems: list[str]) -> list[str]:
+    """Resolve all stems matching a complete numeric index token."""
+    wanted = expand_index_keys(index)
+    return [stem for stem in stems if expand_index_keys(_stem_to_index(stem)) & wanted]
+
+
 # ── Index ────────────────────────────────────────────────────────────────
 
 
@@ -121,6 +128,7 @@ class ArtifactIndex:
         self._by_compressed_stem: dict[str, ArtifactGroup] = {}
         self._by_original_stem: dict[str, list[ArtifactGroup]] = {}
         self._groups: list[ArtifactGroup] = []
+        self._ambiguous_artifacts: list[Path] = []
 
     # ── Public API ──────────────────────────────────────────────────────
 
@@ -129,6 +137,7 @@ class ArtifactIndex:
         self._by_compressed_stem.clear()
         self._by_original_stem.clear()
         self._groups = []
+        self._ambiguous_artifacts = []
         self._scan_compressed()
         self._scan_texts()
         self._scan_scripts()
@@ -140,6 +149,10 @@ class ArtifactIndex:
     def all_groups(self) -> list[ArtifactGroup]:
         """Return all artifact groups in the project."""
         return self._groups
+
+    def ambiguous_artifacts(self) -> tuple[Path, ...]:
+        """Artifacts skipped because a legacy index maps to multiple videos."""
+        return tuple(self._ambiguous_artifacts)
 
     def lookup(
         self,
@@ -220,10 +233,11 @@ class ArtifactIndex:
             if not cs:
                 idx = _stem_to_index(stem) or ""
                 if idx:
-                    for existing_key in self._by_compressed_stem:
-                        if existing_key.startswith(idx.lower()):
-                            cs = existing_key
-                            break
+                    matches = _stems_for_index(idx, list(self._by_compressed_stem))
+                    if len(matches) == 1:
+                        cs = matches[0]
+                    elif len(matches) > 1:
+                        self._ambiguous_artifacts.append(p)
             if cs:
                 group = self._get_or_create_group(cs)
                 group.texts.append(TextEntry(path=p, stem=stem, title=title, identity=identity))

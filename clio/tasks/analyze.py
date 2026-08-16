@@ -530,6 +530,6 @@ def run_analyze_all(
 
     completed = len(records)
     failed = error_count[0]
-    if completed == 0 and failed > 0:
-        raise RuntimeError(f"AI 分析全部失败（{failed} 个失败），请检查 API Key 和网络连接")
+    if failed > 0:
+        raise RuntimeError(f"AI 分析未完整完成（{completed} 个成功，{failed} 个失败），请检查 API Key 和网络连接")
     return records

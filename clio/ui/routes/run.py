@@ -86,7 +86,7 @@ def _run_pipeline_task(context) -> dict[str, Any]:
     legacy = ProgressTracker(cfg.paths.output_dir)
     tracker = TaskProgressReporter(context.reporter, legacy)
     try:
-        run_pipeline_steps(
+        result = run_pipeline_steps(
             cfg,
             input_data.get("day_label", "day1"),
             input_data.get("steps"),
@@ -103,7 +103,7 @@ def _run_pipeline_task(context) -> dict[str, Any]:
     except Exception as e:
         tracker.error(f"pipeline failed: {e}")
         raise
-    return {"steps": input_data.get("steps") or [], "output_dir": str(cfg.paths.output_dir)}
+    return result
 
 
 def _run_rerun_task(context) -> dict[str, Any]:
@@ -433,6 +433,8 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
     context_override = obj.get("context_override")
     if context_override is not None and not isinstance(context_override, str):
         return handler._send_json({"ok": False, "error": "context_override must be a string"}, 400)
+    if isinstance(context_override, str) and len(context_override) > 100_000:
+        return handler._send_json({"ok": False, "error": "context_override is too large"}, 400)
     context_override = context_override or None
     task_prompts = obj.get("task_prompts")
     if task_prompts is not None and (
@@ -441,6 +443,8 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
     ):
         return handler._send_json({"ok": False, "error": "task_prompts must be an object of strings"}, 400)
     task_prompts = task_prompts or None
+    if task_prompts and (len(task_prompts) > 20 or any(len(value) > 100_000 for value in task_prompts.values())):
+        return handler._send_json({"ok": False, "error": "task_prompts is too large"}, 400)
 
     manager = _managed_task_manager(handler)
     if manager is not None:
@@ -456,8 +460,6 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
             "files": files_list,
             "overwrite": overwrite,
             "use_transcripts": cfg.plan.use_transcripts,
-            "context_override": context_override,
-            "task_prompts": task_prompts,
         }
         try:
             task = manager.submit(
@@ -467,6 +469,10 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
                 project_name=proj_dir.name,
                 project_path=project_id,
                 input_data=input_data,
+                private_input_data={
+                    "context_override": context_override,
+                    "task_prompts": task_prompts,
+                },
                 input_summary={
                     "steps": list(steps or []),
                     "file_count": len(files_list) if files_list is not None else None,

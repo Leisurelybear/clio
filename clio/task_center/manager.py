@@ -21,6 +21,7 @@ from clio.task_center.models import (
     TaskVisibility,
     create_task,
     normalized_progress,
+    sanitize_task_payload,
     utc_now_iso,
 )
 from clio.task_center.reporter import TaskCancelled, TaskReporter
@@ -48,6 +49,7 @@ class TaskAlreadyRunningError(TaskConcurrencyPolicyError):
 class _RuntimeTask:
     thread: threading.Thread
     cancel_event: threading.Event
+    private_input_data: dict[str, Any]
 
 
 class TaskManager:
@@ -57,6 +59,9 @@ class TaskManager:
         *,
         registry: TaskExecutorRegistry | None = None,
         recover_on_start: bool = True,
+        cleanup_interval_sec: float = 3600.0,
+        retention_days: int = 30,
+        max_terminal_tasks: int = 1000,
     ):
         self.store = store
         self.registry = registry or TaskExecutorRegistry()
@@ -67,8 +72,16 @@ class TaskManager:
         self._semaphores: dict[str, threading.BoundedSemaphore] = {}
         self._semaphore_limits: dict[str, int] = {}
         self._closed = False
+        self._cleanup_interval_sec = max(0.0, cleanup_interval_sec)
+        self._retention_days = retention_days
+        self._max_terminal_tasks = max_terminal_tasks
+        self._last_cleanup_monotonic = time.monotonic()
         if recover_on_start:
             self.recover_interrupted()
+        self.cleanup_deleted_total = self.store.cleanup(
+            retention_days=retention_days,
+            max_terminal_tasks=max_terminal_tasks,
+        )
 
     def register(
         self,
@@ -122,6 +135,7 @@ class TaskManager:
         retry_of: str | None = None,
         visibility: TaskVisibility = TaskVisibility.FOREGROUND,
         input_data: dict[str, Any] | None = None,
+        private_input_data: dict[str, Any] | None = None,
         input_summary: dict[str, Any] | None = None,
         reject_if_active: bool = False,
     ) -> TaskRecord:
@@ -137,7 +151,7 @@ class TaskManager:
             retry_of=retry_of,
             visibility=visibility,
             cancellable=registration.cancellable,
-            input_data=input_data,
+            input_data=sanitize_task_payload(dict(input_data or {})),
             input_summary=input_summary,
         )
         cancel_event = threading.Event()
@@ -166,7 +180,11 @@ class TaskManager:
                                 f"an active task already uses concurrency key {key!r}: {existing.id}"
                             )
             self.store.create(task)
-            self._runtime[task.id] = _RuntimeTask(thread=thread, cancel_event=cancel_event)
+            self._runtime[task.id] = _RuntimeTask(
+                thread=thread,
+                cancel_event=cancel_event,
+                private_input_data=dict(private_input_data or {}),
+            )
             self._task_locks.setdefault(task.id, threading.Lock())
             thread.start()
             self._condition.notify_all()
@@ -253,6 +271,7 @@ class TaskManager:
                 progress_pct=normalized_progress(next_current, next_total),
                 message=task.message if message is None else message,
                 heartbeat_at=changed_at,
+                updated_at=changed_at,
             )
             event = TaskEvent(
                 task_id=task.id,
@@ -381,9 +400,12 @@ class TaskManager:
                 self.request_cancel(task_id)
                 return
             running = self._transition_status(task_id, TaskStatus.RUNNING)
+            with self._lock:
+                runtime = self._runtime.get(task_id)
+                private_input = dict(runtime.private_input_data) if runtime is not None else {}
             context = TaskContext(
                 task=running,
-                input_data=dict(running.input_data),
+                input_data={**running.input_data, **private_input},
                 reporter=TaskReporter(self, task_id),
                 cancel_event=cancel_event,
             )
@@ -402,6 +424,7 @@ class TaskManager:
             with self._condition:
                 self._runtime.pop(task_id, None)
                 self._condition.notify_all()
+            self._maybe_cleanup()
 
     def _transition_status(
         self,
@@ -449,7 +472,7 @@ class TaskManager:
                 completed,
                 current=completed.total if completed.total > 0 else completed.current,
                 progress_pct=100.0 if completed.total > 0 else completed.progress_pct,
-                result_summary=dict(result),
+                result_summary=sanitize_task_payload(dict(result)),
             )
             event = TaskEvent(
                 task_id=task.id,
@@ -523,3 +546,16 @@ class TaskManager:
     def _notify(self) -> None:
         with self._condition:
             self._condition.notify_all()
+
+    def _maybe_cleanup(self) -> None:
+        now = time.monotonic()
+        with self._lock:
+            if now - self._last_cleanup_monotonic < self._cleanup_interval_sec:
+                return
+            self._last_cleanup_monotonic = now
+        deleted = self.store.cleanup(
+            retention_days=self._retention_days,
+            max_terminal_tasks=self._max_terminal_tasks,
+        )
+        with self._lock:
+            self.cleanup_deleted_total += deleted

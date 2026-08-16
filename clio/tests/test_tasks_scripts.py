@@ -294,7 +294,8 @@ class TestRunGenerateScripts:
 
         from clio.tasks.scripts import run_generate_scripts
 
-        run_generate_scripts(cfg)
+        with pytest.raises(RuntimeError, match="1 个失败"):
+            run_generate_scripts(cfg)
         assert mock_gen.call_count == 2
         out = cfg.scripts_dir / "002_voiceover.json"
         assert out.exists()

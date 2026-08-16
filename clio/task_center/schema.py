@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 
-TASK_STORE_SCHEMA_VERSION = 1
+TASK_STORE_SCHEMA_VERSION = 2
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS task_meta (
@@ -59,6 +59,35 @@ CREATE INDEX IF NOT EXISTS idx_task_events_task_seq ON task_events(task_id, seq)
 
 
 def initialize_schema(connection: sqlite3.Connection) -> None:
+    # ``CREATE TABLE IF NOT EXISTS`` does not alter an existing task table.
+    # Inspect the metadata before creating indexes so a v1 database can be
+    # upgraded without trying to index the not-yet-present column.
+    meta_exists = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'task_meta'"
+    ).fetchone()
+    stored_version: int | None = None
+    if meta_exists is not None:
+        version_row = connection.execute("SELECT value FROM task_meta WHERE key = 'schema_version'").fetchone()
+        if version_row is not None:
+            try:
+                stored_version = int(version_row[0])
+            except (TypeError, ValueError) as e:
+                raise TaskStoreSchemaError(f"invalid task store schema version: {version_row[0]!r}") from e
+            if stored_version not in (1, TASK_STORE_SCHEMA_VERSION):
+                raise TaskStoreSchemaError(
+                    f"unsupported task store schema version: {stored_version} (expected {TASK_STORE_SCHEMA_VERSION})"
+                )
+
+    tasks_exists = connection.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tasks'").fetchone()
+    if stored_version in (None, 1) and tasks_exists is not None:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(tasks)").fetchall()}
+        if "updated_at" not in columns:
+            connection.execute("ALTER TABLE tasks ADD COLUMN updated_at TEXT")
+            connection.execute(
+                "UPDATE tasks SET updated_at = COALESCE(heartbeat_at, finished_at, started_at, created_at) "
+                "WHERE updated_at IS NULL"
+            )
+
     connection.executescript(_SCHEMA_SQL)
     # Multiple server threads/processes can open the same new database at
     # startup.  INSERT OR IGNORE makes the bootstrap idempotent instead of
@@ -67,6 +96,11 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
         "INSERT OR IGNORE INTO task_meta(key, value) VALUES ('schema_version', ?)",
         (str(TASK_STORE_SCHEMA_VERSION),),
     )
+    if stored_version == 1:
+        connection.execute(
+            "UPDATE task_meta SET value = ? WHERE key = 'schema_version'",
+            (str(TASK_STORE_SCHEMA_VERSION),),
+        )
     row = connection.execute("SELECT value FROM task_meta WHERE key = 'schema_version'").fetchone()
     try:
         version = int(row[0])

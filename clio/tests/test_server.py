@@ -38,6 +38,7 @@ def test_builtin_task_handlers_are_registered_for_cold_start(tmp_path):
         TaskKind.PIPELINE,
         TaskKind.RERUN,
         TaskKind.CUT_EXPORT,
+        TaskKind.EXPORT,
         TaskKind.WHISPER_INSTALL,
         TaskKind.WAVEFORM,
     }

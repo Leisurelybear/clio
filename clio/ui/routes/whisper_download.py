@@ -239,7 +239,7 @@ def _run_whisper_install_task(context) -> dict[str, Any]:
             raise RuntimeError(str(data.get("message") or "Whisper 安装失败"))
         if data.get("status") != "done":
             raise RuntimeError(str(data.get("message") or "Whisper 安装未完成"))
-        return {"model": context.input_data.get("model"), "progress_path": str(progress_path)}
+        return {"model": context.input_data.get("model"), "artifact": "whisper-install"}
     finally:
         _INSTALL_REPORTER.reset(token)
 

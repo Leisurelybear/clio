@@ -34,6 +34,7 @@ def test_create_task_has_stable_queued_defaults():
     assert task.total == 0
     assert task.progress_pct is None
     assert task.is_terminal is False
+    assert task.to_dict()["updated_at"] == "2026-08-16T00:00:00.000Z"
 
 
 def test_public_task_dict_does_not_expose_private_execution_inputs():
@@ -52,6 +53,15 @@ def test_public_task_dict_does_not_expose_private_execution_inputs():
     assert "input_data" not in public
     assert private["project_path"] == "G:/private/project"
     assert private["input_data"]["api_key"] == "secret"
+
+
+def test_public_summary_redacts_prompt_fields():
+    task = create_task(
+        TaskKind.PIPELINE,
+        "处理素材",
+        input_summary={"prompt": "secret", "file_count": 2},
+    )
+    assert task.to_dict()["input_summary"] == {"file_count": 2}
 
 
 @pytest.mark.parametrize(

@@ -77,6 +77,7 @@ files = [
     "clio/ai/",
     "clio/tasks/_helpers.py",
     "clio/tasks/transcript_align.py",
+    "clio/task_center/",
 ]
 
 [tool.coverage.run]

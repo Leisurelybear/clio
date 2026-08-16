@@ -31,10 +31,20 @@ from clio.config.models import (
     ProviderConfig,
     ProxyConfig,
     ScriptConfig,
+    ServerConfig,
     TaskConfig,
 )
 
 # ── deep_merge ──────────────────────────────────────────────────────
+
+
+def test_server_task_retention_defaults_and_validation():
+    server = ServerConfig()
+    assert server.task_retention_days == 30
+    assert server.task_max_terminal_tasks == 1000
+    assert server.task_cleanup_interval_min == 60
+    with pytest.raises(ValueError, match="task_retention_days"):
+        ServerConfig(task_retention_days=-1)
 
 
 class TestDeepMerge:

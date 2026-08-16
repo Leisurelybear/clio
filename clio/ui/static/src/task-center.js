@@ -9,7 +9,7 @@ const STATUS_LABELS = {
 };
 const KIND_LABELS = {
   pipeline: '流水线', rerun: '重跑', cut_export: '裁剪导出',
-  whisper_install: 'Whisper 安装', waveform: '波形生成',
+  export: '剪映草稿导出', whisper_install: 'Whisper 安装', waveform: '波形生成',
 };
 const ACTIVE = new Set(['queued', 'running', 'cancelling']);
 const TERMINAL = new Set(['succeeded', 'failed', 'cancelled', 'interrupted']);
@@ -37,8 +37,8 @@ function _upsertTask(task) {
   const index = state.tasks.findIndex(item => item.id === task.id);
   if (index >= 0) state.tasks[index] = task;
   else state.tasks.unshift(task);
-  state.tasks.sort((a, b) => String(b.finished_at || b.heartbeat_at || b.updated_at || b.started_at || b.created_at || '')
-    .localeCompare(String(a.finished_at || a.heartbeat_at || a.updated_at || a.started_at || a.created_at || '')));
+  state.tasks.sort((a, b) => String(b.updated_at || b.heartbeat_at || b.created_at || '')
+    .localeCompare(String(a.updated_at || a.heartbeat_at || a.created_at || '')));
   if (state.tasks.length > 200) state.tasks.length = 200;
 }
 
@@ -218,6 +218,60 @@ export function subscribeTaskEvents(listener) {
   _eventListeners.add(listener);
   startTaskStream();
   return () => _eventListeners.delete(listener);
+}
+
+/** Subscribe to one task with a snapshot-first, sequence-deduplicated lifecycle. */
+export async function subscribeTask(taskId, listener) {
+  if (!taskId || typeof listener !== 'function') return () => {};
+  let ready = false;
+  let active = true;
+  let lastSeq = 0;
+  const buffered = [];
+  const deliver = payload => {
+    if (!active || payload?.task?.id !== taskId) return;
+    const seq = Number(payload.seq || payload.event?.seq) || 0;
+    if (seq && seq <= lastSeq) return;
+    if (seq) lastSeq = seq;
+    listener(payload);
+  };
+  const unsubscribe = subscribeTaskEvents(payload => {
+    if (payload?.task?.id !== taskId) return;
+    if (!ready) buffered.push(payload);
+    else deliver(payload);
+  });
+  try {
+    const snapshot = await api('GET', `${_taskUrl(taskId)}?event_limit=300`);
+    if (!active) return () => {};
+    const events = Array.isArray(snapshot?.events) ? snapshot.events : [];
+    lastSeq = events.reduce((max, event) => Math.max(max, Number(event?.seq) || 0), 0);
+    listener({ task: snapshot?.task || null, events, snapshot: true, seq: lastSeq });
+    ready = true;
+    buffered.sort((a, b) => (Number(a.seq) || 0) - (Number(b.seq) || 0)).forEach(deliver);
+    buffered.length = 0;
+  } catch (error) {
+    unsubscribe();
+    throw error;
+  }
+  return () => { active = false; unsubscribe(); };
+}
+
+export async function waitForTask(taskId) {
+  return new Promise((resolve, reject) => {
+    let unsubscribe = () => {};
+    let settled = false;
+    const onTask = payload => {
+      const task = payload?.task;
+      if (!task || !TERMINAL.has(task.status) || settled) return;
+      settled = true;
+      unsubscribe();
+      if (task.status === 'succeeded') resolve(task);
+      else reject(new Error(task.error_message || task.message || statusLabel(task.status)));
+    };
+    subscribeTask(taskId, onTask).then(stop => {
+      unsubscribe = stop;
+      if (settled) stop();
+    }).catch(reject);
+  });
 }
 
 export function renderTasks() {

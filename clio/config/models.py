@@ -100,6 +100,15 @@ class PreviewConfig:
 @dataclass
 class ServerConfig:
     api_token: str | None = None
+    task_retention_days: int = 30
+    task_max_terminal_tasks: int = 1000
+    task_cleanup_interval_min: int = 60
+
+    def __post_init__(self) -> None:
+        for name in ("task_retention_days", "task_max_terminal_tasks", "task_cleanup_interval_min"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"server.{name} must be a non-negative integer")
 
 
 @dataclass

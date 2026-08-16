@@ -152,6 +152,7 @@ _TASK_MANAGER_CREATE_LOCK = threading.Lock()
 def register_builtin_task_handlers(manager: TaskManager) -> None:
     """Make historical tasks retryable before any feature route is visited."""
     from clio.tasks.waveform import _ensure_waveform_handler
+    from clio.ui.routes.export import _ensure_export_handler
     from clio.ui.routes.plan import _ensure_cut_handler
     from clio.ui.routes.run import _ensure_run_handlers
     from clio.ui.routes.whisper_download import _ensure_whisper_handler
@@ -160,6 +161,7 @@ def register_builtin_task_handlers(manager: TaskManager) -> None:
     _ensure_cut_handler(manager)
     _ensure_whisper_handler(manager)
     _ensure_waveform_handler(manager)
+    _ensure_export_handler(manager)
 
 
 def set_desktop_focus_callback(callback: Callable[[], None] | None) -> None:
@@ -296,6 +298,9 @@ def make_handler(
         _config_cache: ClassVar[ConfigCache]
         _task_manager: ClassVar[TaskManager | None]
         _task_store_path: ClassVar[Path]
+        _task_retention_days: ClassVar[int]
+        _task_max_terminal_tasks: ClassVar[int]
+        _task_cleanup_interval_sec: ClassVar[float]
         DEFAULT_PROJECT: dict[str, Any] = {}
         project_dir: Path
         output_dir: Path
@@ -331,7 +336,12 @@ def make_handler(
             with _TASK_MANAGER_CREATE_LOCK:
                 manager = self.__class__._task_manager
                 if manager is None:
-                    manager = TaskManager(TaskStore(self.__class__._task_store_path))
+                    manager = TaskManager(
+                        TaskStore(self.__class__._task_store_path),
+                        retention_days=self.__class__._task_retention_days,
+                        max_terminal_tasks=self.__class__._task_max_terminal_tasks,
+                        cleanup_interval_sec=self.__class__._task_cleanup_interval_sec,
+                    )
                     register_builtin_task_handlers(manager)
                     self.__class__._task_manager = manager
             return manager
@@ -728,6 +738,9 @@ def make_handler(
         register_builtin_task_handlers(task_manager)
     Handler._task_manager = task_manager
     Handler._task_store_path = (config_path.parent if config_path is not None else output_dir) / "task-center.sqlite3"
+    Handler._task_retention_days = max(0, int(config.server.task_retention_days))
+    Handler._task_max_terminal_tasks = max(0, int(config.server.task_max_terminal_tasks))
+    Handler._task_cleanup_interval_sec = max(0, int(config.server.task_cleanup_interval_min)) * 60.0
     Handler._api_token = api_token
     Handler.DEFAULT_PROJECT = DEFAULT_PROJECT
     Handler.project_dir = project_dir
