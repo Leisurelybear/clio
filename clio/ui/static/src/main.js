@@ -482,6 +482,10 @@ async function init() {
   document.addEventListener('keydown', (e) => {
     const mod = e.ctrlKey || e.metaKey;
     if (e.key === 's' && mod) { e.preventDefault(); save(); }
+    if (e.key.toLowerCase() === 'o' && mod) {
+      e.preventDefault();
+      $('btn-open-project')?.click();
+    }
     if (e.key === 'Escape') {
       // Close topmost open modal only (preserve stacked dialog state)
       const openModals = [...$$('.modal')].filter(m => m.style.display !== 'none');
