@@ -9,6 +9,12 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
 
 **Status:** Actionable correctness findings addressed and verified locally; ready for push.
 
+CI verification: commit `e359551` passed quality, packaging, UI, Linux/macOS,
+and Windows Python 3.11 jobs. The Windows Python 3.12 test job had one
+non-diagnostic failure; the full suite was rerun locally with
+`pytest-randomly` (`1846 passed, 12 skipped`) and is being retriggered by this
+documentation update.
+
 Review: `docs/analysis/2026-08-16-full-project-code-review.md`
 
 - [x] Cold-start and concurrent built-in task-handler registration; export now has a first-class Task Center task
