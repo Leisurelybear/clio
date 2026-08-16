@@ -421,10 +421,10 @@ class TaskManager:
         finally:
             if semaphore is not None:
                 semaphore.release()
+            self._maybe_cleanup()
             with self._condition:
                 self._runtime.pop(task_id, None)
                 self._condition.notify_all()
-            self._maybe_cleanup()
 
     def _transition_status(
         self,

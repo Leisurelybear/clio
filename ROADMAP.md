@@ -11,10 +11,10 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
 
 CI verification: commit `e359551` passed quality, packaging, UI, Linux/macOS,
 and Windows Python 3.11 jobs. The Windows Python 3.12 job exposed a cleanup
-lifecycle test race: task status became terminal before the worker's `finally`
-cleanup completed. The test now waits for runtime teardown; the focused case
-passed 50 consecutive runs, and the full randomized suite passed locally
-(`1846 passed, 12 skipped`).
+lifecycle race: task status became terminal before the worker's `finally`
+cleanup completed. Cleanup now runs before runtime teardown, and the test also
+waits for that boundary; the focused case passed 50 consecutive runs, while
+the full randomized suite passed locally (`1846 passed, 12 skipped`).
 
 Review: `docs/analysis/2026-08-16-full-project-code-review.md`
 
