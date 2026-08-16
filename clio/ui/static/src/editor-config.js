@@ -1662,12 +1662,12 @@ function _applyWhisperTask(task, event = null) {
   _clearWhisperTaskSubscription();
   if (dlBtn) { dlBtn.disabled = false; dlBtn.innerHTML = `${icon('download', 14)} 下载模型`; }
   if (task.status === 'succeeded') {
-    setStatus('Whisper 模型下载完成', 'ok');
+    setStatus('Whisper 模型下载完成', 'ok', { persist: false });
     _loadModelMgmt();
   } else if (task.status === 'cancelled') {
-    setStatus('Whisper 模型下载已取消', 'warn');
+    setStatus('Whisper 模型下载已取消', 'warn', { persist: false });
   } else {
-    setStatus(`Whisper 模型下载失败: ${task.error_message || task.message || '未知错误'}`, 'err');
+    setStatus(`Whisper 模型下载失败: ${task.error_message || task.message || '未知错误'}`, 'err', { persist: false });
   }
 }
 

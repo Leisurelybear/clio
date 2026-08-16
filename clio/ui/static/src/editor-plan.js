@@ -792,7 +792,7 @@ export function renderPlan() {
     try {
       const { artifact } = await exportJianyingDraft(state.currentDay || 'day1', { force });
       resultDiv.innerHTML = `<span style="color:var(--ok,#484)">✓ 已导出到 ${escapeHtml(artifact)}</span>`;
-      addToast('已导出到剪映', 'success');
+      addToast('已导出到剪映', 'success', undefined, { persist: false });
     } catch (e) {
       resultDiv.innerHTML = `<span style="color:var(--err,#c44)">✗ 导出失败: ${escapeHtml(e.message || e)}</span>`;
       addToast('导出失败: ' + (e.message || e), 'error', 6000);
@@ -865,8 +865,8 @@ export async function executeCut() {
       }
     }
     result.innerHTML = `<p class="ok">裁剪完成</p><p>输出目录: ${escapeHtml(r.output_dir)}</p>`;
-    setStatus('裁剪完成', 'ok');
-    addToast('裁剪完成', 'success');
+    setStatus('裁剪完成', 'ok', { persist: false });
+    addToast('裁剪完成', 'success', undefined, { persist: false });
     import('./sidebar.js').then(mod => mod.saveProject());
   } catch (e) {
     result.innerHTML = `<p class="err">错误: ${escapeHtml(e.message)}</p>`;

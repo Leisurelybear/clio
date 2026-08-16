@@ -1,4 +1,5 @@
 import { escapeHtml } from './utils.js';
+import { registerNotification } from './notification-center.js';
 
 const MAX_VISIBLE = 3;
 const DEFAULT_DURATIONS = {
@@ -28,9 +29,24 @@ function resolveDuration(type, duration) {
   return DEFAULT_DURATIONS[type] ?? DEFAULT_DURATIONS.info;
 }
 
-function addToast(message, type = 'info', duration) {
+function addToast(message, type = 'info', duration, options = {}) {
   const container = getContainer();
   if (!container) return;
+
+  const notificationSeverity = type === 'success' || type === 'error' || type === 'warning' ? type : 'info';
+  if (options.persist !== false) {
+    registerNotification({
+      message,
+      severity: notificationSeverity,
+      title: options.title || '通知',
+      sourceType: options.sourceType || 'ui_toast',
+      sourceId: options.sourceId,
+      taskId: options.taskId,
+      link: options.link,
+      dedupeKey: options.dedupeKey,
+      data: options.data,
+    });
+  }
 
   const resolvedDuration = resolveDuration(type, duration);
   const toast = document.createElement('div');

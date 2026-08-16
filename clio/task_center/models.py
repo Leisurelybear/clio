@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
+import json
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
@@ -77,6 +79,13 @@ class TaskEventType(StrEnum):
 
 class TaskEventLevel(StrEnum):
     INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+
+
+class NotificationSeverity(StrEnum):
+    INFO = "info"
+    SUCCESS = "success"
     WARNING = "warning"
     ERROR = "error"
 
@@ -208,6 +217,72 @@ class TaskEvent:
             "level": self.level.value,
             "data": dict(self.data),
         }
+
+
+@dataclass(frozen=True, slots=True)
+class Notification:
+    """A durable user-facing message, independent from task lifecycle state."""
+
+    id: str
+    severity: NotificationSeverity
+    title: str
+    message: str
+    created_at: str
+    source_type: str = ""
+    source_id: str | None = None
+    task_id: str | None = None
+    project_id: str | None = None
+    project_name: str | None = None
+    link: str | None = None
+    read_at: str | None = None
+    dedupe_key: str | None = None
+    data: dict[str, Any] = field(default_factory=dict)
+    seq: int | None = None
+
+    @property
+    def is_read(self) -> bool:
+        return self.read_at is not None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "seq": self.seq,
+            "severity": self.severity.value,
+            "title": self.title,
+            "message": self.message,
+            "created_at": self.created_at,
+            "source_type": self.source_type,
+            "source_id": self.source_id,
+            "task_id": self.task_id,
+            "project_id": self.project_id,
+            "project_name": self.project_name,
+            "link": self.link,
+            "read_at": self.read_at,
+            "is_read": self.is_read,
+            "data": dict(self.data),
+        }
+
+
+def notification_id(dedupe_key: str | None = None) -> str:
+    """Generate stable IDs for deduped messages and random IDs otherwise."""
+    if dedupe_key:
+        digest = hashlib.sha256(dedupe_key.encode("utf-8")).hexdigest()[:24]
+        return f"n-{digest}"
+    return f"n-{uuid.uuid4().hex}"
+
+
+def notification_data(value: Any) -> dict[str, Any]:
+    """Keep notification metadata JSON-safe and small enough for the inbox."""
+    if not isinstance(value, dict):
+        return {}
+    try:
+        cleaned = sanitize_task_payload(value)
+        encoded = json.dumps(cleaned, ensure_ascii=False)
+        if len(encoded) > 8_192:
+            return {"detail": encoded[:8_192]}
+        return dict(cleaned)
+    except (TypeError, ValueError):
+        return {}
 
 
 def create_task(

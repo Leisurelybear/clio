@@ -60,6 +60,14 @@ from clio.ui.routes.fs import (
     handle_post_fs_mkdir,
     handle_post_fs_reveal,
 )
+from clio.ui.routes.notifications import (
+    handle_get_notifications,
+    handle_get_notifications_stream,
+    handle_post_notification,
+    handle_post_notification_read,
+    handle_post_notification_unread,
+    handle_post_notifications_read_all,
+)
 from clio.ui.routes.plan import (
     handle_get_cut_orphaned_backups,
     handle_get_plan,
@@ -688,6 +696,8 @@ def make_handler(
             Route("GET", "/api/tasks", "handle_get_tasks"),
             Route("GET", "/api/tasks/stream", "handle_get_tasks_stream"),
             Route("GET", "/api/tasks/{task_id}", "handle_get_task"),
+            Route("GET", "/api/notifications", "handle_get_notifications"),
+            Route("GET", "/api/notifications/stream", "handle_get_notifications_stream"),
             Route("GET", "/api/env", "handle_get_env"),
             Route("GET", "/api/prompts", "handle_get_prompts"),
             Route("GET", "/api/logs", "_handle_get_logs"),
@@ -728,6 +738,10 @@ def make_handler(
             Route("POST", "/api/logs/clear", "_handle_post_logs_clear"),
             Route("POST", "/api/tasks/{task_id}/cancel", "handle_post_task_cancel"),
             Route("POST", "/api/tasks/{task_id}/retry", "handle_post_task_retry"),
+            Route("POST", "/api/notifications", "handle_post_notification"),
+            Route("POST", "/api/notifications/read-all", "handle_post_notifications_read_all"),
+            Route("POST", "/api/notifications/{notification_id}/read", "handle_post_notification_read"),
+            Route("POST", "/api/notifications/{notification_id}/unread", "handle_post_notification_unread"),
             Route("DELETE", "/api/prompts/{name}", "handle_delete_prompt"),
             Route("DELETE", "/api/providers/{name}", "handle_delete_provider"),
         ]

@@ -248,6 +248,112 @@ header > * { -webkit-app-region: no-drag; }
 .btn-icon:hover { background: var(--bg-hover); color: var(--text-primary); border-color: var(--border); }
 .btn-icon:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
 
+.notification-shell { position: relative; }
+.notification-button { position: relative; }
+.notification-button.has-unread { color: var(--text-primary); }
+.notification-badge {
+  position: absolute;
+  top: -5px;
+  right: -6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border: 2px solid var(--bg-surface);
+  border-radius: 8px;
+  background: var(--error);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 12px;
+}
+.notification-panel {
+  position: absolute;
+  z-index: 120;
+  top: calc(100% + 9px);
+  right: 0;
+  width: min(390px, calc(100vw - 16px));
+  max-height: min(620px, calc(100vh - 64px));
+  overflow: hidden;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-lg);
+  color: var(--text-primary);
+}
+.notification-panel[hidden] { display: none; }
+.notification-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 42px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.notification-panel-head strong { font-size: var(--text-md); }
+.notification-read-all {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-xs);
+}
+.notification-read-all:disabled { color: var(--text-muted); cursor: default; }
+.notification-filters { display: flex; gap: 4px; padding: 7px 10px; border-bottom: 1px solid var(--border); }
+.notification-filters button {
+  min-height: 26px;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-xs);
+}
+.notification-filters button:hover { background: var(--bg-hover); color: var(--text-primary); }
+.notification-filters button.active { border-color: var(--border-light); background: var(--bg-active); color: var(--text-primary); }
+.notification-list { max-height: min(520px, calc(100vh - 150px)); overflow-y: auto; }
+.notification-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 8px;
+  gap: 8px;
+  width: 100%;
+  min-height: 72px;
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+.notification-row:last-child { border-bottom: 0; }
+.notification-row:hover { background: var(--bg-hover); }
+.notification-row.unread { background: color-mix(in srgb, var(--accent-bg) 55%, var(--bg-surface)); }
+.notification-row-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-weight: 700;
+}
+.notification-success .notification-row-icon { color: var(--success); }
+.notification-warning .notification-row-icon { color: var(--warning); }
+.notification-error .notification-row-icon { color: var(--error); }
+.notification-row-copy { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
+.notification-row-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); }
+.notification-row-copy > span { overflow-wrap: anywhere; color: var(--text-secondary); font-size: var(--text-sm); line-height: 1.35; }
+.notification-row-copy small { color: var(--text-muted); font-size: var(--text-xs); }
+.notification-unread-dot { align-self: center; width: 6px; height: 6px; border-radius: 50%; background: transparent; }
+.notification-row.unread .notification-unread-dot { background: var(--accent); }
+.notification-empty { margin: 0; padding: 28px 12px; color: var(--text-muted); text-align: center; font-size: var(--text-sm); }
+
 .status { font-size: var(--text-sm); min-width: 120px; display: flex; align-items: center; gap: 6px; }
 .status .loading { display: flex; align-items: center; gap: 6px; }
 .status .loading::before { content: ''; width: 12px; height: 12px; border: 2px solid var(--text-muted); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }

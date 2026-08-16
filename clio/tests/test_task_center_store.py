@@ -272,7 +272,26 @@ def test_store_migrates_v1_database_with_updated_at(tmp_path):
     task = store.require("legacy")
     assert task.updated_at == task.finished_at
     with sqlite3.connect(path) as connection:
-        assert connection.execute("SELECT value FROM task_meta WHERE key = 'schema_version'").fetchone()[0] == "2"
+        assert connection.execute("SELECT value FROM task_meta WHERE key = 'schema_version'").fetchone()[0] == "3"
+
+
+def test_store_migrates_v2_database_with_notification_table(tmp_path):
+    path = tmp_path / "tasks.sqlite3"
+    TaskStore(path)
+    with sqlite3.connect(path) as connection:
+        connection.execute("DROP TABLE notifications")
+        connection.execute("UPDATE task_meta SET value = '2' WHERE key = 'schema_version'")
+
+    TaskStore(path)
+
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("SELECT value FROM task_meta WHERE key = 'schema_version'").fetchone()[0] == "3"
+        assert (
+            connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'notifications'"
+            ).fetchone()
+            is not None
+        )
 
 
 def test_store_repairs_missing_event_table_on_existing_database(tmp_path):

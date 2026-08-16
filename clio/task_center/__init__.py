@@ -2,6 +2,8 @@
 
 from clio.task_center.manager import TaskAlreadyRunningError, TaskManager
 from clio.task_center.models import (
+    Notification,
+    NotificationSeverity,
     TaskEvent,
     TaskEventLevel,
     TaskEventType,
@@ -13,7 +15,7 @@ from clio.task_center.models import (
 )
 from clio.task_center.reporter import TaskCancelled, TaskProgressReporter, TaskReporter
 from clio.task_center.state_machine import InvalidTaskTransition, transition_task
-from clio.task_center.store import TaskQuery, TaskStore
+from clio.task_center.store import NotificationQuery, TaskQuery, TaskStore
 
 __all__ = [
     "InvalidTaskTransition",
@@ -30,6 +32,9 @@ __all__ = [
     "TaskStatus",
     "TaskStore",
     "TaskVisibility",
+    "Notification",
+    "NotificationSeverity",
+    "NotificationQuery",
     "TaskCancelled",
     "create_task",
     "transition_task",

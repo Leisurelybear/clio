@@ -51,9 +51,11 @@ vlog-video-analysis/
 │   ├── ui/                    Web UI (stdlib http.server)
 │   │   ├── server.py          HTTP server
 │   │   ├── routes/            Route handlers (split into focused modules)
+│   │   │   └── notifications.py Persistent inbox API and SSE
 │   │   └── static/            Frontend (no build step, ES modules)
 │   │       └── src/           ES modules: editor-plan.js, plan-edit.js,
 │   │                           task-center.js,
+│   │                           notification-center.js,
 │   │                          sidebar.js, sidebar-data.js, sidebar-video-filter.js,
 │   │                          runner.js, editor-config.js, ...
 │   └── ai/                    AI providers
@@ -135,6 +137,15 @@ Provider management is a frontend-only experience - no new backend APIs needed:
 - Task binding mutations write to `project.yaml` via existing `PUT /api/config/project`
 - Default providers (`gemini`, `openai`, `deepseek`) cannot be deleted
 - Video tasks (`video_analyze`) only show gemini-type providers in dropdown
+
+### 4.8 Notification Center (R-042)
+
+- Notifications live in the Task Center SQLite store but do not replace task state.
+- Task terminal statuses and every warning/error task event are registered transactionally.
+- Frontend status, toast, and runtime-warning messages register through `POST /api/notifications`.
+- Unread notifications are never removed by retention cleanup; only read history is bounded.
+- `notification-center.js` owns the global SSE connection, unread badge, inbox filters,
+  read actions, and Task Center deep links.
 
 ## 5. User Preferences
 

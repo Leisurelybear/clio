@@ -95,8 +95,8 @@ function _rerunTerminal(task, file, label, message, toastKind, statusKind) {
   if (_rerunTaskUnsubscribe) { _rerunTaskUnsubscribe(); _rerunTaskUnsubscribe = null; }
   const statusEl = overlay.querySelector('.rerun-status');
   if (statusEl) statusEl.innerHTML = `<span class="${statusKind === 'success' ? 'ok' : statusKind === 'warning' ? 'warn' : 'err'}">${escapeHtml(label)}</span>`;
-  setStatus(message, statusKind === 'success' ? 'ok' : statusKind === 'warning' ? 'warn' : 'err');
-  addToast(message, toastKind, statusKind === 'error' ? 6000 : undefined);
+  setStatus(message, statusKind === 'success' ? 'ok' : statusKind === 'warning' ? 'warn' : 'err', { persist: false });
+  addToast(message, toastKind, statusKind === 'error' ? 6000 : undefined, { persist: false });
   if (statusKind === 'success') {
     setTimeout(() => { hideRerunProgress(); refreshAfterRerun(task, file); }, 2000);
   } else {
@@ -159,8 +159,8 @@ async function pollRerunStatus(task, file) {
         _rerunPollTimer = null;
       }
       if (statusEl) statusEl.innerHTML = '<span class="ok">✓ 完成</span>';
-      setStatus('重跑完成', 'ok');
-      addToast('重跑完成', 'success');
+      setStatus('重跑完成', 'ok', { persist: false });
+      addToast('重跑完成', 'success', undefined, { persist: false });
       setTimeout(() => {
         hideRerunProgress();
         refreshAfterRerun(task, file);
@@ -172,8 +172,8 @@ async function pollRerunStatus(task, file) {
         _rerunPollTimer = null;
       }
       if (statusEl) statusEl.innerHTML = '<span class="warn">⏹ 已取消</span>';
-      setStatus('重跑已取消', 'warn');
-      addToast('重跑已取消', 'warning');
+      setStatus('重跑已取消', 'warn', { persist: false });
+      addToast('重跑已取消', 'warning', undefined, { persist: false });
       setTimeout(hideRerunProgress, 4000);
     } else if (s.status === 'error') {
       overlay.dataset.active = 'false';
@@ -182,8 +182,8 @@ async function pollRerunStatus(task, file) {
         _rerunPollTimer = null;
       }
       if (statusEl) statusEl.innerHTML = '<span class="err">✗ 出错</span>';
-      setStatus('重跑出错', 'err');
-      addToast('重跑出错', 'error', 6000);
+      setStatus('重跑出错', 'err', { persist: false });
+      addToast('重跑出错', 'error', 6000, { persist: false });
       setTimeout(() => {
         hideRerunProgress();
       }, 8000);

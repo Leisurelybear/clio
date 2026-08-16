@@ -14,6 +14,8 @@ from typing import Any
 from clio.task_center.models import (
     TERMINAL_TASK_STATUSES,
     UTC_TZ,
+    Notification,
+    NotificationSeverity,
     TaskEvent,
     TaskEventLevel,
     TaskEventType,
@@ -21,6 +23,9 @@ from clio.task_center.models import (
     TaskRecord,
     TaskStatus,
     TaskVisibility,
+    notification_data,
+    notification_id,
+    utc_now_iso,
 )
 from clio.task_center.schema import initialize_schema
 
@@ -59,6 +64,21 @@ class TaskQuery:
             raise ValueError("task query limit must be between 1 and 200")
         if self.offset < 0:
             raise ValueError("task query offset must be non-negative")
+
+
+@dataclass(frozen=True, slots=True)
+class NotificationQuery:
+    unread_only: bool = False
+    severities: tuple[NotificationSeverity, ...] = ()
+    project_id: str | None = None
+    limit: int = 50
+    offset: int = 0
+
+    def __post_init__(self) -> None:
+        if not 1 <= self.limit <= 200:
+            raise ValueError("notification query limit must be between 1 and 200")
+        if self.offset < 0:
+            raise ValueError("notification query offset must be non-negative")
 
 
 class TaskStore:
@@ -299,6 +319,127 @@ class TaskStore:
             ).fetchall()
         return [self._row_to_event(row) for row in reversed(rows)]
 
+    def create_notification(self, notification: Notification) -> Notification:
+        """Persist a UI-originated notification, returning the deduped row."""
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            saved = self._insert_notification(connection, notification)
+            connection.commit()
+        return saved
+
+    def list_notifications(self, query: NotificationQuery | None = None) -> builtins.list[Notification]:
+        query = query or NotificationQuery()
+        where: builtins.list[str] = []
+        params: builtins.list[Any] = []
+        if query.unread_only:
+            where.append("read_at IS NULL")
+        if query.project_id is not None:
+            where.append("project_id = ?")
+            params.append(query.project_id)
+        if query.severities:
+            placeholders = ",".join("?" for _ in query.severities)
+            where.append(f"severity IN ({placeholders})")
+            params.extend(item.value for item in query.severities)
+        clause = " WHERE " + " AND ".join(where) if where else ""
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"SELECT * FROM notifications{clause} ORDER BY seq DESC LIMIT ? OFFSET ?",  # noqa: S608
+                [*params, query.limit, query.offset],
+            ).fetchall()
+        return [self._row_to_notification(row) for row in rows]
+
+    def notification_snapshot(
+        self, query: NotificationQuery | None = None
+    ) -> tuple[builtins.list[Notification], int, int]:
+        """Return inbox rows, unread count, and cursor from one read snapshot."""
+        query = query or NotificationQuery()
+        where: builtins.list[str] = []
+        params: builtins.list[Any] = []
+        if query.unread_only:
+            where.append("read_at IS NULL")
+        if query.project_id is not None:
+            where.append("project_id = ?")
+            params.append(query.project_id)
+        if query.severities:
+            placeholders = ",".join("?" for _ in query.severities)
+            where.append(f"severity IN ({placeholders})")
+            params.extend(item.value for item in query.severities)
+        clause = " WHERE " + " AND ".join(where) if where else ""
+        unread_clause = " AND project_id = ?" if query.project_id is not None else ""
+        unread_params = [query.project_id] if query.project_id is not None else []
+        with self._connect() as connection:
+            connection.execute("BEGIN")
+            latest_seq = int(connection.execute("SELECT COALESCE(MAX(seq), 0) FROM notifications").fetchone()[0])
+            rows = connection.execute(
+                f"SELECT * FROM notifications{clause} ORDER BY seq DESC LIMIT ? OFFSET ?",  # noqa: S608
+                [*params, query.limit, query.offset],
+            ).fetchall()
+            unread = int(
+                connection.execute(
+                    f"SELECT COUNT(*) FROM notifications WHERE read_at IS NULL{unread_clause}",  # noqa: S608
+                    unread_params,
+                ).fetchone()[0]
+            )
+            connection.commit()
+        return [self._row_to_notification(row) for row in rows], unread, latest_seq
+
+    def count_unread_notifications(self, *, project_id: str | None = None) -> int:
+        where = ["read_at IS NULL"]
+        params: builtins.list[Any] = []
+        if project_id is not None:
+            where.append("project_id = ?")
+            params.append(project_id)
+        with self._connect() as connection:
+            row = connection.execute(
+                f"SELECT COUNT(*) FROM notifications WHERE {' AND '.join(where)}",  # noqa: S608
+                params,
+            ).fetchone()
+        return int(row[0])
+
+    def latest_notification_seq(self) -> int:
+        with self._connect() as connection:
+            row = connection.execute("SELECT COALESCE(MAX(seq), 0) FROM notifications").fetchone()
+        return int(row[0])
+
+    def notification_events(self, *, after_seq: int = 0, limit: int = 200) -> builtins.list[Notification]:
+        if after_seq < 0:
+            raise ValueError("after_seq must be non-negative")
+        if not 1 <= limit <= 1000:
+            raise ValueError("notification event limit must be between 1 and 1000")
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM notifications WHERE seq > ? ORDER BY seq ASC LIMIT ?",
+                (after_seq, limit),
+            ).fetchall()
+        return [self._row_to_notification(row) for row in rows]
+
+    def mark_notification_read(self, notification_id_value: str, *, read: bool = True) -> Notification | None:
+        read_at = utc_now_iso() if read else None
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            cursor = connection.execute(
+                "UPDATE notifications SET read_at = ? WHERE id = ?",
+                (read_at, notification_id_value),
+            )
+            row = connection.execute("SELECT * FROM notifications WHERE id = ?", (notification_id_value,)).fetchone()
+            connection.commit()
+        if cursor.rowcount == 0 and row is None:
+            return None
+        return self._row_to_notification(row) if row is not None else None
+
+    def mark_all_notifications_read(self, *, project_id: str | None = None) -> int:
+        where = ["read_at IS NULL"]
+        params: builtins.list[Any] = [utc_now_iso()]
+        if project_id is not None:
+            where.append("project_id = ?")
+            params.append(project_id)
+        with self._connect() as connection:
+            cursor = connection.execute(
+                f"UPDATE notifications SET read_at = ? WHERE {' AND '.join(where)}",  # noqa: S608
+                params,
+            )
+        return cursor.rowcount
+
     def delete(self, task_id: str) -> bool:
         with self._connect() as connection:
             cursor = connection.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
@@ -343,7 +484,34 @@ class TaskStore:
                     excess_ids,
                 ).rowcount
             connection.commit()
+        # Read notifications are disposable history; unread messages remain
+        # until the user explicitly handles them.
+        self._cleanup_notifications(
+            retention_days=retention_days, max_notifications=max_terminal_tasks, now=current_time
+        )
         return old + excess
+
+    def _cleanup_notifications(self, *, retention_days: int, max_notifications: int, now: datetime) -> int:
+        cutoff = (now - timedelta(days=retention_days)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            removed = connection.execute(
+                "DELETE FROM notifications WHERE read_at IS NOT NULL AND created_at < ?",
+                (cutoff,),
+            ).rowcount
+            excess_rows = connection.execute(
+                "SELECT id FROM notifications WHERE read_at IS NOT NULL ORDER BY seq DESC LIMIT -1 OFFSET ?",
+                (max(0, max_notifications),),
+            ).fetchall()
+            if excess_rows:
+                ids = [row[0] for row in excess_rows]
+                placeholders = ",".join("?" for _ in ids)
+                removed += connection.execute(
+                    f"DELETE FROM notifications WHERE id IN ({placeholders})",  # noqa: S608
+                    ids,
+                ).rowcount
+            connection.commit()
+        return removed
 
     @staticmethod
     def _append_enum_filter(
@@ -455,7 +623,97 @@ class TaskStore:
         )
         if cursor.lastrowid is None:
             raise TaskStoreError("failed to allocate task event sequence")
-        return replace(event, seq=int(cursor.lastrowid))
+        saved = replace(event, seq=int(cursor.lastrowid))
+        notification = cls._notification_from_event(connection, saved)
+        if notification is not None:
+            cls._insert_notification(connection, notification)
+        return saved
+
+    @classmethod
+    def _notification_from_event(cls, connection: sqlite3.Connection, event: TaskEvent) -> Notification | None:
+        target_status = str(event.data.get("to", ""))
+        terminal = {
+            TaskStatus.SUCCEEDED.value,
+            TaskStatus.FAILED.value,
+            TaskStatus.CANCELLED.value,
+            TaskStatus.INTERRUPTED.value,
+        }
+        if event.type is TaskEventType.STATUS and target_status in terminal:
+            severity = {
+                TaskStatus.SUCCEEDED.value: NotificationSeverity.SUCCESS,
+                TaskStatus.FAILED.value: NotificationSeverity.ERROR,
+                TaskStatus.CANCELLED.value: NotificationSeverity.WARNING,
+                TaskStatus.INTERRUPTED.value: NotificationSeverity.WARNING,
+            }[target_status]
+            label = {
+                TaskStatus.SUCCEEDED.value: "已完成",
+                TaskStatus.FAILED.value: "失败",
+                TaskStatus.CANCELLED.value: "已取消",
+                TaskStatus.INTERRUPTED.value: "已中断",
+            }[target_status]
+        elif event.level is TaskEventLevel.WARNING:
+            severity, label = NotificationSeverity.WARNING, "需要注意"
+        elif event.level is TaskEventLevel.ERROR:
+            severity, label = NotificationSeverity.ERROR, "发生错误"
+        else:
+            return None
+        row = connection.execute(
+            "SELECT title, project_id, project_name FROM tasks WHERE id = ?", (event.task_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        title = str(row[0] or "任务")
+        return Notification(
+            id=notification_id(f"task-event:{event.seq}"),
+            severity=severity,
+            title=f"{title}：{label}",
+            message=event.message or label,
+            created_at=event.created_at,
+            source_type="task_event",
+            source_id=str(event.seq),
+            task_id=event.task_id,
+            project_id=row[1],
+            project_name=row[2],
+            link=f"?entity=tasks&task_id={event.task_id}",
+            dedupe_key=f"task-event:{event.seq}",
+            data={"event_seq": event.seq, "event_type": event.type.value},
+        )
+
+    @classmethod
+    def _insert_notification(cls, connection: sqlite3.Connection, notification: Notification) -> Notification:
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO notifications
+              (id, severity, title, message, created_at, read_at, source_type, source_id,
+               task_id, project_id, project_name, link, dedupe_key, data_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                notification.id,
+                notification.severity.value,
+                notification.title,
+                notification.message,
+                notification.created_at,
+                notification.read_at,
+                notification.source_type,
+                notification.source_id,
+                notification.task_id,
+                notification.project_id,
+                notification.project_name,
+                notification.link,
+                notification.dedupe_key,
+                cls._json(notification_data(notification.data)),
+            ),
+        )
+        if notification.dedupe_key:
+            row = connection.execute(
+                "SELECT * FROM notifications WHERE dedupe_key = ?", (notification.dedupe_key,)
+            ).fetchone()
+        else:
+            row = connection.execute("SELECT * FROM notifications WHERE id = ?", (notification.id,)).fetchone()
+        if row is None:
+            raise TaskStoreError("failed to persist notification")
+        return cls._row_to_notification(row)
 
     @staticmethod
     def _load_json(raw: str, *, field: str, task_id: str) -> dict[str, Any]:
@@ -522,3 +780,29 @@ class TaskStore:
             if isinstance(e, TaskStoreDataError):
                 raise
             raise TaskStoreDataError(f"task event {row['seq']} has invalid stored data: {e}") from e
+
+    @classmethod
+    def _row_to_notification(cls, row: sqlite3.Row) -> Notification:
+        try:
+            data = cls._load_json(row["data_json"], field="notification data_json", task_id=str(row["id"]))
+            return Notification(
+                seq=int(row["seq"]),
+                id=str(row["id"]),
+                severity=NotificationSeverity(row["severity"]),
+                title=row["title"],
+                message=row["message"],
+                created_at=row["created_at"],
+                read_at=row["read_at"],
+                source_type=row["source_type"],
+                source_id=row["source_id"],
+                task_id=row["task_id"],
+                project_id=row["project_id"],
+                project_name=row["project_name"],
+                link=row["link"],
+                dedupe_key=row["dedupe_key"],
+                data=data,
+            )
+        except (TypeError, ValueError) as e:
+            if isinstance(e, TaskStoreDataError):
+                raise
+            raise TaskStoreDataError(f"notification {row['id']} has invalid stored data: {e}") from e

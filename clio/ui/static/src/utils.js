@@ -79,7 +79,7 @@ function updateSaveBtn() {
   btn.textContent = state.dirty ? '保存 (有改动)' : '保存';
 }
 
-function setStatus(msg, kind = '') {
+function setStatus(msg, kind = '', options = {}) {
   const el = $('status');
   if (!el) return;
   el.textContent = msg || '';
@@ -89,6 +89,21 @@ function setStatus(msg, kind = '') {
     // Errors stick longer so users can read them; info/ok clear quickly
     const ttl = kind === 'err' || kind === 'error' ? 8000 : 4000;
     setTimeout(() => { if (el.textContent === captured) el.textContent = ''; }, ttl);
+    const severity = kind === 'err' || kind === 'error'
+      ? 'error'
+      : kind === 'warn' || kind === 'warning'
+        ? 'warning'
+        : kind === 'ok' && /(完成|成功|已保存|已删除|已处理|已创建|已恢复|已迁移|已重新关联|已打开|已切换|已启动)/.test(captured)
+          ? 'success'
+          : null;
+    if (severity && options.persist !== false) {
+      import('./notification-center.js').then(({ registerNotification }) => registerNotification({
+        message: captured,
+        severity,
+        title: severity === 'error' ? '操作失败' : severity === 'warning' ? '操作提醒' : '操作完成',
+        sourceType: 'ui_status',
+      })).catch(() => {});
+    }
   }
 }
 

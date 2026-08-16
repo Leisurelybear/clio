@@ -577,8 +577,8 @@ async function _handleRunStatus(s) {
         const logsHtml = s.logs?.length ? `<div class="run-logs">${s.logs.map(l => `<div class="run-log-line">${escapeHtml(l)}</div>`).join('')}</div>` : '';
         prog.innerHTML = `<p class="ok">✓ 流水线完成</p><p>${escapeHtml(s.message || '')}</p>${logsHtml}`;
       }
-      setStatus('流水线完成', 'ok');
-      addToast(s.message || '流水线完成', 'success');
+      setStatus('流水线完成', 'ok', { persist: false });
+      addToast(s.message || '流水线完成', 'success', undefined, { persist: false });
       if (hasRunDom) renderProcessingState($('run-state-container'));
       // 检查是否有转录失败（如缺少模型），弹出下载引导
       if (hasRunDom) {
@@ -629,8 +629,8 @@ async function _handleRunStatus(s) {
         const logsHtml = s.logs?.length ? `<div class="run-logs">${s.logs.map(l => `<div class="run-log-line">${escapeHtml(l)}</div>`).join('')}</div>` : '';
         prog.innerHTML = `<p class="warn">⏹ 流水线已取消</p><p>${escapeHtml(s.message || '')}</p>${logsHtml}`;
       }
-      setStatus('流水线已取消', 'warn');
-      addToast(s.message || '流水线已取消', 'warning');
+      setStatus('流水线已取消', 'warn', { persist: false });
+      addToast(s.message || '流水线已取消', 'warning', undefined, { persist: false });
       if (hasRunDom) renderProcessingState($('run-state-container'));
       await refreshVideosAfterRun();
     } else if (s.status === 'error') {
@@ -644,8 +644,8 @@ async function _handleRunStatus(s) {
         const logsHtml = s.logs?.length ? `<div class="run-logs">${s.logs.map(l => `<div class="run-log-line">${escapeHtml(l)}</div>`).join('')}</div>` : '';
         prog.innerHTML = `<p class="err">✗ 流水线出错</p><p>${escapeHtml(s.message || '')}</p>${logsHtml}`;
       }
-      setStatus('流水线出错', 'err');
-      addToast(s.message || '流水线出错', 'error', 6000);
+      setStatus('流水线出错', 'err', { persist: false });
+      addToast(s.message || '流水线出错', 'error', 6000, { persist: false });
       if (hasRunDom) renderProcessingState($('run-state-container'));
       await refreshVideosAfterRun();
     }

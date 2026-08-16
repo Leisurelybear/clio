@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-08-17
+
+Implemented the persistent notification center (R-042).
+
+- feat(notifications): persist task completion, failure, interruption, warning,
+  and error events in the Task Center SQLite store
+- feat(ui): add a global notification inbox with an unread badge, attention
+  filter, single/all read actions, realtime updates, and task deep links
+- feat(ui): register existing status, toast, and runtime-warning messages in the same
+  inbox so short-lived UI feedback survives page and project switches
+- test: cover notification persistence, deduplication, read state, routes, SSE,
+  and frontend badge/registration behavior
+
 ## 2026-08-16
 
 Completed the full-project review follow-up (R-043). The changes are verified

@@ -42,6 +42,9 @@ const state = {
   selectedTaskId: null,
   taskDetail: null,
   taskLatestSeq: 0,
+  notifications: [],
+  notificationUnread: 0,
+  notificationLatestSeq: 0,
 refining: null,  // {type: 'texts'|'scripts', file: string} when AI refine in progress
   deps: null,  // { ok, ffmpeg, ffprobe, missing, detail } from GET /api/deps/ffmpeg
   videoFilter: { q: '', stage: '', mode: 'missing' },  // stage: '' | compress/analyze/voiceover/transcribe/offline; mode: 'missing' (chips) | 'done' (count bar)

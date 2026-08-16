@@ -1,3 +1,5 @@
+import { registerNotification } from './notification-center.js';
+
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '']);
 
 function isLocalHost(hostname) {
@@ -130,6 +132,16 @@ function updateRuntimeWarnings(config, opts = {}) {
     orphanedCutBackups: opts.orphanedCutBackups,
     ffmpegDeps: opts.ffmpegDeps ?? null,
     missingKeys: opts.missingKeys ?? null,
+  });
+  warnings.forEach((warning) => {
+    registerNotification({
+      message: warning.text,
+      severity: warning.level === 'danger' ? 'error' : 'warning',
+      title: '运行环境提醒',
+      sourceType: 'runtime_warning',
+      sourceId: warning.id,
+      dedupeKey: `runtime-warning:${warning.id}:${warning.text}`,
+    });
   });
   renderRuntimeWarnings(container, warnings, { onAction: opts.onAction });
 }

@@ -98,6 +98,10 @@ These endpoints require the same API token as other sensitive config routes and 
 任务中心从 `GET /api/tasks` 加载跨项目任务（包含后台维护任务），并通过
 `GET /api/tasks/stream?after=<seq>` 持续接收全局事件。列表支持按状态、类型和项目筛选；详情显示阶段进度、错误和事件时间线。对可取消任务可直接发起取消，对失败或中断任务可创建重试任务。任务记录由服务端 SQLite 持久化，页面或项目切换不会丢失历史；运行面板仍保留轻量实时进度，并提供“在任务中心查看”入口。
 
+### 通知中心
+
+顶部铃铛打开全局通知收件箱。任务完成、失败、中断、取消，以及任务中的警告/错误事件会由后端直接写入 Task Center SQLite；现有状态栏消息、toast 和运行环境 warning 也通过 `POST /api/notifications` 注册。收件箱通过 `GET /api/notifications/stream?after=<seq>` 实时更新，支持全部/未读/警告错误筛选、单条已读、全部已读和跳转到关联任务。通知独立于当前项目和页面，关闭提示或切换项目不会丢失。
+
 视频列表上方是**搜索 + 状态筛选**：
 
 - 搜索框按 `index / 文件名(去序号前缀) / 标题` 不区分大小写子串过滤。

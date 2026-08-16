@@ -32,6 +32,7 @@ import {
 import { resolveSessionRestore } from './session-restore.js';
 import { shouldConfirmDirtyTabSwitch } from './editor-save.js';
 import { stripQueryParams } from './url-params.js';
+import { initNotificationCenter } from './notification-center.js';
 
 // Expose functions referenced by inline onclick handlers in HTML
 window.switchToOriginalThenCompress = switchToOriginalThenCompress;
@@ -174,6 +175,7 @@ async function init() {
   initLayout();
   initTheme();
   initDesktopPickers(document);
+  initNotificationCenter();
 
   // 从 URL 读取 project + project_dir 参数
   const urlParams = new URLSearchParams(window.location.search);

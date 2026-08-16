@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 
-TASK_STORE_SCHEMA_VERSION = 2
+TASK_STORE_SCHEMA_VERSION = 3
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS task_meta (
@@ -55,6 +55,28 @@ CREATE INDEX IF NOT EXISTS idx_tasks_project_updated ON tasks(project_id, update
 CREATE INDEX IF NOT EXISTS idx_tasks_status_updated ON tasks(status, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_tasks_kind_updated ON tasks(kind, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_task_events_task_seq ON task_events(task_id, seq);
+
+CREATE TABLE IF NOT EXISTS notifications (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT NOT NULL UNIQUE,
+    severity TEXT NOT NULL,
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    read_at TEXT,
+    source_type TEXT NOT NULL DEFAULT '',
+    source_id TEXT,
+    task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+    project_id TEXT,
+    project_name TEXT,
+    link TEXT,
+    dedupe_key TEXT UNIQUE,
+    data_json TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at DESC, seq DESC);
+CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(read_at, created_at DESC, seq DESC);
+CREATE INDEX IF NOT EXISTS idx_notifications_project ON notifications(project_id, created_at DESC, seq DESC);
 """
 
 
@@ -73,7 +95,7 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
                 stored_version = int(version_row[0])
             except (TypeError, ValueError) as e:
                 raise TaskStoreSchemaError(f"invalid task store schema version: {version_row[0]!r}") from e
-            if stored_version not in (1, TASK_STORE_SCHEMA_VERSION):
+            if stored_version not in (1, 2, TASK_STORE_SCHEMA_VERSION):
                 raise TaskStoreSchemaError(
                     f"unsupported task store schema version: {stored_version} (expected {TASK_STORE_SCHEMA_VERSION})"
                 )
@@ -96,7 +118,7 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
         "INSERT OR IGNORE INTO task_meta(key, value) VALUES ('schema_version', ?)",
         (str(TASK_STORE_SCHEMA_VERSION),),
     )
-    if stored_version == 1:
+    if stored_version in (1, 2):
         connection.execute(
             "UPDATE task_meta SET value = ? WHERE key = 'schema_version'",
             (str(TASK_STORE_SCHEMA_VERSION),),

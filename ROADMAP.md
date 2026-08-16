@@ -77,17 +77,20 @@ Review: `docs/analysis/2026-08-16-full-project-code-review.md`
 
 ### R-042 Notification center
 
-**Status:** Planned; depends on the R-041 task event contract.
+**Status:** Implemented (2026-08-17); desktop OS delivery remains optional follow-up.
 
 **Goal:** Add a persistent notification inbox for task completion, failure, interruption,
 and other conditions that need user attention. Notifications must survive page/project
 switches and link directly to the relevant task, project, video, plan, or settings page.
 
-- [ ] Define notification schema, severity, source deduplication, unread/read state, and retention
-- [ ] Consume R-041 terminal/attention events without duplicating task lifecycle state
-- [ ] Add global inbox, unread badge, filters, mark-read/mark-all-read, and deep links
+- [x] Define notification schema, severity, source deduplication, unread/read state, and retention
+- [x] Consume R-041 terminal/attention events without duplicating task lifecycle state
+- [x] Register UI status, toast, and runtime warning notifications in the same persistent inbox
+- [x] Add global inbox, unread badge, filters, mark-read/mark-all-read, and task deep links
 - [ ] Add opt-in desktop OS notifications when the app is backgrounded
-- [ ] Keep email, remote push, and webhook delivery out of the first release
+- [x] Keep email, remote push, and webhook delivery out of the first release
+
+Design: `docs/superpowers/specs/2026-08-17-r042-notification-center-design.md`
 
 ### R-041 Unified task management center
 
