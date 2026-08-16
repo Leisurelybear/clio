@@ -447,6 +447,10 @@ def test_cleanup_runs_after_task_completion_when_interval_elapsed(tmp_path):
     task = manager.submit(TaskKind.PIPELINE, "处理素材")
     manager.wait(task.id)
 
+    deadline = time.monotonic() + 2
+    while task.id in manager.runtime_task_ids() and time.monotonic() < deadline:
+        time.sleep(0.01)
+
     manager.store.cleanup.assert_called()
 
 
