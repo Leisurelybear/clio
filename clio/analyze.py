@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -10,6 +11,7 @@ from typing import Any
 from clio.ai.base import AIResponse, TaskName
 from clio.ai.factory import get_task_provider, get_video_provider
 from clio.config import AppConfig
+from clio.cut import parse_time_range
 from clio.log import format_size, timed
 from clio.prompt_overrides import format_prompt_template, resolve_prompt_template
 from clio.prompts import (
@@ -25,6 +27,25 @@ from clio.prompts import (
 from clio.utils import extract_json
 
 _trip_context_cache: dict[str, str] = {}
+_REFINEMENT_IMMUTABLE_FIELDS = {
+    "_lineage",
+    "_schema_version",
+    "compressed_file",
+    "id",
+    "index",
+    "media_identity",
+    "source_file",
+}
+
+
+def _refinement_value_compatible(original: Any, candidate: Any) -> bool:
+    if original is None:
+        return True
+    if isinstance(original, bool):
+        return isinstance(candidate, bool)
+    if isinstance(original, (int, float)):
+        return isinstance(candidate, (int, float)) and not isinstance(candidate, bool)
+    return isinstance(candidate, type(original))
 
 
 def _read_trip_context(project_dir: str) -> str:
@@ -65,6 +86,19 @@ def _read_trip_context(project_dir: str) -> str:
     return ""
 
 
+def _prompt_context_parts(config: AppConfig, context_override: str | None = None) -> list[str]:
+    """Return the exact context fragments prepended to task prompts."""
+    parts: list[str] = []
+    text = _read_trip_context(str(config.project_dir) if config.project_dir else "")
+    if text:
+        parts.append(text)
+    if config.ai.context:
+        parts.append(config.ai.context)
+    if context_override:
+        parts.append(context_override)
+    return parts
+
+
 def _coerce_str(value: Any, default: str) -> tuple[str, bool]:
     if isinstance(value, str):
         return value, True
@@ -75,12 +109,15 @@ def _coerce_number(value: Any, default: float) -> tuple[float, bool]:
     if isinstance(value, bool):
         return default, False
     try:
-        return float(value), True
+        number = float(value)
+        if not math.isfinite(number):
+            return default, False
+        return number, True
     except (TypeError, ValueError):
         return default, False
 
 
-def _coerce_list(value: Any, default: float) -> tuple[list, bool]:
+def _coerce_list(value: Any) -> tuple[list[Any], bool]:
     if isinstance(value, list):
         return value, True
     return [], False
@@ -88,7 +125,7 @@ def _coerce_list(value: Any, default: float) -> tuple[list, bool]:
 
 def _validate_analysis(data: dict, source: str) -> dict:
     """校验 AI 分析结果，缺失字段补默认值并对错误类型告警归一。"""
-    data = copy.deepcopy(data)
+    data = copy.deepcopy(data) if isinstance(data, dict) else {}
     required = {"title", "summary", "timeline"}
     missing = required - data.keys()
     if missing:
@@ -115,21 +152,25 @@ def _validate_analysis(data: dict, source: str) -> dict:
         if not ok:
             print(f"  [警告] {source}: 字段 {key} 类型非法（{type(data[key]).__name__}），重置为默认值")
         data[key] = value
-    for key, default in (("timeline", []), ("highlights", [])):
-        value, ok = _coerce_list(data[key], default)
+    for key in ("timeline", "highlights"):
+        value, ok = _coerce_list(data[key])
         if not ok:
             print(f"  [警告] {source}: 字段 {key} 类型非法（{type(data[key]).__name__}），重置为空列表")
         data[key] = value
+    # Downstream prompt construction expects mapping-shaped timeline entries.
+    # Keep valid entries and discard malformed model output before it can crash.
+    data["timeline"] = [item for item in data["timeline"] if isinstance(item, dict)]
+    data["highlights"] = [item for item in data["highlights"] if isinstance(item, (dict, str))]
     value, ok = _coerce_number(data["_confidence"], 0.0)
     if not ok:
         print(f"  [警告] {source}: 字段 _confidence 类型非法，重置为 0.0")
-    data["_confidence"] = value
+    data["_confidence"] = min(1.0, max(0.0, value))
     return data
 
 
 def _validate_voiceover(data: dict, source: str) -> dict:
     """校验 AI 口播文案结果。"""
-    data = copy.deepcopy(data)
+    data = copy.deepcopy(data) if isinstance(data, dict) else {}
     required = {"voiceover", "title"}
     missing = required - data.keys()
     if missing:
@@ -148,17 +189,17 @@ def _validate_voiceover(data: dict, source: str) -> dict:
     value, ok = _coerce_number(data["duration_hint_sec"], 20)
     if not ok:
         print(f"  [警告] {source}: 字段 duration_hint_sec 类型非法，重置为 20")
-    data["duration_hint_sec"] = value
+    data["duration_hint_sec"] = max(0.0, value)
     value, ok = _coerce_number(data["_confidence"], 0.0)
     if not ok:
         print(f"  [警告] {source}: 字段 _confidence 类型非法，重置为 0.0")
-    data["_confidence"] = value
+    data["_confidence"] = min(1.0, max(0.0, value))
     return data
 
 
 def _validate_plan(data: dict, source: str) -> dict:
     """校验 AI vlog 规划结果。"""
-    data = copy.deepcopy(data)
+    data = copy.deepcopy(data) if isinstance(data, dict) else {}
     required = {"day_title", "sequence"}
     missing = required - data.keys()
     if missing:
@@ -176,19 +217,54 @@ def _validate_plan(data: dict, source: str) -> dict:
         if not ok:
             print(f"  [警告] {source}: 字段 {key} 类型非法，重置为默认值")
         data[key] = value
-    sequence, ok = _coerce_list(data["sequence"], [])
+    sequence, ok = _coerce_list(data["sequence"])
     if not ok:
         print(f"  [警告] {source}: 字段 sequence 类型非法，重置为空列表")
     data["sequence"] = [s for s in sequence if isinstance(s, dict)]
     value, ok = _coerce_number(data["total_estimated_sec"], 180)
     if not ok:
         print(f"  [警告] {source}: 字段 total_estimated_sec 类型非法，重置为 180")
-    data["total_estimated_sec"] = value
+    data["total_estimated_sec"] = max(0.0, value)
     value, ok = _coerce_number(data["_confidence"], 0.0)
     if not ok:
         print(f"  [警告] {source}: 字段 _confidence 类型非法，重置为 0.0")
-    data["_confidence"] = value
+    data["_confidence"] = min(1.0, max(0.0, value))
     return data
+
+
+def _merge_refinement_result(original: dict, candidate: Any, *, required_field: str | None = None) -> dict:
+    """Apply a conservative refinement without allowing field loss or drift.
+
+    Refinement prompts ask the model to return the complete JSON object, but a
+    model may omit unchanged fields or add explanatory keys.  The original
+    object remains authoritative: only existing fields and the reserved
+    ``_changelog`` field can be copied from the candidate.
+    """
+    if not isinstance(original, dict) or not isinstance(candidate, dict):
+        return copy.deepcopy(original)
+    if required_field and required_field in original and required_field not in candidate:
+        return copy.deepcopy(original)
+
+    merged = copy.deepcopy(original)
+    unknown: list[str] = []
+    for key, value in candidate.items():
+        if key in _REFINEMENT_IMMUTABLE_FIELDS:
+            continue
+        if key == "_changelog":
+            if isinstance(value, list):
+                merged[key] = [str(item) for item in value if isinstance(item, (str, int, float))]
+            else:
+                merged[key] = []
+        elif key in original:
+            if _refinement_value_compatible(original[key], value):
+                merged[key] = copy.deepcopy(value)
+            else:
+                print(f"  [警告] refine: 忽略类型不兼容字段 {key}")
+        else:
+            unknown.append(str(key))
+    if unknown:
+        print(f"  [警告] refine: 忽略未声明字段 {', '.join(sorted(unknown))}")
+    return merged
 
 
 def _wrap_with_context(prompt: str, config: AppConfig, context_override: str | None = None) -> str:
@@ -199,17 +275,7 @@ def _wrap_with_context(prompt: str, config: AppConfig, context_override: str | N
     2. config.ai.context（用户在设置页填写的项目特定内容）
     3. context_override（临时覆写，如 refine 时的额外说明）
     """
-    parts = []
-    # 1. 默认模板
-    text = _read_trip_context(str(config.project_dir) if config.project_dir else "")
-    if text:
-        parts.append(text)
-    # 2. 用户配置的 context
-    if config.ai.context:
-        parts.append(config.ai.context)
-    # 3. 临时覆写
-    if context_override:
-        parts.append(context_override)
+    parts = _prompt_context_parts(config, context_override)
     if not parts:
         return prompt
     return f"## 背景与规范（请严格遵守）\n\n{chr(10).join(parts)}\n\n---\n\n{prompt}"
@@ -252,14 +318,164 @@ def _call_ai(
     return resp.text
 
 
-def _parse_timestamp_sec(ts: str) -> float:
-    """将 "MM:SS" 或 "HH:MM:SS" 转为秒数。"""
-    parts = ts.strip().split(":")
-    if len(parts) == 2:
-        return int(parts[0]) * 60 + float(parts[1])
-    elif len(parts) == 3:
-        return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
-    return 0.0
+def _timeline_intervals(clip: dict) -> list[tuple[float, float]]:
+    def parse_strict(value: Any) -> float:
+        if isinstance(value, bool) or value is None:
+            raise ValueError("invalid timestamp")
+        if isinstance(value, (int, float)):
+            result = float(value)
+            if math.isfinite(result):
+                return result
+            raise ValueError("invalid timestamp")
+        text = str(value).strip()
+        parts = text.split(":")
+        if len(parts) == 2:
+            result = int(parts[0]) * 60 + float(parts[1])
+        elif len(parts) == 3:
+            result = int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+        else:
+            raise ValueError("invalid timestamp")
+        if not math.isfinite(result):
+            raise ValueError("invalid timestamp")
+        return result
+
+    intervals: list[tuple[float, float]] = []
+    timeline = clip.get("timeline", [])
+    if not isinstance(timeline, list):
+        return intervals
+    for item in timeline:
+        if not isinstance(item, dict):
+            continue
+        try:
+            start = parse_strict(item.get("start"))
+            end = parse_strict(item.get("end"))
+        except (TypeError, ValueError):
+            continue
+        if start >= 0 and end > start:
+            intervals.append((start, end))
+    merged: list[tuple[float, float]] = []
+    for start, end in sorted(intervals):
+        if merged and start <= merged[-1][1] + 0.05:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _range_is_in_timeline(start: float, end: float, intervals: list[tuple[float, float]]) -> bool:
+    """Return whether a planned range is covered by one or more timeline ranges."""
+    cursor = start
+    for left, right in intervals:
+        if right <= cursor:
+            continue
+        if left > cursor + 0.05:
+            return False
+        cursor = max(cursor, right)
+        if cursor >= end - 0.05:
+            return True
+    return False
+
+
+def _select_transcript_segments(
+    transcript: dict,
+    intervals: list[tuple[float, float]],
+    *,
+    offset_sec: float,
+    limit: int,
+) -> list[dict]:
+    """Select mostly-overlapping, high-confidence ASR segments in time order."""
+    candidates: list[dict] = []
+    if not isinstance(transcript, dict):
+        return candidates
+    seen: set[tuple[float, float, str]] = set()
+    shifted = [(start + offset_sec, end + offset_sec) for start, end in intervals]
+    segments = transcript.get("segments", [])
+    if not isinstance(segments, list):
+        return candidates
+    for segment in segments:
+        if not isinstance(segment, dict):
+            continue
+        try:
+            start = float(segment.get("start"))
+            end = float(segment.get("end"))
+        except (TypeError, ValueError):
+            continue
+        duration = end - start
+        if duration <= 0:
+            continue
+        overlap = max((max(0.0, min(end, right) - max(start, left)) for left, right in shifted), default=0.0)
+        if overlap / duration < 0.5:
+            continue
+        key = (start, end, str(segment.get("text") or ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append(segment)
+
+    def confidence_key(segment: dict) -> tuple[bool, float]:
+        try:
+            confidence = float(segment.get("avg_logprob", float("-inf")))
+        except (TypeError, ValueError):
+            confidence = float("-inf")
+        return (not bool(segment.get("low_confidence")), confidence)
+
+    if limit > 0:
+        candidates = sorted(candidates, key=confidence_key, reverse=True)[:limit]
+    return sorted(candidates, key=lambda segment: float(segment.get("start", 0.0)))
+
+
+def _validate_plan_ranges(result: dict, clips: list[dict], max_clips: int, target_duration_sec: float) -> dict:
+    """Filter impossible plan segments and normalize the reported duration."""
+    by_index: dict[int | str, list[tuple[float, float]]] = {}
+    for clip in clips:
+        raw = clip.get("index")
+        try:
+            key: int | str = int(str(raw).strip())
+        except (TypeError, ValueError):
+            key = str(raw).strip()
+        by_index[key] = _timeline_intervals(clip)
+
+    valid: list[dict] = []
+    dropped = 0
+    for segment in result.get("sequence", []):
+        if not isinstance(segment, dict):
+            continue
+        raw_idx = segment.get("index")
+        try:
+            idx: int | str = int(str(raw_idx).strip())
+        except (TypeError, ValueError):
+            idx = str(raw_idx).strip()
+        timeline = str(segment.get("use_timeline") or "").strip()
+        intervals = by_index.get(idx, [])
+        if timeline and intervals:
+            try:
+                start, end = parse_time_range(timeline)
+            except (TypeError, ValueError):
+                start = end = 0.0
+            if end <= start or not _range_is_in_timeline(start, end, intervals):
+                dropped += 1
+                continue
+        valid.append(segment)
+
+    if dropped:
+        print(f"  [规划] 已过滤 {dropped} 个超出素材 timeline 的 segment")
+    if max_clips > 0 and len(valid) > max_clips:
+        print(f"  [规划] sequence 超过 max_clips={max_clips}，已保留前 {max_clips} 段")
+        valid = valid[:max_clips]
+
+    total = 0.0
+    for segment in valid:
+        try:
+            start, end = parse_time_range(str(segment.get("use_timeline") or ""))
+        except (TypeError, ValueError):
+            continue
+        total += max(0.0, end - start)
+    if total > 0:
+        if target_duration_sec > 0 and abs(total - target_duration_sec) > max(10.0, target_duration_sec * 0.25):
+            print(f"  [规划] 实际片段总时长 {total:.1f}s 与目标 {target_duration_sec:.1f}s 偏差较大，已按实际值记录")
+        result["total_estimated_sec"] = round(total, 2)
+    result["sequence"] = valid
+    return result
 
 
 def analyze_video(
@@ -312,9 +528,22 @@ def generate_voiceover(
 
     provider, model = get_task_provider(config, TaskName.VOICEOVER)
 
-    timeline_text = "\n".join(
+    timeline = clip_data.get("timeline", [])
+    if not isinstance(timeline, list):
+        timeline = []
+    timeline_lines = "\n".join(
         f"- {t.get('start', '?')}-{t.get('end', '?')}: {t.get('description', '')}"
-        for t in clip_data.get("timeline", [])
+        for t in timeline
+        if isinstance(t, dict)
+    )
+    intervals = _timeline_intervals(clip_data)
+    timeline_duration = sum(end - start for start, end in intervals)
+    duration_note = (
+        f"当前素材 timeline 覆盖时长约 {timeline_duration:.1f} 秒；按每秒约 2.5-3.5 个汉字，建议口播约 "
+        f"{max(1, round(timeline_duration * 2.5))}-{max(1, round(timeline_duration * 3.5))} 字。"
+        "只按给出的素材范围估算，不要假设未提供的剪辑区间。\n"
+        if timeline_duration > 0
+        else "当前素材没有可解析的 timeline 时长，请勿虚构精确时长。\n"
     )
     template_text = resolve_prompt_template("voiceover", SCRIPT_PROMPT, config, task_prompts=task_prompts)
     base = format_prompt_template(
@@ -324,7 +553,7 @@ def generate_voiceover(
         title=clip_data.get("title", ""),
         summary=clip_data.get("summary", ""),
         location=clip_data.get("location", ""),
-        timeline_text=timeline_text or "（无）",
+        timeline_text=duration_note + (timeline_lines or "（无）"),
         template=template,
         target_words=config.script.target_words,
     )
@@ -354,17 +583,18 @@ def plan_daily_vlog(
 ) -> dict:
     provider, model = get_task_provider(config, TaskName.VLOG_PLAN)
 
-    # 取第一个 clip 的 index 作为 prompt 示例，确保格式一致
-    first_idx = clips[0].get("index", "001") if clips else "001"
-
     plan_template = resolve_prompt_template("vlog_plan", PLAN_PROMPT, config, task_prompts=task_prompts)
+    # Keep the legacy override placeholder meaningful for custom templates,
+    # while the built-in example uses a neutral marker instead of a real index.
+    first_idx = clips[0].get("index", "001") if clips else "001"
+    example_index = first_idx if plan_template != PLAN_PROMPT else "<必须从上面的素材列表原样选择>"
     base = format_prompt_template(
         "vlog_plan",
         plan_template,
         clips_json=json.dumps(clips, ensure_ascii=False, indent=None),
         max_clips=config.plan.max_clips_per_day,
         target_duration_sec=config.plan.target_duration_sec,
-        example_index=first_idx,
+        example_index=example_index,
     )
     if transcripts_map and use_transcripts and config.whisper.enabled:
         transcript_info = []
@@ -373,17 +603,14 @@ def plan_daily_vlog(
             trans = transcripts_map.get(clip_stem.lower()) if clip_stem else None
             if trans is None:
                 continue
-            offset = clip.get("segment_offset_sec", 0.0) or 0.0
-            matched = []
-            for tl in clip.get("timeline", []):
-                tl_start = _parse_timestamp_sec(tl.get("start", "00:00")) + offset
-                tl_end = _parse_timestamp_sec(tl.get("end", "00:00")) + offset
-                for seg in trans.get("segments", []):
-                    if seg["start"] >= tl_start and seg["end"] <= tl_end:
-                        matched.append(seg)
+            offset = float(clip.get("segment_offset_sec", 0.0) or 0.0)
+            matched = _select_transcript_segments(
+                trans,
+                _timeline_intervals(clip),
+                offset_sec=offset,
+                limit=config.whisper.max_segments_per_clip,
+            )
             if matched:
-                matched.sort(key=lambda s: -s.get("avg_logprob", 0))
-                matched = matched[: config.whisper.max_segments_per_clip]
                 transcript_info.append(
                     {
                         "clip_index": clip.get("index"),
@@ -435,6 +662,13 @@ def plan_daily_vlog(
             dropped = original_count - len(result["sequence"])
             print(f"[规划] 已过滤 {dropped} 个引用无效 index 的 segment")
 
+    result = _validate_plan_ranges(
+        result,
+        clips,
+        max_clips=int(getattr(config.plan, "max_clips_per_day", 0) or 0),
+        target_duration_sec=float(getattr(config.plan, "target_duration_sec", 0) or 0),
+    )
+
     return result
 
 
@@ -483,10 +717,10 @@ def refine_text(
         task_name=TaskName.REFINE_TEXT,
     )
     result = extract_json(text)
-    if not isinstance(result, dict) or "index" not in result:
+    if not isinstance(result, dict):
         print("  [警告] refine_text: AI 返回结构异常，使用原始数据")
         return analysis
-    return result
+    return _merge_refinement_result(analysis, result)
 
 
 def refine_script(
@@ -542,7 +776,7 @@ def refine_script(
         task_name=TaskName.REFINE_TEXT,
     )
     result = extract_json(text)
-    if not isinstance(result, dict) or "voiceover" not in result:
+    if not isinstance(result, dict):
         print("  [警告] refine_script: AI 返回结构异常，使用原始数据")
         return script
-    return result
+    return _merge_refinement_result(script, result, required_field="voiceover")

@@ -12,7 +12,7 @@ from typing import Any
 
 from clio._constants import VIDEO_EXTS
 from clio.ai.token_usage import FileTokenUsageStore
-from clio.analyze import analyze_video
+from clio.analyze import _prompt_context_parts, analyze_video
 from clio.analyze_windows import (
     build_analyze_windows,
     cleanup_analyze_windows_dir,
@@ -51,7 +51,11 @@ from clio.utils import get_duration_sec, resolve_binary, write_json_atomic
 from clio.vmeta import VideoIndex
 
 
-def _analysis_lineage_fingerprint(config: AppConfig, task_prompts: dict[str, str] | None = None) -> str:
+def _analysis_lineage_fingerprint(
+    config: AppConfig,
+    task_prompts: dict[str, str] | None = None,
+    context_override: str | None = None,
+) -> str:
     """Fingerprint of everything that can change a cached analysis result.
 
     Changing the analyze prompt (builtin, override file, or runtime task prompt)
@@ -75,10 +79,27 @@ def _analysis_lineage_fingerprint(config: AppConfig, task_prompts: dict[str, str
             "prompt": prompt,
             "max_analyze_duration_min": getattr(config.analyze, "max_analyze_duration_min", 0),
             "max_tokens": getattr(config.ai, "max_tokens", None),
+            "context": _prompt_context_parts(config, context_override),
         },
         sort_keys=True,
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _effective_analysis_context(config: AppConfig, original: Path, context_override: str | None) -> str | None:
+    try:
+        from clio.gpmf import merge_telemetry_into_context
+
+        return merge_telemetry_into_context(
+            context_override,
+            original,
+            use_gpmf=bool(getattr(config.analyze, "use_gpmf", False)),
+        )
+    except Exception as exc:
+        # Context enrichment is optional; a malformed sidecar must not prevent
+        # the base video analysis or cache check from running.
+        print(f"  [警告] GPMF context 注入失败，继续使用基础 context: {exc}")
+        return context_override
 
 
 def _build_stem_to_path(project_dir: Path | None = None) -> dict[str, Path]:
@@ -221,6 +242,8 @@ def _process_video_item(
         except Exception:
             pass
 
+    effective_context = _effective_analysis_context(config, original, context_override)
+
     existing = sorted(config.texts_dir.glob(f"{idx_str}_*.json"))
     json_path = None
     analysis = None
@@ -232,7 +255,9 @@ def _process_video_item(
         try:
             existing_data = json.loads(candidate.read_text(encoding="utf-8"))
             if existing_data.get("source_file", "") == original.name:
-                lineage_ok = existing_data.get("_lineage") == _analysis_lineage_fingerprint(config, task_prompts)
+                lineage_ok = existing_data.get("_lineage") == _analysis_lineage_fingerprint(
+                    config, task_prompts, effective_context
+                )
                 if lineage_ok:
                     json_path = candidate
                     analysis = existing_data
@@ -241,7 +266,7 @@ def _process_video_item(
                     # future prompt/model changes invalidate it.
                     json_path = candidate
                     analysis = existing_data
-                    analysis["_lineage"] = _analysis_lineage_fingerprint(config, task_prompts)
+                    analysis["_lineage"] = _analysis_lineage_fingerprint(config, task_prompts, effective_context)
                     write_json_atomic(candidate, analysis)
                     if tracker:
                         tracker.log(f"✓ {candidate.name} 血缘未记录，已标记当前版本")
@@ -303,13 +328,6 @@ def _process_video_item(
     print(f"  [{compressed.name}] 分析中...")
     t0 = time.monotonic()
     try:
-        from clio.gpmf import merge_telemetry_into_context
-
-        effective_context = merge_telemetry_into_context(
-            context_override,
-            original,
-            use_gpmf=bool(getattr(config.analyze, "use_gpmf", False)),
-        )
         analysis = _analyze_with_optional_windows(
             compressed=compressed,
             duration_sec=duration_sec,
@@ -343,7 +361,7 @@ def _process_video_item(
     analysis["compressed_file"] = compressed.name  # stable lookup key for videos.py
     identity = resolve_identity(compressed, idx_str, project_dir=config.project_dir)
     add_schema_version(analysis)
-    analysis["_lineage"] = _analysis_lineage_fingerprint(config, task_prompts)
+    analysis["_lineage"] = _analysis_lineage_fingerprint(config, task_prompts, effective_context)
     analysis["media_identity"] = _identity_to_dict(identity)
     attach_transcript_to_analysis(config, analysis)
 

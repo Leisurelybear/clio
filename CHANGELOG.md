@@ -16,6 +16,19 @@ locally with 1846 pytest cases (12 skipped) and 470 Vitest cases.
 - docs: align support matrix, package/repository links, configuration examples,
   and Task Center retention settings
 
+Completed prompt quality hardening (R-044), preserving the useful evidence and
+anti-hallucination rules while enforcing their runtime contracts.
+
+- fix(ai): preserve refinement fields and immutable metadata, normalize AI
+  result types/confidence, and allow only the reserved `_changelog` addition
+- fix(plan): reject timeline ranges outside source analyses, enforce clip limits,
+  recompute actual duration, and improve transcript overlap selection
+- fix(cache): include prompt context, complete analysis inputs, transcripts, and
+  voiceover templates in task lineage fingerprints
+- feat(prompt): use adaptive event/shot timeline density, cap window output,
+  remove real-index example anchoring, and align shared context rules
+- test: full backend suite passes (`1861 passed, 12 skipped`); Ruff and mypy pass
+
 ## 2026-08-14
 
 Complete the P2-P30 partial: quality gates for the entire codebase surface.

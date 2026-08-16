@@ -66,6 +66,22 @@ def _common_mocks(monkeypatch):
     monkeypatch.setattr("clio.tasks.analyze._write_text_file", lambda *a: None)
 
 
+def test_effective_context_falls_back_when_gpmf_enrichment_fails(monkeypatch, tmp_path: Path, capsys):
+    from clio.tasks.analyze import _effective_analysis_context
+
+    cfg = _cfg(tmp_path)
+    original = tmp_path / "video.mp4"
+    original.write_bytes(b"video")
+
+    def fail(*args, **kwargs):
+        raise ValueError("broken sidecar")
+
+    monkeypatch.setattr("clio.gpmf.merge_telemetry_into_context", fail)
+
+    assert _effective_analysis_context(cfg, original, "base context") == "base context"
+    assert "继续使用基础 context" in capsys.readouterr().out
+
+
 class TestRunAnalyzeAll:
     def test_analyze_single_file(self, monkeypatch, tmp_path: Path):
         cfg = _cfg(tmp_path)

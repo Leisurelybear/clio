@@ -76,6 +76,15 @@ def _write_existing_plan(cfg: AppConfig, day_label: str = "day1") -> None:
     (cfg.plans_dir / f"{day_label}_plan.md").write_text("# full", encoding="utf-8")
 
 
+def test_plan_lineage_changes_with_analysis_timeline(cfg: AppConfig):
+    from clio.tasks.plan import _plan_lineage_fingerprint
+
+    first = [{"index": "001", "source_stem": "A", "title": "A", "timeline": [{"start": "00:00", "end": "00:05"}]}]
+    second = [{"index": "001", "source_stem": "A", "title": "A", "timeline": [{"start": "00:00", "end": "00:10"}]}]
+
+    assert _plan_lineage_fingerprint(cfg, first) != _plan_lineage_fingerprint(cfg, second)
+
+
 class TestRunPlanVlogFilesFilter:
     def test_files_selection_bypasses_skip_existing(self, cfg: AppConfig):
         """When files= is set, do not return the full prior plan via skip-existing (I1)."""

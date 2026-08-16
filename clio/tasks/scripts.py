@@ -23,7 +23,11 @@ from clio.utils import write_json_atomic, write_text_atomic
 
 
 def _voiceover_lineage_fingerprint(
-    config: AppConfig, data: dict, template: str, task_prompts: dict[str, str] | None = None
+    config: AppConfig,
+    data: dict,
+    template: str,
+    task_prompts: dict[str, str] | None = None,
+    context_override: str | None = None,
 ) -> str:
     """Fingerprint of everything that can change a cached voiceover script.
 
@@ -37,6 +41,7 @@ def _voiceover_lineage_fingerprint(
         model = getattr(task, "model", "") if task else ""
     except Exception:
         provider, model = "", ""
+    from clio.analyze import _prompt_context_parts
     from clio.prompt_overrides import resolve_prompt_template
 
     try:
@@ -48,6 +53,8 @@ def _voiceover_lineage_fingerprint(
             "provider": provider,
             "model": model,
             "prompt": prompt,
+            "template": template,
+            "context": _prompt_context_parts(config, context_override),
             "max_tokens": getattr(config.ai, "max_tokens", None),
             "analysis": data,
         },
@@ -80,7 +87,7 @@ def _process_one_script(
     if not overwrite and config.analyze.skip_existing and out.exists():
         try:
             existing = json.loads(out.read_text(encoding="utf-8"))
-            current = _voiceover_lineage_fingerprint(config, data, template, task_prompts)
+            current = _voiceover_lineage_fingerprint(config, data, template, task_prompts, context_override)
         except (json.JSONDecodeError, OSError):
             existing, current = None, None
         else:
@@ -116,7 +123,7 @@ def _process_one_script(
     if cancel_event and cancel_event.is_set():
         return "cancelled"
     add_schema_version(script)
-    script["_lineage"] = _voiceover_lineage_fingerprint(config, data, template, task_prompts)
+    script["_lineage"] = _voiceover_lineage_fingerprint(config, data, template, task_prompts, context_override)
     write_json_atomic(out, script)
     state.mark(orig_stem, "voiceover", "done")
     if tracker:

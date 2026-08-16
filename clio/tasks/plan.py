@@ -40,13 +40,20 @@ def _source_inputs_from_clips(clips: list[dict]) -> list[dict[str, str]]:
     ]
 
 
-def _plan_lineage_fingerprint(config: AppConfig, clips: list[dict], task_prompts: dict[str, str] | None = None) -> str:
+def _plan_lineage_fingerprint(
+    config: AppConfig,
+    clips: list[dict],
+    task_prompts: dict[str, str] | None = None,
+    context_override: str | None = None,
+) -> str:
     """Fingerprint everything that can change a cached plan result.
 
     Changing the vlog_plan prompt, its provider/model, the clip inputs, or the
     transcripts toggle invalidates the skip_existing cache so users never
     silently keep a plan generated under an older lineage.
     """
+    from clio.analyze import _prompt_context_parts
+
     try:
         task = config.ai.tasks.get("vlog_plan")
         provider = getattr(task, "provider", "") if task else ""
@@ -57,6 +64,21 @@ def _plan_lineage_fingerprint(config: AppConfig, clips: list[dict], task_prompts
         prompt = resolve_prompt_template("vlog_plan", PLAN_PROMPT, config, task_prompts=task_prompts)
     except Exception:
         prompt = PLAN_PROMPT
+    transcript_lineage: list[dict[str, Any]] = []
+    transcripts_dir = getattr(config, "transcripts_dir", None)
+    if (
+        getattr(config.plan, "use_transcripts", False)
+        and getattr(config.whisper, "enabled", False)
+        and isinstance(transcripts_dir, Path)
+        and transcripts_dir.is_dir()
+    ):
+        for transcript in sorted(transcripts_dir.glob("*_transcript.json")):
+            try:
+                digest = hashlib.sha256(transcript.read_bytes()).hexdigest()
+                transcript_lineage.append({"name": transcript.name, "sha256": digest})
+            except OSError:
+                continue
+
     payload = json.dumps(
         {
             "provider": provider,
@@ -64,14 +86,26 @@ def _plan_lineage_fingerprint(config: AppConfig, clips: list[dict], task_prompts
             "prompt": prompt,
             "use_transcripts": getattr(config.plan, "use_transcripts", False),
             "max_tokens": getattr(config.ai, "max_tokens", None),
+            # Planning depends on the complete analysis, not only its title.
+            # Include the content-bearing fields so an improved analysis
+            # invalidates a cached plan.
             "clips": [
                 {
                     "index": c.get("index", ""),
                     "source_stem": c.get("source_stem", ""),
+                    "match_stem": c.get("match_stem", ""),
+                    "segment_offset_sec": c.get("segment_offset_sec", 0.0),
                     "title": c.get("title", ""),
+                    "summary": c.get("summary", ""),
+                    "location": c.get("location", ""),
+                    "timeline": c.get("timeline", []),
+                    "highlights": c.get("highlights", []),
+                    "suggested_use": c.get("suggested_use", ""),
                 }
                 for c in clips
             ],
+            "transcripts": transcript_lineage,
+            "context": _prompt_context_parts(config, context_override),
         },
         sort_keys=True,
     )
@@ -165,7 +199,7 @@ def run_plan_vlog(
             print(f"  [重新规划] {day_label} (已有规划文件损坏)")
         else:
             stored = existing.get("_lineage")
-            current = _plan_lineage_fingerprint(config, clips, task_prompts)
+            current = _plan_lineage_fingerprint(config, clips, task_prompts, context_override)
             if stored == current:
                 print(f"[跳过] {day_label} 计划 (已存在)")
                 return existing
@@ -223,7 +257,7 @@ def run_plan_vlog(
     if config.plan.use_transcripts:
         plan["_transcripts_missing"] = not transcripts_map
     plan = add_schema_version(plan)
-    plan["_lineage"] = _plan_lineage_fingerprint(config, clips, task_prompts)
+    plan["_lineage"] = _plan_lineage_fingerprint(config, clips, task_prompts, context_override)
     write_json_atomic(out_json, plan)
     if tracker:
         tracker.log(f"规划 {day_label} ✓")

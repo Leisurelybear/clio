@@ -88,6 +88,7 @@ def test_render_prompt_template_rejects_unknown_placeholder():
 
 def test_analyze_prompt_requires_high_detail_timeline():
     assert "镜头运动" in ANALYZE_PROMPT
+    assert "最多输出 60 个" in ANALYZE_PROMPT
     assert "实际能看到" in ANALYZE_PROMPT
     assert "禁止编造" in ANALYZE_PROMPT
 
@@ -134,6 +135,7 @@ def test_script_prompt_binds_to_timeline_details():
 def test_script_prompt_duration_matches_timeline():
     assert "duration_hint_sec" in SCRIPT_PROMPT
     assert "匹配" in SCRIPT_PROMPT
+    assert "字数上限" in SCRIPT_PROMPT
 
 
 def test_script_prompt_has_clear_structure():
@@ -165,9 +167,14 @@ def test_refine_script_prompt_keeps_reference():
 
 
 def test_refine_fix_prompts_touch_only_mentioned_fields():
-    assert "逐字节" in REFINE_TEXT_FIX_PROMPT
+    assert "值完全保持不变" in REFINE_TEXT_FIX_PROMPT
     assert "明确提到" in REFINE_TEXT_FIX_PROMPT
-    assert "逐字节" in REFINE_SCRIPT_FIX_PROMPT
+    assert "值完全保持不变" in REFINE_SCRIPT_FIX_PROMPT
+
+
+def test_refine_prompts_allow_only_reserved_changelog_field():
+    for prompt in (REFINE_TEXT_PROMPT, REFINE_SCRIPT_PROMPT, REFINE_TEXT_FIX_PROMPT, REFINE_SCRIPT_FIX_PROMPT):
+        assert "除保留的 `_changelog` 外" in prompt
 
 
 def test_transcript_context_explains_purpose_and_confidence():

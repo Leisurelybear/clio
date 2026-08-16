@@ -52,7 +52,7 @@ CONFIG_DESCRIPTIONS: dict[str, str] = {
     # script
     "script.scripts_subdir": "口播文案存放的子目录名",
     "script.template_file": "口播文案模板文件路径",
-    "script.target_words": "单条口播文案的目标字数",
+    "script.target_words": "单条口播文案的字数上限；短素材会按 timeline 时长自动缩短",
     # plan
     "plan.plans_subdir": "剪辑规划存放的子目录名",
     "plan.max_clips_per_day": "每日 vlog 最大片段数",

@@ -48,6 +48,15 @@ def cfg(tmp_path) -> AppConfig:
     )
 
 
+def test_voiceover_lineage_changes_with_template(cfg: AppConfig):
+    from clio.tasks.scripts import _voiceover_lineage_fingerprint
+
+    analysis = {"index": "001", "title": "A"}
+    assert _voiceover_lineage_fingerprint(cfg, analysis, "template A") != _voiceover_lineage_fingerprint(
+        cfg, analysis, "template B"
+    )
+
+
 class TestRunGenerateScripts:
     @patch("clio.tasks.scripts.generate_voiceover")
     def test_creates_output_dir(self, mock_gen, tmp_path):

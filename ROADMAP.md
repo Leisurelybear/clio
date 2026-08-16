@@ -5,6 +5,22 @@ Mark `[ ]` as `[x]` when done, `[~]` for in-progress, `[!]` for blocked.
 
 Design discussions / decision history in `AGENTS.md`, implementation details in git log.
 
+### R-044 Prompt quality hardening (2026-08-16)
+
+**Status:** Complete; full backend suite, Ruff, and mypy verified locally.
+
+**Goal:** Preserve the useful prompt-quality improvements while enforcing refinement field safety,
+plan timeline grounding, duration consistency, and correct cache invalidation in code.
+
+- [x] Review prompt changes and identify prompt/runtime contract gaps
+- [x] Harden refinement result merging and AI result validation
+- [x] Validate plan ranges, clip count, and actual duration
+- [x] Add voiceover timeline-duration context and fix lineage inputs
+- [x] Correct contradictory or non-executable prompt requirements
+- [x] Add regression tests and run focused/full affected validation (`1861 passed, 12 skipped`)
+
+Plan: `docs/superpowers/plans/2026-08-16-prompt-quality-hardening-plan.md`
+
 ### R-043 Full-project review follow-up (2026-08-16)
 
 **Status:** Actionable correctness findings addressed and verified locally; ready for push.

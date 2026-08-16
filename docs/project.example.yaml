@@ -50,7 +50,7 @@ analyze:
 script:
   scripts_subdir: scripts
   template_file: ./templates/vlog_template.md
-  target_words: 80
+  target_words: 80              # 单条口播字数上限；短素材按 timeline 时长自动缩短
 
 plan:
   plans_subdir: plans

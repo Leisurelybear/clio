@@ -8,7 +8,16 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from clio.ai.base import AIResponse
-from clio.analyze import _validate_analysis, _validate_plan, _validate_voiceover, _wrap_with_context, plan_daily_vlog
+from clio.analyze import (
+    _merge_refinement_result,
+    _select_transcript_segments,
+    _validate_analysis,
+    _validate_plan,
+    _validate_plan_ranges,
+    _validate_voiceover,
+    _wrap_with_context,
+    plan_daily_vlog,
+)
 
 
 def _fake_config(context: str = "", context_override: str | None = None) -> SimpleNamespace:
@@ -212,6 +221,103 @@ def test_validate_voiceover_rejects_wrong_typed_fields():
     assert result["_confidence"] == 0.0
 
 
+def test_validators_clamp_confidence_and_drop_malformed_timeline_entries():
+    analysis = _validate_analysis(
+        {
+            "title": "x",
+            "summary": "y",
+            "timeline": [{"start": "00:00", "end": "00:05"}, "bad"],
+            "highlights": [{"start": "00:01"}, 3],
+            "_confidence": 9,
+        },
+        "clip.mp4",
+    )
+    assert len(analysis["timeline"]) == 1
+    assert analysis["highlights"] == [{"start": "00:01"}]
+    assert analysis["_confidence"] == 1.0
+
+
+def test_merge_refinement_preserves_original_fields_and_ignores_unknowns():
+    original = {"index": "001", "title": "old", "summary": "keep", "location": "Paris"}
+    merged = _merge_refinement_result(
+        original,
+        {
+            "index": "999",
+            "title": "new",
+            "summary": ["wrong type"],
+            "_changelog": ["fixed title"],
+            "explanation": "discard me",
+        },
+    )
+    assert merged == {
+        "index": "001",
+        "title": "new",
+        "summary": "keep",
+        "location": "Paris",
+        "_changelog": ["fixed title"],
+    }
+
+
+def test_merge_refinement_falls_back_when_required_field_is_missing():
+    original = {"voiceover": "keep", "title": "t"}
+    assert _merge_refinement_result(original, {"title": "changed"}, required_field="voiceover") == original
+
+
+def test_validate_plan_ranges_caps_segments_and_recomputes_duration():
+    clips = [
+        {"index": "001", "timeline": [{"start": "00:00", "end": "00:20"}]},
+        {"index": "002", "timeline": [{"start": "00:00", "end": "00:20"}]},
+    ]
+    result = {
+        "total_estimated_sec": 999,
+        "sequence": [
+            {"index": "001", "use_timeline": "00:00-00:10"},
+            {"index": "002", "use_timeline": "00:00-00:15"},
+        ],
+    }
+
+    validated = _validate_plan_ranges(result, clips, max_clips=1, target_duration_sec=180)
+
+    assert len(validated["sequence"]) == 1
+    assert validated["total_estimated_sec"] == 10.0
+
+
+def test_select_transcripts_accepts_boundary_overlap_and_restores_time_order():
+    transcript = {
+        "segments": [
+            {"start": 8, "end": 12, "text": "boundary", "avg_logprob": -0.2},
+            {"start": 2, "end": 4, "text": "early", "avg_logprob": -0.5},
+            {"start": 5, "end": 7, "text": "low", "avg_logprob": -0.1, "low_confidence": True},
+        ]
+    }
+
+    selected = _select_transcript_segments(transcript, [(0, 10)], offset_sec=0, limit=2)
+
+    assert [segment["text"] for segment in selected] == ["early", "boundary"]
+
+
+def test_plan_range_validation_ignores_malformed_source_timestamps():
+    validated = _validate_plan_ranges(
+        {"sequence": [{"index": "001", "use_timeline": "00:01-00:05"}]},
+        [{"index": "001", "timeline": [{"start": "bad", "end": "00:10"}]}],
+        max_clips=10,
+        target_duration_sec=30,
+    )
+
+    assert validated["sequence"] == [{"index": "001", "use_timeline": "00:01-00:05"}]
+
+
+def test_plan_range_validation_accepts_numeric_source_timestamps():
+    validated = _validate_plan_ranges(
+        {"sequence": [{"index": "001", "use_timeline": "00:01-00:05"}]},
+        [{"index": "001", "timeline": [{"start": 0, "end": 10}]}],
+        max_clips=10,
+        target_duration_sec=30,
+    )
+
+    assert validated["total_estimated_sec"] == 4.0
+
+
 class TestPlanDailyVlog:
     def test_filter_valid_indices(self, monkeypatch):
         """Valid indices should be kept, invalid ones filtered."""
@@ -258,6 +364,42 @@ class TestPlanDailyVlog:
 
         assert len(result["sequence"]) == 2
 
+    def test_plan_filters_ranges_outside_source_timeline(self, monkeypatch):
+        clips = [{"index": "001", "title": "A", "timeline": [{"start": "00:00", "end": "00:10"}]}]
+        mock_result = {
+            "day_title": "day1",
+            "sequence": [
+                {"index": "001", "use_timeline": "00:02-00:08"},
+                {"index": "001", "use_timeline": "00:08-00:20"},
+            ],
+        }
+        cfg = _fake_config()
+        cfg.plan.max_clips_per_day = 10
+        monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (MagicMock(), "model"))
+        monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, cfg, **kw: prompt)
+        monkeypatch.setattr("clio.analyze._call_ai", lambda *a, **kw: json.dumps(mock_result))
+
+        result = plan_daily_vlog(clips, cfg)
+
+        assert [s["use_timeline"] for s in result["sequence"]] == ["00:02-00:08"]
+
+    def test_custom_plan_prompt_keeps_real_example_index(self, monkeypatch):
+        cfg = _fake_config()
+        captured: list[str] = []
+        custom = "clips={clips_json} max={max_clips} target={target_duration_sec} example={example_index}"
+        monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (MagicMock(), "model"))
+        monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, cfg, **kw: prompt)
+
+        def fake_call(label, pid, model, prompt, fn, **kwargs):
+            captured.append(prompt)
+            return '{"sequence": []}'
+
+        monkeypatch.setattr("clio.analyze._call_ai", fake_call)
+
+        plan_daily_vlog([{"index": "007", "title": "A"}], cfg, task_prompts={"vlog_plan": custom})
+
+        assert "example=007" in captured[0]
+
     def test_filter_empty_sequence(self, monkeypatch):
         """Empty sequence should pass through."""
         monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (MagicMock(), "model"))
@@ -278,3 +420,43 @@ class TestPlanDailyVlog:
         cfg.ai.providers = {}
         result = plan_daily_vlog([{"index": "001", "title": "A"}], cfg)
         assert result["title"] == "plan"
+
+
+def test_voiceover_prompt_includes_timeline_duration(monkeypatch):
+    from clio.analyze import generate_voiceover
+
+    cfg = _fake_config()
+    provider = MagicMock(provider_id="mock")
+    provider.generate_text.return_value = AIResponse('{"title":"t","voiceover":"hello"}')
+    monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (provider, "model"))
+    monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, cfg, **kw: prompt)
+    captured: list[str] = []
+
+    def fake_call(label, pid, model, prompt, fn, **kw):
+        captured.append(prompt)
+        return '{"title":"t","voiceover":"hello"}'
+
+    monkeypatch.setattr("clio.analyze._call_ai", fake_call)
+
+    prompt = generate_voiceover(
+        {"index": "001", "title": "t", "timeline": [{"start": "00:00", "end": "00:12", "description": "walk"}]},
+        "template",
+        cfg,
+    )
+
+    assert prompt["voiceover"] == "hello"
+    assert "约 12.0 秒" in captured[0]
+    assert "建议口播约 30-42 字" in captured[0]
+
+
+def test_voiceover_prompt_tolerates_malformed_timeline(monkeypatch):
+    from clio.analyze import generate_voiceover
+
+    cfg = _fake_config()
+    monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (MagicMock(provider_id="mock"), "model"))
+    monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, cfg, **kw: prompt)
+    monkeypatch.setattr("clio.analyze._call_ai", lambda *a, **kw: '{"title":"t","voiceover":"hello"}')
+
+    result = generate_voiceover({"title": "t", "timeline": None}, "template", cfg)
+
+    assert result["voiceover"] == "hello"
