@@ -5,6 +5,20 @@ Mark `[ ]` as `[x]` when done, `[~]` for in-progress, `[!]` for blocked.
 
 Design discussions / decision history in `AGENTS.md`, implementation details in git log.
 
+### R-045 Project switcher and editor navigation UI (2026-08-16)
+
+**Status:** Complete; focused frontend tests and full Vitest suite verified locally.
+
+**Goal:** Make project identity and project actions discoverable in the global header,
+while turning the right editor header into a consistent workspace navigation bar.
+
+- [x] Replace the path-only header label with a project switcher showing project name and actions
+- [x] Remove the duplicate right-panel project dropdown and merge editor title/navigation chrome
+- [x] Show labeled workspace navigation with clear active state and compact responsive sizing
+- [x] Harden no-project and load-failure rendering; remove stale sidebar project-name updates
+- [x] Add focused frontend regression coverage and update UI documentation
+
+
 ### R-044 Prompt quality hardening (2026-08-16)
 
 **Status:** Complete; full backend suite, Ruff, and mypy verified locally.

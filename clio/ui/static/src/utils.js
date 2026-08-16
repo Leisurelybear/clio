@@ -98,8 +98,25 @@ function updateSidebarDay() {
 }
 
 function updateProjectSidebar() {
-  const el = $('proj-name-sidebar');
-  if (el) el.textContent = state.currentProject?.name || state.projectName || '未命名';
+  const nameEl = $('proj-name');
+  const switcher = $('btn-project-switcher');
+  const pathEl = $('project-menu-path');
+  const revealBtn = $('btn-reveal-project');
+  const name = state.currentProject?.name || state.currentProjectName || state.projectName || '选择项目';
+  const path = state.currentProjectDir || state.currentProject?.project_dir || state.config?.project_dir || '';
+  if (nameEl) {
+    nameEl.textContent = name;
+    nameEl.title = path ? `${name}\n${path}` : name;
+  }
+  if (switcher) {
+    switcher.title = path ? `当前项目: ${name}\n${path}` : '选择项目或管理当前项目';
+    switcher.classList.toggle('is-empty', !path);
+  }
+  if (pathEl) pathEl.textContent = path ? `${name} · ${path}` : '尚未打开项目';
+  if (revealBtn) {
+    revealBtn.disabled = !path;
+    revealBtn.setAttribute('aria-disabled', String(!path));
+  }
 }
 
 function updateEntityUI() {

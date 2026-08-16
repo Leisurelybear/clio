@@ -444,27 +444,29 @@ async function init() {
     }
   }
   $('btn-reveal-project')?.addEventListener('click', revealProjectDir);
-  $('btn-reveal-project-sidebar')?.addEventListener('click', revealProjectDir);
   document.getElementById('btn-theme').onclick = toggleTheme;
   $('btn-save').onclick = save;
   document.getElementById('btn-select-videos').addEventListener('click', toggleSelection);
   document.getElementById('btn-add-videos').addEventListener('click', () => import('./sidebar-video-manage.js').then(m => m.openVideoManager()));
   const { initVideoFilterBar } = await import('./sidebar-data.js');
   initVideoFilterBar();
-  document.getElementById('btn-project-menu')?.addEventListener('click', (e) => {
+  const projectSwitcher = document.getElementById('btn-project-switcher');
+  const projectMenu = document.getElementById('project-menu');
+  const setProjectMenuOpen = (open) => {
+    if (!projectMenu) return;
+    projectMenu.hidden = !open;
+    projectSwitcher?.setAttribute('aria-expanded', String(open));
+  };
+  projectSwitcher?.addEventListener('click', (e) => {
     e.stopPropagation();
-    const menu = document.getElementById('project-menu');
-    if (menu) menu.hidden = !menu.hidden;
+    setProjectMenuOpen(projectMenu?.hidden !== false);
   });
   document.addEventListener('click', (e) => {
-    if (!e.target.closest('.sidebar-project')) {
-      const menu = document.getElementById('project-menu');
-      if (menu) menu.hidden = true;
-    }
+    if (!e.target.closest('.project-switcher')) setProjectMenuOpen(false);
   });
-  document.getElementById('project-menu')?.addEventListener('click', (e) => {
+  projectMenu?.addEventListener('click', (e) => {
     if (e.target.closest('.project-menu-item')) {
-      document.getElementById('project-menu').hidden = true;
+      setProjectMenuOpen(false);
     }
   });
   $$('.tab').forEach(t => t.onclick = () => {
@@ -494,6 +496,8 @@ async function init() {
         } else {
           top.style.display = 'none';
         }
+      } else {
+        setProjectMenuOpen(false);
       }
     }
     if (mod && e.key >= '1' && e.key <= '6') {
@@ -524,8 +528,7 @@ async function init() {
     }
     // 如果没有 URL 指定项目，也没有上次使用的项目，显示打开界面
     if (!urlProject && !state.lastProject && !state.currentProject) {
-      $('proj-name').textContent = '—';
-      $('proj-name-sidebar').textContent = '—';
+      $('proj-name').textContent = '选择项目';
       $('btn-open-project').click();
       setStatus('尚未加载项目，请选择一个项目开始。', 'warn');
       return;
@@ -533,8 +536,7 @@ async function init() {
     // 如果上次使用的项目是旧版，跳过自动跳转，让用户新建项目
     if (!urlProject && !urlProjectDir && _isLastProjectLegacy()) {
       state.lastProject = null;
-      $('proj-name').textContent = '—';
-      $('proj-name-sidebar').textContent = '—';
+      $('proj-name').textContent = '选择项目';
       $('btn-open-project').click();
       setStatus('上次使用的项目是旧版，请新建项目', 'warn');
       return;
@@ -553,8 +555,7 @@ async function init() {
     if (urlProjectObj?.legacy) {
       state.currentProjectName = null;
       state.currentProjectDir = null;
-      $('proj-name').textContent = '—';
-      $('proj-name-sidebar').textContent = '—';
+      $('proj-name').textContent = '选择项目';
       $('btn-open-project').click();
       setStatus('URL 指向的是旧版项目，不支持打开，请新建项目', 'warn');
       return;
@@ -631,7 +632,6 @@ async function init() {
     }
   } catch (e) {
     $('proj-name').textContent = '(加载失败)';
-    $('proj-name-sidebar').textContent = '(加载失败)';
     setStatus('Init failed: ' + e.message, 'err');
   }
 }

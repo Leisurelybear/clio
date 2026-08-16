@@ -114,8 +114,9 @@ export async function loadConfig() {
   } finally {
     endLatest('config', ac);
   }
-  $('proj-name').textContent = state.config.project_dir || '';
-  $('proj-name').title = `project: ${state.config.project_dir || ''}\noutput: ${state.config.output_dir || ''}`;
+  updateProjectSidebar();
+  const projectName = state.currentProject?.name || state.currentProjectName || state.projectName || '选择项目';
+  $('proj-name').title = `${projectName}\n项目目录: ${state.config.project_dir || ''}\n输出目录: ${state.config.output_dir || ''}`;
 }
 
 /** Probe ffmpeg/ffprobe; stores result on state.deps (null if request fails). */
@@ -216,6 +217,7 @@ export async function loadProject() {
     }
     state.steps = proj.steps || {};
     state.projectName = proj.name || '';
+    updateProjectSidebar();
     if (proj.lastEntity && ['video', 'plan', 'run', 'config', 'logs', 'tokens'].includes(proj.lastEntity)) {
       state.lastEntity = proj.lastEntity;
     }
