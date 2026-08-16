@@ -7,6 +7,7 @@ from clio.ui.routes.fs import (
     _is_allowed_path,
     build_reveal_command,
     handle_get_fs_dirs,
+    handle_get_fs_entries,
     handle_get_fs_videos,
     handle_post_fs_mkdir,
     handle_post_fs_reveal,
@@ -33,6 +34,10 @@ class TestIsAllowedPath:
         monkeypatch.setattr("sys.platform", "linux")
         p = Path("/")
         assert _is_allowed_path(p) is False
+
+    def test_unc_path_win32_returns_false(self, monkeypatch):
+        monkeypatch.setattr("sys.platform", "win32")
+        assert _is_allowed_path(PureWindowsPath(r"\\server\share\trip")) is False
 
 
 class TestHandleGetFsDirs:
@@ -203,6 +208,116 @@ class TestHandleGetFsVideos:
         assert _is_allowed_path(p) is True
 
 
+class TestHandleGetFsEntries:
+    def test_empty_path_win32_lists_drives(self, monkeypatch):
+        monkeypatch.setattr("sys.platform", "win32")
+        monkeypatch.setattr("clio.ui.routes.fs._list_drives", lambda: ["C:\\", "D:\\"])
+        handler = MagicMock()
+
+        handle_get_fs_entries(handler, {"path": [""], "kind": ["video"]})
+
+        handler._send_json.assert_called_once_with(
+            {
+                "path": "",
+                "dirs": [
+                    {"name": "C:\\", "path": "C:\\"},
+                    {"name": "D:\\", "path": "D:\\"},
+                ],
+                "files": [],
+                "parent": None,
+                "is_drive_list": True,
+            }
+        )
+
+    def test_lists_dirs_and_filters_video_files(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("clio.ui.routes.fs._is_allowed_path", lambda p: True)
+        (tmp_path / "b-dir").mkdir()
+        (tmp_path / "a-dir").mkdir()
+        (tmp_path / "clip.mp4").write_bytes(b"video")
+        (tmp_path / "notes.txt").write_text("x", encoding="utf-8")
+        handler = MagicMock()
+
+        handle_get_fs_entries(handler, {"path": [str(tmp_path)], "kind": ["video"]})
+
+        payload = handler._send_json.call_args.args[0]
+        assert [entry["name"] for entry in payload["dirs"]] == ["a-dir", "b-dir"]
+        assert [entry["name"] for entry in payload["files"]] == ["clip.mp4"]
+        assert payload["files"][0]["size"] == 5
+        assert payload["path"] == str(tmp_path.resolve())
+
+    def test_empty_path_uses_config_scope_base(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("sys.platform", "linux")
+        monkeypatch.setattr("clio.ui.routes.fs._is_allowed_path", lambda p: True)
+        config_dir = tmp_path / "settings"
+        config_dir.mkdir()
+        handler = MagicMock()
+        handler.config_path = config_dir / "config.yaml"
+        handler.project_dir = tmp_path / "project"
+
+        handle_get_fs_entries(handler, {"path": [""], "kind": ["any"], "scope": ["config"]})
+
+        payload = handler._send_json.call_args.args[0]
+        assert payload["path"] == str(config_dir.resolve())
+
+    def test_file_initial_path_opens_parent(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("clio.ui.routes.fs._is_allowed_path", lambda p: True)
+        file_path = tmp_path / "tool.bin"
+        file_path.write_bytes(b"x")
+        handler = MagicMock()
+
+        handle_get_fs_entries(handler, {"path": [str(file_path)], "kind": ["any"]})
+
+        payload = handler._send_json.call_args.args[0]
+        assert payload["path"] == str(tmp_path.resolve())
+        assert [entry["name"] for entry in payload["files"]] == ["tool.bin"]
+        assert payload["selected_path"] == str(file_path.resolve())
+
+    def test_relative_path_uses_project_scope(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("clio.ui.routes.fs._is_allowed_path", lambda p: True)
+        project_dir = tmp_path / "project"
+        output_dir = project_dir / "output"
+        output_dir.mkdir(parents=True)
+        handler = MagicMock()
+        handler._resolve_project_dir.return_value = project_dir
+        handler.config_path = tmp_path / "config.yaml"
+        handler.project_dir = project_dir
+
+        handle_get_fs_entries(
+            handler,
+            {"path": ["./output"], "kind": ["any"], "scope": ["project"]},
+        )
+
+        payload = handler._send_json.call_args.args[0]
+        assert payload["path"] == str(output_dir.resolve())
+
+    def test_relative_path_uses_config_scope(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("clio.ui.routes.fs._is_allowed_path", lambda p: True)
+        config_dir = tmp_path / "settings"
+        logs_dir = config_dir / "logs"
+        logs_dir.mkdir(parents=True)
+        handler = MagicMock()
+        handler.config_path = config_dir / "config.yaml"
+        handler.project_dir = tmp_path / "project"
+
+        handle_get_fs_entries(
+            handler,
+            {"path": ["./logs"], "kind": ["any"], "scope": ["config"]},
+        )
+
+        payload = handler._send_json.call_args.args[0]
+        assert payload["path"] == str(logs_dir.resolve())
+
+    def test_invalid_kind_returns_400(self):
+        handler = MagicMock()
+        handle_get_fs_entries(handler, {"kind": ["secret"]})
+        handler._send_json.assert_called_once_with({"error": "invalid file kind"}, 400)
+
+    def test_invalid_scope_returns_400(self):
+        handler = MagicMock()
+        handle_get_fs_entries(handler, {"scope": ["system"]})
+        handler._send_json.assert_called_once_with({"error": "invalid path scope"}, 400)
+
+
 class TestHandlePostFsMkdir:
     def test_missing_parent_returns_400(self):
         handler = MagicMock()
@@ -269,6 +384,12 @@ class TestBuildRevealCommand:
         p = Path.cwd()
         assert build_reveal_command(p, "linux") == ["xdg-open", str(p)]
 
+    def test_reveal_file_commands(self, tmp_path):
+        p = tmp_path / "clip.mp4"
+        assert build_reveal_command(p, "win32", select_file=True) == ["explorer.exe", f"/select,{p}"]
+        assert build_reveal_command(p, "darwin", select_file=True) == ["open", "-R", str(p)]
+        assert build_reveal_command(p, "linux", select_file=True) == ["xdg-open", str(tmp_path)]
+
 
 class TestHandlePostFsReveal:
     def test_missing_path_returns_400(self):
@@ -282,13 +403,27 @@ class TestHandlePostFsReveal:
         handle_post_fs_reveal(handler, {"path": "/etc"})
         handler._send_json.assert_called_once_with({"ok": False, "error": "access denied"}, 403)
 
-    def test_not_directory(self, tmp_path, monkeypatch):
+    def test_missing_path_on_disk(self, tmp_path, monkeypatch):
         monkeypatch.setattr("clio.ui.routes.fs._is_allowed_path", lambda p: True)
-        f = tmp_path / "file.txt"
-        f.write_bytes(b"")
         handler = MagicMock()
-        handle_post_fs_reveal(handler, {"path": str(f)})
-        handler._send_json.assert_called_once_with({"ok": False, "error": "not a directory"}, 400)
+        handle_post_fs_reveal(handler, {"path": str(tmp_path / "missing.txt")})
+        handler._send_json.assert_called_once_with({"ok": False, "error": "path not found"}, 400)
+
+    def test_opens_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("clio.ui.routes.fs._is_allowed_path", lambda p: True)
+        file_path = tmp_path / "clip.mp4"
+        file_path.write_bytes(b"x")
+        opened: list[Path] = []
+        monkeypatch.setattr(
+            "clio.ui.routes.fs.reveal_path_in_file_manager",
+            lambda path: opened.append(path) or path.resolve(),
+        )
+        handler = MagicMock()
+
+        handle_post_fs_reveal(handler, {"path": str(file_path)})
+
+        assert opened == [file_path.resolve()]
+        assert handler._send_json.call_args.args[0]["ok"] is True
 
     def test_opens_directory(self, tmp_path, monkeypatch):
         monkeypatch.setattr("clio.ui.routes.fs._is_allowed_path", lambda p: True)

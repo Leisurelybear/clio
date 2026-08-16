@@ -25,6 +25,20 @@ export function buildVideoStepBadges(video, source) {
 
 const FFMPEG_MENU_ACTIONS = new Set(['compress', 'transcribe', 'label']);
 
+function addRevealAction(items, video) {
+  const path = video?.abs_path || video?.match?.abs_path;
+  if (video?.missing || !path) return items;
+  const removeIndex = items.findIndex(item => item.action === 'remove');
+  if (removeIndex < 0) return items;
+  const before = items.slice(0, removeIndex);
+  if (!before.at(-1)?.divider) before.push({ divider: true });
+  return [
+    ...before,
+    { action: 'reveal', label: '在文件管理器中显示', title: '打开所在目录并选中此文件' },
+    ...items.slice(removeIndex),
+  ];
+}
+
 /** Force-disable media actions that hard-require ffmpeg when deps.ok is false. */
 export function applyFfmpegMenuDeps(items, deps) {
   if (!deps || deps.ok !== false || !Array.isArray(items)) return items;
@@ -109,7 +123,7 @@ export function buildVideoMenuItems(video, source, deps = null) {
         },
       ];
     }
-    return applyFfmpegMenuDeps(items, deps);
+    return applyFfmpegMenuDeps(addRevealAction(items, video), deps);
   }
 
   // compressed view
@@ -197,7 +211,7 @@ export function buildVideoMenuItems(video, source, deps = null) {
       title: '从项目视频列表移除对应原片（若能解析）',
     },
   ];
-  return applyFfmpegMenuDeps(items, deps);
+  return applyFfmpegMenuDeps(addRevealAction(items, video), deps);
 }
 
 /** Render menu item descriptors to HTML for portal clone. */

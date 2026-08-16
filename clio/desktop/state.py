@@ -39,9 +39,17 @@ def save_last_dir(config_dir: Path, path: str, is_file: bool = False) -> None:
     )
 
 
-def resolve_initial_dir(config_dir: Path, preferred: str | None = None) -> str | None:
+def resolve_initial_dir(
+    config_dir: Path,
+    preferred: str | None = None,
+    base_dir: str | Path | None = None,
+) -> str | None:
     if preferred:
         p = Path(preferred).expanduser()
+        if not p.is_absolute():
+            p = Path(base_dir or config_dir).expanduser() / p
+        if p.is_file():
+            p = p.parent
         if p.is_dir():
             return str(p.resolve())
     return load_last_dir(config_dir)

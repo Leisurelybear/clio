@@ -101,6 +101,7 @@ export function pathPickKind(path) {
   if (
     path === 'paths.output_dir' ||
     path === 'paths.logs_dir' ||
+    path === 'whisper.cache_dir' ||
     path === 'export.jianying_draft_dir'
   ) return 'folder';
   return null;
@@ -1261,7 +1262,9 @@ export function renderConfig() {
     ${isFallback ? _renderFallbackWarn() : ''}
     <div id="config-tab-content">${contentHtml}</div>`;
 
-  // Hide desktop-only browse buttons in serve mode after each config re-render
+  pane.querySelectorAll('.browse-btn, [data-desktop-browse]').forEach((btn) => {
+    btn.dataset.pickScope = active === 'global' ? 'config' : 'project';
+  });
   setBrowseButtonsVisible(pane);
 
   const createConfigLink = pane.querySelector('#link-create-project-config');

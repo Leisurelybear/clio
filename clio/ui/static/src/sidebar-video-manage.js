@@ -4,19 +4,16 @@ import { loadVideos } from './sidebar-data.js';
 import { addToast } from './toast.js';
 
 export async function openVideoManager() {
-  const { isDesktop, pickFiles } = await import('./desktop-pick.js');
+  const { pickFiles } = await import('./desktop-pick.js');
   const { state } = await import('./state.js');
-  if (isDesktop()) {
-    try {
-      const paths = await pickFiles(state.currentProjectDir || '', 'video');
-      if (!paths || paths.length === 0) return;
-      await _addPaths(paths);
-    } catch (e) {
-      addToast(String(e.message || e), 'error', 6000);
-    }
-    return;
+  try {
+    const paths = await pickFiles(state.currentProjectDir || '', 'video');
+    if (!paths || paths.length === 0) return;
+    await _addPaths(paths);
+  } catch (e) {
+    addToast(`文件浏览器不可用：${String(e.message || e)}`, 'error', 6000);
+    _openServePasteModal();
   }
-  _openServePasteModal();
 }
 
 export function closeVideoManager() {

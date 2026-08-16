@@ -194,6 +194,7 @@ def main(
                 height=800,
                 text_select=True,
             )
+            api.bind_window(window)
         except Exception as e:  # noqa: BLE001 — WebView2 runtime missing is the common cause
             _show_window_start_error(e)
             return 1

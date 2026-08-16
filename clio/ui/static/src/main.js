@@ -398,10 +398,14 @@ async function init() {
         }
       }
       let path;
+      const pickerContext = {
+        scope: btn.dataset.pickScope || 'project',
+        projectDir: state.currentProjectDir || '',
+      };
       if (kind === 'folder' || kind === 'directory') {
-        path = await pickFolder(initial);
+        path = await pickFolder(initial, pickerContext);
       } else {
-        path = await pickFile(initial, kind);
+        path = await pickFile(initial, kind, pickerContext);
       }
       applyPickToInput(inp, path);
     } catch (err) {

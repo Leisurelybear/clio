@@ -22,8 +22,7 @@ export async function openBatchRelinkModal() {
   if (apply) apply.disabled = true;
   modal.style.display = 'flex';
   _updateScanEnabled();
-  const { isDesktop, pickFolder } = await import('./desktop-pick.js');
-  if (!isDesktop()) return;
+  const { pickFolder } = await import('./desktop-pick.js');
   try {
     const dir = await pickFolder(state.currentProjectDir || '');
     if (!dir) return;

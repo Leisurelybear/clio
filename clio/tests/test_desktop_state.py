@@ -38,3 +38,18 @@ def test_resolve_falls_back_to_last(tmp_path: Path):
     other.mkdir()
     save_last_dir(tmp_path, str(other))
     assert resolve_initial_dir(tmp_path, str(tmp_path / "missing")) == str(other.resolve())
+
+
+def test_resolve_relative_path_against_explicit_base(tmp_path: Path):
+    project_dir = tmp_path / "project"
+    output_dir = project_dir / "output"
+    output_dir.mkdir(parents=True)
+    assert resolve_initial_dir(tmp_path, "./output", base_dir=project_dir) == str(output_dir.resolve())
+
+
+def test_resolve_file_path_to_parent(tmp_path: Path):
+    media_dir = tmp_path / "media"
+    media_dir.mkdir()
+    file_path = media_dir / "clip.mp4"
+    file_path.write_bytes(b"x")
+    assert resolve_initial_dir(tmp_path, str(file_path)) == str(media_dir.resolve())

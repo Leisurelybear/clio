@@ -143,8 +143,9 @@ describe('_renderConfigForm - string', () => {
     expect(html).toContain('value="D:/out"');
   });
 
-  it('adds folder browse button for paths.logs_dir and export.jianying_draft_dir', () => {
+  it('adds folder browse button for directory settings', () => {
     expect(_renderConfigForm('', 'paths.logs_dir')).toContain('data-pick-kind="folder"');
+    expect(_renderConfigForm('', 'whisper.cache_dir')).toContain('data-pick-kind="folder"');
     expect(_renderConfigForm('', 'export.jianying_draft_dir')).toContain('data-pick-kind="folder"');
   });
 
@@ -153,7 +154,7 @@ describe('_renderConfigForm - string', () => {
     expect(_renderConfigForm('ffprobe.exe', 'paths.ffprobe')).toContain('data-pick-kind="exe"');
   });
 
-  it('adds any browse button for script.template_file', () => {
+  it('adds any browse button for template files', () => {
     expect(_renderConfigForm('', 'script.template_file')).toContain('data-pick-kind="any"');
   });
 

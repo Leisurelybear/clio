@@ -5,6 +5,22 @@ Mark `[ ]` as `[x]` when done, `[~]` for in-progress, `[!]` for blocked.
 
 Design discussions / decision history in `AGENTS.md`, implementation details in git log.
 
+### R-046 Unified file-system picker experience (2026-08-17)
+
+**Status:** Complete; full Python and frontend suites verified locally.
+
+**Goal:** Make every file and directory field browsable in both the desktop shell and
+the local Web UI, while keeping absolute server-side paths and filesystem access controls.
+
+- [x] Inventory file/folder/video selection and reveal entry points
+- [x] Prefer pywebview native dialogs in desktop mode with the existing Tk fallback
+- [x] Add an authenticated in-app filesystem picker for browser mode
+- [x] Route project, config, cut, relink, and video selection through one picker contract
+- [x] Support revealing both directories and files in the platform file manager
+- [x] Add focused backend/frontend regression coverage and verify affected suites
+
+Plan: `docs/superpowers/plans/2026-08-17-file-system-picker-plan.md`
+
 ### R-045 Project switcher and editor navigation UI (2026-08-16)
 
 **Status:** Complete; focused frontend tests and full Vitest suite verified locally.

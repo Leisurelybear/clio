@@ -115,4 +115,22 @@ describe('buildVideoMenuItems', () => {
     );
     expect(items.find((i) => i.action === 'compress')?.disabled).toBe(false);
   });
+
+  it('offers reveal for an online video with an absolute path', () => {
+    const items = buildVideoMenuItems(
+      { missing: false, file: 'a.mp4', abs_path: 'D:/trip/a.mp4' },
+      'original'
+    );
+    expect(items.find((i) => i.action === 'reveal')).toMatchObject({
+      label: '在文件管理器中显示',
+    });
+  });
+
+  it('does not offer reveal for an offline video', () => {
+    const items = buildVideoMenuItems(
+      { missing: true, file: 'a.mp4', abs_path: 'D:/trip/a.mp4' },
+      'original'
+    );
+    expect(items.some((i) => i.action === 'reveal')).toBe(false);
+  });
 });

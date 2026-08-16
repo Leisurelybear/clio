@@ -412,6 +412,15 @@ function renderVideoItem(v) {
           }
           return;
         }
+        if (task === 'reveal') {
+          const path = v.abs_path || v.match?.abs_path;
+          try {
+            const r = await api('POST', '/api/fs/reveal', { path });
+            if (r.ok) setStatus(`已打开: ${r.path || path}`, 'ok');
+            else throw new Error(r.error || '打开失败');
+          } catch (e) { setStatus('打开文件位置失败: ' + e.message, 'err'); }
+          return;
+        }
         setStatus(`正在重跑 ${task} (${file})...`, 'ok');
         try {
           const r = await api('POST', '/api/rerun', {
