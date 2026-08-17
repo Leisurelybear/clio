@@ -402,7 +402,7 @@ class BaiduASRProvider:
 |---|------|------|------|
 | 5.1 | 更新 AGENTS.md 目录结构和技术栈 | `AGENTS.md` | [ ] |
 | 5.2 | 更新 README 转录配置说明 | `README.md` | [ ] |
-| 5.3 | 更新 ROADMAP.md 新增 R-043 | `ROADMAP.md` | [ ] |
+| 5.3 | 更新 ROADMAP.md 新增 R-047 | `ROADMAP.md` | [ ] |
 | 5.4 | 配置迁移：自动升级旧 config 兼容 `engine` 默认 `local` | `clio/config/loader.py` | [ ] |
 
 ## 10. 风险与缓解

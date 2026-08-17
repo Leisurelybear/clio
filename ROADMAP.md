@@ -75,6 +75,22 @@ Review: `docs/analysis/2026-08-16-full-project-code-review.md`
 
 ## Remaining Open Items (2026-07-26)
 
+### R-047 Cloud transcription (云端 ASR)
+
+**Status:** Planned (2026-08-16); design complete, awaiting user confirmation.
+
+**Goal:** Add optional cloud ASR as an alternative to the fragile local `faster-whisper`
+pipeline (cuBLAS/CUDA/model download failures; unavailable in packaged builds). Users pick
+`local` or `cloud` engine per project; output `_transcript.json` schema stays identical.
+
+- [ ] Phase 1: `clio/asr/` core abstraction + local-engine refactor (no cloud dependency)
+- [ ] Phase 2: Aliyun provider (DashScope, `paraformer-v2`)
+- [ ] Phase 3: Baidu provider (HTTP API + token cache)
+- [ ] Phase 4: Web UI adaptation (engine selector, cloud key cards, whisper check)
+- [ ] Phase 5: Docs, config migration (`engine` default `local`), README
+
+Plan: `docs/superpowers/plans/2026-08-16-cloud-asr-integration-plan.md`
+
 ### R-042 Notification center
 
 **Status:** Implemented (2026-08-17); desktop OS delivery remains optional follow-up.
