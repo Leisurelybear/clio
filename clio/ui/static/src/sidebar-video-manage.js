@@ -48,26 +48,26 @@ async function _addPaths(paths) {
     if (r && r.rejected_count) {
       const msg = `已添加，但有 ${r.rejected_count} 个路径被拒绝（扩展名无效或无法解析）`;
       setStatus(msg, 'warn');
-      addToast(msg, 'warning', 6000);
+      addToast(msg, 'warning', 6000, { persist: false });
     } else if (added === 0) {
       const msg = already
         ? `所选 ${already} 个均已在项目中`
         : '没有新视频需要添加';
       setStatus(msg, 'warn');
-      addToast(msg, 'warning');
+      addToast(msg, 'warning', undefined, { persist: false });
     } else {
       const msg = already
         ? `新增 ${added} 个视频（另 ${already} 个已存在）`
         : `已添加 ${added} 个视频`;
       setStatus(msg, 'ok');
-      addToast(msg, 'success');
+      addToast(msg, 'success', undefined, { persist: false });
     }
     closeVideoManager();
     await loadVideos();
   } catch (e) {
     const msg = '添加视频失败: ' + e.message;
     setStatus(msg, 'err');
-    addToast(msg, 'error', 6000);
+    addToast(msg, 'error', 6000, { persist: false });
   } finally {
     if (btn) {
       btn.disabled = false;

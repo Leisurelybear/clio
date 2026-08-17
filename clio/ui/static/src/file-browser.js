@@ -1,4 +1,5 @@
 import { api, icon } from './api.js';
+import { addToast } from './toast.js';
 
 let activePicker = null;
 let pickerRoot = null;
@@ -208,11 +209,13 @@ async function loadPath(path, fallbackToRoot) {
       if (activePicker === picker) {
         status.textContent = `初始路径不可用，已显示可浏览位置：${error.message || error}`;
         status.className = 'fs-picker-status warn';
+        addToast(status.textContent, 'warning');
       }
       return;
     }
     status.textContent = `无法打开此路径：${error.message || error}`;
     status.className = 'fs-picker-status err';
+    addToast(status.textContent, 'error', 6000);
   } finally {
     if (activePicker === picker && requestId === picker.requestId) entries.removeAttribute('aria-busy');
   }
@@ -232,6 +235,7 @@ async function createDirectory() {
   } catch (error) {
     status.textContent = `创建失败：${error.message || error}`;
     status.className = 'fs-picker-status err';
+    addToast(status.textContent, 'error', 6000);
   }
 }
 

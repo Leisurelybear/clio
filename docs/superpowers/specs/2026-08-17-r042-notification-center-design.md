@@ -23,7 +23,7 @@ keys and a unique `dedupe_key` make repeated registration idempotent.
 
 ## Data Contract
 
-Each notification stores a global sequence, stable ID, severity, title/message,
+Each notification stores a row sequence plus a monotonic inbox revision, stable ID, severity, title/message,
 creation/read timestamps, source identity, optional task/project identity,
 optional local deep link, and small JSON metadata. Allowed severities are
 `info`, `success`, `warning`, and `error`.
@@ -34,7 +34,8 @@ without deleting messages the user has not handled.
 
 ## API
 
-- `GET /api/notifications`: list with unread/severity/project filters and cursor.
+- `GET /api/notifications`: list with unread/severity/project filters, offset pagination,
+  filtered `total_count`, and the current inbox revision.
 - `GET /api/notifications/stream?after=<seq>`: resumable global SSE stream.
 - `POST /api/notifications`: register frontend-originated messages.
 - `POST /api/notifications/{id}/read|unread`: update one read state.

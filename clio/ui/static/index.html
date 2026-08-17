@@ -45,11 +45,11 @@
   <div class="actions">
     <span id="status" class="status"></span>
     <div class="notification-shell">
-      <button id="btn-notifications" class="btn-icon notification-button" type="button" title="通知中心" aria-haspopup="dialog" aria-label="通知中心">
+      <button id="btn-notifications" class="btn-icon notification-button" type="button" title="通知中心" aria-haspopup="dialog" aria-expanded="false" aria-label="通知中心">
         <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 00-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg></span>
         <span class="notification-badge" hidden>0</span>
       </button>
-      <section id="notification-panel" class="notification-panel" aria-label="通知中心" hidden></section>
+      <section id="notification-panel" class="notification-panel" role="dialog" aria-label="通知中心" hidden></section>
     </div>
     <button id="btn-theme" class="btn-icon" title="切换浅色/暗色主题">
       <span class="icon"><svg viewBox="0 0 24 24" width="16" height="16"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></span>

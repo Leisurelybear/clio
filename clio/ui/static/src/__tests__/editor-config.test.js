@@ -320,7 +320,10 @@ describe('_renderProviderList', () => {
     expect(btn.disabled).toBe(true);
     await vi.waitFor(() => {
       expect(btn.disabled).toBe(false);
-      expect(api).not.toHaveBeenCalled();
+      expect(api.mock.calls.some(([method, url]) => method === 'POST' && url === '/api/ai/test')).toBe(false);
+      expect(api).toHaveBeenCalledWith('POST', '/api/notifications', expect.objectContaining({
+        message: '已取消测试', severity: 'warning', source_type: 'ui_status',
+      }));
       expect(div.querySelector('.provider-test-status').textContent).toBe('已取消测试');
     });
   });
@@ -335,7 +338,10 @@ describe('_renderProviderList', () => {
 
     await vi.waitFor(() => {
       expect(btn.disabled).toBe(false);
-      expect(api).not.toHaveBeenCalled();
+      expect(api.mock.calls.some(([method, url]) => method === 'POST' && url === '/api/ai/test')).toBe(false);
+      expect(api).toHaveBeenCalledWith('POST', '/api/notifications', expect.objectContaining({
+        message: '测试失败：请先添加模型', severity: 'error', source_type: 'ui_status',
+      }));
       expect(div.querySelector('.provider-test-status').textContent).toBe('测试失败：请先添加模型');
     });
   });

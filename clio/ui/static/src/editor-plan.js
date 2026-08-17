@@ -8,6 +8,7 @@ import { recomposePlanWaveformFromCache, isPlanWaveformMode } from './waveform.j
 import { addToast } from './toast.js';
 import { resolveEditorSaveTarget } from './editor-save.js';
 import { exportJianyingDraft } from './plan-export.js';
+import { waitForTask } from './task-center.js';
 import { openPlanRangePicker } from './plan-range-picker.js';
 import {
   reorderSequence,
@@ -795,7 +796,7 @@ export function renderPlan() {
       addToast('已导出到剪映', 'success', undefined, { persist: false });
     } catch (e) {
       resultDiv.innerHTML = `<span style="color:var(--err,#c44)">✗ 导出失败: ${escapeHtml(e.message || e)}</span>`;
-      addToast('导出失败: ' + (e.message || e), 'error', 6000);
+      addToast('导出失败: ' + (e.message || e), 'error', 6000, { persist: !e.taskBacked });
     } finally {
       if (btn) {
         btn.disabled = false;
@@ -864,15 +865,19 @@ export async function executeCut() {
         throw e;
       }
     }
+    const taskId = r.task_id || r.task?.id;
+    if (taskId) {
+      await waitForTask(taskId);
+    }
     result.innerHTML = `<p class="ok">裁剪完成</p><p>输出目录: ${escapeHtml(r.output_dir)}</p>`;
-    setStatus('裁剪完成', 'ok', { persist: false });
+    setStatus('裁剪完成', 'ok', { persist: !taskId });
     addToast('裁剪完成', 'success', undefined, { persist: false });
     import('./sidebar.js').then(mod => mod.saveProject());
   } catch (e) {
     result.innerHTML = `<p class="err">错误: ${escapeHtml(e.message)}</p>`;
     const msg = '裁剪失败: ' + e.message;
-    setStatus(msg, 'err');
-    addToast(msg, 'error', 6000);
+    setStatus(msg, 'err', { persist: !e.taskBacked });
+    addToast(msg, 'error', 6000, { persist: false });
   } finally {
     btn.disabled = false;
     btn.textContent = '执行裁剪';
@@ -921,7 +926,7 @@ export async function save() {
       clearDirty();
       const status = configSaveStatusForTab(ct);
       setStatus(status.message, status.level);
-      addToast(status.message, status.level === 'ok' ? 'success' : 'warning');
+      addToast(status.message, status.level === 'ok' ? 'success' : 'warning', undefined, { persist: false });
       try {
         if (typeof window.refreshFfmpegDepsUi === 'function') {
           await window.refreshFfmpegDepsUi();
@@ -950,11 +955,11 @@ export async function save() {
     if (generation !== _saveGeneration) return;
     clearDirty();
     setStatus('已保存', 'ok');
-    addToast('已保存', 'success');
+    addToast('已保存', 'success', undefined, { persist: false });
     if (target.action === 'plan') scheduleReadinessCheck();
   } catch (e) {
     const msg = '保存失败: ' + e.message;
     setStatus(msg, 'err');
-    addToast(msg, 'error', 6000);
+    addToast(msg, 'error', 6000, { persist: false });
   }
 }

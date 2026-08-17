@@ -572,7 +572,7 @@ function startPreview(startIndex) {
   if (!p || !p.sequence || !p.sequence.length) return;
   if (state.previewActive) stopPreview();
   state.previewActive = true;
-  setStatus('预览播放', 'ok');
+  setStatus('预览播放', 'ok', { persist: false });
 
   const tl = buildTimeline(p.sequence);
   let idx = typeof startIndex === 'number' ? startIndex : 0;

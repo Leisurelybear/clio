@@ -435,7 +435,9 @@ async function _loadPromptManagement() {
     }
     _refreshPromptManagement();
   } catch (e) {
-    container.innerHTML = `<p class="err">加载失败: ${escapeHtml(e.message || e)}</p>`;
+    const message = '加载失败: ' + (e.message || e);
+    container.innerHTML = `<p class="err">${escapeHtml(message)}</p>`;
+    setStatus(message, 'err');
   }
 }
 
@@ -915,25 +917,33 @@ export function _attachProviderListHandlers(pane, providersObj) {
       try {
         const result = await _testProvider(providersObj, providerName);
         if (result?.canceled) {
-          if (status) status.textContent = result.error || '已取消测试';
+          const message = result.error || '已取消测试';
+          if (status) status.textContent = message;
+          void setStatus(message, 'warn');
           return;
         }
         if (result?.ok) {
+          const message = `测试成功：${result.elapsed_ms ?? '?'} ms`;
           if (status) {
             status.className = 'provider-test-status ok';
-            status.textContent = `测试成功：${result.elapsed_ms ?? '?'} ms`;
+            status.textContent = message;
           }
+          void setStatus(message, 'ok');
         } else {
+          const message = '测试失败：' + (result?.error || '未知错误');
           if (status) {
             status.className = 'provider-test-status err';
-            status.textContent = '测试失败：' + (result?.error || '未知错误');
+            status.textContent = message;
           }
+          void setStatus(message, 'err');
         }
       } catch (e) {
+        const message = '测试失败：' + (e.message || e);
         if (status) {
           status.className = 'provider-test-status err';
-          status.textContent = '测试失败：' + (e.message || e);
+          status.textContent = message;
         }
+        void setStatus(message, 'err');
       } finally {
         btn.disabled = false;
       }
@@ -1119,6 +1129,7 @@ function _attachEnvEditor() {
           envTextarea.value = envData.content || '';
         } catch (e) {
           envMsg.textContent = '加载失败';
+          void setStatus('读取 .env 失败', 'err');
         }
       }
     };
@@ -1128,14 +1139,22 @@ function _attachEnvEditor() {
       envMsg.textContent = '保存中...';
       try {
         const r = await api('PUT', '/api/env', { content: envTextarea.value });
+        let message;
         if (r.ok) {
-          envMsg.textContent = `✓ 已保存到 ${r.path}`;
+          message = `已保存到 ${r.path}`;
+          envMsg.textContent = `✓ ${message}`;
           envData.content = envTextarea.value;
         } else {
-          envMsg.textContent = `✗ ${r.error || '保存失败'}`;
+          message = r.error || '保存失败';
+          envMsg.textContent = `✗ ${message}`;
+          void setStatus(message, 'err');
+          return;
         }
+        void setStatus(message, 'ok');
       } catch (e) {
-        envMsg.textContent = `✗ 保存失败: ${e.message || e}`;
+        const message = `保存失败: ${e.message || e}`;
+        envMsg.textContent = `✗ ${message}`;
+        void setStatus(message, 'err');
       }
     };
   }
@@ -1611,7 +1630,9 @@ export async function renderTokens() {
 
     pane.innerHTML = `<div style="padding:var(--space-2)">${totalHtml}${modelHtml}${taskHtml}${historyHtml}</div>`;
   } catch (e) {
-    pane.innerHTML = `<p class="muted">加载失败: ${escapeHtml(e.message || e)}</p>`;
+    const message = '加载失败: ' + (e.message || e);
+    pane.innerHTML = `<p class="muted">${escapeHtml(message)}</p>`;
+    setStatus(message, 'err');
   }
 }
 
@@ -1693,6 +1714,7 @@ async function _loadModelMgmt() {
   const timeoutId = setTimeout(() => {
     if (container && container.querySelector('.muted')) {
       container.innerHTML = '<p class="err">请求超时 — 请确认后端服务运行正常。</p>';
+      setStatus('模型列表加载超时，请确认后端服务运行正常', 'err');
     }
   }, 10000);
   try {
@@ -1700,7 +1722,12 @@ async function _loadModelMgmt() {
       api('GET', '/api/whisper/models'),
       api('GET', '/api/whisper/check').catch(() => ({ cublas: true })),
     ]);
-    if (!data.ok) { container.innerHTML = '<p class="err">加载模型列表失败</p>'; return; }
+    if (!data.ok) {
+      clearTimeout(timeoutId);
+      container.innerHTML = '<p class="err">加载模型列表失败</p>';
+      setStatus(data.error || '加载模型列表失败', 'err');
+      return;
+    }
 
     const current = data.current_model || 'medium';
     const avail = data.available || [];
@@ -1830,7 +1857,9 @@ async function _loadModelMgmt() {
           dlBtn.disabled = false;
           dlBtn.innerHTML = `${icon('download', 14)} 下载模型`;
           const progMsg = $('model-dl-msg');
-          if (progMsg) progMsg.textContent = '启动失败: ' + e.message;
+          const message = '启动失败: ' + e.message;
+          if (progMsg) progMsg.textContent = message;
+          void setStatus(message, 'err');
         }
       };
     }
@@ -1902,7 +1931,9 @@ async function _loadModelMgmt() {
     }
   } catch (e) {
     clearTimeout(timeoutId);
-    if (container) container.innerHTML = `<p class="err">加载失败: ${escapeHtml(e.message)}</p>`;
+    const message = '加载失败: ' + e.message;
+    if (container) container.innerHTML = `<p class="err">${escapeHtml(message)}</p>`;
+    setStatus(message, 'err');
   }
 }
 
@@ -1938,6 +1969,7 @@ async function _pollModelDl() {
       if (cancelBtn) cancelBtn.style.display = 'none';
       if (bar) bar.style.width = '100%';
       if (msg) msg.textContent = '✔ 下载完成';
+      void setStatus('Whisper 模型下载完成', 'ok');
       if (eta) eta.textContent = '';
       if (dlBtn) { dlBtn.disabled = false; dlBtn.innerHTML = `${icon('download', 14)} 下载模型`; }
       _loadModelMgmt();
@@ -1945,7 +1977,9 @@ async function _pollModelDl() {
       if (_installPollTimer) { clearInterval(_installPollTimer); _installPollTimer = null; }
       if (cancelBtn) cancelBtn.style.display = 'none';
       if (dlBtn) { dlBtn.disabled = false; dlBtn.innerHTML = `${icon('download', 14)} 重试下载`; }
-      if (msg) msg.textContent = s.message || '下载失败';
+      const message = s.message || '下载失败';
+      if (msg) msg.textContent = message;
+      void setStatus(message, 'err');
     }
   } catch { /* ignore */ }
 }

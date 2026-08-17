@@ -209,6 +209,36 @@ def test_cleanup_removes_old_and_excess_terminal_tasks_only(tmp_path):
     assert store.get("newer") is None
 
 
+def test_cleanup_keeps_task_while_notification_is_retained(tmp_path):
+    store = TaskStore(tmp_path / "tasks.sqlite3")
+    finished_at = "2026-06-01T00:00:00.000Z"
+    task = create_task(TaskKind.PIPELINE, "旧任务", task_id="linked", created_at=finished_at)
+    store.create(task)
+    running = transition_task(task, TaskStatus.RUNNING, at=finished_at)
+    done = transition_task(running, TaskStatus.SUCCEEDED, at=finished_at)
+    store.save_with_event(
+        done,
+        TaskEvent(
+            task_id=task.id,
+            type=TaskEventType.STATUS,
+            created_at=finished_at,
+            message="任务完成",
+            data={"from": "running", "to": "succeeded"},
+        ),
+        expected_status=TaskStatus.QUEUED,
+    )
+
+    now = datetime.fromisoformat("2026-08-16T00:00:00+00:00")
+    assert store.cleanup(retention_days=30, max_terminal_tasks=10, now=now) == 0
+    assert store.get(task.id) is not None
+    notification = store.list_notifications()[0]
+    assert notification.task_id == task.id
+
+    store.mark_notification_read(notification.id)
+    assert store.cleanup(retention_days=30, max_terminal_tasks=10, now=now) == 1
+    assert store.get(task.id) is None
+
+
 def test_invalid_stored_json_fails_explicitly(tmp_path):
     path = tmp_path / "tasks.sqlite3"
     store = TaskStore(path)
@@ -272,7 +302,10 @@ def test_store_migrates_v1_database_with_updated_at(tmp_path):
     task = store.require("legacy")
     assert task.updated_at == task.finished_at
     with sqlite3.connect(path) as connection:
-        assert connection.execute("SELECT value FROM task_meta WHERE key = 'schema_version'").fetchone()[0] == "3"
+        assert connection.execute("SELECT value FROM task_meta WHERE key = 'schema_version'").fetchone()[0] == "4"
+        assert (
+            connection.execute("SELECT value FROM task_meta WHERE key = 'notification_revision'").fetchone()[0] == "0"
+        )
 
 
 def test_store_migrates_v2_database_with_notification_table(tmp_path):
@@ -285,7 +318,10 @@ def test_store_migrates_v2_database_with_notification_table(tmp_path):
     TaskStore(path)
 
     with sqlite3.connect(path) as connection:
-        assert connection.execute("SELECT value FROM task_meta WHERE key = 'schema_version'").fetchone()[0] == "3"
+        assert connection.execute("SELECT value FROM task_meta WHERE key = 'schema_version'").fetchone()[0] == "4"
+        assert (
+            connection.execute("SELECT value FROM task_meta WHERE key = 'notification_revision'").fetchone()[0] == "0"
+        )
         assert (
             connection.execute(
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'notifications'"

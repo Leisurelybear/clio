@@ -99,6 +99,7 @@ export async function loadProjects() {
     state.lastProject = null;
     state.lastProjectDir = null;
     updateProjectSidebar();
+    setStatus('项目列表加载失败: ' + e.message, 'err');
   }
 }
 
@@ -111,6 +112,7 @@ export async function loadConfig() {
   } catch (e) {
     if (isAbortError(e) || !isLatest('config', ac)) return;
     state.config = { project_dir: '(加载失败)', output_dir: '' };
+    setStatus('配置加载失败: ' + e.message, 'err');
   } finally {
     endLatest('config', ac);
   }
@@ -421,7 +423,7 @@ function renderVideoItem(v) {
           } catch (e) { setStatus('打开文件位置失败: ' + e.message, 'err'); }
           return;
         }
-        setStatus(`正在重跑 ${task} (${file})...`, 'ok');
+        setStatus(`正在重跑 ${task} (${file})...`, 'ok', { persist: false });
         try {
           const r = await api('POST', '/api/rerun', {
             video: file,
@@ -431,7 +433,7 @@ function renderVideoItem(v) {
             abspath: v.abs_path || (v.match && v.match.abs_path) || undefined,
           });
           if (r.ok) {
-            setStatus(r.message || `${task} 已启动`, 'ok');
+            setStatus(r.message || `${task} 已启动`, 'ok', { persist: false });
             import('./sidebar-rerun.js').then(mod => mod.showRerunProgress(task, file, r.task_id));
           } else { throw new Error(r.error || '重跑失败'); }
         } catch (e) { setStatus('重跑失败: ' + e.message, 'err'); }

@@ -300,7 +300,7 @@ async function startRun() {
   if (btn.disabled) return;
   if (state.selectionMode && state.selectedFiles.length === 0) {
     setStatus('选择模式下请先勾选至少一个视频', 'warn');
-    addToast('请先勾选视频', 'warning');
+    addToast('请先勾选视频', 'warning', undefined, { persist: false });
     return;
   }
   btn.disabled = true;
@@ -314,7 +314,7 @@ async function startRun() {
   if (state.deps && state.deps.ok === false && mediaStepsNeedFfmpeg(options.steps)) {
     const msg = state.deps.detail || '需要 ffmpeg/ffprobe 才能运行所选步骤';
     setStatus(msg, 'warn');
-    addToast(msg, 'warning', 6000);
+    addToast(msg, 'warning', 6000, { persist: false });
     updateRunStartButtonState();
     return;
   }
@@ -329,8 +329,8 @@ async function startRun() {
       renderManagedTaskLink();
       _runActive = true;
       const msg = r.message || '流水线已启动';
-      setStatus(msg, 'ok');
-      addToast(msg, 'success');
+      setStatus(msg, 'ok', { persist: false });
+      addToast(msg, 'success', undefined, { persist: false });
       $('run-progress').innerHTML = '<p class="muted">流水线已启动，等待进度...</p>';
       if (_managedTaskId) {
         _subscribeManagedRunEvents();
@@ -344,7 +344,7 @@ async function startRun() {
     $('run-progress').innerHTML = `<p class="err">${escapeHtml(e.message)}</p>`;
     const msg = '启动失败: ' + e.message;
     setStatus(msg, 'err');
-    addToast(msg, 'error', 6000);
+    addToast(msg, 'error', 6000, { persist: false });
     _runActive = false;
     updateRunStartButtonState();
   }
@@ -359,11 +359,11 @@ async function cancelRun() {
       : await api('POST', '/api/run/cancel', {});
     const msg = r.message || '取消请求已发送';
     setStatus(msg, 'warn');
-    addToast(msg, 'warning');
+    addToast(msg, 'warning', undefined, { persist: false });
   } catch (e) {
     const msg = '取消失败: ' + e.message;
     setStatus(msg, 'err');
-    addToast(msg, 'error', 6000);
+    addToast(msg, 'error', 6000, { persist: false });
     if (btn) { btn.disabled = false; btn.innerHTML = '取消'; }
   }
 }
@@ -577,7 +577,7 @@ async function _handleRunStatus(s) {
         const logsHtml = s.logs?.length ? `<div class="run-logs">${s.logs.map(l => `<div class="run-log-line">${escapeHtml(l)}</div>`).join('')}</div>` : '';
         prog.innerHTML = `<p class="ok">✓ 流水线完成</p><p>${escapeHtml(s.message || '')}</p>${logsHtml}`;
       }
-      setStatus('流水线完成', 'ok', { persist: false });
+      setStatus('流水线完成', 'ok', { persist: !_managedTaskId });
       addToast(s.message || '流水线完成', 'success', undefined, { persist: false });
       if (hasRunDom) renderProcessingState($('run-state-container'));
       // 检查是否有转录失败（如缺少模型），弹出下载引导
@@ -629,7 +629,7 @@ async function _handleRunStatus(s) {
         const logsHtml = s.logs?.length ? `<div class="run-logs">${s.logs.map(l => `<div class="run-log-line">${escapeHtml(l)}</div>`).join('')}</div>` : '';
         prog.innerHTML = `<p class="warn">⏹ 流水线已取消</p><p>${escapeHtml(s.message || '')}</p>${logsHtml}`;
       }
-      setStatus('流水线已取消', 'warn', { persist: false });
+      setStatus('流水线已取消', 'warn', { persist: !_managedTaskId });
       addToast(s.message || '流水线已取消', 'warning', undefined, { persist: false });
       if (hasRunDom) renderProcessingState($('run-state-container'));
       await refreshVideosAfterRun();
@@ -644,7 +644,7 @@ async function _handleRunStatus(s) {
         const logsHtml = s.logs?.length ? `<div class="run-logs">${s.logs.map(l => `<div class="run-log-line">${escapeHtml(l)}</div>`).join('')}</div>` : '';
         prog.innerHTML = `<p class="err">✗ 流水线出错</p><p>${escapeHtml(s.message || '')}</p>${logsHtml}`;
       }
-      setStatus('流水线出错', 'err', { persist: false });
+      setStatus('流水线出错', 'err', { persist: !_managedTaskId });
       addToast(s.message || '流水线出错', 'error', 6000, { persist: false });
       if (hasRunDom) renderProcessingState($('run-state-container'));
       await refreshVideosAfterRun();

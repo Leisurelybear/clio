@@ -265,7 +265,12 @@ export async function waitForTask(taskId) {
       settled = true;
       unsubscribe();
       if (task.status === 'succeeded') resolve(task);
-      else reject(new Error(task.error_message || task.message || statusLabel(task.status)));
+      else {
+        const error = new Error(task.error_message || task.message || statusLabel(task.status));
+        error.taskBacked = true;
+        error.taskId = task.id;
+        reject(error);
+      }
     };
     subscribeTask(taskId, onTask).then(stop => {
       unsubscribe = stop;

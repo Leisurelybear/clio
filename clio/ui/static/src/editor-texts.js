@@ -69,7 +69,7 @@ async function _rerunCurrentVideo(task) {
     return;
   }
   const v = state.videos.find(x => x.file === file);
-  setStatus(`正在重跑 ${task} (${file})...`, 'ok');
+  setStatus(`正在重跑 ${task} (${file})...`, 'ok', { persist: false });
   try {
     const r = await api('POST', '/api/rerun', {
       video: file,
@@ -79,7 +79,7 @@ async function _rerunCurrentVideo(task) {
       abspath: v?.abs_path || undefined,
     });
     if (r.ok) {
-      setStatus(r.message || `${task} 已启动`, 'ok');
+      setStatus(r.message || `${task} 已启动`, 'ok', { persist: false });
       import('./sidebar-rerun.js').then(mod => mod.showRerunProgress(task, file, r.task_id));
     } else {
       throw new Error(r.error || '重跑失败');
@@ -330,23 +330,30 @@ export function renderTranscript() {
         state.transcript = await api('GET', `/api/transcripts?video=${encodeURIComponent(v.file)}`);
         addMsg.textContent = '✓ 已添加';
         addMsg.style.color = 'var(--success)';
+        setStatus('已添加转录文本', 'ok');
         $('add-ts-start').value = '';
         $('add-ts-end').value = '';
         $('add-ts-text').value = '';
         renderTranscript();
       } else {
-        addMsg.textContent = '添加失败: ' + (r.error || '');
+        const message = '添加失败: ' + (r.error || '');
+        addMsg.textContent = message;
         addMsg.style.color = 'var(--error)';
+        setStatus(message, 'err');
       }
     } catch (e) {
       if (e.status === 409) {
-        addMsg.textContent = '内容已被其他窗口修改，已刷新: ' + (e.message || '');
+        const message = '内容已被其他窗口修改，已刷新: ' + (e.message || '');
+        addMsg.textContent = message;
         addMsg.style.color = 'var(--error)';
+        setStatus(message, 'err');
         state.transcript = await api('GET', `/api/transcripts?video=${encodeURIComponent(v.file)}`);
         renderTranscript();
       } else {
-        addMsg.textContent = '添加失败: ' + e.message;
+        const message = '添加失败: ' + e.message;
+        addMsg.textContent = message;
         addMsg.style.color = 'var(--error)';
+        setStatus(message, 'err');
       }
     } finally {
       addBtn.disabled = false;

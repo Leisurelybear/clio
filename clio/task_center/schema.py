@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 
-TASK_STORE_SCHEMA_VERSION = 3
+TASK_STORE_SCHEMA_VERSION = 4
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS task_meta (
@@ -95,7 +95,7 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
                 stored_version = int(version_row[0])
             except (TypeError, ValueError) as e:
                 raise TaskStoreSchemaError(f"invalid task store schema version: {version_row[0]!r}") from e
-            if stored_version not in (1, 2, TASK_STORE_SCHEMA_VERSION):
+            if stored_version not in (1, 2, 3, TASK_STORE_SCHEMA_VERSION):
                 raise TaskStoreSchemaError(
                     f"unsupported task store schema version: {stored_version} (expected {TASK_STORE_SCHEMA_VERSION})"
                 )
@@ -118,7 +118,11 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
         "INSERT OR IGNORE INTO task_meta(key, value) VALUES ('schema_version', ?)",
         (str(TASK_STORE_SCHEMA_VERSION),),
     )
-    if stored_version in (1, 2):
+    connection.execute(
+        "INSERT OR IGNORE INTO task_meta(key, value) "
+        "SELECT 'notification_revision', CAST(COALESCE(MAX(seq), 0) AS TEXT) FROM notifications"
+    )
+    if stored_version in (1, 2, 3):
         connection.execute(
             "UPDATE task_meta SET value = ? WHERE key = 'schema_version'",
             (str(TASK_STORE_SCHEMA_VERSION),),

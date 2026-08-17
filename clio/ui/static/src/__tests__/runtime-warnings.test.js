@@ -1,5 +1,11 @@
-import { describe, it, expect } from 'vitest';
-import { buildRuntimeWarnings, renderRuntimeWarnings } from '../runtime-warnings.js';
+import { beforeEach, describe, it, expect } from 'vitest';
+import { buildRuntimeWarnings, renderRuntimeWarnings, warningOccurrences } from '../runtime-warnings.js';
+import { state } from '../state.js';
+
+beforeEach(() => {
+  localStorage.clear();
+  state.currentProjectDir = 'C:/projects/demo';
+});
 
 describe('buildRuntimeWarnings', () => {
   it('warns when debug prompt printing is enabled', () => {
@@ -164,5 +170,29 @@ describe('renderRuntimeWarnings', () => {
 
     expect(container.hidden).toBe(true);
     expect(container.children.length).toBe(0);
+  });
+});
+
+describe('warningOccurrences', () => {
+  it('increments only after a warning disappears and returns', () => {
+    const warning = { id: 'ffmpeg-missing', text: 'ffmpeg missing' };
+
+    expect(warningOccurrences([warning]).get(warning.id)).toBe(1);
+    expect(warningOccurrences([warning]).get(warning.id)).toBe(1);
+    warningOccurrences([]);
+    expect(warningOccurrences([warning]).get(warning.id)).toBe(2);
+  });
+
+  it('keeps occurrences independent for same-named projects', () => {
+    const warning = { id: 'cut-orphaned-bak', text: 'backup' };
+    expect(warningOccurrences([warning]).get(warning.id)).toBe(1);
+    state.currentProjectDir = 'C:/projects/other';
+    expect(warningOccurrences([warning]).get(warning.id)).toBe(1);
+  });
+
+  it('recovers from valid JSON with the wrong storage shape', () => {
+    localStorage.setItem('clio.runtime-warning-state.v1', 'null');
+
+    expect(warningOccurrences([{ id: 'ffmpeg-missing', text: 'missing' }]).get('ffmpeg-missing')).toBe(1);
   });
 });

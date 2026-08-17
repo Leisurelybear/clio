@@ -26,7 +26,7 @@ export function renderVoiceover() {
           return;
         }
         const vid = state.videos.find(x => x.file === file);
-        setStatus(`正在重跑 ${task} (${file})...`, 'ok');
+        setStatus(`正在重跑 ${task} (${file})...`, 'ok', { persist: false });
         try {
           const r = await api('POST', '/api/rerun', {
             video: file,
@@ -36,7 +36,7 @@ export function renderVoiceover() {
             abspath: vid?.abs_path || undefined,
           });
           if (r.ok) {
-            setStatus(r.message || `${task} 已启动`, 'ok');
+            setStatus(r.message || `${task} 已启动`, 'ok', { persist: false });
             import('./sidebar-rerun.js').then(mod => mod.showRerunProgress(task, file, r.task_id));
           } else {
             throw new Error(r.error || '重跑失败');

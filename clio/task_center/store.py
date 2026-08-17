@@ -10,6 +10,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from clio.task_center.models import (
     TERMINAL_TASK_STATUSES,
@@ -350,8 +351,8 @@ class TaskStore:
 
     def notification_snapshot(
         self, query: NotificationQuery | None = None
-    ) -> tuple[builtins.list[Notification], int, int]:
-        """Return inbox rows, unread count, and cursor from one read snapshot."""
+    ) -> tuple[builtins.list[Notification], int, int, int]:
+        """Return inbox rows, unread count, total count, and revision."""
         query = query or NotificationQuery()
         where: builtins.list[str] = []
         params: builtins.list[Any] = []
@@ -369,11 +370,17 @@ class TaskStore:
         unread_params = [query.project_id] if query.project_id is not None else []
         with self._connect() as connection:
             connection.execute("BEGIN")
-            latest_seq = int(connection.execute("SELECT COALESCE(MAX(seq), 0) FROM notifications").fetchone()[0])
+            latest_seq = self._notification_revision(connection)
             rows = connection.execute(
                 f"SELECT * FROM notifications{clause} ORDER BY seq DESC LIMIT ? OFFSET ?",  # noqa: S608
                 [*params, query.limit, query.offset],
             ).fetchall()
+            total = int(
+                connection.execute(
+                    f"SELECT COUNT(*) FROM notifications{clause}",  # noqa: S608
+                    params,
+                ).fetchone()[0]
+            )
             unread = int(
                 connection.execute(
                     f"SELECT COUNT(*) FROM notifications WHERE read_at IS NULL{unread_clause}",  # noqa: S608
@@ -381,7 +388,7 @@ class TaskStore:
                 ).fetchone()[0]
             )
             connection.commit()
-        return [self._row_to_notification(row) for row in rows], unread, latest_seq
+        return [self._row_to_notification(row) for row in rows], unread, total, latest_seq
 
     def count_unread_notifications(self, *, project_id: str | None = None) -> int:
         where = ["read_at IS NULL"]
@@ -398,8 +405,7 @@ class TaskStore:
 
     def latest_notification_seq(self) -> int:
         with self._connect() as connection:
-            row = connection.execute("SELECT COALESCE(MAX(seq), 0) FROM notifications").fetchone()
-        return int(row[0])
+            return self._notification_revision(connection)
 
     def notification_events(self, *, after_seq: int = 0, limit: int = 200) -> builtins.list[Notification]:
         if after_seq < 0:
@@ -417,15 +423,20 @@ class TaskStore:
         read_at = utc_now_iso() if read else None
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            cursor = connection.execute(
-                "UPDATE notifications SET read_at = ? WHERE id = ?",
-                (read_at, notification_id_value),
-            )
             row = connection.execute("SELECT * FROM notifications WHERE id = ?", (notification_id_value,)).fetchone()
+            if row is not None and (row["read_at"] is not None) != read:
+                connection.execute(
+                    "UPDATE notifications SET read_at = ? WHERE id = ?",
+                    (read_at, notification_id_value),
+                )
+                self._bump_notification_revision(connection)
+                row = connection.execute(
+                    "SELECT * FROM notifications WHERE id = ?", (notification_id_value,)
+                ).fetchone()
             connection.commit()
-        if cursor.rowcount == 0 and row is None:
+        if row is None:
             return None
-        return self._row_to_notification(row) if row is not None else None
+        return self._row_to_notification(row)
 
     def mark_all_notifications_read(self, *, project_id: str | None = None) -> int:
         where = ["read_at IS NULL"]
@@ -434,10 +445,14 @@ class TaskStore:
             where.append("project_id = ?")
             params.append(project_id)
         with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             cursor = connection.execute(
                 f"UPDATE notifications SET read_at = ? WHERE {' AND '.join(where)}",  # noqa: S608
                 params,
             )
+            if cursor.rowcount:
+                self._bump_notification_revision(connection)
+            connection.commit()
         return cursor.rowcount
 
     def delete(self, task_id: str) -> bool:
@@ -460,17 +475,24 @@ class TaskStore:
         cutoff = (
             (current_time - timedelta(days=retention_days)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
         )
+        # Remove expired notification history first so retained notifications
+        # can keep their task deep links valid during task cleanup.
+        self._cleanup_notifications(
+            retention_days=retention_days, max_notifications=max_terminal_tasks, now=current_time
+        )
         terminal_values = tuple(status.value for status in TERMINAL_TASK_STATUSES)
         placeholders = ",".join("?" for _ in terminal_values)
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             old = connection.execute(
-                f"DELETE FROM tasks WHERE status IN ({placeholders}) AND finished_at < ?",  # noqa: S608
+                f"DELETE FROM tasks WHERE status IN ({placeholders}) AND finished_at < "
+                "? AND NOT EXISTS (SELECT 1 FROM notifications WHERE notifications.task_id = tasks.id)",  # noqa: S608
                 (*terminal_values, cutoff),
             ).rowcount
             excess_rows = connection.execute(
                 f"""
                 SELECT id FROM tasks WHERE status IN ({placeholders})
+                AND NOT EXISTS (SELECT 1 FROM notifications WHERE notifications.task_id = tasks.id)
                 ORDER BY finished_at DESC, id DESC LIMIT -1 OFFSET ?
                 """,  # noqa: S608
                 (*terminal_values, max_terminal_tasks),
@@ -484,11 +506,6 @@ class TaskStore:
                     excess_ids,
                 ).rowcount
             connection.commit()
-        # Read notifications are disposable history; unread messages remain
-        # until the user explicitly handles them.
-        self._cleanup_notifications(
-            retention_days=retention_days, max_notifications=max_terminal_tasks, now=current_time
-        )
         return old + excess
 
     def _cleanup_notifications(self, *, retention_days: int, max_notifications: int, now: datetime) -> int:
@@ -510,6 +527,8 @@ class TaskStore:
                     f"DELETE FROM notifications WHERE id IN ({placeholders})",  # noqa: S608
                     ids,
                 ).rowcount
+            if removed:
+                self._bump_notification_revision(connection)
             connection.commit()
         return removed
 
@@ -663,6 +682,11 @@ class TaskStore:
         if row is None:
             return None
         title = str(row[0] or "任务")
+        link_params = ["entity=tasks", "task_id=" + quote(event.task_id, safe="")]
+        if row[1]:
+            link_params.append(f"project_dir={quote(str(row[1]), safe='')}")
+        if row[2]:
+            link_params.append(f"project={quote(str(row[2]), safe='')}")
         return Notification(
             id=notification_id(f"task-event:{event.seq}"),
             severity=severity,
@@ -674,14 +698,14 @@ class TaskStore:
             task_id=event.task_id,
             project_id=row[1],
             project_name=row[2],
-            link=f"?entity=tasks&task_id={event.task_id}",
+            link="?" + "&".join(link_params),
             dedupe_key=f"task-event:{event.seq}",
             data={"event_seq": event.seq, "event_type": event.type.value},
         )
 
     @classmethod
     def _insert_notification(cls, connection: sqlite3.Connection, notification: Notification) -> Notification:
-        connection.execute(
+        cursor = connection.execute(
             """
             INSERT OR IGNORE INTO notifications
               (id, severity, title, message, created_at, read_at, source_type, source_id,
@@ -705,6 +729,8 @@ class TaskStore:
                 cls._json(notification_data(notification.data)),
             ),
         )
+        if cursor.rowcount:
+            cls._bump_notification_revision(connection)
         if notification.dedupe_key:
             row = connection.execute(
                 "SELECT * FROM notifications WHERE dedupe_key = ?", (notification.dedupe_key,)
@@ -714,6 +740,21 @@ class TaskStore:
         if row is None:
             raise TaskStoreError("failed to persist notification")
         return cls._row_to_notification(row)
+
+    @staticmethod
+    def _notification_revision(connection: sqlite3.Connection) -> int:
+        row = connection.execute("SELECT value FROM task_meta WHERE key = 'notification_revision'").fetchone()
+        try:
+            return int(row[0]) if row is not None else 0
+        except (TypeError, ValueError) as e:
+            raise TaskStoreDataError("invalid notification revision") from e
+
+    @classmethod
+    def _bump_notification_revision(cls, connection: sqlite3.Connection) -> int:
+        connection.execute(
+            "UPDATE task_meta SET value = CAST(value AS INTEGER) + 1 WHERE key = 'notification_revision'"
+        )
+        return cls._notification_revision(connection)
 
     @staticmethod
     def _load_json(raw: str, *, field: str, task_id: str) -> dict[str, Any]:

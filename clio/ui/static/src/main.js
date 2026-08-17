@@ -32,7 +32,7 @@ import {
 import { resolveSessionRestore } from './session-restore.js';
 import { shouldConfirmDirtyTabSwitch } from './editor-save.js';
 import { stripQueryParams } from './url-params.js';
-import { initNotificationCenter } from './notification-center.js';
+import { initNotificationCenter, registerNotification } from './notification-center.js';
 
 // Expose functions referenced by inline onclick handlers in HTML
 window.switchToOriginalThenCompress = switchToOriginalThenCompress;
@@ -42,25 +42,21 @@ window.refineCurrentFile = refineCurrentFile;
 window.addToast = addToast;
 
 let _orphanedCutBackups = [];
+let _missingKeys = null;
 
 async function refreshRuntimeWarningsBanner() {
-  let missingKeys = null;
   try {
     const r = await api('GET', '/api/deps/keys');
-    missingKeys = r.missing || [];
-  } catch {
-    missingKeys = null;
-  }
+    _missingKeys = Array.isArray(r.missing) ? r.missing : [];
+  } catch { /* keep the last successful probe during a transient outage */ }
   try {
     const r = await api('GET', '/api/cut/orphaned-backups');
-    _orphanedCutBackups = r.items || [];
-  } catch {
-    _orphanedCutBackups = [];
-  }
+    _orphanedCutBackups = Array.isArray(r.items) ? r.items : [];
+  } catch { /* keep the last successful probe during a transient outage */ }
   updateRuntimeWarnings(state.config, {
     orphanedCutBackups: _orphanedCutBackups,
     ffmpegDeps: state.deps,
-    missingKeys,
+    missingKeys: _missingKeys,
     onAction: handleRuntimeWarningAction,
   });
 }
@@ -111,7 +107,12 @@ async function handleRuntimeWarningAction(actionId) {
       errN ? `已恢复 ${count} 个，${errN} 个失败` : `已处理 ${count} 个裁剪备份`,
       errN ? 'warn' : 'ok',
     );
-    addToast(errN ? `处理 ${count}，失败 ${errN}` : `已处理 ${count} 个旧文件`, errN ? 'warning' : 'success');
+    addToast(
+      errN ? `处理 ${count}，失败 ${errN}` : `已处理 ${count} 个旧文件`,
+      errN ? 'warning' : 'success',
+      undefined,
+      { persist: false },
+    );
   } catch (e) {
     if (e.status === 409 && e.body && e.body.conflicts && e.body.conflicts.length) {
       const keepNew = confirm(
@@ -121,14 +122,14 @@ async function handleRuntimeWarningAction(actionId) {
         const r = await api('POST', '/api/cut/restore-backups', { keep_target: keepNew });
         const count = r.count || (r.restored || []).length || 0;
         setStatus(`已处理 ${count} 个裁剪备份`, 'ok');
-        addToast(`已处理 ${count} 个旧文件`, 'success');
+        addToast(`已处理 ${count} 个旧文件`, 'success', undefined, { persist: false });
       } catch (e2) {
         setStatus('恢复失败: ' + e2.message, 'err');
-        addToast('恢复失败: ' + e2.message, 'error', 6000);
+        addToast('恢复失败: ' + e2.message, 'error', 6000, { persist: false });
       }
     } else {
       setStatus('恢复失败: ' + e.message, 'err');
-      addToast('恢复失败: ' + e.message, 'error', 6000);
+      addToast('恢复失败: ' + e.message, 'error', 6000, { persist: false });
     }
   }
   await refreshRuntimeWarningsBanner();
@@ -176,11 +177,18 @@ async function init() {
   initTheme();
   initDesktopPickers(document);
   initNotificationCenter();
+  window.addEventListener('clio:notification-action', (event) => {
+    void handleRuntimeWarningAction(event.detail?.id);
+  });
 
   // 从 URL 读取 project + project_dir 参数
   const urlParams = new URLSearchParams(window.location.search);
   const urlProject = urlParams.get('project');
   const urlProjectDir = urlParams.get('project_dir');
+  const urlEntity = urlParams.get('entity');
+  const urlVideo = urlParams.get('video');
+  const urlDay = urlParams.get('day');
+  const urlTaskId = urlParams.get('task_id');
   if (urlProject) {
     state.currentProjectName = urlProject;
   }
@@ -216,6 +224,15 @@ async function init() {
       if (outputDir) body.output_dir = outputDir;
       const r = await api('POST', '/api/project/create', body);
       if (r.ok) {
+        await registerNotification({
+          message: `项目已创建：${name}`,
+          severity: 'success',
+          title: '操作完成',
+          sourceType: 'ui_status',
+          projectName: name,
+          projectDir,
+          link: `?project=${encodeURIComponent(name)}&project_dir=${encodeURIComponent(projectDir)}`,
+        });
         newModal.style.display = 'none';
         window.location.search = `?project=${encodeURIComponent(name)}&project_dir=${encodeURIComponent(projectDir)}`;
       } else {
@@ -294,8 +311,17 @@ async function init() {
           try {
             const r = await api('POST', '/api/project/migrate', { project_dir: projectDir });
             if (r.ok) {
-              setStatus(r.migrated ? `已迁移: ${name}` : (r.message || '已是新结构'), 'ok');
+              const message = r.migrated ? `已迁移: ${name}` : (r.message || '已是新结构');
+              setStatus(message, 'ok', { persist: false });
               const dest = r.project_dir || projectDir;
+              await registerNotification({
+                message,
+                severity: 'success',
+                title: '操作完成',
+                sourceType: 'ui_status',
+                projectName: name,
+                projectDir: dest,
+              });
               if (confirm(`迁移完成。是否立即打开项目「${name}」？`)) {
                 openModal.style.display = 'none';
                 window.location.search = `?project=${encodeURIComponent(name)}&project_dir=${encodeURIComponent(dest)}`;
@@ -333,7 +359,9 @@ async function init() {
         };
       });
     } catch (e) {
-      $('project-list-modal').innerHTML = '<p class="err">加载项目列表失败: ' + escapeHtml(e.message) + '</p>';
+      const message = '加载项目列表失败: ' + e.message;
+      $('project-list-modal').innerHTML = '<p class="err">' + escapeHtml(message) + '</p>';
+      setStatus(message, 'err');
     }
   };
   $('op-cancel').onclick = () => { openModal.style.display = 'none'; };
@@ -580,6 +608,7 @@ async function init() {
     await loadFfmpegDeps();
     await refreshRuntimeWarningsBanner();
     await loadProject();
+    if (urlDay) state.currentDay = urlDay;
     // 检查项目是否缺少 project.yaml，提示用户创建
     (async () => {
       if (!state.currentProjectName) return;
@@ -609,8 +638,8 @@ async function init() {
     }
     await loadVideos();
     const restore = resolveSessionRestore({
-      lastEntity: state.lastEntity,
-      lastVideo: state.lastVideo,
+      lastEntity: urlEntity || state.lastEntity,
+      lastVideo: urlVideo || state.lastVideo,
       videos: state.videos,
     });
     if (restore.entity === 'plan') {
@@ -632,6 +661,10 @@ async function init() {
       await selectTokens();
     } else if (restore.entity === 'tasks') {
       await selectTasks();
+      if (urlTaskId) {
+        const tasks = await import('./task-center.js');
+        await tasks.selectTask(urlTaskId);
+      }
     } else if (restore.video) {
       await selectVideo(restore.video);
     } else if (state.videos.length) {
@@ -639,6 +672,10 @@ async function init() {
     } else {
       setStatus('项目目录中暂无视频文件', 'warn');
       renderVideoList();
+    }
+    if (urlEntity || urlVideo || urlDay || urlTaskId) {
+      const cleaned = stripQueryParams(window.location.search, ['entity', 'video', 'day', 'task_id']);
+      window.history.replaceState(null, '', window.location.pathname + cleaned + (window.location.hash || ''));
     }
   } catch (e) {
     $('proj-name').textContent = '(加载失败)';

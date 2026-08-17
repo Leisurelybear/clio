@@ -1,9 +1,42 @@
 import { registerNotification } from './notification-center.js';
+import { state } from './state.js';
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '']);
+const WARNING_STATE_KEY = 'clio.runtime-warning-state.v1';
 
 function isLocalHost(hostname) {
   return LOCAL_HOSTS.has(String(hostname || '').toLowerCase());
+}
+
+function warningScope() {
+  return String(state.currentProjectDir || state.currentProjectName || 'global');
+}
+
+function warningOccurrences(warnings) {
+  let stored = {};
+  try {
+    const parsed = JSON.parse(localStorage.getItem(WARNING_STATE_KEY) || '{}');
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) stored = parsed;
+  } catch { /* ignore malformed browser state */ }
+  const scope = warningScope();
+  const prefix = `${scope}:`;
+  const activeKeys = new Set(warnings.map(warning => `${scope}:${warning.id}`));
+  Object.keys(stored).forEach((key) => {
+    if (key.startsWith(prefix) && !activeKeys.has(key)) stored[key].active = false;
+  });
+  const occurrences = new Map();
+  for (const warning of warnings) {
+    const key = `${scope}:${warning.id}`;
+    const previous = stored[key] || { occurrence: 0, active: false, text: '' };
+    const changed = previous.text && previous.text !== warning.text;
+    const occurrence = previous.occurrence + (previous.active && !changed ? 0 : 1);
+    stored[key] = { occurrence, active: true, text: warning.text, seen_at: Date.now() };
+    occurrences.set(warning.id, occurrence);
+  }
+  const entries = Object.entries(stored).sort((a, b) => (b[1]?.seen_at || 0) - (a[1]?.seen_at || 0));
+  stored = Object.fromEntries(entries.slice(0, 200));
+  try { localStorage.setItem(WARNING_STATE_KEY, JSON.stringify(stored)); } catch { /* best effort */ }
+  return occurrences;
 }
 
 /**
@@ -133,17 +166,23 @@ function updateRuntimeWarnings(config, opts = {}) {
     ffmpegDeps: opts.ffmpegDeps ?? null,
     missingKeys: opts.missingKeys ?? null,
   });
+  const occurrences = warningOccurrences(warnings);
   warnings.forEach((warning) => {
+    const occurrence = occurrences.get(warning.id) || 1;
     registerNotification({
       message: warning.text,
       severity: warning.level === 'danger' ? 'error' : 'warning',
       title: '运行环境提醒',
       sourceType: 'runtime_warning',
-      sourceId: warning.id,
-      dedupeKey: `runtime-warning:${warning.id}:${warning.text}`,
+      sourceId: `${warning.id}:${occurrence}`,
+      dedupeKey: `runtime-warning:${warningScope()}:${warning.id}:${occurrence}:${warning.text}`,
+      data: {
+        action_id: warning.action?.id || null,
+        warning_id: warning.id,
+      },
     });
   });
   renderRuntimeWarnings(container, warnings, { onAction: opts.onAction });
 }
 
-export { buildRuntimeWarnings, renderRuntimeWarnings, updateRuntimeWarnings };
+export { buildRuntimeWarnings, renderRuntimeWarnings, updateRuntimeWarnings, warningOccurrences };

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 from dataclasses import replace
+from pathlib import Path
 from unittest.mock import MagicMock
 
 from clio.task_center.manager import TaskManager
@@ -42,6 +43,11 @@ class _Handler:
 
     def _send_json(self, data, status=200):
         self.responses.append((data, status))
+
+
+class _ResolvingHandler(_Handler):
+    def _resolve_project_dir(self, qs):
+        return Path(qs["project_dir"][0])
 
 
 class _DisconnectOnFlush(io.BytesIO):
@@ -97,7 +103,7 @@ def test_task_terminal_and_attention_events_create_notifications(tmp_path):
         NotificationSeverity.WARNING,
     ]
     assert notifications[0].task_id == task.id
-    assert notifications[0].link == f"?entity=tasks&task_id={task.id}"
+    assert notifications[0].link == f"?entity=tasks&task_id={task.id}&project=%E4%B8%9C%E4%BA%AC"
     assert manager.store.count_unread_notifications() == 2
 
 
@@ -117,9 +123,12 @@ def test_ui_notification_dedup_and_read_state(tmp_path):
 
     assert first.id == second.id
     assert store.count_unread_notifications() == 1
+    created_revision = store.latest_notification_seq()
     assert store.mark_notification_read(first.id).is_read is True
+    assert store.latest_notification_seq() == created_revision + 1
     assert store.count_unread_notifications() == 0
     assert store.mark_notification_read(first.id, read=False).is_read is False
+    assert store.latest_notification_seq() == created_revision + 2
 
 
 def test_notification_routes_create_list_read_and_mark_all(tmp_path):
@@ -145,6 +154,7 @@ def test_notification_routes_create_list_read_and_mark_all(tmp_path):
     listed, status = handler.responses[-1]
     assert status == 200
     assert listed["unread_count"] == 1
+    assert listed["total_count"] == 1
     assert listed["notifications"][0]["project_name"] == "京都"
 
     handle_post_notification_read(handler, {}, {}, notification_id)
@@ -158,6 +168,35 @@ def test_notification_routes_create_list_read_and_mark_all(tmp_path):
     handle_post_notifications_read_all(handler, {}, {})
     assert handler.responses[-1][0]["marked"] == 1
     assert manager.store.count_unread_notifications() == 0
+
+
+def test_notification_route_uses_project_dir_and_rejects_backslash_links(tmp_path):
+    manager = _manager(tmp_path)
+    handler = _ResolvingHandler(manager)
+    project_dir = tmp_path / "same-name-a"
+    project_dir.mkdir()
+    handle_post_notification(
+        handler,
+        {"project": ["同名项目"], "project_dir": [str(project_dir)]},
+        {"severity": "info", "message": "完成", "link": "?entity=video"},
+    )
+    saved = handler.responses[-1][0]["notification"]
+    assert saved["project_id"] == str(project_dir.resolve())
+    assert saved["project_name"] == "同名项目"
+
+    handle_post_notification(
+        handler,
+        {},
+        {"severity": "warning", "message": "外部链接", "link": "/\\evil.example"},
+    )
+    assert handler.responses[-1][1] == 400
+
+    handle_post_notification(
+        handler,
+        {},
+        {"severity": "warning", "message": "非法链接", "link": "//[invalid"},
+    )
+    assert handler.responses[-1][1] == 400
 
 
 def test_notification_stream_uses_cursor(tmp_path):
@@ -180,4 +219,46 @@ def test_notification_stream_uses_cursor(tmp_path):
     output = handler.wfile.getvalue().decode("utf-8")
     assert "id: 1" not in output
     assert "id: 2" in output
-    assert "message-1" in output
+    assert '"refresh":true' in output
+
+
+def test_notification_read_all_advances_single_revision(tmp_path):
+    store = TaskStore(tmp_path / "tasks.sqlite3")
+    for index in range(3):
+        store.create_notification(
+            Notification(
+                id=f"notification-{index}",
+                severity=NotificationSeverity.INFO,
+                title="通知",
+                message=str(index),
+                created_at=utc_now_iso(),
+            )
+        )
+    before = store.latest_notification_seq()
+
+    assert store.mark_all_notifications_read() == 3
+    assert store.latest_notification_seq() == before + 1
+    assert store.count_unread_notifications() == 0
+
+
+def test_notification_snapshot_reports_filtered_total(tmp_path):
+    store = TaskStore(tmp_path / "tasks.sqlite3")
+    for index in range(3):
+        store.create_notification(
+            Notification(
+                id=f"notification-{index}",
+                severity=NotificationSeverity.WARNING if index else NotificationSeverity.SUCCESS,
+                title="通知",
+                message=str(index),
+                created_at=utc_now_iso(),
+            )
+        )
+
+    items, unread, total, revision = store.notification_snapshot(
+        NotificationQuery(severities=(NotificationSeverity.WARNING,), limit=1)
+    )
+
+    assert len(items) == 1
+    assert unread == 3
+    assert total == 2
+    assert revision == 3

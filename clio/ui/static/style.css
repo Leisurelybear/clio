@@ -353,6 +353,19 @@ header > * { -webkit-app-region: no-drag; }
 .notification-unread-dot { align-self: center; width: 6px; height: 6px; border-radius: 50%; background: transparent; }
 .notification-row.unread .notification-unread-dot { background: var(--accent); }
 .notification-empty { margin: 0; padding: 28px 12px; color: var(--text-muted); text-align: center; font-size: var(--text-sm); }
+.notification-loading { margin: 0; padding: 16px 12px; color: var(--text-muted); text-align: center; font-size: var(--text-xs); }
+.notification-load-more {
+  width: 100%;
+  min-height: 36px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-xs);
+}
+.notification-load-more:hover { background: var(--bg-hover); }
 
 .status { font-size: var(--text-sm); min-width: 120px; display: flex; align-items: center; gap: 6px; }
 .status .loading { display: flex; align-items: center; gap: 6px; }

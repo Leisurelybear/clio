@@ -111,7 +111,7 @@ function _rerunPollError(statusEl, label, msg) {
   if (_rerunPollTimer) { clearInterval(_rerunPollTimer); _rerunPollTimer = null; }
   if (statusEl) statusEl.innerHTML = `<span class="err">✗ ${escapeHtml(label)}</span>`;
   setStatus(msg, 'err');
-  addToast(msg, 'error', 6000);
+  addToast(msg, 'error', 6000, { persist: false });
   setTimeout(hideRerunProgress, 8000);
 }
 

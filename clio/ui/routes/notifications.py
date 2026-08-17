@@ -6,6 +6,7 @@ import json
 import time
 import uuid
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
 
 from clio.task_center.models import Notification, NotificationSeverity, notification_data, utc_now_iso
 from clio.task_center.store import NotificationQuery
@@ -79,11 +80,12 @@ def handle_get_notifications(handler: HandlerProtocol, qs: dict[str, Any]) -> No
     except ValueError as e:
         return handler._send_json({"ok": False, "error": str(e)}, 400)
     store = handler._get_task_manager().store
-    notifications, unread, latest_seq = store.notification_snapshot(query)
+    notifications, unread, total, latest_seq = store.notification_snapshot(query)
     handler._send_json(
         {
             "notifications": [item.to_dict() for item in notifications],
             "unread_count": unread,
+            "total_count": total,
             "latest_seq": latest_seq,
             "limit": query.limit,
             "offset": query.offset,
@@ -112,16 +114,11 @@ def handle_get_notifications_stream(handler: HandlerProtocol, qs: dict[str, Any]
     last_heartbeat = time.monotonic()
     try:
         while True:
-            items = store.notification_events(after_seq=cursor, limit=200)
-            if items:
-                for item in items:
-                    cursor = item.seq or cursor
-                    body = json.dumps(
-                        {"seq": cursor, "notification": item.to_dict()},
-                        ensure_ascii=False,
-                        separators=(",", ":"),
-                    )
-                    handler.wfile.write(f"id: {cursor}\ndata: {body}\n\n".encode())
+            latest = store.latest_notification_seq()
+            if latest > cursor:
+                cursor = latest
+                body = json.dumps({"seq": cursor, "refresh": True}, separators=(",", ":"))
+                handler.wfile.write(f"id: {cursor}\ndata: {body}\n\n".encode())
                 handler.wfile.flush()
                 last_heartbeat = time.monotonic()
                 continue
@@ -150,10 +147,22 @@ def handle_post_notification(handler: HandlerProtocol, qs: dict[str, Any], obj: 
     if not isinstance(title, str) or not title.strip() or len(title) > 200:
         return handler._send_json({"ok": False, "error": "title must be a non-empty string up to 200 characters"}, 400)
     link = obj.get("link")
-    if link is not None and (
-        not isinstance(link, str) or not link.startswith(("/", "?")) or link.startswith("//") or len(link) > 500
-    ):
-        return handler._send_json({"ok": False, "error": "link must be a local path"}, 400)
+    if link is not None:
+        try:
+            parsed_link = urlsplit(link) if isinstance(link, str) else None
+        except ValueError:
+            parsed_link = None
+        if (
+            parsed_link is None
+            or not link.startswith(("/", "?"))
+            or link.startswith("//")
+            or "\\" in link
+            or "%5c" in link.lower()
+            or parsed_link.scheme
+            or parsed_link.netloc
+            or len(link) > 500
+        ):
+            return handler._send_json({"ok": False, "error": "link must be a local path"}, 400)
     dedupe_key = obj.get("dedupe_key")
     if dedupe_key is not None and (not isinstance(dedupe_key, str) or len(dedupe_key) > 300):
         return handler._send_json({"ok": False, "error": "dedupe_key must be a string up to 300 characters"}, 400)
@@ -170,6 +179,15 @@ def handle_post_notification(handler: HandlerProtocol, qs: dict[str, Any], obj: 
     if not isinstance(data, dict):
         return handler._send_json({"ok": False, "error": "data must be an object"}, 400)
     project_name = _project_name(qs)
+    project_id = None
+    if project_name or _first(qs, "project_dir"):
+        resolve_project = getattr(handler, "_resolve_project_dir", None)
+        if callable(resolve_project):
+            project_dir = resolve_project(qs)
+            project_id = str(project_dir.resolve())
+            project_name = project_name or project_dir.name
+        else:
+            project_id = project_name
     store = handler._get_task_manager().store
     if task_id is not None and store.get(task_id) is None:
         return handler._send_json({"ok": False, "error": "task_id does not exist"}, 400)
@@ -182,14 +200,22 @@ def handle_post_notification(handler: HandlerProtocol, qs: dict[str, Any], obj: 
         source_type=source_type,
         source_id=source_id,
         task_id=task_id,
-        project_id=project_name,
+        project_id=project_id,
         project_name=project_name,
         link=link,
         dedupe_key=dedupe_key,
         data=notification_data(data),
     )
     saved = store.create_notification(notification)
-    handler._send_json({"ok": True, "notification": saved.to_dict()}, 201)
+    handler._send_json(
+        {
+            "ok": True,
+            "notification": saved.to_dict(),
+            "unread_count": store.count_unread_notifications(),
+            "latest_seq": store.latest_notification_seq(),
+        },
+        201,
+    )
 
 
 def handle_post_notification_read(
@@ -199,7 +225,15 @@ def handle_post_notification_read(
     saved = handler._get_task_manager().store.mark_notification_read(notification_id)
     if saved is None:
         return handler._send_json({"ok": False, "error": "notification not found"}, 404)
-    handler._send_json({"ok": True, "notification": saved.to_dict()})
+    store = handler._get_task_manager().store
+    handler._send_json(
+        {
+            "ok": True,
+            "notification": saved.to_dict(),
+            "unread_count": store.count_unread_notifications(),
+            "latest_seq": store.latest_notification_seq(),
+        }
+    )
 
 
 def handle_post_notification_unread(
@@ -209,10 +243,26 @@ def handle_post_notification_unread(
     saved = handler._get_task_manager().store.mark_notification_read(notification_id, read=False)
     if saved is None:
         return handler._send_json({"ok": False, "error": "notification not found"}, 404)
-    handler._send_json({"ok": True, "notification": saved.to_dict()})
+    store = handler._get_task_manager().store
+    handler._send_json(
+        {
+            "ok": True,
+            "notification": saved.to_dict(),
+            "unread_count": store.count_unread_notifications(),
+            "latest_seq": store.latest_notification_seq(),
+        }
+    )
 
 
 def handle_post_notifications_read_all(handler: HandlerProtocol, qs: dict[str, Any], obj: dict[str, Any]) -> None:
     del obj
-    count = handler._get_task_manager().store.mark_all_notifications_read(project_id=_first(qs, "project_id") or None)
-    handler._send_json({"ok": True, "marked": count})
+    store = handler._get_task_manager().store
+    count = store.mark_all_notifications_read(project_id=_first(qs, "project_id") or None)
+    handler._send_json(
+        {
+            "ok": True,
+            "marked": count,
+            "unread_count": store.count_unread_notifications(),
+            "latest_seq": store.latest_notification_seq(),
+        }
+    )

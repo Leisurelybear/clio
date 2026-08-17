@@ -31,11 +31,10 @@ function resolveDuration(type, duration) {
 
 function addToast(message, type = 'info', duration, options = {}) {
   const container = getContainer();
-  if (!container) return;
-
   const notificationSeverity = type === 'success' || type === 'error' || type === 'warning' ? type : 'info';
+  let notificationPromise = Promise.resolve(null);
   if (options.persist !== false) {
-    registerNotification({
+    notificationPromise = registerNotification({
       message,
       severity: notificationSeverity,
       title: options.title || '通知',
@@ -47,6 +46,7 @@ function addToast(message, type = 'info', duration, options = {}) {
       data: options.data,
     });
   }
+  if (!container) return notificationPromise;
 
   const resolvedDuration = resolveDuration(type, duration);
   const toast = document.createElement('div');
@@ -72,6 +72,7 @@ function addToast(message, type = 'info', duration, options = {}) {
       setTimeout(() => removeToast(toast), resolvedDuration);
     }
   }
+  return notificationPromise;
 }
 
 function removeToast(toast) {

@@ -56,6 +56,7 @@ export async function refineCurrentFile(type) {
       } else {
         state._refineError = `修正失败: ${e.message}`;
       }
+      setStatus(state._refineError, 'err');
       state.refining = null;
       if (state.currentVideo === v.file && state.currentTab === type) renderActiveTab();
     }

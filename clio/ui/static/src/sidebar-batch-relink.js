@@ -90,7 +90,9 @@ async function _scanAndMatch() {
     }
     result.innerHTML = html;
   } catch (e) {
-    result.innerHTML = `<p class="err">扫描失败: ${escapeHtml(e.message)}</p>`;
+    const message = '扫描失败: ' + e.message;
+    result.innerHTML = `<p class="err">${escapeHtml(message)}</p>`;
+    setStatus(message, 'err');
     _pendingMatches = [];
     if (apply) apply.disabled = true;
   } finally {
@@ -125,7 +127,7 @@ async function _applyMatches() {
   }
   const msg = `批量关联完成：成功 ${ok}` + (fail ? `，失败 ${fail}` : '');
   setStatus(msg, fail ? 'warn' : 'ok');
-  addToast(msg, fail ? 'warning' : 'success', 6000);
+  addToast(msg, fail ? 'warning' : 'success', 6000, { persist: false });
   if (apply) {
     apply.textContent = '应用匹配';
     apply.disabled = true;

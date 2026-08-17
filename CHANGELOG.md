@@ -13,6 +13,15 @@ Implemented the persistent notification center (R-042).
 - test: cover notification persistence, deduplication, read state, routes, SSE,
   and frontend badge/registration behavior
 
+Review follow-up hardens the inbox for real multi-tab and long-running workflows:
+
+- fix(notifications): add schema v4 revision tracking, transactional read/cleanup
+  revisions, stable project-scoped links, local-link validation, and task deep links
+- fix(ui): keep the panel open while switching filters, add server pagination, and
+  protect live state from stale snapshots or skipped SSE revisions
+- fix(ui): wait for managed cut tasks before showing completion and avoid duplicate
+  persistence when a task event already records the terminal result
+
 ## 2026-08-16
 
 Completed the full-project review follow-up (R-043). The changes are verified

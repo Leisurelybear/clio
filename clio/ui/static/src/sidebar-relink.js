@@ -37,7 +37,7 @@ async function _submitRelink() {
   const newPath = (input?.value || '').trim();
   if (!newPath) {
     setStatus('请输入或选择新路径', 'warn');
-    addToast('请输入或选择新路径', 'warning');
+    addToast('请输入或选择新路径', 'warning', undefined, { persist: false });
     return;
   }
   if (newPath === _oldPath) {
@@ -58,19 +58,19 @@ async function _submitRelink() {
     if (r.ok) {
       const msg = `已重新关联: ${newPath}`;
       setStatus(msg, 'ok');
-      addToast(msg, 'success');
+      addToast(msg, 'success', undefined, { persist: false });
       closeRelinkModal();
       const { loadVideos } = await import('./sidebar-data.js');
       await loadVideos();
     } else {
       const msg = '重新关联失败: ' + (r.error || '未知错误');
       setStatus(msg, 'err');
-      addToast(msg, 'error', 6000);
+      addToast(msg, 'error', 6000, { persist: false });
     }
   } catch (e) {
     const msg = '重新关联失败: ' + e.message;
     setStatus(msg, 'err');
-    addToast(msg, 'error', 6000);
+    addToast(msg, 'error', 6000, { persist: false });
   } finally {
     if (btn) {
       btn.disabled = false;
