@@ -33,6 +33,7 @@ import { resolveSessionRestore } from './session-restore.js';
 import { shouldConfirmDirtyTabSwitch } from './editor-save.js';
 import { stripQueryParams } from './url-params.js';
 import { initNotificationCenter, registerNotification } from './notification-center.js';
+import { startTaskStream, loadTasks } from './task-center.js';
 
 // Expose functions referenced by inline onclick handlers in HTML
 window.switchToOriginalThenCompress = switchToOriginalThenCompress;
@@ -125,11 +126,11 @@ async function handleRuntimeWarningAction(actionId) {
         addToast(`已处理 ${count} 个旧文件`, 'success', undefined, { persist: false });
       } catch (e2) {
         setStatus('恢复失败: ' + e2.message, 'err');
-        addToast('恢复失败: ' + e2.message, 'error', 6000, { persist: false });
+        addToast('恢复失败: ' + e2.message, 'error', 6000, { title: '恢复裁剪备份失败' });
       }
     } else {
       setStatus('恢复失败: ' + e.message, 'err');
-      addToast('恢复失败: ' + e.message, 'error', 6000, { persist: false });
+      addToast('恢复失败: ' + e.message, 'error', 6000, { title: '恢复裁剪备份失败' });
     }
   }
   await refreshRuntimeWarningsBanner();
@@ -677,6 +678,8 @@ async function init() {
       const cleaned = stripQueryParams(window.location.search, ['entity', 'video', 'day', 'task_id']);
       window.history.replaceState(null, '', window.location.pathname + cleaned + (window.location.hash || ''));
     }
+    startTaskStream();
+    void loadTasks();
   } catch (e) {
     $('proj-name').textContent = '(加载失败)';
     setStatus('Init failed: ' + e.message, 'err');

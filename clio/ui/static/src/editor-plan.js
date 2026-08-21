@@ -796,7 +796,7 @@ export function renderPlan() {
       addToast('已导出到剪映', 'success', undefined, { persist: false });
     } catch (e) {
       resultDiv.innerHTML = `<span style="color:var(--err,#c44)">✗ 导出失败: ${escapeHtml(e.message || e)}</span>`;
-      addToast('导出失败: ' + (e.message || e), 'error', 6000, { persist: !e.taskBacked });
+      addToast('导出失败: ' + (e.message || e), 'error', 6000, { persist: !e.taskBacked, title: '导出剪映草稿失败' });
     } finally {
       if (btn) {
         btn.disabled = false;
@@ -877,7 +877,7 @@ export async function executeCut() {
     result.innerHTML = `<p class="err">错误: ${escapeHtml(e.message)}</p>`;
     const msg = '裁剪失败: ' + e.message;
     setStatus(msg, 'err', { persist: !e.taskBacked });
-    addToast(msg, 'error', 6000, { persist: false });
+    addToast(msg, 'error', 6000, { persist: !e.taskBacked, title: '裁剪失败' });
   } finally {
     btn.disabled = false;
     btn.textContent = '执行裁剪';
@@ -960,6 +960,6 @@ export async function save() {
   } catch (e) {
     const msg = '保存失败: ' + e.message;
     setStatus(msg, 'err');
-    addToast(msg, 'error', 6000, { persist: false });
+    addToast(msg, 'error', 6000, { title: '保存失败' });
   }
 }

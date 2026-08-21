@@ -127,7 +127,7 @@ async function _applyMatches() {
   }
   const msg = `批量关联完成：成功 ${ok}` + (fail ? `，失败 ${fail}` : '');
   setStatus(msg, fail ? 'warn' : 'ok');
-  addToast(msg, fail ? 'warning' : 'success', 6000, { persist: false });
+  addToast(msg, fail ? 'warning' : 'success', 6000, { persist: fail > 0, title: '批量关联视频' });
   if (apply) {
     apply.textContent = '应用匹配';
     apply.disabled = true;

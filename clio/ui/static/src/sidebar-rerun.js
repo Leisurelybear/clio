@@ -95,8 +95,9 @@ function _rerunTerminal(task, file, label, message, toastKind, statusKind) {
   if (_rerunTaskUnsubscribe) { _rerunTaskUnsubscribe(); _rerunTaskUnsubscribe = null; }
   const statusEl = overlay.querySelector('.rerun-status');
   if (statusEl) statusEl.innerHTML = `<span class="${statusKind === 'success' ? 'ok' : statusKind === 'warning' ? 'warn' : 'err'}">${escapeHtml(label)}</span>`;
-  setStatus(message, statusKind === 'success' ? 'ok' : statusKind === 'warning' ? 'warn' : 'err', { persist: false });
-  addToast(message, toastKind, statusKind === 'error' ? 6000 : undefined, { persist: false });
+  const persisted = statusKind !== 'success';
+  setStatus(message, statusKind === 'success' ? 'ok' : statusKind === 'warning' ? 'warn' : 'err', { persist: persisted });
+  addToast(message, toastKind, statusKind === 'error' ? 6000 : undefined, { persist: persisted, title: '视频重跑' });
   if (statusKind === 'success') {
     setTimeout(() => { hideRerunProgress(); refreshAfterRerun(task, file); }, 2000);
   } else {
@@ -111,7 +112,7 @@ function _rerunPollError(statusEl, label, msg) {
   if (_rerunPollTimer) { clearInterval(_rerunPollTimer); _rerunPollTimer = null; }
   if (statusEl) statusEl.innerHTML = `<span class="err">✗ ${escapeHtml(label)}</span>`;
   setStatus(msg, 'err');
-  addToast(msg, 'error', 6000, { persist: false });
+  addToast(msg, 'error', 6000, { title: '启动重跑失败' });
   setTimeout(hideRerunProgress, 8000);
 }
 
@@ -172,8 +173,8 @@ async function pollRerunStatus(task, file) {
         _rerunPollTimer = null;
       }
       if (statusEl) statusEl.innerHTML = '<span class="warn">⏹ 已取消</span>';
-      setStatus('重跑已取消', 'warn', { persist: false });
-      addToast('重跑已取消', 'warning', undefined, { persist: false });
+      setStatus('重跑已取消', 'warn');
+      addToast('重跑已取消', 'warning', undefined, { title: '视频重跑' });
       setTimeout(hideRerunProgress, 4000);
     } else if (s.status === 'error') {
       overlay.dataset.active = 'false';
@@ -182,8 +183,8 @@ async function pollRerunStatus(task, file) {
         _rerunPollTimer = null;
       }
       if (statusEl) statusEl.innerHTML = '<span class="err">✗ 出错</span>';
-      setStatus('重跑出错', 'err', { persist: false });
-      addToast('重跑出错', 'error', 6000, { persist: false });
+      setStatus('重跑出错', 'err');
+      addToast('重跑出错', 'error', 6000, { title: '视频重跑' });
       setTimeout(() => {
         hideRerunProgress();
       }, 8000);

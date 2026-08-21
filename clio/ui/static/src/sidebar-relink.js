@@ -65,12 +65,12 @@ async function _submitRelink() {
     } else {
       const msg = '重新关联失败: ' + (r.error || '未知错误');
       setStatus(msg, 'err');
-      addToast(msg, 'error', 6000, { persist: false });
+      addToast(msg, 'error', 6000, { title: '重新关联视频失败' });
     }
   } catch (e) {
     const msg = '重新关联失败: ' + e.message;
     setStatus(msg, 'err');
-    addToast(msg, 'error', 6000, { persist: false });
+    addToast(msg, 'error', 6000, { title: '重新关联视频失败' });
   } finally {
     if (btn) {
       btn.disabled = false;

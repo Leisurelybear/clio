@@ -1686,9 +1686,9 @@ function _applyWhisperTask(task, event = null) {
     setStatus('Whisper 模型下载完成', 'ok', { persist: false });
     _loadModelMgmt();
   } else if (task.status === 'cancelled') {
-    setStatus('Whisper 模型下载已取消', 'warn', { persist: false });
+    setStatus('Whisper 模型下载已取消', 'warn');
   } else {
-    setStatus(`Whisper 模型下载失败: ${task.error_message || task.message || '未知错误'}`, 'err', { persist: false });
+    setStatus(`Whisper 模型下载失败: ${task.error_message || task.message || '未知错误'}`, 'err');
   }
 }
 
