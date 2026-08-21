@@ -9,11 +9,24 @@ import {
   updateRunStartButtonState,
   refreshVideosAfterRun,
   staleWarningHtml,
+  _handleRunStatus,
 } from '../runner.js';
 import { state } from '../state.js';
 
+vi.mock('../notification-center.js', () => ({
+  registerNotification: vi.fn(() => Promise.resolve(null)),
+}));
+
 vi.mock('../sidebar.js', () => ({
   loadVideos: vi.fn(() => Promise.resolve()),
+  loadPlans: vi.fn(() => Promise.resolve()),
+  renderVideoList: vi.fn(),
+  saveProject: vi.fn(() => Promise.resolve()),
+}));
+
+vi.mock('../api.js', () => ({
+  api: vi.fn(),
+  icon: vi.fn(() => ''),
 }));
 
 describe('renderRunPreviewHtml', () => {
@@ -180,6 +193,29 @@ describe('refreshVideosAfterRun', () => {
     vi.mocked(loadVideos).mockClear();
     await refreshVideosAfterRun();
     expect(loadVideos).toHaveBeenCalled();
+  });
+});
+
+describe('run completion notifications', () => {
+  it('registers a persistent transcribe failure notification once per project', async () => {
+    const { api } = await import('../api.js');
+    const { registerNotification } = await import('../notification-center.js');
+    vi.mocked(api).mockReset();
+    vi.mocked(registerNotification).mockClear();
+    api.mockResolvedValue({ files: { GL010684: { transcribe: 'error' } } });
+    state.currentProjectDir = 'G:/projects/trip';
+    document.body.innerHTML = '<div id="run-progress"></div><div id="run-state-container"></div>';
+
+    await _handleRunStatus({ status: 'done', steps: ['transcribe'] });
+
+    expect(api).toHaveBeenCalledWith('GET', '/api/processing-state');
+    const notification = registerNotification.mock.calls.map(([payload]) => payload)
+      .find(payload => payload.sourceId === 'transcribe-model-missing');
+    expect(notification).toMatchObject({
+      title: '部分视频转录失败',
+      severity: 'error',
+      dedupeKey: 'pipeline:transcribe-model-missing:G:/projects/trip',
+    });
   });
 });
 

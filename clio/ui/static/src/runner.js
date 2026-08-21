@@ -8,6 +8,7 @@ import {
 import { api, icon } from './api.js';
 import { beginLatest, endLatest, isLatest, isAbortError } from './latest.js';
 import { addToast } from './toast.js';
+import { registerNotification } from './notification-center.js';
 import { subscribeTaskEvents, fetchTask } from './task-center.js';
 
 let _runEventSource = null;
@@ -344,7 +345,7 @@ async function startRun() {
     $('run-progress').innerHTML = `<p class="err">${escapeHtml(e.message)}</p>`;
     const msg = '启动失败: ' + e.message;
     setStatus(msg, 'err');
-    addToast(msg, 'error', 6000, { persist: false });
+    addToast(msg, 'error', 6000, { title: '流水线启动失败' });
     _runActive = false;
     updateRunStartButtonState();
   }
@@ -363,7 +364,7 @@ async function cancelRun() {
   } catch (e) {
     const msg = '取消失败: ' + e.message;
     setStatus(msg, 'err');
-    addToast(msg, 'error', 6000, { persist: false });
+    addToast(msg, 'error', 6000, { title: '取消流水线失败' });
     if (btn) { btn.disabled = false; btn.innerHTML = '取消'; }
   }
 }
@@ -492,7 +493,7 @@ function staleWarningHtml(phase) {
   `;
 }
 
-async function _handleRunStatus(s) {
+export async function _handleRunStatus(s) {
   const prog = $('run-progress');
   const btn = $('btn-run-start');
   // Pane may be unmounted (user switched to Plan/video) — still process terminal
@@ -587,6 +588,15 @@ async function _handleRunStatus(s) {
             const ps = await api('GET', '/api/processing-state');
             const hasTranscribeErr = Object.values(ps.files || {}).some(function(f) { return f.transcribe === 'error'; });
             if (hasTranscribeErr) {
+              registerNotification({
+                title: '部分视频转录失败',
+                message: 'Whisper 模型未下载，请前往设置 → Whisper 模型管理手动下载模型，再重跑「Whisper 转录」。',
+                severity: 'error',
+                sourceType: 'ui_status',
+                sourceId: 'transcribe-model-missing',
+                dedupeKey: `pipeline:transcribe-model-missing:${state.currentProjectDir || state.currentProjectName || 'global'}`,
+                data: { action_id: 'go-settings-keys' },
+              });
               const warn = document.createElement('div');
               warn.id = 'run-transcribe-warn';
               warn.style.cssText = 'margin-top:12px;padding:12px;background:var(--warning-bg,#2a2520);border:1px solid var(--warning-border,#b8860b);border-radius:6px';
