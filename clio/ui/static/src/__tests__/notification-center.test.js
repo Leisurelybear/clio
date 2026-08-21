@@ -191,4 +191,40 @@ describe('notification center', () => {
     expect(state.notificationUnread).toBe(0);
     expect(state.notifications[0].read_at).toBe('now');
   });
+
+  it('renders a per-notification read button for unread items', async () => {
+    api.mockResolvedValue({
+      notifications: [{ id: 'n1', seq: 1, severity: 'warning', title: '提醒', message: '检查', read_at: null }],
+      unread_count: 1, latest_seq: 1, total_count: 1,
+    });
+    const { initNotificationCenter, markNotificationRead } = await import('../notification-center.js');
+    initNotificationCenter();
+    await vi.waitFor(() => expect(state.notificationUnread).toBe(1));
+    document.getElementById('btn-notifications').click();
+    await vi.waitFor(() => expect(document.querySelector('.notification-read-one')).toBeTruthy());
+
+    const readBtn = document.querySelector('.notification-read-one');
+    expect(readBtn.dataset.readId).toBe('n1');
+
+    api.mockResolvedValueOnce({
+      notification: { id: 'n1', seq: 1, severity: 'warning', title: '提醒', message: '检查', read_at: 'now' },
+      unread_count: 0, latest_seq: 2,
+    });
+    readBtn.click();
+    await vi.waitFor(() => expect(state.notificationUnread).toBe(0));
+    expect(document.querySelector('.notification-read-one')).toBeNull();
+  });
+
+  it('does not show a read button for already-read notifications', async () => {
+    api.mockResolvedValue({
+      notifications: [{ id: 'n2', seq: 2, severity: 'info', title: '旧消息', message: '已读', read_at: '2024-01-01' }],
+      unread_count: 0, latest_seq: 2, total_count: 1,
+    });
+    const { initNotificationCenter } = await import('../notification-center.js');
+    initNotificationCenter();
+    await vi.waitFor(() => expect(state.notifications).toHaveLength(1));
+    document.getElementById('btn-notifications').click();
+    await vi.waitFor(() => expect(document.querySelector('.notification-row')).toBeTruthy());
+    expect(document.querySelector('.notification-read-one')).toBeNull();
+  });
 });

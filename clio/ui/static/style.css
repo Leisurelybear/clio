@@ -316,7 +316,7 @@ header > * { -webkit-app-region: no-drag; }
 .notification-list { max-height: min(520px, calc(100vh - 150px)); overflow-y: auto; }
 .notification-row {
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) 8px;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
   gap: 8px;
   width: 100%;
   min-height: 72px;
@@ -350,8 +350,22 @@ header > * { -webkit-app-region: no-drag; }
 .notification-row-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); }
 .notification-row-copy > span { overflow-wrap: anywhere; color: var(--text-secondary); font-size: var(--text-sm); line-height: 1.35; }
 .notification-row-copy small { color: var(--text-muted); font-size: var(--text-xs); }
-.notification-unread-dot { align-self: center; width: 6px; height: 6px; border-radius: 50%; background: transparent; }
-.notification-row.unread .notification-unread-dot { background: var(--accent); }
+.notification-read-one {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px; height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.notification-read-one:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+
 .notification-empty { margin: 0; padding: 28px 12px; color: var(--text-muted); text-align: center; font-size: var(--text-sm); }
 .notification-loading { margin: 0; padding: 16px 12px; color: var(--text-muted); text-align: center; font-size: var(--text-xs); }
 .notification-load-more {
@@ -1422,6 +1436,25 @@ button.match-badge:focus-visible { outline: 2px solid var(--border-focus); outli
 .run-task-link { margin-top: 8px; }
 .task-center-title { font-size: var(--text-md); font-weight: 600; margin-right: auto; }
 .task-count-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; margin-left: 4px; padding: 0 5px; border-radius: 999px; background: var(--accent); color: #fff; font-size: var(--text-xs); }
+.task-nav-badge {
+  position: absolute;
+  top: -4px;
+  right: -6px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border: 2px solid var(--bg-surface-3);
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.project-item .icon { position: relative; }
 .task-center-toolbar select { max-width: 140px; padding: 4px 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-base); color: var(--text-primary); font-size: var(--text-xs); }
 .task-center-layout { display: grid; grid-template-columns: minmax(220px, 42%) 1fr; min-height: 0; flex: 1; }
 .task-list { overflow-y: auto; border-right: 1px solid var(--border); }

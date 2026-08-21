@@ -149,17 +149,24 @@ function _render() {
     void loadNotifications();
   }));
   panel.querySelectorAll('.notification-row').forEach(item => item.addEventListener('click', () => openNotification(item.dataset.notificationId)));
+  panel.querySelectorAll('.notification-read-one').forEach(item => item.addEventListener('click', event => {
+    event.stopPropagation();
+    void markNotificationRead(item.dataset.readId);
+  }));
 }
 
 function _row(notification) {
   const unread = notification.read_at ? '' : ' unread';
   const severity = notification.severity || 'info';
   const project = notification.project_name ? ` · ${notification.project_name}` : '';
-  return `<button type="button" class="notification-row notification-${escapeHtml(severity)}${unread}" data-notification-id="${escapeHtml(notification.id)}">
+  const readBtn = notification.read_at
+    ? ''
+    : `<button type="button" class="notification-read-one" data-read-id="${escapeHtml(notification.id)}" title="标记已读" aria-label="标记已读">✓</button>`;
+  return `<div class="notification-row notification-${escapeHtml(severity)}${unread}" data-notification-id="${escapeHtml(notification.id)}">
     <span class="notification-row-icon" aria-hidden="true">${severity === 'success' ? '✓' : severity === 'error' ? '!' : severity === 'warning' ? '!' : 'i'}</span>
     <span class="notification-row-copy"><strong>${escapeHtml(notification.title || SEVERITY_LABELS[severity] || '通知')}</strong>
       <span>${escapeHtml(notification.message || '')}</span><small>${escapeHtml(SEVERITY_LABELS[severity] || severity)}${escapeHtml(project)} · ${escapeHtml(_time(notification.created_at))}</small></span>
-    <span class="notification-unread-dot" aria-hidden="true"></span></button>`;
+    ${readBtn}</div>`;
 }
 
 export async function loadNotifications({ append = false } = {}) {

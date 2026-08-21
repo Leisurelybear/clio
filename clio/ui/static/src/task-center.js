@@ -28,6 +28,14 @@ export function statusGroup(status) {
   return status || 'unknown';
 }
 
+function _updateNavBadge() {
+  const badge = document.querySelector('.project-item[data-entity="tasks"] .task-nav-badge');
+  if (!badge) return;
+  const activeCount = state.tasks.filter(task => ACTIVE.has(task.status)).length;
+  badge.textContent = activeCount > 99 ? '99+' : String(activeCount);
+  badge.hidden = activeCount === 0;
+}
+
 function _taskUrl(taskId) {
   return `/api/tasks/${encodeURIComponent(taskId)}`;
 }
@@ -114,6 +122,7 @@ function _render() {
   pane.querySelector('.task-filter-project').onchange = event => { state.taskFilters.project = event.target.value; _render(); };
   pane.querySelector('.task-refresh').onclick = () => loadTasks();
   pane.querySelectorAll('.task-row').forEach(row => row.onclick = () => selectTask(row.dataset.taskId));
+  _updateNavBadge();
   pane.querySelector('.task-cancel')?.addEventListener('click', () => mutateTask('cancel'));
   pane.querySelector('.task-retry')?.addEventListener('click', () => mutateTask('retry'));
 }
@@ -134,6 +143,7 @@ export async function loadTasks() {
       state.selectedTaskId = null;
       state.taskDetail = null;
     }
+    _updateNavBadge();
     _render();
   } catch (error) {
     setStatus(`任务加载失败: ${error.message}`, 'err');
@@ -203,6 +213,7 @@ export function startTaskStream() {
           }
           state.taskDetail = { ...state.taskDetail, task: payload.task, events };
         }
+        _updateNavBadge();
         if (state.currentEntity === 'tasks') _render();
       }
       _eventListeners.forEach(listener => {
