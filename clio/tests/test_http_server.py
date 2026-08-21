@@ -63,6 +63,36 @@ class TestBoundedThreadingHTTPServer:
             server.server_close()
 
 
+class TestConnectionErrorSuppression:
+    def test_process_request_swallows_connection_aborted(self):
+        from clio.ui.http_server import BoundedThreadingHTTPServer
+
+        server = BoundedThreadingHTTPServer(("127.0.0.1", 0), _Handler, max_workers=2)
+        try:
+            server._worker_slots.acquire(blocking=False)
+            with patch.object(server, "finish_request", side_effect=ConnectionAbortedError()):
+                with patch.object(server, "handle_error") as mock_handle:
+                    server._process_request_thread(MagicMock(), ("127.0.0.1", 1))
+                    mock_handle.assert_not_called()
+            assert server._worker_slots._value == 2
+        finally:
+            server.server_close()
+
+    def test_process_request_still_handles_other_errors(self):
+        from clio.ui.http_server import BoundedThreadingHTTPServer
+
+        server = BoundedThreadingHTTPServer(("127.0.0.1", 0), _Handler, max_workers=2)
+        try:
+            server._worker_slots.acquire(blocking=False)
+            with patch.object(server, "finish_request", side_effect=ValueError("boom")):
+                with patch.object(server, "handle_error") as mock_handle:
+                    server._process_request_thread(MagicMock(), ("127.0.0.1", 1))
+                    mock_handle.assert_called_once()
+            assert server._worker_slots._value == 2
+        finally:
+            server.server_close()
+
+
 class TestHeaderBudget:
     def test_header_bytes_limit_constant_is_finite(self):
         assert MAX_HEADER_BYTES > 0

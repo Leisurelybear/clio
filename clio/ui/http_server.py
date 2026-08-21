@@ -77,6 +77,8 @@ class BoundedThreadingHTTPServer(ThreadingHTTPServer):
     def _process_request_thread(self, request: Any, client_address: Any) -> None:
         try:
             self.finish_request(request, client_address)
+        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+            pass
         except Exception:
             self.handle_error(request, client_address)
         finally:
