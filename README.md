@@ -5,7 +5,7 @@
 > 专为旅行 vlogger 打造的 CLI + Web UI 工具，把你的 GoPro / 手机 4K 素材喂给 AI，自动生成摘要、时间轴、口播稿和剪辑顺序，最后在 **剪映 (CapCut)** 里加特效、对口型收尾。
 
 [![CI](https://github.com/Leisurelybear/Clio/actions/workflows/test.yml/badge.svg)](https://github.com/Leisurelybear/Clio/actions/workflows/test.yml)
-[![codecov](https://codecov.io/gh/Leisurelybear/clio/graph/badge.svg)](https://codecov.io/gh/Leisurelybear/Clio)
+[![codecov](https://codecov.io/gh/Leisurelybear/Clio/branch/main/graph/badge.svg?token=PEG3XQM76C)](https://codecov.io/gh/Leisurelybear/Clio)
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
 ![tests](https://img.shields.io/badge/tests-1800%2B-brightgreen)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)

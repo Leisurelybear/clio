@@ -5,7 +5,7 @@
 > A CLI + Web UI tool designed for solo travel vloggers. Feed your GoPro/phone 4K footage to AI, get summaries, timelines, voiceover scripts, and edit plans — then put the final touches (effects, lip-sync) in **CapCut (JianYing)**.
 
 [![CI](https://github.com/Leisurelybear/Clio/actions/workflows/test.yml/badge.svg)](https://github.com/Leisurelybear/Clio/actions/workflows/test.yml)
-[![codecov](https://codecov.io/gh/Leisurelybear/Clio/graph/badge.svg?token=CODECOV_TOKEN)](https://codecov.io/gh/Leisurelybear/Clio)
+[![codecov](https://codecov.io/gh/Leisurelybear/Clio/branch/main/graph/badge.svg?token=PEG3XQM76C)](https://codecov.io/gh/Leisurelybear/Clio)
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
 ![tests](https://img.shields.io/badge/tests-1800%2B-brightgreen)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
