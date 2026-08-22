@@ -7,7 +7,13 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from clio.ui.routes.transcripts import handle_get_transcripts, handle_put_transcripts
+from clio.ui.routes.transcripts import (
+    _intended_transcript_path,
+    _resolve_stem,
+    handle_get_transcripts,
+    handle_post_transcripts,
+    handle_put_transcripts,
+)
 from clio.ui.routes.whisper_download import _format_bytes
 from clio.ui.routes.whisper_models import _list_cached_models
 from clio.ui.routes.whisper_routes import (
@@ -64,6 +70,95 @@ class TestHandleGetTranscripts:
         handler._send_json = MagicMock()
         handle_get_transcripts(handler, {"video": ["nonexistent.mp4"]})
         handler._send_json.assert_called_once_with({"ok": False}, 404)
+
+
+class TestResolveStem:
+    def test_safe_name_strips_extension(self):
+        assert _resolve_stem("video.mp4") == "video"
+
+    def test_seg_suffix_stripped(self):
+        assert _resolve_stem("001_GL_seg01.mp4") == "001_GL"
+
+    def test_unsafe_name_returns_none(self):
+        assert _resolve_stem("../etc/passwd") is None
+
+    def test_no_extension(self):
+        assert _resolve_stem("bare_name") == "bare_name"
+
+
+class TestIntendedTranscriptPath:
+    def test_returns_expected_path(self, tmp_path: Path):
+        handler = _handler_with_config(tmp_path)
+        result = _intended_transcript_path(handler, {}, "clip.mp4")
+        assert result == tmp_path / "transcripts" / "clip_transcript.json"
+
+    def test_unsafe_video_returns_none(self, tmp_path: Path):
+        handler = _handler_with_config(tmp_path)
+        assert _intended_transcript_path(handler, {}, "../bad.mp4") is None
+
+    def test_no_output_returns_none(self, tmp_path: Path):
+        handler = _handler_with_config(tmp_path)
+        handler._get_project_output.return_value = None
+        assert _intended_transcript_path(handler, {}, "clip.mp4") is None
+
+
+class TestTranscriptPathFallback:
+    """Cover _transcript_path fallback matching via handle_get_transcripts."""
+
+    def test_exact_seg_match_preferred(self, tmp_path: Path):
+        handler = _handler_with_config(tmp_path)
+        tdir = tmp_path / "transcripts"
+        tdir.mkdir()
+        (tdir / "001_A_seg01_transcript.json").write_text(json.dumps({"segments": []}), encoding="utf-8")
+        (tdir / "001_A_transcript.json").write_text(json.dumps({"segments": []}), encoding="utf-8")
+
+        handle_get_transcripts(handler, {"video": ["001_A_seg01.mp4"]})
+
+        assert handler._send_json.call_args[0][0]["ok"] is True
+
+    def test_stem_fallback_when_seg_missing(self, tmp_path: Path):
+        handler = _handler_with_config(tmp_path)
+        tdir = tmp_path / "transcripts"
+        tdir.mkdir()
+        (tdir / "001_A_transcript.json").write_text(json.dumps({"segments": [], "_rev": 1}), encoding="utf-8")
+
+        handle_get_transcripts(handler, {"video": ["001_A_seg02.mp4"]})
+
+        assert handler._send_json.call_args[0][0]["ok"] is True
+
+    def test_orig_stem_fallback_strips_index(self, tmp_path: Path):
+        handler = _handler_with_config(tmp_path)
+        tdir = tmp_path / "transcripts"
+        tdir.mkdir()
+        (tdir / "GL010695_transcript.json").write_text(json.dumps({"segments": [], "_rev": 0}), encoding="utf-8")
+
+        handle_get_transcripts(handler, {"video": ["001_GL010695.mp4"]})
+
+        assert handler._send_json.call_args[0][0]["ok"] is True
+
+    def test_directory_scan_no_match_returns_404(self, tmp_path: Path):
+        handler = _handler_with_config(tmp_path)
+        tdir = tmp_path / "transcripts"
+        tdir.mkdir()
+        (tdir / "002_B_transcript.json").write_text(json.dumps({"segments": [], "_rev": 0}), encoding="utf-8")
+
+        handle_get_transcripts(handler, {"video": ["001_C.mp4"]})
+
+        payload = handler._send_json.call_args[0][0]
+        assert payload["ok"] is False
+
+    def test_directory_scan_orig_stem_fallback_matches(self, tmp_path: Path):
+        handler = _handler_with_config(tmp_path)
+        tdir = tmp_path / "transcripts"
+        tdir.mkdir()
+        (tdir / "999_B_transcript.json").write_text(json.dumps({"segments": [], "_rev": 3}), encoding="utf-8")
+
+        # Different index prefix but same original stem -> should match via scan.
+        handle_get_transcripts(handler, {"video": ["001_B.mp4"]})
+
+        payload = handler._send_json.call_args[0][0]
+        assert payload["ok"] is True
+        assert payload["revision"] == 3
 
 
 class TestHandlePutTranscripts:
@@ -228,6 +323,159 @@ class TestHandlePostTranscripts:
         data = json.loads((tmp_path / "transcripts" / "001_GL010683_transcript.json").read_text(encoding="utf-8"))
         assert data["_rev"] == 1
         assert data["segments"] == []
+
+
+class TestTranscriptEdgeCases:
+    """Cover validation branches in PUT/POST handlers."""
+
+    def _setup_transcript(self, tmp_path: Path) -> Path:
+        tdir = tmp_path / "transcripts"
+        tdir.mkdir(exist_ok=True)
+        tf = tdir / "clip_transcript.json"
+        tf.write_text(
+            json.dumps(
+                {
+                    "_rev": 2,
+                    "segments": [
+                        {"start": 0.0, "end": 1.0, "text": "first"},
+                        {"start": 1.0, "end": 2.0, "text": "second"},
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        return tf
+
+    def test_put_delete_segment(self, tmp_path: Path):
+        handler = _handler_with_config(tmp_path)
+        tf = self._setup_transcript(tmp_path)
+        handler._send_json = MagicMock()
+
+        handle_put_transcripts(handler, {"video": ["clip.mp4"]}, {"segment_index": 0, "delete": True, "revision": 2})
+
+        payload = handler._send_json.call_args[0][0]
+        assert payload["ok"] is True
+        assert payload["revision"] == 3
+        data = json.loads(tf.read_text(encoding="utf-8"))
+        assert len(data["segments"]) == 1
+        assert data["segments"][0]["text"] == "second"
+
+    def test_put_text_too_long_rejected(self, tmp_path: Path):
+        handler = _handler_with_config(tmp_path)
+        self._setup_transcript(tmp_path)
+        handler._send_json = MagicMock()
+
+        handle_put_transcripts(
+            handler,
+            {"video": ["clip.mp4"]},
+            {"segment_index": 0, "text": "x" * 5001, "revision": 2},
+        )
+
+        payload, status = handler._send_json.call_args[0]
+        assert status == 400
+        assert "too long" in payload["error"]
+
+    def test_put_text_not_string_rejected(self, tmp_path: Path):
+        handler = _handler_with_config(tmp_path)
+        self._setup_transcript(tmp_path)
+        handler._send_json = MagicMock()
+
+        handle_put_transcripts(handler, {"video": ["clip.mp4"]}, {"segment_index": 0, "text": 123, "revision": 2})
+
+        payload, status = handler._send_json.call_args[0]
+        assert status == 400
+        assert "must be a string" in payload["error"]
+
+    def test_post_create_invalid_segment_type(self, tmp_path: Path):
+        handler = _handler_with_config(tmp_path)
+        (tmp_path / "transcripts").mkdir()
+        handler._send_json = MagicMock()
+
+        handle_post_transcripts(
+            handler,
+            {"video": ["new.mp4"]},
+            {
+                "create": True,
+                "segments": [{"text": "ok", "start": 0, "end": 1}, "not-a-dict"],
+            },
+        )
+
+        payload, status = handler._send_json.call_args[0]
+        assert status == 400
+        assert "must be an object" in payload["error"]
+
+    def test_post_add_missing_start_end(self, tmp_path: Path):
+        handler = _handler_with_config(tmp_path)
+        self._setup_transcript(tmp_path)
+        handler._send_json = MagicMock()
+
+        handle_post_transcripts(handler, {"video": ["clip.mp4"]}, {"text": "hello", "revision": 2})
+
+        payload, status = handler._send_json.call_args[0]
+        assert status == 400
+        assert "missing start/end" in payload["error"]
+
+    def test_post_add_end_not_after_start(self, tmp_path: Path):
+        handler = _handler_with_config(tmp_path)
+        self._setup_transcript(tmp_path)
+        handler._send_json = MagicMock()
+
+        handle_post_transcripts(
+            handler,
+            {"video": ["clip.mp4"]},
+            {
+                "start": 5.0,
+                "end": 3.0,
+                "text": "bad timing",
+                "revision": 2,
+            },
+        )
+
+        payload, status = handler._send_json.call_args[0]
+        assert status == 400
+        assert "greater than start" in payload["error"]
+
+    def test_post_add_negative_start(self, tmp_path: Path):
+        handler = _handler_with_config(tmp_path)
+        self._setup_transcript(tmp_path)
+        handler._send_json = MagicMock()
+
+        handle_post_transcripts(
+            handler,
+            {"video": ["clip.mp4"]},
+            {
+                "start": -1.0,
+                "end": 5.0,
+                "text": "neg",
+                "revision": 2,
+            },
+        )
+
+        payload, status = handler._send_json.call_args[0]
+        assert status == 400
+        assert "cannot be negative" in payload["error"]
+
+    def test_post_add_success_inserts_in_order(self, tmp_path: Path):
+        handler = _handler_with_config(tmp_path)
+        tf = self._setup_transcript(tmp_path)
+        handler._send_json = MagicMock()
+
+        handle_post_transcripts(
+            handler,
+            {"video": ["clip.mp4"]},
+            {
+                "start": 1.5,
+                "end": 2.5,
+                "text": "inserted middle",
+                "revision": 2,
+            },
+        )
+
+        payload = handler._send_json.call_args[0][0]
+        assert payload["ok"] is True
+        assert payload["segment_index"] == 2
+        data = json.loads(tf.read_text(encoding="utf-8"))
+        assert data["segments"][2]["text"] == "inserted middle"
 
 
 class TestHandleGetWhisperCheck:
