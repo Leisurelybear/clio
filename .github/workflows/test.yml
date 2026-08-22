@@ -115,6 +115,7 @@ jobs:
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         files: coverage.xml
+        slug: Leisurelybear/clio
         fail_ci_if_error: false
 
   pip-audit:
