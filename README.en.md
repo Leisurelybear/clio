@@ -27,6 +27,7 @@
 | 🏷️ | **Label Burn-in** | | Burn index watermark onto compressed video |
 | ✂️ | **Precision Cutting** | | Plan-based cutting, fast or re-encode |
 | 🌐 | **Web UI Editor** | | Zero deps, browser-based editing & pipeline |
+| 🗂️ | **Task Center & Notifications** | | Cross-project persistent background tasks, live progress, retries, and inbox |
 | 🚀 | **One-shot Pipeline** | ✅ | `run --day day1` does it all, skips existing |
 
 ---
@@ -58,6 +59,7 @@
 - ⚙ **Visual Config Editor** — Full YAML form, global & per-project modes
 - ▶ **Pipeline Runner** — Step-by-step or full run, live progress + ETA
 - 🔄 **Whisper Model Download** — One-click in UI, auto-rerun transcription
+- 🗂️ **Task Center & Notifications** — Browse task history and live status across projects with cancel/retry; task events and UI warnings land in a filterable notification inbox
 
 Launch: `python main.py serve` → open `http://127.0.0.1:8765`
 

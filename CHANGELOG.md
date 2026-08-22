@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-08-22
+
+- feat(notifications): add inline per-item read actions to the notification inbox
+- feat(ui): show the unified Task Center navigation badge for active tasks and hide it when empty
+
 ## 2026-08-17
 
 Implemented the persistent notification center (R-042).

@@ -67,9 +67,12 @@ vlog-video-analysis/
 │   │   │   ├── plan.py
 │   │   │   ├── processing_state_routes.py
 │   │   │   ├── projects.py
+│   │   │   ├── notifications.py # Persistent notification inbox API and SSE
 │   │   │   ├── prompts.py
 │   │   │   ├── refine.py
 │   │   │   ├── run.py
+│   │   │   ├── static_files.py
+│   │   │   ├── tasks.py         # Unified Task Center API and SSE
 │   │   │   ├── texts.py
 │   │   │   ├── token_routes.py
 │   │   │   ├── transcripts.py
@@ -99,6 +102,9 @@ vlog-video-analysis/
 │   │           ├── editor-refine.js
 │   │           ├── layout.js
 │   │           ├── theme.js
+│   │           ├── notification-center.js # Persistent inbox, unread badge, SSE, filters/read state
+│   │           ├── task-center.js        # Global task list/detail, cancel/retry, active badge
+│   │           ├── runtime-warnings.js  # Register frontend warnings in the notification inbox
 │   │           ├── toast.js
 │   │           └── utils.js
 │   └── tests/                 # 1300+ pytest cases
@@ -123,6 +129,8 @@ Use focused tests first, then full regression:
 - Core utilities: `clio/tests/test_utils.py`, `test_utils_expanded.py`
 - Config split: `test_config_v2.py`, `test_routes_config.py`, `test_config_cache.py`
 - Pipeline/run: `test_pipeline.py`, `test_routes_run.py`, `test_progress.py`, `test_processing_state.py`
+- Task Center: `test_task_center_manager.py`, `test_task_center_models.py`, `test_task_center_store.py`
+- Notifications: `test_notifications.py`; frontend coverage includes `notification-center.test.js` and `task-center.test.js`
 - Media identity: `test_identity.py`, `test_vmeta.py`, `test_routes_videos.py`, `test_file_service.py`
 - UI dispatch/auth: `test_server.py`, route-specific `test_routes_*.py`
 - Frontend modules: `npm test` with Node 18+; `node --check` works on individual ES modules for syntax only
