@@ -9,15 +9,190 @@ import yaml
 
 from clio.ui.routes.config_routes import (
     _merge_project_with_defaults,
+    handle_delete_provider,
     handle_get_config,
     handle_get_config_global,
     handle_get_config_project,
     handle_get_config_raw,
+    handle_get_providers,
     handle_post_config_init,
+    handle_post_provider,
     handle_put_config_global,
     handle_put_config_project,
     handle_put_config_raw,
+    handle_put_provider,
 )
+
+
+def _write_provider_config(tmp_path: Path, extra: dict | None = None) -> Path:
+    """Create a minimal valid config.yaml with default providers."""
+    config_path = tmp_path / "config.yaml"
+    raw = {
+        "ai": {
+            "providers": {
+                "gemini": {
+                    "type": "gemini",
+                    "api_key_env": "GEMINI_API_KEY",
+                    "models": ["gemini-2.5-flash"],
+                },
+                "openai": {
+                    "type": "openai",
+                    "api_key_env": "OPENAI_API_KEY",
+                    "base_url": "https://api.openai.com/v1",
+                    "models": ["gpt-4o"],
+                },
+            },
+        },
+    }
+    if extra:
+        raw.update(extra)
+    config_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+    return config_path
+
+
+class TestProviderCrud:
+    """Cover /api/providers CRUD handlers."""
+
+    def _handler(self, config_path: Path) -> MagicMock:
+        from clio.ui.services.config_cache import ConfigCache
+
+        class _HandlerClass(MagicMock):
+            _config_cache = ConfigCache(config_path)
+
+        handler = _HandlerClass()
+        handler.config_path = config_path
+        return handler
+
+    def test_get_providers_masks_api_key(self, tmp_path):
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(
+            yaml.safe_dump(
+                {"ai": {"providers": {"gemini": {"type": "gemini", "api_key": "secret123", "models": ["m1"]}}}}
+            ),
+            encoding="utf-8",
+        )
+        handler = self._handler(config_path)
+
+        handle_get_providers(handler, {})
+
+        payload = handler._send_json.call_args[0][0]
+        assert payload["ok"] is True
+        assert payload["providers"]["gemini"]["api_key"] == "********"
+
+    def test_get_providers_missing_config_returns_500(self, tmp_path):
+        handler = self._handler(tmp_path / "no.yaml")
+
+        handle_get_providers(handler, {})
+
+        assert handler._send_json.call_args[0][1] == 500
+
+    def test_post_provider_success(self, tmp_path):
+        from unittest.mock import patch as mock_patch
+
+        config_path = _write_provider_config(tmp_path)
+        handler = self._handler(config_path)
+
+        with mock_patch("clio.ui.routes.config_routes.load_global_config"):
+            handle_post_provider(
+                handler,
+                {},
+                {
+                    "name": "myprovider",
+                    "type": "openai_compat",
+                    "api_key_env": "MY_KEY",
+                    "base_url": "https://example.com/v1",
+                    "models": ["model-a"],
+                },
+            )
+
+        payload = handler._send_json.call_args[0][0]
+        assert payload["ok"] is True, payload
+        assert payload["name"] == "myprovider"
+        saved = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        assert saved["ai"]["providers"]["myprovider"]["type"] == "openai_compat"
+        assert saved["ai"]["providers"]["myprovider"]["api_key"] == ""
+
+    def test_post_duplicate_returns_409(self, tmp_path):
+        config_path = _write_provider_config(tmp_path)
+        handler = self._handler(config_path)
+
+        handle_post_provider(handler, {}, {"name": "gemini"})
+
+        assert handler._send_json.call_args[0][1] == 409
+
+    def test_post_invalid_type_rejected(self, tmp_path):
+        config_path = _write_provider_config(tmp_path)
+        handler = self._handler(config_path)
+
+        handle_post_provider(handler, {}, {"name": "bad", "type": "unknown"})
+
+        assert handler._send_json.call_args[0][1] == 400
+        assert "unsupported provider type" in handler._send_json.call_args[0][0]["error"]
+
+    def test_post_models_not_list_rejected(self, tmp_path):
+        config_path = _write_provider_config(tmp_path)
+        handler = self._handler(config_path)
+
+        handle_post_provider(handler, {}, {"name": "bad", "models": "not-a-list"})
+
+        assert handler._send_json.call_args[0][1] == 400
+        assert "models must be a list" in handler._send_json.call_args[0][0]["error"]
+
+    def test_put_updates_existing(self, tmp_path):
+        from unittest.mock import patch as mock_patch
+
+        config_path = _write_provider_config(tmp_path)
+        handler = self._handler(config_path)
+
+        with mock_patch("clio.ui.routes.config_routes.load_global_config"):
+            handle_put_provider(handler, {}, {"type": "openai", "models": ["new-model"]}, "openai")
+
+        payload = handler._send_json.call_args[0][0]
+        assert payload["ok"] is True, payload
+        saved = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        assert saved["ai"]["providers"]["openai"]["models"] == ["new-model"]
+
+    def test_put_invalid_name_rejected(self, tmp_path):
+        config_path = _write_provider_config(tmp_path)
+        handler = self._handler(config_path)
+
+        handle_put_provider(handler, {}, {"type": "openai"}, "has space!")
+
+        assert handler._send_json.call_args[0][1] == 400
+
+    def test_delete_removes_entry(self, tmp_path):
+        from unittest.mock import patch as mock_patch
+
+        config_path = _write_provider_config(tmp_path)
+        handler = self._handler(config_path)
+
+        with mock_patch("clio.ui.routes.config_routes.load_global_config"):
+            handle_delete_provider(handler, {}, "openai")
+
+        payload = handler._send_json.call_args[0][0]
+        assert payload["ok"] is True
+        saved = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        assert "openai" not in saved["ai"]["providers"]
+        assert "gemini" in saved["ai"]["providers"]
+
+    def test_delete_nonexistent_returns_404(self, tmp_path):
+        config_path = _write_provider_config(tmp_path)
+        handler = self._handler(config_path)
+
+        handle_delete_provider(handler, {}, "nonexistent")
+
+        assert handler._send_json.call_args[0][1] == 404
+
+    def test_strip_provider_api_keys_clears_secrets(self, tmp_path):
+        config_path = _write_provider_config(tmp_path)
+        from clio.ui.routes.config_routes import _strip_provider_api_keys
+
+        raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        raw["ai"]["providers"]["gemini"]["api_key"] = "leaked-key"
+
+        _strip_provider_api_keys(raw)
+
+        assert raw["ai"]["providers"]["gemini"]["api_key"] == ""
 
 
 class TestHandleGetConfig:
