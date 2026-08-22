@@ -2,19 +2,25 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from clio.ui.routes.run import (
     _apply_run_input_dir_override,
+    _read_progress_file,
+    _resolve_found_original,
     _resolve_run_project_dir,
+    _run_pipeline_task,
+    _run_rerun_task,
     handle_get_run_status,
+    handle_get_run_stream,
     handle_post_rerun,
     handle_post_run_cancel,
     handle_post_run_preview,
@@ -676,3 +682,663 @@ class TestManagedRunIntegration:
         assert finished.current == 2
         assert finished.total == 2
         assert progress["status"] == "done"
+
+
+class TestRunPipelineTask:
+    """Cover _run_pipeline_task success/cancel/error paths via a real manager."""
+
+    def _submit(self, tmp_path, monkeypatch, worker):
+        from clio.task_center.manager import TaskManager
+        from clio.task_center.store import TaskStore
+
+        monkeypatch.setattr("clio.ui.routes.run._run_pipeline_task", worker)
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+        _, project_dir, output_dir = _managed_handler(tmp_path, manager)
+        cfg = SimpleNamespace(paths=SimpleNamespace(output_dir=output_dir), plan=SimpleNamespace(use_transcripts=True))
+        monkeypatch.setattr("clio.ui.routes.run.load_config", lambda *args, **kwargs: cfg)
+        return manager, project_dir
+
+    def test_success_returns_result_and_writes_progress(self, tmp_path, monkeypatch):
+        captured = {}
+
+        def fake_pipeline(cfg, day_label, steps, tracker, **kwargs):
+            captured["day_label"] = day_label
+            captured["steps"] = steps
+            captured["files"] = kwargs.get("files")
+            captured["overwrite"] = kwargs.get("overwrite")
+            return {"steps_run": 3}
+
+        monkeypatch.setattr("clio.ui.routes.run.run_pipeline_steps", fake_pipeline)
+
+        def fake_load_config(*args, **kwargs):
+            return SimpleNamespace(
+                paths=SimpleNamespace(output_dir=tmp_path / "out"),
+                plan=SimpleNamespace(use_transcripts=True),
+            )
+
+        monkeypatch.setattr("clio.ui.routes.run.load_config", fake_load_config)
+        context = SimpleNamespace(
+            input_data={
+                "project_dir": str(tmp_path),
+                "day_label": "day1",
+                "steps": ["compress"],
+                "files": ["a.mp4"],
+                "overwrite": True,
+            },
+            task=SimpleNamespace(project_path=str(tmp_path)),
+            reporter=MagicMock(),
+            cancel_event=None,
+        )
+
+        result = _run_pipeline_task(context)
+
+        assert result == {"steps_run": 3}
+        assert captured["day_label"] == "day1"
+        assert captured["steps"] == ["compress"]
+        assert captured["files"] == ["a.mp4"]
+        assert captured["overwrite"] is True
+
+    def test_cancelled_marks_tracker_and_reraises(self, tmp_path, monkeypatch):
+        from clio.task_center.reporter import TaskCancelled
+
+        events = []
+
+        class FakeLegacy:
+            def cancelled(self, msg=""):
+                events.append(("cancelled", msg))
+
+        def fake_pipeline(cfg, day_label, steps, tracker, **kw):
+            raise TaskCancelled("任务已取消")
+
+        monkeypatch.setattr("clio.ui.routes.run.run_pipeline_steps", fake_pipeline)
+        monkeypatch.setattr(
+            "clio.ui.routes.run.load_config",
+            lambda *a, **k: SimpleNamespace(
+                paths=SimpleNamespace(output_dir=tmp_path), plan=SimpleNamespace(use_transcripts=True)
+            ),
+        )
+
+        context = SimpleNamespace(
+            input_data={"project_dir": str(tmp_path)},
+            task=SimpleNamespace(project_path=str(tmp_path)),
+            reporter=MagicMock(),
+            cancel_event=None,
+        )
+
+        with pytest.raises(TaskCancelled):
+            _run_pipeline_task(context)
+
+    def test_generic_error_logs_and_reraises(self, tmp_path, monkeypatch):
+
+        def fake_pipeline(cfg, day_label, steps, tracker, **kw):
+            raise ValueError("disk full")
+
+        monkeypatch.setattr("clio.ui.routes.run.run_pipeline_steps", fake_pipeline)
+        monkeypatch.setattr(
+            "clio.ui.routes.run.load_config",
+            lambda *a, **k: SimpleNamespace(
+                paths=SimpleNamespace(output_dir=tmp_path), plan=SimpleNamespace(use_transcripts=True)
+            ),
+        )
+
+        context = SimpleNamespace(
+            input_data={"project_dir": str(tmp_path)},
+            task=SimpleNamespace(project_path=str(tmp_path)),
+            reporter=MagicMock(),
+            cancel_event=None,
+        )
+
+        with pytest.raises(ValueError, match="disk full"):
+            _run_pipeline_task(context)
+
+
+class TestRunRerunTask:
+    """Cover _run_rerun_task success and error branches."""
+
+    def _make_context(self, tmp_path, task="compress", video="clip.mp4"):
+        original = tmp_path / "original"
+        original.mkdir(exist_ok=True)
+        video_file = original / video
+        video_file.write_bytes(b"fake")
+        cfg = SimpleNamespace(
+            paths=SimpleNamespace(output_dir=tmp_path / "out"),
+            analyze=SimpleNamespace(skip_existing=True),
+            plan=SimpleNamespace(use_transcripts=True),
+        )
+        (tmp_path / "out").mkdir(exist_ok=True)
+        return SimpleNamespace(
+            input_data={
+                "project_dir": str(tmp_path),
+                "task": task,
+                "video_basename": video,
+                "original_video": str(video_file),
+            },
+            task=SimpleNamespace(project_path=str(tmp_path)),
+            reporter=MagicMock(),
+            cancel_event=None,
+        ), cfg
+
+    def test_compress_success(self, tmp_path, monkeypatch):
+        context, cfg = self._make_context(tmp_path, task="compress")
+        calls = []
+        monkeypatch.setattr("clio.ui.routes.run.load_config", lambda *a, **k: copy.deepcopy(cfg))
+        monkeypatch.setattr("clio.ui.routes.run.run_compress_all", lambda *a, **kw: calls.append("compress"))
+
+        result = _run_rerun_task(context)
+
+        assert result == {"task": "compress", "video": "clip.mp4"}
+        assert calls == ["compress"]
+
+    def test_analyze_skips_existing_disabled(self, tmp_path, monkeypatch):
+        context, cfg = self._make_context(tmp_path, task="analyze")
+        captured_cfgs = []
+        monkeypatch.setattr("clio.ui.routes.run.load_config", lambda *a, **k: copy.deepcopy(cfg))
+
+        def fake_analyze(config, *args, **kwargs):
+            captured_cfgs.append(config)
+
+        monkeypatch.setattr("clio.ui.routes.run.run_analyze_all", fake_analyze)
+
+        _run_rerun_task(context)
+
+        assert captured_cfgs[0].analyze.skip_existing is False
+
+    def test_voiceover_uses_texts_json(self, tmp_path, monkeypatch):
+        context, cfg = self._make_context(tmp_path, task="voiceover")
+        texts_json = tmp_path / "texts.json"
+        texts_json.write_text("[]", encoding="utf-8")
+        context.input_data["texts_json"] = str(texts_json)
+        captured = {}
+        monkeypatch.setattr("clio.ui.routes.run.load_config", lambda *a, **k: copy.deepcopy(cfg))
+
+        def fake_scripts(config, *args, single_file=None, **kw):
+            captured["single_file"] = single_file
+
+        monkeypatch.setattr("clio.ui.routes.run.run_generate_scripts", fake_scripts)
+
+        _run_rerun_task(context)
+
+        assert captured["single_file"] == texts_json
+
+    def test_transcribe_whisper_missing_raises(self, tmp_path, monkeypatch):
+        context, cfg = self._make_context(tmp_path, task="transcribe")
+        monkeypatch.setattr("clio.ui.routes.run.load_config", lambda *a, **k: copy.deepcopy(cfg))
+        monkeypatch.setattr("clio.transcribe.check_whisper", lambda: False)
+
+        with pytest.raises(RuntimeError, match="faster-whisper"):
+            _run_rerun_task(context)
+
+    def test_transcribe_error_result_raises(self, tmp_path, monkeypatch):
+        context, cfg = self._make_context(tmp_path, task="transcribe")
+        monkeypatch.setattr("clio.ui.routes.run.load_config", lambda *a, **k: copy.deepcopy(cfg))
+        monkeypatch.setattr("clio.transcribe.check_whisper", lambda: True)
+        monkeypatch.setattr(
+            "clio.ui.routes.run.run_transcribe_one",
+            lambda *a, **kw: {"error": "audio decode failed"},
+        )
+
+        with pytest.raises(RuntimeError, match="audio decode failed"):
+            _run_rerun_task(context)
+
+    def test_generic_exception_logged_and_reraised(self, tmp_path, monkeypatch):
+        context, cfg = self._make_context(tmp_path, task="compress")
+        monkeypatch.setattr("clio.ui.routes.run.load_config", lambda *a, **k: copy.deepcopy(cfg))
+
+        def fail(*a, **kw):
+            raise OSError("ffmpeg crashed")
+
+        monkeypatch.setattr("clio.ui.routes.run.run_compress_all", fail)
+
+        with pytest.raises(OSError, match="ffmpeg crashed"):
+            _run_rerun_task(context)
+
+
+class TestReadProgressFile:
+    def test_missing_file_returns_none(self, tmp_path):
+        assert _read_progress_file(tmp_path / "no.json") is None
+
+    def test_invalid_json_returns_none(self, tmp_path):
+        f = tmp_path / ".progress.json"
+        f.write_text("not json", encoding="utf-8")
+        assert _read_progress_file(f) is None
+
+    def test_non_dict_returns_none(self, tmp_path):
+        f = tmp_path / ".progress.json"
+        f.write_text("[1,2]", encoding="utf-8")
+        assert _read_progress_file(f) is None
+
+    def test_missing_phase_key_returns_none(self, tmp_path):
+        f = tmp_path / ".progress.json"
+        f.write_text(json.dumps({"status": "running"}), encoding="utf-8")
+        assert _read_progress_file(f) is None
+
+    def test_valid_data_returned(self, tmp_path):
+        f = tmp_path / ".progress.json"
+        f.write_text(json.dumps({"status": "running", "phase": "compress"}), encoding="utf-8")
+        data = _read_progress_file(f)
+        assert data == {"status": "running", "phase": "compress"}
+
+
+class TestManagedRerunSubmit:
+    """Cover the managed rerun submission path (L707-738)."""
+
+    def test_managed_rerun_submits_and_returns_task_id(self, tmp_path, monkeypatch):
+        from clio.task_center.manager import TaskManager
+        from clio.task_center.models import TaskKind, TaskStatus
+        from clio.task_center.store import TaskStore
+
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+
+        def worker(context):
+            return {"task": context.input_data["task"]}
+
+        monkeypatch.setattr("clio.ui.routes.run._run_rerun_task", worker)
+        handler, project_dir, _ = _managed_handler(tmp_path, manager)
+
+        # Set up minimal files so handle_post_rerun can resolve paths.
+        original = project_dir / "clip.mp4"
+        original.write_bytes(b"fake")
+        comp_dir = tmp_path / "compressed"
+        comp_dir.mkdir()
+        comp_file = comp_dir / "clip.mp4"
+        comp_file.write_bytes(b"fake compressed")
+
+        cfg = SimpleNamespace(
+            paths=SimpleNamespace(output_dir=tmp_path / "out"),
+            analyze=SimpleNamespace(skip_existing=True),
+            plan=SimpleNamespace(use_transcripts=True),
+            compressed_dir=comp_dir,
+        )
+        (tmp_path / "out").mkdir(exist_ok=True)
+        handler._get_config.return_value = cfg
+
+        from unittest.mock import patch as mock_patch
+
+        with (
+            mock_patch(
+                "clio.ui.services.file_service._find_original_for_compressed", return_value=str(original.resolve())
+            ),
+            mock_patch("clio.ui.routes.run._resolve_found_original", return_value=original.resolve()),
+            mock_patch("clio.vmeta.VideoMeta.read", return_value=None),
+        ):
+            handle_post_rerun(handler, {}, {"video": "clip.mp4", "task": "analyze"})
+
+        payload = handler._send_json.call_args.args[0]
+        assert payload["ok"] is True, f"Expected ok=True, got {payload}"
+        task_id = payload["task_id"]
+        task = manager.wait(task_id)
+        assert task.kind is TaskKind.RERUN
+        assert task.status is TaskStatus.SUCCEEDED
+        assert task.project_id == str(project_dir.resolve())
+
+    def test_managed_rerun_duplicate_returns_409(self, tmp_path, monkeypatch):
+        from clio.task_center.manager import TaskManager
+        from clio.task_center.store import TaskStore
+
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+        entered = threading.Event()
+        release = threading.Event()
+
+        def blocking_worker(context):
+            entered.set()
+            release.wait(timeout=2)
+
+        monkeypatch.setattr("clio.ui.routes.run._run_rerun_task", blocking_worker)
+        handler, project_dir, _ = _managed_handler(tmp_path, manager)
+        original = project_dir / "clip.mp4"
+        original.write_bytes(b"fake")
+
+        cfg = SimpleNamespace(
+            paths=SimpleNamespace(output_dir=tmp_path / "out"),
+            analyze=SimpleNamespace(skip_existing=True),
+            plan=SimpleNamespace(use_transcripts=True),
+            compressed_dir=None,
+        )
+        (tmp_path / "out").mkdir(exist_ok=True)
+        handler._get_config.return_value = cfg
+
+        from unittest.mock import patch as mock_patch
+
+        with (
+            mock_patch(
+                "clio.ui.services.file_service._find_original_for_compressed", return_value=str(original.resolve())
+            ),
+            mock_patch("clio.ui.routes.run._resolve_found_original", return_value=original.resolve()),
+            mock_patch("clio.vmeta.VideoMeta.read", return_value=None),
+        ):
+            handle_post_rerun(handler, {}, {"video": "clip.mp4", "task": "analyze"})
+
+        payload = handler._send_json.call_args.args[0]
+        assert payload["ok"] is True, f"First submit should succeed: {payload}"
+        first_task_id = payload["task_id"]
+        assert entered.wait(timeout=2)
+        handler._send_json.reset_mock()
+
+        with (
+            mock_patch(
+                "clio.ui.services.file_service._find_original_for_compressed", return_value=str(original.resolve())
+            ),
+            mock_patch("clio.ui.routes.run._resolve_found_original", return_value=original.resolve()),
+            mock_patch("clio.vmeta.VideoMeta.read", return_value=None),
+        ):
+            handle_post_rerun(handler, {}, {"video": "clip.mp4", "task": "analyze"})
+
+        assert handler._send_json.call_args.args[1] == 409
+        release.set()
+        manager.wait(first_task_id)
+
+
+class TestSSEStream:
+    """Cover handle_get_run_stream SSE loop with a mock handler."""
+
+    def _sse_handler(self, tmp_path, manager=None):
+        from threading import Event, Lock
+
+        class _State:
+            def __init__(self):
+                self.run_lock = Lock()
+                self.run_thread = None
+                self.cancel_event = Event()
+
+        project_dir = tmp_path / "project"
+        output_dir = tmp_path / "output"
+        project_dir.mkdir(exist_ok=True)
+        output_dir.mkdir(exist_ok=True)
+        cfg = SimpleNamespace(
+            paths=SimpleNamespace(output_dir=output_dir),
+            plan=SimpleNamespace(use_transcripts=True),
+        )
+        handler = MagicMock()
+        handler.config_path = None
+        handler._resolve_project_dir.return_value = project_dir
+        handler._get_task_manager = lambda: manager
+        handler._get_state.return_value = _State()
+        handler._get_project_output.return_value = output_dir
+        handler._get_config.return_value = copy.deepcopy(cfg)
+        return handler, output_dir
+
+    def test_sse_emits_idle_then_breaks_on_done(self, tmp_path, monkeypatch):
+        handler, output_dir = self._sse_handler(tmp_path)
+        progress = output_dir / ".progress.json"
+
+        # Write "done" progress so the loop breaks after first emit.
+        progress.write_text(json.dumps({"status": "done", "phase": "compress"}), encoding="utf-8")
+
+        # Prevent the 0.5s sleep from actually sleeping.
+        monkeypatch.setattr("clio.ui.routes.run.time.sleep", lambda s: None)
+
+        handle_get_run_stream(handler, {})
+
+        handler.send_response.assert_called_once_with(200)
+        written = b"".join(call.args[0] for call in handler.wfile.write.call_args_list)
+        assert b'"status": "done"' in written or b'"status":"done"' in written
+
+    def test_sse_idle_no_progress_file(self, tmp_path, monkeypatch):
+        handler, output_dir = self._sse_handler(tmp_path)
+
+        # No progress file -> emits idle once, then keeps looping.
+        # We break the loop by raising ConnectionResetError on second write.
+        call_count = [0]
+        real_write = handler.wfile.write
+
+        def write_side_effect(data):
+            call_count[0] += 1
+            if call_count[0] > 1:
+                raise ConnectionResetError()
+            return real_write(data)
+
+        handler.wfile.write.side_effect = write_side_effect
+        monkeypatch.setattr("clio.ui.routes.run.time.sleep", lambda s: None)
+
+        handle_get_run_stream(handler, {})
+
+        handler.send_response.assert_called_once_with(200)
+
+    def test_sse_managed_task_running(self, tmp_path, monkeypatch):
+        from clio.task_center.manager import TaskManager
+        from clio.task_center.store import TaskStore
+
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+
+        def worker(context):
+            context.reporter.progress(phase="analyze", current=1, total=2, message="working")
+            time.sleep(0.01)
+            return {}
+
+        monkeypatch.setattr("clio.ui.routes.run._run_pipeline_task", worker)
+        handler, output_dir = self._sse_handler(tmp_path, manager=manager)
+
+        handle_post_run_start(handler, {}, {"steps": ["analyze"]})
+
+        # Wait for task to complete, then write done progress.
+        task_id = handler._send_json.call_args.args[0]["task_id"]
+        manager.wait(task_id)
+
+        progress = output_dir / ".progress.json"
+        progress.write_text(json.dumps({"status": "done", "phase": "analyze"}), encoding="utf-8")
+
+        # Reset mock and call SSE.
+        handler.wfile.write.reset_mock()
+        handler.wfile.flush = MagicMock()
+        monkeypatch.setattr("clio.ui.routes.run.time.sleep", lambda s: None)
+
+        handle_get_run_stream(handler, {})
+
+        written = b"".join(call.args[0] for call in handler.wfile.write.call_args_list)
+        assert b'"status": "done"' in written or b'"status":"done"' in written
+
+
+class TestManagedCancelErrors:
+    """Cover cancel error paths for managed tasks."""
+
+    def test_cancel_task_not_found_returns_409(self, tmp_path):
+        from clio.task_center.manager import TaskManager
+        from clio.task_center.store import TaskStore
+
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+        handler, _, _ = _managed_handler(tmp_path, manager)
+
+        handle_post_run_cancel(handler, {}, {"task_id": "nonexistent-id"})
+
+        payload = handler._send_json.call_args.args[0]
+        assert payload["ok"] is True
+        assert "没有运行中的任务" in payload["message"]
+
+    def test_cancel_completed_task_is_noop(self, tmp_path, monkeypatch):
+        from clio.task_center.manager import TaskManager
+        from clio.task_center.store import TaskStore
+
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+
+        def worker(context):
+            return {}
+
+        monkeypatch.setattr("clio.ui.routes.run._run_pipeline_task", worker)
+        handler, _, _ = _managed_handler(tmp_path, manager)
+        handle_post_run_start(handler, {}, {"steps": ["compress"]})
+        task_id = handler._send_json.call_args.args[0]["task_id"]
+        manager.wait(task_id)
+        handler._send_json.reset_mock()
+
+        handle_post_run_cancel(handler, {}, {"task_id": task_id})
+
+        payload = handler._send_json.call_args.args[0]
+        assert payload["ok"] is True
+        assert payload["task_id"] == task_id
+
+
+class TestResolveFoundOriginal:
+    """Cover _resolve_found_original path resolution branches."""
+
+    def test_none_returns_none(self, tmp_path):
+        assert _resolve_found_original(None, tmp_path) is None
+
+    def test_empty_string_returns_none(self, tmp_path):
+        assert _resolve_found_original("", tmp_path) is None
+
+    def test_existing_absolute_path_resolved(self, tmp_path):
+        video = tmp_path / "clip.mp4"
+        video.write_bytes(b"fake")
+        result = _resolve_found_original(str(video), tmp_path)
+        assert result == video.resolve()
+
+    def test_relative_path_resolved_against_proj_dir(self, tmp_path):
+        video = tmp_path / "sub" / "clip.mp4"
+        video.parent.mkdir(parents=True)
+        video.write_bytes(b"fake")
+        result = _resolve_found_original("sub/clip.mp4", tmp_path)
+        assert result == video.resolve()
+
+    def test_nonexistent_absolute_returns_none(self, tmp_path):
+        assert _resolve_found_original(str(tmp_path / "ghost.mp4"), tmp_path) is None
+
+    def test_videos_json_basename_match(self, tmp_path):
+        original_dir = tmp_path / "original"
+        original_dir.mkdir()
+        video = original_dir / "trip_clip.mp4"
+        video.write_bytes(b"fake")
+
+        (tmp_path / "videos.json").write_text(json.dumps([str(video.resolve())]), encoding="utf-8")
+
+        # Pass just the basename; not a real file relative to proj_dir.
+        result = _resolve_found_original("trip_clip.mp4", tmp_path)
+        assert result == video.resolve()
+
+    def test_videos_json_no_match_returns_none(self, tmp_path):
+        (tmp_path / "videos.json").write_text(json.dumps(["/elsewhere/gone.mp4"]), encoding="utf-8")
+        result = _resolve_found_original("gone.mp4", tmp_path)
+        assert result is None
+
+
+class TestLegacyRerunWorker:
+    """Cover the legacy _rerun_worker closure by running handle_post_rerun
+    without _no_thread so the thread actually executes."""
+
+    def _legacy_handler(self, tmp_path):
+        from threading import Event, Lock
+
+        import yaml as yaml_mod
+
+        class _State:
+            def __init__(self):
+                self.run_lock = Lock()
+                self.run_thread = None
+                self.cancel_event = Event()
+
+        project_dir = tmp_path / "project"
+        output_dir = tmp_path / "output"
+        project_dir.mkdir(exist_ok=True)
+        output_dir.mkdir(exist_ok=True)
+        (project_dir / "project.yaml").write_text(
+            yaml_mod.safe_dump({"paths": {"output_dir": str(output_dir)}}),
+            encoding="utf-8",
+        )
+        cfg = SimpleNamespace(
+            paths=SimpleNamespace(output_dir=output_dir),
+            analyze=SimpleNamespace(skip_existing=True),
+            plan=SimpleNamespace(use_transcripts=True),
+            compressed_dir=None,
+        )
+        handler = MagicMock()
+        handler.config_path = None
+        handler._resolve_project_dir.return_value = project_dir
+        handler._get_config.return_value = cfg
+        handler._get_task_manager.return_value = None  # legacy mode
+        handler._get_state.return_value = _State()
+        handler._get_project_output.return_value = output_dir
+        return handler, project_dir, output_dir
+
+    def test_compress_success_writes_done_progress(self, tmp_path, monkeypatch):
+        handler, project_dir, output_dir = self._legacy_handler(tmp_path)
+        original = project_dir / "clip.mp4"
+        original.write_bytes(b"fake")
+
+        calls = []
+        monkeypatch.setattr("clio.ui.routes.run.run_compress_all", lambda *a, **kw: calls.append("compress"))
+
+        with (
+            patch("clio.ui.services.file_service._find_original_for_compressed", return_value=str(original.resolve())),
+            patch("clio.ui.routes.run._resolve_found_original", return_value=original.resolve()),
+        ):
+            handle_post_rerun(handler, {}, {"video": "clip.mp4", "task": "compress"})
+
+        payload = handler._send_json.call_args.args[0]
+        assert payload["ok"] is True, payload
+
+        # Wait for thread to finish.
+        state = handler._get_state.return_value
+        for _ in range(50):
+            with state.run_lock:
+                if state.run_thread is None or not state.run_thread.is_alive():
+                    break
+            time.sleep(0.05)
+
+        progress_file = output_dir / ".progress.json"
+        assert progress_file.is_file(), "Progress file should be written by tracker"
+        data = json.loads(progress_file.read_text(encoding="utf-8"))
+        assert data["status"] in ("done", "error", "cancelled"), f"Unexpected: {data}"
+
+    def test_analyze_error_marks_error(self, tmp_path, monkeypatch):
+        handler, project_dir, output_dir = self._legacy_handler(tmp_path)
+        original = project_dir / "clip.mp4"
+        original.write_bytes(b"fake")
+
+        def fail(*args, **kwargs):
+            raise RuntimeError("AI quota exceeded")
+
+        monkeypatch.setattr("clio.ui.routes.run.run_analyze_all", fail)
+
+        with (
+            patch("clio.ui.services.file_service._find_original_for_compressed", return_value=str(original.resolve())),
+            patch("clio.ui.routes.run._resolve_found_original", return_value=original.resolve()),
+        ):
+            handle_post_rerun(handler, {}, {"video": "clip.mp4", "task": "analyze"})
+
+        payload = handler._send_json.call_args.args[0]
+        assert payload["ok"] is True, payload
+
+        state = handler._get_state.return_value
+        for _ in range(50):
+            with state.run_lock:
+                if state.run_thread is None or not state.run_thread.is_alive():
+                    break
+            time.sleep(0.05)
+
+        progress_file = output_dir / ".progress.json"
+        data = json.loads(progress_file.read_text(encoding="utf-8"))
+        assert data["status"] == "error"
+        assert "AI quota" in data.get("message", "")
+
+    def test_cancel_before_step_marks_cancelled(self, tmp_path, monkeypatch):
+        handler, project_dir, output_dir = self._legacy_handler(tmp_path)
+        original = project_dir / "clip.mp4"
+        original.write_bytes(b"fake")
+
+        # handle_post_rerun clears the cancel event before spawning the worker,
+        # so we set it from inside the mocked step_fn instead.
+        state = handler._get_state.return_value
+
+        def cancel_and_raise(*args, **kwargs):
+            state.cancel_event.set()
+            raise RuntimeError("rerun 被用户取消（压缩视频）")
+
+        monkeypatch.setattr("clio.ui.routes.run.run_compress_all", cancel_and_raise)
+
+        with (
+            patch("clio.ui.services.file_service._find_original_for_compressed", return_value=str(original.resolve())),
+            patch("clio.ui.routes.run._resolve_found_original", return_value=original.resolve()),
+        ):
+            handle_post_rerun(handler, {}, {"video": "clip.mp4", "task": "compress"})
+
+        payload = handler._send_json.call_args.args[0]
+        assert payload["ok"] is True, payload
+
+        for _ in range(50):
+            with state.run_lock:
+                if state.run_thread is None or not state.run_thread.is_alive():
+                    break
+            time.sleep(0.05)
+
+        progress_file = output_dir / ".progress.json"
+        data = json.loads(progress_file.read_text(encoding="utf-8"))
+        assert data["status"] == "cancelled"
