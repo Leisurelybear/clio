@@ -15,11 +15,182 @@ from clio.ui.services.project_service import (
     _detect_steps,
     _list_projects,
     _project_output_dir,
+    _project_yaml_has_input_dir,
+    _read_project_name,
+    _read_registry,
+    _registry_entry_path,
     _registry_path,
+    _registry_project_paths,
+    _remove_from_registry,
+    _resolve_project_output_path,
     _save_last_project,
+    collect_allowed_project_paths,
     resolve_last_project_config,
     resolve_project_input,
 )
+
+
+class TestResolveProjectOutputPath:
+    def test_none_returns_none(self, tmp_path):
+        assert _resolve_project_output_path(tmp_path, None) is None
+
+    def test_blank_returns_none(self, tmp_path):
+        assert _resolve_project_output_path(tmp_path, "  ") is None
+
+    def test_relative_resolved_against_project(self, tmp_path):
+        result = _resolve_project_output_path(tmp_path, "out")
+        assert result == (tmp_path / "out").resolve()
+
+    def test_absolute_used_as_is(self, tmp_path):
+        result = _resolve_project_output_path(tmp_path, tmp_path / "abs")
+        assert result == (tmp_path / "abs").resolve()
+
+
+class TestProjectYamlHasInputDir:
+    def test_no_yaml_returns_false(self, tmp_path):
+        assert _project_yaml_has_input_dir(tmp_path) is False
+
+    def test_yaml_without_input_dir(self, tmp_path):
+        import yaml as yaml_mod
+
+        (tmp_path / "project.yaml").write_text(yaml_mod.safe_dump({"paths": {"output_dir": "out"}}), encoding="utf-8")
+        assert _project_yaml_has_input_dir(tmp_path) is False
+
+    def test_yaml_with_input_dir(self, tmp_path):
+        import yaml as yaml_mod
+
+        (tmp_path / "project.yaml").write_text(yaml_mod.safe_dump({"paths": {"input_dir": "old"}}), encoding="utf-8")
+        assert _project_yaml_has_input_dir(tmp_path) is True
+
+    def test_corrupt_yaml_returns_false(self, tmp_path):
+        (tmp_path / "project.yaml").write_text("{{{{", encoding="utf-8")
+        assert _project_yaml_has_input_dir(tmp_path) is False
+
+
+class TestReadProjectName:
+    def test_no_project_json(self, tmp_path):
+        assert _read_project_name(tmp_path) is None
+
+    def test_reads_name(self, tmp_path):
+        (tmp_path / "project.json").write_text(json.dumps({"name": "my-trip"}), encoding="utf-8")
+        assert _read_project_name(tmp_path) == "my-trip"
+
+    def test_corrupt_json_returns_none(self, tmp_path):
+        (tmp_path / "project.json").write_text("bad", encoding="utf-8")
+        assert _read_project_name(tmp_path) is None
+
+
+class TestRegistryEntryHelpers:
+    def test_dict_entry_with_project_dir(self):
+        assert _registry_entry_path({"project_dir": "/a"}) == "/a"
+
+    def test_dict_entry_with_legacy_input_dir(self):
+        assert _registry_entry_path({"input_dir": "/b"}) == "/b"
+
+    def test_string_entry(self):
+        assert _registry_entry_path("/c") == "/c"
+
+    def test_empty_entry_returns_none(self):
+        assert _registry_entry_path("") is None
+
+    def test_registry_project_paths_skips_invalid(self):
+        reg = {"projects": [{"project_dir": "/a"}, "", None, {"project_dir": "/b"}]}
+        assert _registry_project_paths(reg) == ["/a", "/b"]
+
+
+class TestReadRegistry:
+    def test_missing_returns_empty(self, tmp_path):
+        reg = _read_registry(tmp_path / "projects.json")
+        assert reg == {"projects": []}
+
+    def test_valid_registry_loaded(self, tmp_path):
+        f = tmp_path / "projects.json"
+        f.write_text(json.dumps({"projects": ["/a"]}), encoding="utf-8")
+        assert _read_registry(f) == {"projects": ["/a"]}
+
+    def test_corrupt_quarantined(self, tmp_path):
+        f = tmp_path / "projects.json"
+        f.write_text("broken", encoding="utf-8")
+        with pytest.raises(ValueError, match="已损坏"):
+            _read_registry(f)
+        quarantines = list(tmp_path.glob("projects.json.corrupt.*"))
+        assert len(quarantines) == 1
+
+    def test_non_dict_rejected(self, tmp_path):
+        f = tmp_path / "projects.json"
+        f.write_text("[1,2]", encoding="utf-8")
+        with pytest.raises(ValueError, match="结构无效"):
+            _read_registry(f)
+
+
+class TestRemoveFromRegistry:
+    def test_missing_registry_returns_false(self, tmp_path):
+        assert _remove_from_registry("/a", tmp_path / "config.yaml") is False
+
+    def test_removes_matching_entry(self, tmp_path):
+        project = tmp_path / "proj"
+        project.mkdir()
+        config = tmp_path / "config.yaml"
+        config.touch()
+        reg_file = tmp_path / "projects.json"
+        reg_file.write_text(json.dumps({"projects": [str(project.resolve()), "/other"]}), encoding="utf-8")
+
+        result = _remove_from_registry(str(project), config)
+
+        assert result is True
+        data = json.loads(reg_file.read_text(encoding="utf-8"))
+        assert data["projects"] == ["/other"]
+
+    def test_preserves_last_project_when_still_present(self, tmp_path):
+        project = tmp_path / "proj"
+        project.mkdir()
+        other = tmp_path / "other"
+        other.mkdir()
+        config = tmp_path / "config.yaml"
+        config.touch()
+        reg_file = tmp_path / "projects.json"
+        reg_file.write_text(
+            json.dumps(
+                {
+                    "projects": [str(project.resolve()), str(other.resolve())],
+                    "last_project": {"name": "other"},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        _remove_from_registry(str(project), config)
+
+        data = json.loads(reg_file.read_text(encoding="utf-8"))
+        assert data["last_project"] == {"name": "other"}
+
+    def test_drops_last_project_when_removed(self, tmp_path):
+        project = tmp_path / "proj"
+        project.mkdir()
+        config = tmp_path / "config.yaml"
+        config.touch()
+        reg_file = tmp_path / "projects.json"
+        reg_file.write_text(
+            json.dumps(
+                {
+                    "projects": [str(project.resolve())],
+                    "last_project": {"name": "proj"},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        _remove_from_registry(str(project), config)
+
+        data = json.loads(reg_file.read_text(encoding="utf-8"))
+        assert "last_project" not in data
+
+    def test_corrupt_registry_returns_false(self, tmp_path):
+        config = tmp_path / "config.yaml"
+        config.touch()
+        reg_file = tmp_path / "projects.json"
+        reg_file.write_text("broken", encoding="utf-8")
+        assert _remove_from_registry("/a", config) is False
 
 
 class TestProjectOutputDir:
@@ -370,3 +541,35 @@ def test_collect_allowed_includes_default_and_registry(tmp_path):
     assert str(other.resolve()) in allowed
     assert is_under_root(other / "nested", other) is True
     assert is_under_root(default, other) is False
+
+
+class TestCollectAllowedProjectPaths:
+    def test_always_includes_default(self, tmp_path):
+        allowed = collect_allowed_project_paths(tmp_path, None)
+        assert str(tmp_path.resolve()) in allowed
+
+    def test_non_path_config_returns_default_only(self, tmp_path):
+        allowed = collect_allowed_project_paths(tmp_path, "not-a-path")
+        assert len(allowed) == 1
+
+    def test_missing_registry_returns_default_only(self, tmp_path):
+        config = tmp_path / "config.yaml"
+        config.touch()
+        allowed = collect_allowed_project_paths(tmp_path / "proj", config)
+        assert len(allowed) == 1
+
+    def test_registry_paths_added(self, tmp_path):
+        project = tmp_path / "reg_proj"
+        project.mkdir()
+        config = tmp_path / "config.yaml"
+        config.touch()
+        (tmp_path / "projects.json").write_text(json.dumps({"projects": [str(project.resolve())]}), encoding="utf-8")
+        allowed = collect_allowed_project_paths(tmp_path / "default", config)
+        assert str(project.resolve()) in allowed
+
+    def test_corrupt_registry_returns_default_only(self, tmp_path):
+        config = tmp_path / "config.yaml"
+        config.touch()
+        (tmp_path / "projects.json").write_text("bad", encoding="utf-8")
+        allowed = collect_allowed_project_paths(tmp_path / "default", config)
+        assert len(allowed) == 1
