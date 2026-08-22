@@ -1454,6 +1454,7 @@ button.match-badge:focus-visible { outline: 2px solid var(--border-focus); outli
   align-items: center;
   justify-content: center;
 }
+.task-nav-badge[hidden] { display: none; }
 .project-item .icon { position: relative; }
 .task-center-toolbar select { max-width: 140px; padding: 4px 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-base); color: var(--text-primary); font-size: var(--text-xs); }
 .task-center-layout { display: grid; grid-template-columns: minmax(220px, 42%) 1fr; min-height: 0; flex: 1; }
