@@ -531,6 +531,7 @@ def handle_post_rerun(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -
                 "original_video": str(original_video),
                 "texts_json": str(texts_json) if texts_json is not None else None,
             },
+            private_input_data={"_config": cfg},
             input_summary={"task": task, "video": video_basename},
             reject_if_active=True,
         )
