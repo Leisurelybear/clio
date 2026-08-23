@@ -200,6 +200,8 @@ class ProjectWhisperConfig:
     device: str = "auto"
     max_segments_per_clip: int = 5
     transcripts_subdir: str = "transcripts"
+    engine: str = "local"
+    cloud_provider: str = ""
 
     def sanitize(self) -> None:
         if self.model_size not in list(WhisperModelSize):
@@ -210,6 +212,8 @@ class ProjectWhisperConfig:
             raise ValueError(f"whisper.device must be one of {', '.join(WhisperDevice)}, got: {self.device}")
         if self.max_segments_per_clip < 1:
             raise ValueError(f"whisper.max_segments_per_clip must be >= 1, got: {self.max_segments_per_clip}")
+        if self.engine not in ("local", "cloud"):
+            raise ValueError(f"whisper.engine must be 'local' or 'cloud', got: {self.engine}")
 
 
 @dataclass
@@ -344,6 +348,14 @@ class CombinedWhisperConfig:
     @property
     def transcripts_subdir(self) -> str:
         return self._project.transcripts_subdir if self._project else "transcripts"
+
+    @property
+    def engine(self) -> str:
+        return self._project.engine if self._project else "local"
+
+    @property
+    def cloud_provider(self) -> str:
+        return self._project.cloud_provider if self._project else ""
 
 
 # ---------------------------------------------------------------------------

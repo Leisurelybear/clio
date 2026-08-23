@@ -319,7 +319,16 @@ _SPLIT_PROJECT_KEYS: dict[str, set[str]] = {
     # Deprecated split keys stay here only so V1 migration moves them out of global config.
     "compress": {"target_size_mb", "max_width", "split_max_min", "splits_subdir", "reencode_split"},
     "ai": {"tasks", "context", "context_file"},
-    "whisper": {"enabled", "model_size", "language", "device", "max_segments_per_clip", "transcripts_subdir"},
+    "whisper": {
+        "enabled",
+        "model_size",
+        "language",
+        "device",
+        "max_segments_per_clip",
+        "transcripts_subdir",
+        "engine",
+        "cloud_provider",
+    },
 }
 
 # Split-section keys belonging to global
@@ -601,6 +610,8 @@ def load_project_config(
             device=raw.get("whisper", {}).get("device", "auto"),
             max_segments_per_clip=raw.get("whisper", {}).get("max_segments_per_clip", 5),
             transcripts_subdir=raw.get("whisper", {}).get("transcripts_subdir", "transcripts"),
+            engine=raw.get("whisper", {}).get("engine", "local"),
+            cloud_provider=raw.get("whisper", {}).get("cloud_provider", ""),
         ),
         export=ExportConfig(**_filter_dc(raw.get("export", {}), ExportConfig)),
         preview=PreviewConfig(

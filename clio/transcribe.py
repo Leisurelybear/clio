@@ -7,6 +7,7 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 
+from clio.asr.base import TranscriptionProvider
 from clio.config import AppConfig
 
 
@@ -250,6 +251,9 @@ def transcribe_audio(
     config: AppConfig,
     progress_callback: Callable[[int], None] | None = None,
 ) -> list[dict]:
+    engine = getattr(config.whisper, "engine", "local")
+    if engine == "cloud":
+        return _transcribe_cloud(audio_path, config, progress_callback)
     lang = config.whisper.language
     if progress_callback:
         progress_callback(0)
@@ -320,3 +324,24 @@ def transcribe_audio(
             except AttributeError:
                 if config.whisper._project is not None:
                     config.whisper._project.device = _orig_device
+
+
+def _transcribe_cloud(
+    audio_path: Path,
+    config: AppConfig,
+    progress_callback: Callable[[int], None] | None = None,
+) -> list[dict]:
+    provider = _build_cloud_provider(config)
+    lang = config.whisper.language
+    if progress_callback:
+        progress_callback(0)
+    segments = provider.transcribe(audio_path, lang, progress_callback)
+    if progress_callback:
+        progress_callback(100)
+    return [seg.to_dict() for seg in segments]
+
+
+def _build_cloud_provider(config: AppConfig) -> TranscriptionProvider:
+    from clio.asr.factory import build_provider
+
+    return build_provider(config.whisper.cloud_provider, config)

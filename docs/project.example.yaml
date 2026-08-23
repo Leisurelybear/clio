@@ -85,3 +85,7 @@ whisper:
   device: auto
   max_segments_per_clip: 5
   transcripts_subdir: transcripts
+  # ASR 引擎: local（faster-whisper）或 cloud
+  engine: local
+  # 云端 provider 名称，engine 为 cloud 时必填
+  cloud_provider: ""
