@@ -66,6 +66,9 @@ def _ensure_run_handlers(manager: TaskManager) -> None:
 
 
 def _task_config(context) -> Any:
+    inherited = context.input_data.get("_config")
+    if inherited is not None:
+        return copy.deepcopy(inherited)
     config_path = context.input_data.get("config_path") or "config.yaml"
     project_path = Path(context.task.project_path or context.input_data["project_dir"])
     cfg = load_config(config_path, project_dir=project_path)
@@ -334,6 +337,7 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
             project_path=project_id,
             input_data=input_data,
             private_input_data={
+                "_config": cfg,
                 "context_override": context_override,
                 "task_prompts": task_prompts,
             },

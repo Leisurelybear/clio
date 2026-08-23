@@ -37,10 +37,12 @@ def _managed_handler(tmp_path, manager):
     output_dir = tmp_path / "output"
     project_dir.mkdir(exist_ok=True)
     output_dir.mkdir(exist_ok=True)
-    cfg = SimpleNamespace(
-        paths=SimpleNamespace(output_dir=output_dir),
-        plan=SimpleNamespace(use_transcripts=True),
-    )
+    from clio.config.models import AppConfig, GlobalConfig, ProjectConfig
+
+    project_cfg = ProjectConfig()
+    project_cfg.paths.output_dir = output_dir
+    cfg = AppConfig(global_cfg=GlobalConfig(), project_cfg=project_cfg, project_dir=project_dir)
+    cfg.plan.use_transcripts = True
     handler = MagicMock()
     handler.config_path = None
     handler._resolve_project_dir.return_value = project_dir
