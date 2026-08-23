@@ -59,3 +59,4 @@ project.json
 videos.json
 **/.vmeta/
 **/.vindex
+coverage.json
