@@ -189,10 +189,11 @@ class TestApplyRunInputDirOverride:
 
 
 class TestHandlePostRunStart:
-    def test_managed_start_returns_task_id(self, tmp_path):
+    def test_managed_start_returns_task_id(self, tmp_path, monkeypatch):
         from clio.task_center.manager import TaskManager
         from clio.task_center.store import TaskStore
 
+        monkeypatch.setattr("clio.ui.routes.run._run_pipeline_task", lambda context: {"ok": True})
         manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
         handler, _, _ = _managed_handler(tmp_path, manager)
 
