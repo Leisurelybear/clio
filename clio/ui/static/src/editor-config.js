@@ -15,6 +15,35 @@ import { LOGS_BUFFER_MAX, appendLogEntries } from './logs-buffer.js';
 // Dynamic import avoids static cycle: editor.js → editor-config.js → editor.js (A-006)
 
 const DEFAULT_PROVIDERS = ['gemini', 'openai', 'deepseek'];
+
+const ADVANCED_TOGGLE_KEY = 'vlog-config-show-advanced';
+let _configSchema = null;
+
+export function _isAdvancedVisible() {
+  return localStorage.getItem(ADVANCED_TOGGLE_KEY) === 'true';
+}
+
+export function _setAdvancedVisible(v) {
+  localStorage.setItem(ADVANCED_TOGGLE_KEY, v ? 'true' : 'false');
+}
+
+function _schemaField(path, layer = 'project') {
+  if (!_configSchema || !_configSchema[layer]) return null;
+  for (const sec of _configSchema[layer]) {
+    for (const f of sec.fields || []) {
+      if (f.path === path) return f;
+    }
+  }
+  return null;
+}
+
+async function _loadConfigSchema() {
+  if (_configSchema) return _configSchema;
+  try {
+    _configSchema = await api('GET', '/api/config/schema');
+  } catch { _configSchema = null; }
+  return _configSchema;
+}
 const DEFAULT_MODELS = {
   gemini: ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3-flash', 'gemini-3.1-flash-lite', 'gemini-3.5-flash'],
   openai: ['gpt-4o', 'gpt-4o-mini'],
@@ -184,20 +213,35 @@ export function _renderTagInput(container, values, onChange) {
 }
 
 
-export function _renderConfigForm(obj, path, descriptions = null) {
+export function _renderConfigForm(obj, path, descriptions = null, layer = 'project') {
   if (obj === null || obj === undefined) {
     return `<span class="config-null">(空)</span>`;
   }
   const descPath = _resolveDescPath(path, descriptions);
   const tip = descPath ? _renderTooltip(path, descriptions[descPath]) : '';
+  const sf = _schemaField(path, layer);
+  if (sf && sf.group === 'hidden') return '';
+  if (sf && sf.group === 'advanced' && !_isAdvancedVisible()) return '';
+  const advBadge = sf && sf.group === 'advanced' && _isAdvancedVisible()
+    ? '<span class="config-adv-badge" title="高级配置">ADV</span>' : '';
   if (typeof obj === 'boolean') {
-    return `<label class="config-field config-bool"><span class="config-key">${labelFromPath(path)}${tip}</span> <input type="checkbox" data-path="${path}" ${obj ? 'checked' : ''}></label>`;
+    return `${advBadge}<label class="config-field config-bool"><span class="config-key">${labelFromPath(path)}${tip}</span> <input type="checkbox" data-path="${path}" ${obj ? 'checked' : ''}></label>`;
   }
   if (typeof obj === 'number') {
+    if (sf && sf.ui === 'select_or_number' && Array.isArray(sf.choices)) {
+      const isPreset = sf.choices.includes(obj);
+      const opts = sf.choices.map(c => `<option value="${c}"${c === obj ? ' selected' : ''}>${c}</option>`).join('');
+      const customInput = isPreset ? '' : `<input type="number" class="config-custom-num" data-path="${path}" step="any" value="${obj}" style="width:80px;margin-left:4px">`;
+      return `<label class="config-field config-num"><span class="config-key">${labelFromPath(path)}${tip}</span> <select data-path="${path}" data-schema-select="1">${isPreset ? opts : opts + '<option value="__custom__" selected>\u81ea\u5b9a\u4e49…</option>'}</select>${customInput}</label>`;
+    }
     const isInt = Number.isInteger(obj);
-    return `<label class="config-field config-num"><span class="config-key">${labelFromPath(path)}${tip}</span> <input type="number" data-path="${path}" step="${isInt ? '1' : 'any'}" value="${obj}"></label>`;
+    return `${advBadge}<label class="config-field config-num"><span class="config-key">${labelFromPath(path)}${tip}</span> <input type="number" data-path="${path}" step="${isInt ? '1' : 'any'}" value="${obj}"></label>`;
   }
   if (typeof obj === 'string') {
+    if (sf && sf.ui === 'select' && Array.isArray(sf.choices)) {
+      const opts = sf.choices.map(c => `<option value="${escapeHtml(String(c))}"${String(c) === String(obj) ? ' selected' : ''}>${escapeHtml(String(c))}</option>`).join('');
+      return `<label class="config-field config-str"><span class="config-key">${labelFromPath(path)}${tip}</span> <select data-path="${path}"><option value=""${!sf.choices.includes(obj) ? ' selected' : ''}>-- \u9009\u62e9 --</option>${opts}</select></label>`;
+    }
     const multiline = path === 'ai.context' || obj.length > 80 || obj.includes('\n');
     if (multiline) {
       let hint = '';
@@ -277,11 +321,12 @@ function _renderSectionCard(key, val, descs, isGlobal) {
   let fieldsHtml = '';
   if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
     for (const [k, v] of Object.entries(val)) {
-      fieldsHtml += _renderConfigForm(v, `${key}.${k}`, descs);
+      fieldsHtml += _renderConfigForm(v, `${key}.${k}`, descs, isGlobal ? 'global' : 'project');
     }
   } else {
-    fieldsHtml = _renderConfigForm(val, key, descs);
+    fieldsHtml = _renderConfigForm(val, key, descs, isGlobal ? 'global' : 'project');
   }
+  if (!fieldsHtml.trim()) return '';
   return `<div class="config-card${collapsed ? ' collapsed' : ''}" data-section-key="${sectionKey}">
     <div class="config-card-header" tabindex="0" role="button">
       <span class="config-card-arrow">▶</span>
@@ -1232,6 +1277,7 @@ function _ensureDefaultProviderModels() {
 
 export function renderConfig() {
   const pane = $('tab-config');
+  void _loadConfigSchema();
   if (state._needsConfigInit) {
     pane.innerHTML = `
       <h3>项目配置初始化</h3>
@@ -1253,6 +1299,7 @@ export function renderConfig() {
   const isFallback = state.configRaw._config_source === 'global_fallback';
   const active = state.configTab || 'project';
   const descs = state.configRaw._descriptions || {};
+  const showAdvanced = _isAdvancedVisible();
 
   let contentHtml = '';
   if (active === 'project') {
@@ -1277,6 +1324,9 @@ export function renderConfig() {
       ${_tabBtn('全局', 'global', active === 'global')}
       ${_tabBtn('Prompts', 'prompts', active === 'prompts')}
       ${_tabBtn('合并视图', 'merged', active === 'merged')}
+      <label class="config-advanced-toggle" style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:var(--text-sm)">
+        <input type="checkbox" id="config-advanced-toggle" ${showAdvanced ? 'checked' : ''}> 显示高级配置
+      </label>
     </div>
     ${isFallback ? _renderFallbackWarn() : ''}
     <div id="config-tab-content">${contentHtml}</div>`;
@@ -1304,6 +1354,14 @@ export function renderConfig() {
       renderConfig();
     };
   });
+
+  const advToggle = pane.querySelector('#config-advanced-toggle');
+  if (advToggle) {
+    advToggle.onchange = () => {
+      _setAdvancedVisible(advToggle.checked);
+      renderConfig();
+    };
+  }
 
   // Hide save button for merged tab (read-only)
   const saveBtn = $('btn-save');

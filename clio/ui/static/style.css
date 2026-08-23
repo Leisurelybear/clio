@@ -1710,6 +1710,30 @@ button.match-badge:focus-visible { outline: 2px solid var(--border-focus); outli
 .config-card-arrow {
   font-size: 10px;
   transform: rotate(90deg);
+
+/* Advanced config field badge */
+.config-adv-badge {
+  display: inline-block;
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 3px;
+  background: var(--warning-bg, #fff3cd);
+  color: var(--warning-text, #856404);
+  font-weight: 600;
+  vertical-align: middle;
+  margin-right: 4px;
+  cursor: default;
+}
+.config-advanced-toggle {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  user-select: none;
+}
   transition: transform var(--transition-fast);
   color: var(--text-tertiary);
   line-height: 1;

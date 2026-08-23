@@ -26,6 +26,7 @@ from clio.config.models import (
     ScriptConfig,
 )
 from clio.config.parsers import _infer_provider_capabilities
+from clio.config.schema import build_config_schema
 from clio.ui.services.file_service import (
     _coerce_config_types,
     _create_project_yaml,
@@ -213,7 +214,16 @@ _SPLIT_PROJECT: dict[str, set[str]] = {
     "paths": {"output_dir"},
     "compress": {"target_size_mb", "max_width"},
     "ai": {"tasks", "context", "context_file"},
-    "whisper": {"enabled", "model_size", "language", "device", "max_segments_per_clip", "transcripts_subdir"},
+    "whisper": {
+        "enabled",
+        "model_size",
+        "language",
+        "device",
+        "max_segments_per_clip",
+        "transcripts_subdir",
+        "engine",
+        "cloud_provider",
+    },
 }
 
 _DEPRECATED_FIELDS: dict[str, set[str]] = {
@@ -354,6 +364,11 @@ def handle_get_config_project(handler: HandlerProtocol, qs: dict[str, Any]) -> N
     # Merge dataclass defaults so UI always shows plan/analyze/script/... even if
     # the on-disk project.yaml only has a subset of sections (common after migrate).
     handler._send_json(_merge_project_with_defaults(raw if isinstance(raw, dict) else {}))
+
+
+def handle_get_config_schema(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
+    """Handle GET /api/config/schema."""
+    handler._send_json(build_config_schema())
 
 
 def _validate_global_against_registry(config_path: Path, candidate: Path) -> list[dict[str, str]]:

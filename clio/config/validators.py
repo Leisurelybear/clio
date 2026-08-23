@@ -187,6 +187,7 @@ def validate_global_config(config: GlobalConfig) -> None:
     _require_min("ai.provider_ttl_min", config.ai.provider_ttl_min, 0)
     _require_min("naming.index_width", config.naming.index_width, 1)
     _require_min("compress.fps", config.compress.fps, 1)
+    _require_choice("compress.codec", config.compress.codec, ("libx264", "libx265"))
     _require_min("compress.crf", config.compress.crf, 0)
     _require_max("compress.crf", config.compress.crf, 51)
     for provider_name, provider_cfg in config.ai.providers.items():
