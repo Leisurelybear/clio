@@ -70,7 +70,7 @@ vlog-video-analysis/
 │   │   │   ├── notifications.py # Persistent notification inbox API and SSE
 │   │   │   ├── prompts.py
 │   │   │   ├── refine.py
-│   │   │   ├── run.py
+│   │   │   ├── run.py           # Run start/rerun submission to Task Center
 │   │   │   ├── static_files.py
 │   │   │   ├── tasks.py         # Unified Task Center API and SSE
 │   │   │   ├── texts.py

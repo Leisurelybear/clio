@@ -96,7 +96,7 @@ These endpoints require the same API token as other sensitive config routes and 
 ### 统一任务中心
 
 任务中心从 `GET /api/tasks` 加载跨项目任务（包含后台维护任务），并通过
-`GET /api/tasks/stream?after=<seq>` 持续接收全局事件。列表支持按状态、类型和项目筛选；详情显示阶段进度、错误和事件时间线。对可取消任务可直接发起取消，对失败或中断任务可创建重试任务。任务记录由服务端 SQLite 持久化，页面或项目切换不会丢失历史。运行面板与视频重跑统一消费 `/api/tasks` 事件流，并提供“在任务中心查看”入口。
+`GET /api/tasks/stream?after=<seq>` 持续接收全局事件。列表支持按状态、类型和项目筛选；详情显示阶段进度、错误和事件时间线。对可取消任务可直接发起取消，对失败或中断任务可创建重试任务。任务记录由服务端 SQLite 持久化，页面或项目切换不会丢失历史。运行面板与视频重跑通过 `/api/run/start` 和 `/api/rerun` 提交，执行由 Task Center 托管并返回 `task_id`；两者统一消费 `/api/tasks` 事件流，并提供“在任务中心查看”入口。
 
 ### 通知中心
 

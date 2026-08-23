@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-08-23
+
+Completed R-041 Phase G: run/rerun consumers now use the unified Task Center.
+
+- refactor(tasks): migrate run and rerun execution to Task Center managed tasks;
+  remove legacy `/api/run/status`, `/api/run/stream`, `/api/run/cancel` routes
+  and thread fallbacks
+- fix(tasks): reuse the request-time config in managed pipeline/rerun executors
+  via memory-only private input, avoiding config.yaml reloads (and CI failures)
+- fix(desktop): close flow queries active tasks from `/api/tasks` and cancels
+  each one individually
+- test(tasks): mock pipeline executor in managed-start coverage; ignore
+  `coverage.json`
+
+
 ## 2026-08-22
 
 - feat(notifications): add inline per-item read actions to the notification inbox
