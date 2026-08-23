@@ -9,7 +9,7 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from clio.desktop.server_host import fetch_run_status, request_run_cancel
+from clio.desktop.server_host import fetch_active_tasks, request_run_cancel
 from clio.desktop.single_instance import (
     focus_first_instance,
     is_web_running,
@@ -84,8 +84,8 @@ def _handle_closing(
     """
     if confirm_quit is None:
         confirm_quit = _confirm_quit
-    status = fetch_run_status(host, port, token)
-    if status.get("running"):
+    active_tasks = fetch_active_tasks(host, port, token)
+    if active_tasks:
         if not confirm_quit():
             return False
         request_run_cancel(host, port, token)

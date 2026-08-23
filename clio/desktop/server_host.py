@@ -90,25 +90,26 @@ def stop_server(handle: ServerHandle, timeout: float = 5.0) -> None:
         before_stop()
 
 
-def fetch_run_status(host: str, port: int, token: str = "") -> dict:
-    """Probe GET /api/run/status on the local UI server.
+def fetch_active_tasks(host: str, port: int, token: str = "") -> list[dict]:
+    """Probe GET /api/tasks for queued/running/cancelling tasks.
 
-    Returns parsed JSON, or ``{}`` when the server is unreachable / malformed.
+    Returns an empty list when the server is unreachable / malformed.
     """
     try:
-        url = f"http://{host}:{port}/api/run/status"
+        url = f"http://{host}:{port}/api/tasks?visibility=all&limit=50"
         if token:
-            url = f"{url}?token={token}"
+            url = f"{url}&token={token}"
         with urllib.request.urlopen(url, timeout=3) as resp:
-            return json.loads(resp.read().decode("utf-8"))
+            payload = json.loads(resp.read().decode("utf-8"))
+        return [task for task in payload.get("tasks", []) if task.get("status") in {"queued", "running", "cancelling"}]
     except (OSError, ValueError, json.JSONDecodeError):
-        return {}
+        return []
 
 
-def request_run_cancel(host: str, port: int, token: str = "") -> None:
-    """POST /api/run/cancel on the local UI server (best-effort, authed on desktop)."""
+def request_task_cancel(host: str, port: int, token: str = "", task_id: str = "") -> None:
+    """POST /api/tasks/{id}/cancel (best-effort, authed on desktop)."""
     try:
-        url = f"http://{host}:{port}/api/run/cancel"
+        url = f"http://{host}:{port}/api/tasks/{task_id}/cancel"
         if token:
             url = f"{url}?token={token}"
         req = urllib.request.Request(
@@ -121,3 +122,9 @@ def request_run_cancel(host: str, port: int, token: str = "") -> None:
             pass
     except (OSError, ValueError):
         pass
+
+
+def request_run_cancel(host: str, port: int, token: str = "") -> None:
+    """Cancel every currently active task (best-effort desktop close path)."""
+    for task in fetch_active_tasks(host, port, token):
+        request_task_cancel(host, port, token, str(task.get("id", "")))

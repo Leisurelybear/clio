@@ -110,7 +110,7 @@ Design: `docs/superpowers/specs/2026-08-17-r042-notification-center-design.md`
 
 ### R-041 Unified task management center
 
-**Status:** In progress (2026-08-16); backend and first global UI pass implemented.
+**Status:** Complete (2026-08-23); Phase G migrated run/rerun consumers and removed legacy run status APIs.
 
 **Goal:** Make one cross-project task center the source of truth for background execution,
 including lifecycle state, progress, logs, cancellation, errors, interruption recovery,
@@ -128,7 +128,7 @@ of flooding the top-level list.
 | D | Done | Migrate pipeline + rerun; preserve `.progress.json` compatibility projection |
 | E | Done | Migrate cut, Whisper, and background waveform jobs |
 | F | Done | Global task center UI, filters, detail timeline, logs, cancel/retry |
-| G | Planned | Migrate old frontend consumers and audit legacy status-file/API removal |
+| G | Done (2026-08-23) | Migrate run/rerun consumers to `/api/tasks`; remove `/api/run/status`, `/api/run/stream`, `/api/run/cancel` and legacy thread fallbacks |
 
 **Boundary:** `.processing.json` remains the artifact-readiness matrix; it is not a task
 history store. Task inputs/events must be secret-safe. Service restart changes leftover

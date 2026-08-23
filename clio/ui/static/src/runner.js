@@ -11,7 +11,6 @@ import { addToast } from './toast.js';
 import { registerNotification } from './notification-center.js';
 import { subscribeTaskEvents, fetchTask } from './task-center.js';
 
-let _runEventSource = null;
 let _lastRunDay = 'day1';
 let _runActive = false;
 let _lastProgressSnapshot = null;
@@ -155,7 +154,6 @@ function renderRun() {
   if (_runActive) { runBtn.disabled = true; runBtn.textContent = '运行中...'; }
   const cancelBtn = $('btn-run-cancel');
   if (cancelBtn) cancelBtn.onclick = cancelRun;
-  _stopRunSSE();
   _subscribeManagedRunEvents();
   _syncManagedRunTask();
 }
@@ -322,7 +320,6 @@ async function startRun() {
   _lastRunDay = options.day_label;
   _lastRunSteps = options.steps.slice();
   _expectDoneNavigation = true;
-  _stopRunSSE();
   try {
     const r = await api('POST', '/api/run/start', options);
   if (r.ok) {
@@ -337,7 +334,6 @@ async function startRun() {
         _subscribeManagedRunEvents();
         _syncManagedTaskSnapshot(_managedTaskId);
       }
-      else _startRunSSE(); // compatibility with servers predating the task center
     } else {
       throw new Error(r.error || '启动失败');
     }
@@ -355,9 +351,7 @@ async function cancelRun() {
   const btn = $('btn-run-cancel');
   if (btn) { btn.disabled = true; btn.innerHTML = '⏹ 正在取消...'; }
   try {
-    const r = _managedTaskId
-      ? await api('POST', `/api/tasks/${encodeURIComponent(_managedTaskId)}/cancel`, {})
-      : await api('POST', '/api/run/cancel', {});
+    const r = await api('POST', `/api/tasks/${encodeURIComponent(_managedTaskId)}/cancel`, {});
     const msg = r.message || '取消请求已发送';
     setStatus(msg, 'warn');
     addToast(msg, 'warning', undefined, { persist: false });
@@ -435,42 +429,6 @@ async function _syncManagedRunTask() {
       _handleRunStatus(_taskToRunStatus(task));
     }
   } catch { /* compatibility fallback handles older servers */ }
-}
-
-function _startRunSSE() {
-  _stopRunSSE();
-  let url = '/api/run/stream';
-  let sep = '?';
-  const addQuery = (key, value) => {
-    if (!value) return;
-    url += sep + key + '=' + encodeURIComponent(value);
-    sep = '&';
-  };
-  if (state.currentProjectName) {
-    addQuery('project', state.currentProjectName);
-  }
-  if (state.currentProjectDir) {
-    addQuery('project_dir', state.currentProjectDir);
-  }
-  addQuery('token', sessionStorage.getItem('api_token'));
-  _runEventSource = new EventSource(url);
-  _runEventSource.onmessage = (event) => {
-    try {
-      const s = JSON.parse(event.data);
-      if (s.task_id) { _managedTaskId = s.task_id; renderManagedTaskLink(); }
-      _handleRunStatus(s);
-    } catch { /* ignore parse errors */ }
-  };
-  _runEventSource.onerror = () => {
-    // EventSource auto-reconnects on connection loss
-  };
-}
-
-function _stopRunSSE() {
-  if (_runEventSource) {
-    _runEventSource.close();
-    _runEventSource = null;
-  }
 }
 
 /** Re-fetch the video list so artifacts from a finished/cancelled/failed run show up. */
@@ -570,7 +528,6 @@ export async function _handleRunStatus(s) {
     } else if (s.status === 'done') {
       _lastProgressSnapshot = null;
       _runActive = false;
-      _stopRunPoll();
       updateRunStartButtonState();
       const cancelBtn = $('btn-run-cancel');
       if (cancelBtn) cancelBtn.style.display = 'none';
@@ -631,7 +588,6 @@ export async function _handleRunStatus(s) {
     } else if (s.status === 'cancelled') {
       _lastProgressSnapshot = null;
       _runActive = false;
-      _stopRunPoll();
       updateRunStartButtonState();
       const cancelBtn = $('btn-run-cancel');
       if (cancelBtn) cancelBtn.style.display = 'none';
@@ -646,7 +602,6 @@ export async function _handleRunStatus(s) {
     } else if (s.status === 'error') {
       _lastProgressSnapshot = null;
       _runActive = false;
-      _stopRunPoll();
       updateRunStartButtonState();
       const cancelBtn = $('btn-run-cancel');
       if (cancelBtn) cancelBtn.style.display = 'none';
@@ -659,10 +614,6 @@ export async function _handleRunStatus(s) {
       if (hasRunDom) renderProcessingState($('run-state-container'));
       await refreshVideosAfterRun();
     }
-}
-
-function _stopRunPoll() {
-  _stopRunSSE();
 }
 
 function _completionTargetForSteps(steps) {
@@ -776,7 +727,6 @@ function renderSkippedDiagnosticsHtml(diagnostics) {
 export {
   renderRun,
   startRun,
-  _stopRunPoll,
   updateRunFilesBadge,
   updateRunStartButtonState,
   getRunButtonText,

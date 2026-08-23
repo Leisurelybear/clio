@@ -5,11 +5,7 @@ import { addToast } from './toast.js';
 import { loadVideos, renderVideoList } from './sidebar-data.js';
 import { subscribeTaskEvents, fetchTask } from './task-center.js';
 
-let _rerunPollTimer = null;
-let _rerunPollStart = 0;
 let _rerunTaskUnsubscribe = null;
-// Long AI analyze can exceed 2 min; only fail after long idle wall clock
-const RERUN_POLL_TIMEOUT = 30 * 60_000;
 
 /** Menu + empty CTA send task "analyze"; legacy alias "texts". */
 export function shouldReloadTextsAfterRerun(task) {
@@ -20,7 +16,7 @@ export function shouldReloadVoiceoverAfterRerun(task) {
   return task === 'voiceover' || task === 'all';
 }
 
-export function showRerunProgress(task, file, taskId = null) {
+export function showRerunProgress(task, file, taskId) {
   const overlay = $('rerun-overlay');
   if (!overlay) return;
   overlay.classList.add('active');
@@ -33,22 +29,15 @@ export function showRerunProgress(task, file, taskId = null) {
   overlay.querySelector('.rerun-progress-fill').style.width = '0%';
   overlay.querySelector('.rerun-logs').innerHTML = '<div class="rerun-log-line">连接中...</div>';
 
-  if (_rerunPollTimer) clearInterval(_rerunPollTimer);
   if (_rerunTaskUnsubscribe) { _rerunTaskUnsubscribe(); _rerunTaskUnsubscribe = null; }
-  _rerunPollStart = Date.now();
-  if (taskId) {
-    _rerunTaskUnsubscribe = subscribeTaskEvents(payload => {
-      const current = payload?.task;
-      if (!current || current.id !== taskId || current.kind !== 'rerun') return;
-      _applyTaskEvent(task, file, current, payload.event);
-    });
-    fetchTask(taskId).then(current => {
-      if (current && current.id === taskId) _applyTaskEvent(task, file, current);
-    }).catch(() => {});
-  } else {
-    _rerunPollTimer = setInterval(() => pollRerunStatus(task, file), 1500);
-    pollRerunStatus(task, file);
-  }
+  _rerunTaskUnsubscribe = subscribeTaskEvents(payload => {
+    const current = payload?.task;
+    if (!current || current.id !== taskId || current.kind !== 'rerun') return;
+    _applyTaskEvent(task, file, current, payload.event);
+  });
+  fetchTask(taskId).then(current => {
+    if (current && current.id === taskId) _applyTaskEvent(task, file, current);
+  }).catch(() => {});
 }
 
 export function hideRerunProgress() {
@@ -56,10 +45,6 @@ export function hideRerunProgress() {
   if (!overlay) return;
   overlay.classList.remove('active');
   overlay.style.display = 'none';
-  if (_rerunPollTimer) {
-    clearInterval(_rerunPollTimer);
-    _rerunPollTimer = null;
-  }
   if (_rerunTaskUnsubscribe) {
     _rerunTaskUnsubscribe();
     _rerunTaskUnsubscribe = null;
@@ -91,7 +76,6 @@ function _rerunTerminal(task, file, label, message, toastKind, statusKind) {
   const overlay = $('rerun-overlay');
   if (!overlay || overlay.dataset.active !== 'true') return;
   overlay.dataset.active = 'false';
-  if (_rerunPollTimer) { clearInterval(_rerunPollTimer); _rerunPollTimer = null; }
   if (_rerunTaskUnsubscribe) { _rerunTaskUnsubscribe(); _rerunTaskUnsubscribe = null; }
   const statusEl = overlay.querySelector('.rerun-status');
   if (statusEl) statusEl.innerHTML = `<span class="${statusKind === 'success' ? 'ok' : statusKind === 'warning' ? 'warn' : 'err'}">${escapeHtml(label)}</span>`;
@@ -102,95 +86,6 @@ function _rerunTerminal(task, file, label, message, toastKind, statusKind) {
     setTimeout(() => { hideRerunProgress(); refreshAfterRerun(task, file); }, 2000);
   } else {
     setTimeout(hideRerunProgress, statusKind === 'error' ? 8000 : 4000);
-  }
-}
-
-function _rerunPollError(statusEl, label, msg) {
-  const overlay = $('rerun-overlay');
-  if (!overlay) return;
-  overlay.dataset.active = 'false';
-  if (_rerunPollTimer) { clearInterval(_rerunPollTimer); _rerunPollTimer = null; }
-  if (statusEl) statusEl.innerHTML = `<span class="err">✗ ${escapeHtml(label)}</span>`;
-  setStatus(msg, 'err');
-  addToast(msg, 'error', 6000, { title: '启动重跑失败' });
-  setTimeout(hideRerunProgress, 8000);
-}
-
-async function pollRerunStatus(task, file) {
-  const overlay = $('rerun-overlay');
-  if (!overlay || overlay.dataset.active !== 'true') return;
-
-  try {
-    const s = await api('GET', '/api/run/status');
-    const fill = overlay.querySelector('.rerun-progress-fill');
-    const statusEl = overlay.querySelector('.rerun-status');
-    const logsEl = overlay.querySelector('.rerun-logs');
-
-    if (Date.now() - _rerunPollStart > RERUN_POLL_TIMEOUT) {
-      return _rerunPollError(statusEl, '超时', '重跑超时，请检查后端状态');
-    }
-
-    if (s.status === 'idle' || s.status === 'unknown') {
-      if (Date.now() - _rerunPollStart > 10_000) {
-        return _rerunPollError(statusEl, '未启动', '重跑任务未启动');
-      }
-      return;
-    }
-
-    if (fill && s.total > 0) {
-      const pct = Math.round(s.current / s.total * 100);
-      fill.style.width = Math.min(pct, 100) + '%';
-    }
-
-    if (statusEl) {
-      statusEl.textContent = s.message || s.phase || '运行中...';
-    }
-
-    if (logsEl && s.logs && s.logs.length) {
-      logsEl.innerHTML = s.logs.map(line =>
-        `<div class="rerun-log-line">${escapeHtml(line)}</div>`
-      ).join('');
-      logsEl.scrollTop = logsEl.scrollHeight;
-    }
-
-    if (s.status === 'done') {
-      overlay.dataset.active = 'false';
-      if (_rerunPollTimer) {
-        clearInterval(_rerunPollTimer);
-        _rerunPollTimer = null;
-      }
-      if (statusEl) statusEl.innerHTML = '<span class="ok">✓ 完成</span>';
-      setStatus('重跑完成', 'ok', { persist: false });
-      addToast('重跑完成', 'success', undefined, { persist: false });
-      setTimeout(() => {
-        hideRerunProgress();
-        refreshAfterRerun(task, file);
-      }, 2000);
-    } else if (s.status === 'cancelled') {
-      overlay.dataset.active = 'false';
-      if (_rerunPollTimer) {
-        clearInterval(_rerunPollTimer);
-        _rerunPollTimer = null;
-      }
-      if (statusEl) statusEl.innerHTML = '<span class="warn">⏹ 已取消</span>';
-      setStatus('重跑已取消', 'warn');
-      addToast('重跑已取消', 'warning', undefined, { title: '视频重跑' });
-      setTimeout(hideRerunProgress, 4000);
-    } else if (s.status === 'error') {
-      overlay.dataset.active = 'false';
-      if (_rerunPollTimer) {
-        clearInterval(_rerunPollTimer);
-        _rerunPollTimer = null;
-      }
-      if (statusEl) statusEl.innerHTML = '<span class="err">✗ 出错</span>';
-      setStatus('重跑出错', 'err');
-      addToast('重跑出错', 'error', 6000, { title: '视频重跑' });
-      setTimeout(() => {
-        hideRerunProgress();
-      }, 8000);
-    }
-  } catch (e) {
-    // poll error, ignore
   }
 }
 

@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 import clio.desktop.app as app_mod
 from clio.config import AppConfig
 from clio.desktop.server_host import (
-    fetch_run_status,
+    fetch_active_tasks,
     request_run_cancel,
     start_server,
     stop_server,
@@ -18,7 +18,7 @@ from clio.desktop.server_host import (
 
 
 def test_handle_closing_idle_allows_close(monkeypatch):
-    monkeypatch.setattr(app_mod, "fetch_run_status", lambda host, port, token="": {"status": "idle", "running": False})
+    monkeypatch.setattr(app_mod, "fetch_active_tasks", lambda host, port, token="": [])
     confirmed = []
     monkeypatch.setattr(app_mod, "request_run_cancel", lambda host, port, token="": confirmed.append(port))
     assert app_mod._handle_closing("127.0.0.1", 1234) is True
@@ -27,7 +27,7 @@ def test_handle_closing_idle_allows_close(monkeypatch):
 
 def test_handle_closing_running_confirmed_cancels(monkeypatch):
     monkeypatch.setattr(
-        app_mod, "fetch_run_status", lambda host, port, token="": {"status": "running", "running": True}
+        app_mod, "fetch_active_tasks", lambda host, port, token="": [{"id": "task-1", "status": "running"}]
     )
     monkeypatch.setattr(app_mod, "_confirm_quit", lambda: True)
     cancelled = []
@@ -38,7 +38,7 @@ def test_handle_closing_running_confirmed_cancels(monkeypatch):
 
 def test_handle_closing_running_declined_aborts_close(monkeypatch):
     monkeypatch.setattr(
-        app_mod, "fetch_run_status", lambda host, port, token="": {"status": "running", "running": True}
+        app_mod, "fetch_active_tasks", lambda host, port, token="": [{"id": "task-1", "status": "running"}]
     )
     monkeypatch.setattr(app_mod, "_confirm_quit", lambda: False)
     cancelled = []
@@ -47,7 +47,7 @@ def test_handle_closing_running_declined_aborts_close(monkeypatch):
     assert cancelled == []
 
 
-def test_fetch_run_status_and_cancel_roundtrip(loaded_config: AppConfig, monkeypatch):
+def test_fetch_active_tasks_and_cancel_roundtrip(loaded_config: AppConfig, monkeypatch):
     monkeypatch.setattr(
         "clio.desktop.server_host.auto_reindex_if_needed",
         lambda cfg: False,
@@ -60,16 +60,16 @@ def test_fetch_run_status_and_cancel_roundtrip(loaded_config: AppConfig, monkeyp
         api_token=None,
     )
     try:
-        status = fetch_run_status(handle.host, handle.port, handle.token)
-        assert isinstance(status, dict)
-        assert "status" in status and "running" in status
+        tasks = fetch_active_tasks(handle.host, handle.port, handle.token)
+        assert isinstance(tasks, list)
+        assert tasks == []
         request_run_cancel(handle.host, handle.port, handle.token)  # no exception while idle
     finally:
         stop_server(handle)
 
 
-def test_fetch_run_status_unreachable_returns_empty():
-    assert fetch_run_status("127.0.0.1", 1) == {}
+def test_fetch_active_tasks_unreachable_returns_empty():
+    assert fetch_active_tasks("127.0.0.1", 1) == []
 
 
 def test_request_run_cancel_unreachable_silent():

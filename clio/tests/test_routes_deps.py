@@ -124,6 +124,7 @@ class TestHandleGetDepsKeys:
         """B-1 first-launch: with no project/tasks, surface globally declared providers."""
         h = _handler(tmp_path)
         monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
         h._get_config.return_value = _cfg(
             providers={
                 "deepseek": SimpleNamespace(api_key="", api_key_env="DEEPSEEK_API_KEY"),

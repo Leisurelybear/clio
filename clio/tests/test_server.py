@@ -502,12 +502,6 @@ class TestDoGET:
         handler.do_GET()
         mock_fn.assert_called_once()
 
-    @patch("clio.ui.server.handle_get_run_status")
-    def test_api_run_status(self, mock_fn, handler_cls):
-        handler = _build_handler(handler_cls, path="/api/run/status")
-        handler.do_GET()
-        mock_fn.assert_called_once()
-
     @patch("clio.ui.server.handle_get_tasks")
     def test_api_tasks(self, mock_fn, handler_cls):
         handler = _build_handler(handler_cls, path="/api/tasks")
@@ -830,12 +824,6 @@ class TestDoPOST:
         assert mock_fn.call_args[0][0] is handler
         assert mock_fn.call_args[1]["qs"] == {}
         assert mock_fn.call_args[1]["obj"] == {"provider": "deepseek"}
-
-    @patch("clio.ui.server.handle_post_run_cancel")
-    def test_post_run_cancel(self, mock_fn, handler_cls):
-        handler = self._post_handler(handler_cls, {}, "/api/run/cancel")
-        handler.do_POST()
-        mock_fn.assert_called_once()
 
     @patch("clio.ui.server.handle_post_task_cancel")
     def test_post_task_cancel(self, mock_fn, handler_cls):

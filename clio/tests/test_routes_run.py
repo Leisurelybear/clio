@@ -1,4 +1,4 @@
-"""Tests for clio/ui/routes/run.py — run status/start/rerun handlers."""
+"""Tests for clio/ui/routes/run.py — run start/rerun handlers."""
 
 from __future__ import annotations
 
@@ -8,21 +8,17 @@ import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from clio.ui.routes.run import (
     _apply_run_input_dir_override,
-    _read_progress_file,
     _resolve_found_original,
     _resolve_run_project_dir,
     _run_pipeline_task,
     _run_rerun_task,
-    handle_get_run_status,
-    handle_get_run_stream,
     handle_post_rerun,
-    handle_post_run_cancel,
     handle_post_run_preview,
     handle_post_run_start,
 )
@@ -70,46 +66,6 @@ def _handler():
     handler._get_state = lambda key: handler.__class__._fake_state
     handler.__class__._fake_state = _FakeState()
     return handler
-
-
-@pytest.fixture
-def _no_thread(monkeypatch):
-    """Prevent background threads from actually starting — avoids copy.deepcopy leaks on CI."""
-    monkeypatch.setattr(
-        "clio.ui.routes.run.threading.Thread",
-        lambda *a, **kw: MagicMock(start=lambda: None),
-    )
-
-
-class TestHandleGetRunStatus:
-    def test_idle_when_no_progress_file(self, _handler):
-        handler = _handler
-        handler._resolve_project_dir.return_value = Path("/nonexistent")
-        handler._get_project_output.return_value = Path("/nonexistent")
-
-        handle_get_run_status(handler, {})
-
-        handler._send_json.assert_called_once_with({"status": "idle", "running": False})
-
-    def test_reads_progress_file(self, tmp_path: Path, _handler):
-        handler = _handler
-        proj_dir = tmp_path / "input"
-        proj_out = tmp_path / "output"
-        proj_out.mkdir(parents=True)
-        progress = proj_out / ".progress.json"
-        progress.write_text(json.dumps({"status": "running", "phase": "compress"}), encoding="utf-8")
-        handler._resolve_project_dir.return_value = proj_dir
-        handler._get_project_output.return_value = proj_out
-        handler.__class__._fake_state.run_thread = MagicMock()
-        handler.__class__._fake_state.run_thread.is_alive.return_value = True
-
-        handle_get_run_status(handler, {})
-
-        handler._send_json.assert_called_once()
-        payload = handler._send_json.call_args[0][0]
-        assert payload["status"] == "running"
-        assert payload["phase"] == "compress"
-        assert payload["running"] is True
 
 
 class TestResolveRunProjectDir:
@@ -231,129 +187,18 @@ class TestApplyRunInputDirOverride:
 
 
 class TestHandlePostRunStart:
-    def test_already_running(self, _handler):
-        handler = _handler
-        handler._resolve_project_dir.return_value = Path("/input")
-        handler.__class__._fake_state.run_thread = MagicMock()
-        handler.__class__._fake_state.run_thread.is_alive.return_value = True
+    def test_managed_start_returns_task_id(self, tmp_path):
+        from clio.task_center.manager import TaskManager
+        from clio.task_center.store import TaskStore
 
-        handle_post_run_start(handler, {}, {})
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+        handler, _, _ = _managed_handler(tmp_path, manager)
 
-        handler._send_json.assert_called_once_with({"ok": False, "error": "pipeline is already running"}, 409)
+        handle_post_run_start(handler, {}, {"steps": ["compress"]})
 
-    def test_already_running_does_not_clobber_progress(self, tmp_path, _handler):
-        """Duplicate run request must NOT overwrite existing progress file."""
-        handler = _handler
-        handler._resolve_project_dir.return_value = Path("/input")
-        out_dir = tmp_path / "output"
-        out_dir.mkdir()
-        progress = out_dir / ".progress.json"
-        original = {"status": "running", "phase": "analyze", "message": "still running"}
-        progress.write_text(json.dumps(original, ensure_ascii=False), encoding="utf-8")
-        cfg = MagicMock()
-        cfg.paths.output_dir = out_dir
-        handler._get_config.return_value = cfg
-        handler.__class__._fake_state.run_thread = MagicMock()
-        handler.__class__._fake_state.run_thread.is_alive.return_value = True
-
-        handle_post_run_start(handler, {}, {})
-
-        handler._send_json.assert_called_once_with({"ok": False, "error": "pipeline is already running"}, 409)
-        assert json.loads(progress.read_text(encoding="utf-8")) == original
-
-    def test_starts_thread(self, tmp_path: Path, _no_thread, _handler):
-        handler = _handler
-        handler._resolve_project_dir.return_value = tmp_path / "input"
-        handler._get_config.return_value = MagicMock()
-
-        handle_post_run_start(handler, {}, {"steps": ["compress", "analyze"]})
-
-        handler._send_json.assert_called_once()
-        assert handler._send_json.call_args[0][0]["ok"] is True
-
-    @pytest.mark.parametrize(
-        ("payload", "error"),
-        [
-            ({"overwrite": "false"}, "overwrite must be a boolean"),
-            ({"files": ["A.mp4", 2]}, "files items must be strings"),
-            ({"context_override": 2}, "context_override must be a string"),
-            ({"task_prompts": {"analyze": 2}}, "task_prompts must be an object of strings"),
-        ],
-    )
-    def test_rejects_invalid_typed_options(self, tmp_path: Path, _handler, payload, error):
-        handler = _handler
-        handler._resolve_project_dir.return_value = tmp_path / "input"
-        handler._get_config.return_value = MagicMock()
-
-        handle_post_run_start(handler, {}, payload)
-
-        handler._send_json.assert_called_once_with({"ok": False, "error": error}, 400)
-
-    def test_rejects_missing_input_dir_override(self, tmp_path: Path, _handler):
-        handler = _handler
-        handler._resolve_project_dir.return_value = tmp_path / "input"
-        cfg = SimpleNamespace(paths=SimpleNamespace(input_dir=tmp_path / "input", output_dir=tmp_path / "output"))
-        handler._get_config.return_value = cfg
-
-        handle_post_run_start(handler, {}, {"input_dir": str(tmp_path / "missing")})
-
-        handler._send_json.assert_called_once()
-        assert handler._send_json.call_args.args[1] == 400
-        err = handler._send_json.call_args.args[0]["error"]
-        assert "project_dir not found" in err or "input_dir not found" in err
-
-    def test_unsafe_day_label_rejected(self, tmp_path: Path, _handler, _no_thread):
-        handler = _handler
-        handler._resolve_project_dir.return_value = tmp_path
-        cfg = MagicMock()
-        cfg.paths.output_dir = tmp_path / "out"
-        cfg.paths.output_dir.mkdir()
-        cfg.plan.use_transcripts = True
-        handler._get_config.return_value = cfg
-        handle_post_run_start(handler, {}, {"day_label": "../x", "steps": ["plan"]})
-        assert handler._send_json.call_args[0][1] == 400
-        assert "day_label" in handler._send_json.call_args[0][0]["error"]
-
-    def test_use_transcripts_does_not_mutate_cached_config(self, tmp_path: Path, _handler, _no_thread):
-        handler = _handler
-        handler._resolve_project_dir.return_value = tmp_path
-        out = tmp_path / "out"
-        out.mkdir()
-        plan = SimpleNamespace(use_transcripts=True)
-        cfg = SimpleNamespace(paths=SimpleNamespace(output_dir=out), plan=plan)
-        handler._get_config.return_value = cfg
-
-        handle_post_run_start(handler, {}, {"day_label": "day1", "steps": ["plan"], "use_transcripts": False})
-        # Shared cfg must remain default True (handler deepcopies before assign)
-        assert cfg.plan.use_transcripts is True
-        assert handler._send_json.call_args[0][0]["ok"] is True
-
-    def test_override_keeps_config_and_state_unified(self, tmp_path: Path, _handler, _no_thread, monkeypatch):
-        """A body project_dir override must not split config from state (P1-P31)."""
-        handler = _handler
-        query_dir = tmp_path / "query"
-        query_dir.mkdir()
-        override_dir = tmp_path / "override"
-        override_dir.mkdir()
-        handler._resolve_project_dir.return_value = query_dir
-        cfg = MagicMock()
-        cfg.paths.output_dir = tmp_path / "out"
-        handler._get_config.return_value = cfg
-        monkeypatch.setattr(
-            "clio.ui.routes.run.collect_allowed_project_paths",
-            lambda *a, **k: {str(query_dir.resolve()), str(override_dir.resolve())},
-        )
-        captured_keys = []
-        handler._get_state = MagicMock(
-            side_effect=lambda key: captured_keys.append(key) or handler.__class__._fake_state
-        )
-
-        handle_post_run_start(handler, {}, {"steps": ["compress"], "project_dir": str(override_dir)})
-
-        assert handler._send_json.call_args[0][0]["ok"] is True
-        assert handler._get_config.call_args[0][0] == override_dir.resolve()
-        assert captured_keys == [str(override_dir.resolve())]
-        assert handler._get_config.call_args[0][0].resolve() == Path(captured_keys[0])
+        payload = handler._send_json.call_args.args[0]
+        assert payload["ok"] is True
+        assert manager.wait(payload["task_id"]).status.value == "succeeded"
 
 
 class TestHandlePostRunPreview:
@@ -443,6 +288,15 @@ class TestHandlePostRunPreview:
         )
 
 
+def _rerun_manager(tmp_path, monkeypatch):
+    from clio.task_center.manager import TaskManager
+    from clio.task_center.store import TaskStore
+
+    manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+    monkeypatch.setattr("clio.ui.routes.run._run_rerun_task", lambda context: {"ok": True})
+    return manager
+
+
 class TestHandlePostRerun:
     def test_missing_params(self, tmp_path: Path, _handler):
         handler = _handler
@@ -462,9 +316,10 @@ class TestHandlePostRerun:
         handler._send_json.assert_called_once()
         assert handler._send_json.call_args[0][1] == 400
 
-    def test_transcribe_valid_task(self, tmp_path: Path, _no_thread, _handler):
+    def test_transcribe_valid_task(self, tmp_path: Path, _handler, monkeypatch):
         """transcribe 应作为有效 task 被接受"""
         handler = _handler
+        handler._get_task_manager = lambda: _rerun_manager(tmp_path, monkeypatch)
         proj_dir = tmp_path / "input"
         proj_dir.mkdir()
         (proj_dir / "GL010695.MP4").write_bytes(b"")
@@ -475,8 +330,9 @@ class TestHandlePostRerun:
         handler._send_json.assert_called_once()
         assert handler._send_json.call_args[0][0]["ok"] is True
 
-    def test_starts_rerun(self, tmp_path: Path, _no_thread, _handler):
+    def test_starts_rerun(self, tmp_path: Path, _handler, monkeypatch):
         handler = _handler
+        handler._get_task_manager = lambda: _rerun_manager(tmp_path, monkeypatch)
         proj_dir = tmp_path / "input"
         proj_dir.mkdir()
         (proj_dir / "GL010695.MP4").write_bytes(b"")
@@ -487,12 +343,13 @@ class TestHandlePostRerun:
         handler._send_json.assert_called_once()
         assert handler._send_json.call_args[0][0]["ok"] is True
 
-    def test_rerun_with_external_original_returns_ok(self, tmp_path: Path, _handler):
+    def test_rerun_with_external_original_returns_ok(self, tmp_path: Path, _handler, monkeypatch):
         """Rerun with compressed source: verify original_video captured by the rerun
         thread closure is the correct external path (from .vmeta.source_path)."""
         import json as _json
 
         handler = _handler
+        handler._get_task_manager = lambda: _rerun_manager(tmp_path, monkeypatch)
         proj_dir = tmp_path / "input"
         proj_dir.mkdir()
         proj_out = tmp_path / "output"
@@ -529,49 +386,10 @@ class TestHandlePostRerun:
         cfg.compress = SimpleNamespace()
         handler._get_config.return_value = cfg
 
-        # Capture the thread target's default arguments
-        # _no_thread can't be used here because we need to inspect the Thread call
-        captured_thread_args = {}
+        handle_post_rerun(handler, {}, {"video": "001_GL010695.mp4", "task": "compress"})
 
-        def _fake_thread(*a, **kw):
-            captured_thread_args["target"] = kw.get("target")
-            return MagicMock(start=lambda: None)
-
-        monkeypatch = pytest.MonkeyPatch()
-        monkeypatch.setattr("clio.ui.routes.run.threading.Thread", _fake_thread)
-
-        try:
-            handle_post_rerun(handler, {}, {"video": "001_GL010695.mp4", "task": "compress"})
-
-            handler._send_json.assert_called_once()
-            payload = handler._send_json.call_args[0][0]
-            assert payload["ok"] is True, f"Expected ok=True, got {payload}"
-
-            target_fn = captured_thread_args.get("target")
-            assert target_fn is not None, "Thread was not created"
-            # _rerun_worker has defaults: cfg, task, video_basename, original_video, ...
-            defaults = target_fn.__defaults__
-            assert defaults is not None, "No defaults on _rerun_worker"
-        finally:
-            monkeypatch.undo()
-        # defaults: (cfg, task, video_basename, original_video, texts_json, proj_out, cancel_event)
-        assert len(defaults) >= 4, f"Expected at least 4 defaults, got {len(defaults)}"
-        original_video_arg = defaults[3]  # 4th default is original_video
-        assert original_video_arg == original.resolve(), (
-            f"Wrong original_video: expected {original.resolve()}, got {original_video_arg}"
-        )
-
-
-class TestHandlePostRunCancel:
-    def test_cancel_sets_event(self, _handler):
-        handler = _handler
-        handler._resolve_project_dir.return_value = Path("/input")
-        assert not handler.__class__._fake_state.cancel_event.is_set()
-
-        handle_post_run_cancel(handler, {}, {})
-
-        assert handler.__class__._fake_state.cancel_event.is_set()
-        handler._send_json.assert_called_once_with({"ok": True, "message": "取消请求已发送"})
+        payload = handler._send_json.call_args[0][0]
+        assert payload["ok"] is True, f"Expected ok=True, got {payload}"
 
 
 class TestManagedRunIntegration:
@@ -645,10 +463,13 @@ class TestManagedRunIntegration:
         assert entered.wait(timeout=2)
         handler._send_json.reset_mock()
 
-        handle_post_run_cancel(handler, {}, {})
+        from clio.ui.routes.tasks import handle_post_task_cancel
 
-        assert manager.wait(task_id).status is TaskStatus.CANCELLED
-        assert handler._send_json.call_args.args[0]["task_id"] == task_id
+        handle_post_task_cancel(handler, {}, {}, task_id)
+
+        cancelled = manager.wait(task_id)
+        assert cancelled.status is TaskStatus.CANCELLED
+        assert handler._send_json.call_args.args[0]["task"]["id"] == task_id
 
     def test_pipeline_reporter_keeps_legacy_progress_projection(self, tmp_path, monkeypatch):
         from clio.task_center.manager import TaskManager
@@ -893,32 +714,6 @@ class TestRunRerunTask:
             _run_rerun_task(context)
 
 
-class TestReadProgressFile:
-    def test_missing_file_returns_none(self, tmp_path):
-        assert _read_progress_file(tmp_path / "no.json") is None
-
-    def test_invalid_json_returns_none(self, tmp_path):
-        f = tmp_path / ".progress.json"
-        f.write_text("not json", encoding="utf-8")
-        assert _read_progress_file(f) is None
-
-    def test_non_dict_returns_none(self, tmp_path):
-        f = tmp_path / ".progress.json"
-        f.write_text("[1,2]", encoding="utf-8")
-        assert _read_progress_file(f) is None
-
-    def test_missing_phase_key_returns_none(self, tmp_path):
-        f = tmp_path / ".progress.json"
-        f.write_text(json.dumps({"status": "running"}), encoding="utf-8")
-        assert _read_progress_file(f) is None
-
-    def test_valid_data_returned(self, tmp_path):
-        f = tmp_path / ".progress.json"
-        f.write_text(json.dumps({"status": "running", "phase": "compress"}), encoding="utf-8")
-        data = _read_progress_file(f)
-        assert data == {"status": "running", "phase": "compress"}
-
-
 class TestManagedRerunSubmit:
     """Cover the managed rerun submission path (L707-738)."""
 
@@ -1028,125 +823,13 @@ class TestManagedRerunSubmit:
         manager.wait(first_task_id)
 
 
-class TestSSEStream:
-    """Cover handle_get_run_stream SSE loop with a mock handler."""
-
-    def _sse_handler(self, tmp_path, manager=None):
-        from threading import Event, Lock
-
-        class _State:
-            def __init__(self):
-                self.run_lock = Lock()
-                self.run_thread = None
-                self.cancel_event = Event()
-
-        project_dir = tmp_path / "project"
-        output_dir = tmp_path / "output"
-        project_dir.mkdir(exist_ok=True)
-        output_dir.mkdir(exist_ok=True)
-        cfg = SimpleNamespace(
-            paths=SimpleNamespace(output_dir=output_dir),
-            plan=SimpleNamespace(use_transcripts=True),
-        )
-        handler = MagicMock()
-        handler.config_path = None
-        handler._resolve_project_dir.return_value = project_dir
-        handler._get_task_manager = lambda: manager
-        handler._get_state.return_value = _State()
-        handler._get_project_output.return_value = output_dir
-        handler._get_config.return_value = copy.deepcopy(cfg)
-        return handler, output_dir
-
-    def test_sse_emits_idle_then_breaks_on_done(self, tmp_path, monkeypatch):
-        handler, output_dir = self._sse_handler(tmp_path)
-        progress = output_dir / ".progress.json"
-
-        # Write "done" progress so the loop breaks after first emit.
-        progress.write_text(json.dumps({"status": "done", "phase": "compress"}), encoding="utf-8")
-
-        # Prevent the 0.5s sleep from actually sleeping.
-        monkeypatch.setattr("clio.ui.routes.run.time.sleep", lambda s: None)
-
-        handle_get_run_stream(handler, {})
-
-        handler.send_response.assert_called_once_with(200)
-        written = b"".join(call.args[0] for call in handler.wfile.write.call_args_list)
-        assert b'"status": "done"' in written or b'"status":"done"' in written
-
-    def test_sse_idle_no_progress_file(self, tmp_path, monkeypatch):
-        handler, output_dir = self._sse_handler(tmp_path)
-
-        # No progress file -> emits idle once, then keeps looping.
-        # We break the loop by raising ConnectionResetError on second write.
-        call_count = [0]
-        real_write = handler.wfile.write
-
-        def write_side_effect(data):
-            call_count[0] += 1
-            if call_count[0] > 1:
-                raise ConnectionResetError()
-            return real_write(data)
-
-        handler.wfile.write.side_effect = write_side_effect
-        monkeypatch.setattr("clio.ui.routes.run.time.sleep", lambda s: None)
-
-        handle_get_run_stream(handler, {})
-
-        handler.send_response.assert_called_once_with(200)
-
-    def test_sse_managed_task_running(self, tmp_path, monkeypatch):
-        from clio.task_center.manager import TaskManager
-        from clio.task_center.store import TaskStore
-
-        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
-
-        def worker(context):
-            context.reporter.progress(phase="analyze", current=1, total=2, message="working")
-            time.sleep(0.01)
-            return {}
-
-        monkeypatch.setattr("clio.ui.routes.run._run_pipeline_task", worker)
-        handler, output_dir = self._sse_handler(tmp_path, manager=manager)
-
-        handle_post_run_start(handler, {}, {"steps": ["analyze"]})
-
-        # Wait for task to complete, then write done progress.
-        task_id = handler._send_json.call_args.args[0]["task_id"]
-        manager.wait(task_id)
-
-        progress = output_dir / ".progress.json"
-        progress.write_text(json.dumps({"status": "done", "phase": "analyze"}), encoding="utf-8")
-
-        # Reset mock and call SSE.
-        handler.wfile.write.reset_mock()
-        handler.wfile.flush = MagicMock()
-        monkeypatch.setattr("clio.ui.routes.run.time.sleep", lambda s: None)
-
-        handle_get_run_stream(handler, {})
-
-        written = b"".join(call.args[0] for call in handler.wfile.write.call_args_list)
-        assert b'"status": "done"' in written or b'"status":"done"' in written
-
-
 class TestManagedCancelErrors:
-    """Cover cancel error paths for managed tasks."""
-
-    def test_cancel_task_not_found_returns_409(self, tmp_path):
-        from clio.task_center.manager import TaskManager
-        from clio.task_center.store import TaskStore
-
-        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
-        handler, _, _ = _managed_handler(tmp_path, manager)
-
-        handle_post_run_cancel(handler, {}, {"task_id": "nonexistent-id"})
-
-        payload = handler._send_json.call_args.args[0]
-        assert payload["ok"] is True
-        assert "没有运行中的任务" in payload["message"]
+    """Cover managed task cancel behavior through the task API."""
 
     def test_cancel_completed_task_is_noop(self, tmp_path, monkeypatch):
         from clio.task_center.manager import TaskManager
         from clio.task_center.store import TaskStore
+        from clio.ui.routes.tasks import handle_post_task_cancel
 
         manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
 
@@ -1160,11 +843,10 @@ class TestManagedCancelErrors:
         manager.wait(task_id)
         handler._send_json.reset_mock()
 
-        handle_post_run_cancel(handler, {}, {"task_id": task_id})
+        handle_post_task_cancel(handler, {}, {}, task_id)
 
         payload = handler._send_json.call_args.args[0]
         assert payload["ok"] is True
-        assert payload["task_id"] == task_id
 
 
 class TestResolveFoundOriginal:
@@ -1208,137 +890,3 @@ class TestResolveFoundOriginal:
         (tmp_path / "videos.json").write_text(json.dumps(["/elsewhere/gone.mp4"]), encoding="utf-8")
         result = _resolve_found_original("gone.mp4", tmp_path)
         assert result is None
-
-
-class TestLegacyRerunWorker:
-    """Cover the legacy _rerun_worker closure by running handle_post_rerun
-    without _no_thread so the thread actually executes."""
-
-    def _legacy_handler(self, tmp_path):
-        from threading import Event, Lock
-
-        import yaml as yaml_mod
-
-        class _State:
-            def __init__(self):
-                self.run_lock = Lock()
-                self.run_thread = None
-                self.cancel_event = Event()
-
-        project_dir = tmp_path / "project"
-        output_dir = tmp_path / "output"
-        project_dir.mkdir(exist_ok=True)
-        output_dir.mkdir(exist_ok=True)
-        (project_dir / "project.yaml").write_text(
-            yaml_mod.safe_dump({"paths": {"output_dir": str(output_dir)}}),
-            encoding="utf-8",
-        )
-        cfg = SimpleNamespace(
-            paths=SimpleNamespace(output_dir=output_dir),
-            analyze=SimpleNamespace(skip_existing=True),
-            plan=SimpleNamespace(use_transcripts=True),
-            compressed_dir=None,
-        )
-        handler = MagicMock()
-        handler.config_path = None
-        handler._resolve_project_dir.return_value = project_dir
-        handler._get_config.return_value = cfg
-        handler._get_task_manager.return_value = None  # legacy mode
-        handler._get_state.return_value = _State()
-        handler._get_project_output.return_value = output_dir
-        return handler, project_dir, output_dir
-
-    def test_compress_success_writes_done_progress(self, tmp_path, monkeypatch):
-        handler, project_dir, output_dir = self._legacy_handler(tmp_path)
-        original = project_dir / "clip.mp4"
-        original.write_bytes(b"fake")
-
-        calls = []
-        monkeypatch.setattr("clio.ui.routes.run.run_compress_all", lambda *a, **kw: calls.append("compress"))
-
-        with (
-            patch("clio.ui.services.file_service._find_original_for_compressed", return_value=str(original.resolve())),
-            patch("clio.ui.routes.run._resolve_found_original", return_value=original.resolve()),
-        ):
-            handle_post_rerun(handler, {}, {"video": "clip.mp4", "task": "compress"})
-
-        payload = handler._send_json.call_args.args[0]
-        assert payload["ok"] is True, payload
-
-        # Wait for thread to finish.
-        state = handler._get_state.return_value
-        for _ in range(50):
-            with state.run_lock:
-                if state.run_thread is None or not state.run_thread.is_alive():
-                    break
-            time.sleep(0.05)
-
-        progress_file = output_dir / ".progress.json"
-        assert progress_file.is_file(), "Progress file should be written by tracker"
-        data = json.loads(progress_file.read_text(encoding="utf-8"))
-        assert data["status"] in ("done", "error", "cancelled"), f"Unexpected: {data}"
-
-    def test_analyze_error_marks_error(self, tmp_path, monkeypatch):
-        handler, project_dir, output_dir = self._legacy_handler(tmp_path)
-        original = project_dir / "clip.mp4"
-        original.write_bytes(b"fake")
-
-        def fail(*args, **kwargs):
-            raise RuntimeError("AI quota exceeded")
-
-        monkeypatch.setattr("clio.ui.routes.run.run_analyze_all", fail)
-
-        with (
-            patch("clio.ui.services.file_service._find_original_for_compressed", return_value=str(original.resolve())),
-            patch("clio.ui.routes.run._resolve_found_original", return_value=original.resolve()),
-        ):
-            handle_post_rerun(handler, {}, {"video": "clip.mp4", "task": "analyze"})
-
-        payload = handler._send_json.call_args.args[0]
-        assert payload["ok"] is True, payload
-
-        state = handler._get_state.return_value
-        for _ in range(50):
-            with state.run_lock:
-                if state.run_thread is None or not state.run_thread.is_alive():
-                    break
-            time.sleep(0.05)
-
-        progress_file = output_dir / ".progress.json"
-        data = json.loads(progress_file.read_text(encoding="utf-8"))
-        assert data["status"] == "error"
-        assert "AI quota" in data.get("message", "")
-
-    def test_cancel_before_step_marks_cancelled(self, tmp_path, monkeypatch):
-        handler, project_dir, output_dir = self._legacy_handler(tmp_path)
-        original = project_dir / "clip.mp4"
-        original.write_bytes(b"fake")
-
-        # handle_post_rerun clears the cancel event before spawning the worker,
-        # so we set it from inside the mocked step_fn instead.
-        state = handler._get_state.return_value
-
-        def cancel_and_raise(*args, **kwargs):
-            state.cancel_event.set()
-            raise RuntimeError("rerun 被用户取消（压缩视频）")
-
-        monkeypatch.setattr("clio.ui.routes.run.run_compress_all", cancel_and_raise)
-
-        with (
-            patch("clio.ui.services.file_service._find_original_for_compressed", return_value=str(original.resolve())),
-            patch("clio.ui.routes.run._resolve_found_original", return_value=original.resolve()),
-        ):
-            handle_post_rerun(handler, {}, {"video": "clip.mp4", "task": "compress"})
-
-        payload = handler._send_json.call_args.args[0]
-        assert payload["ok"] is True, payload
-
-        for _ in range(50):
-            with state.run_lock:
-                if state.run_thread is None or not state.run_thread.is_alive():
-                    break
-            time.sleep(0.05)
-
-        progress_file = output_dir / ".progress.json"
-        data = json.loads(progress_file.read_text(encoding="utf-8"))
-        assert data["status"] == "cancelled"

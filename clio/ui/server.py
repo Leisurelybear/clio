@@ -90,10 +90,7 @@ from clio.ui.routes.projects import (
 from clio.ui.routes.prompts import handle_delete_prompt, handle_get_prompts, handle_put_prompt
 from clio.ui.routes.refine import handle_post_refine
 from clio.ui.routes.run import (
-    handle_get_run_status,
-    handle_get_run_stream,
     handle_post_rerun,
-    handle_post_run_cancel,
     handle_post_run_preview,
     handle_post_run_start,
 )
@@ -677,8 +674,6 @@ def make_handler(
             Route("GET", "/api/waveform", "handle_get_waveform"),
             Route("GET", "/api/cut/orphaned-backups", "handle_get_cut_orphaned_backups"),
             Route("GET", "/api/plans", "handle_get_plans"),
-            Route("GET", "/api/run/status", "handle_get_run_status"),
-            Route("GET", "/api/run/stream", "handle_get_run_stream"),
             Route("GET", "/api/plan", "handle_get_plan"),
             Route("GET", "/api/processing-state", "handle_get_processing_state"),
             Route("GET", "/api/fs/dirs", "handle_get_fs_dirs"),
@@ -716,7 +711,6 @@ def make_handler(
             Route("POST", "/api/run/start", "handle_post_run_start"),
             Route("POST", "/api/webhook/trigger", "handle_post_run_start"),
             Route("POST", "/api/run/preview", "handle_post_run_preview"),
-            Route("POST", "/api/run/cancel", "handle_post_run_cancel"),
             Route("POST", "/api/desktop/focus", "handle_post_desktop_focus", auth_required=False),
             Route("POST", "/api/ai/test", "handle_post_ai_test"),
             Route("POST", "/api/config/init", "handle_post_config_init"),
