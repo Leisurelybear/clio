@@ -58,11 +58,7 @@ _FIELD_OVERRIDES: dict[str, dict[str, Any]] = {
     "plan.max_clips_per_day": {},
     "whisper.model_size": {"ui": "select", "choices": ["small", "medium", "large-v3"]},
     "whisper.device": {"ui": "select", "choices": ["auto", "cpu", "cuda"]},
-    "whisper.engine": {"ui": "select", "choices": ["local", "cloud"]},
-    "whisper.cloud_provider": {
-        "dynamic_choices": "providers",
-        "visible_when": {"field": "whisper.engine", "equals": "cloud"},
-    },
+    "whisper.engine": {"ui": "select"},
     # global advanced
     "proxy.enabled": {},
     "proxy.url": {"visible_when": {"field": "proxy.enabled", "equals": True}},

@@ -39,6 +39,19 @@ from clio.config.parsers import (
 )
 from clio.config.validators import _filter_dc, _validate_config, validate_global_config
 
+
+def _resolve_engine(raw: dict) -> str:
+    whisper_raw = raw.get("whisper", {})
+    engine = whisper_raw.get("engine", "local")
+    if engine == "cloud":
+        cloud_provider = whisper_raw.get("cloud_provider", "") or "local"
+        print(f"[config] whisper.engine=cloud 已弃用，已迁移为 engine={cloud_provider}")
+        return cloud_provider
+    if "cloud_provider" in whisper_raw:
+        print("[config] whisper.cloud_provider 已弃用，请直接配置 whisper.engine")
+    return engine
+
+
 _GLOBAL_SECTION_DC_MAP: dict[str, type] = {
     "paths": GlobalPathsConfig,
     "proxy": ProxyConfig,
@@ -327,7 +340,6 @@ _SPLIT_PROJECT_KEYS: dict[str, set[str]] = {
         "max_segments_per_clip",
         "transcripts_subdir",
         "engine",
-        "cloud_provider",
     },
 }
 
@@ -610,8 +622,7 @@ def load_project_config(
             device=raw.get("whisper", {}).get("device", "auto"),
             max_segments_per_clip=raw.get("whisper", {}).get("max_segments_per_clip", 5),
             transcripts_subdir=raw.get("whisper", {}).get("transcripts_subdir", "transcripts"),
-            engine=raw.get("whisper", {}).get("engine", "local"),
-            cloud_provider=raw.get("whisper", {}).get("cloud_provider", ""),
+            engine=_resolve_engine(raw),
         ),
         export=ExportConfig(**_filter_dc(raw.get("export", {}), ExportConfig)),
         preview=PreviewConfig(

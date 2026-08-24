@@ -7,7 +7,6 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 
-from clio.asr.base import TranscriptionProvider
 from clio.config import AppConfig
 
 
@@ -250,13 +249,29 @@ def transcribe_audio(
     audio_path: Path,
     config: AppConfig,
     progress_callback: Callable[[int], None] | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> list[dict]:
-    engine = getattr(config.whisper, "engine", "local")
-    if engine == "cloud":
-        return _transcribe_cloud(audio_path, config, progress_callback)
+    from clio.asr.factory import build_provider
+
+    engine_id = getattr(config.whisper, "engine", "local")
+    provider = build_provider(engine_id, config)
     lang = config.whisper.language
+    supported = getattr(provider.capabilities, "supported_languages", ["*"])
+    if lang not in supported and "*" not in supported:
+        raise RuntimeError(f"ASR 引擎 {engine_id} 不支持语言 {lang}，当前支持: {', '.join(supported)}")
     if progress_callback:
         progress_callback(0)
+    segments = provider.transcribe(audio_path, lang, progress_callback, cancel_event)
+    return [seg.to_dict() for seg in segments]
+
+
+def _transcribe_local_whisper(
+    config: AppConfig,
+    audio_path: Path,
+    progress_callback: Callable[[int], None] | None = None,
+    cancel_event: threading.Event | None = None,
+) -> list[dict]:
+    lang = config.whisper.language
 
     def _transcribe_once(device_override: str | None = None) -> list[dict]:
         model = _get_model(config)
@@ -277,6 +292,8 @@ def transcribe_audio(
         last_pct = 0
         result = []
         for seg in segments_iter:
+            if cancel_event is not None and cancel_event.is_set():
+                raise RuntimeError("本地 ASR 转录已取消")
             pct = int(seg.end / total_duration * 100) if total_duration > 0 else 0
             if pct >= last_pct + 5:
                 print(f"  [whisper] 转录进度: {seg.end:.1f}s / {total_duration:.0f}s ({pct}%)")
@@ -324,24 +341,3 @@ def transcribe_audio(
             except AttributeError:
                 if config.whisper._project is not None:
                     config.whisper._project.device = _orig_device
-
-
-def _transcribe_cloud(
-    audio_path: Path,
-    config: AppConfig,
-    progress_callback: Callable[[int], None] | None = None,
-) -> list[dict]:
-    provider = _build_cloud_provider(config)
-    lang = config.whisper.language
-    if progress_callback:
-        progress_callback(0)
-    segments = provider.transcribe(audio_path, lang, progress_callback)
-    if progress_callback:
-        progress_callback(100)
-    return [seg.to_dict() for seg in segments]
-
-
-def _build_cloud_provider(config: AppConfig) -> TranscriptionProvider:
-    from clio.asr.factory import build_provider
-
-    return build_provider(config.whisper.cloud_provider, config)

@@ -238,13 +238,21 @@ def run_transcribe_all(
 
         orig_stem = original_video.stem
 
+        current_engine = getattr(config.whisper, "engine", "local")
         if not overwrite and config.analyze.skip_existing and out_path.exists():
             try:
-                json.loads(out_path.read_text(encoding="utf-8"))
+                existing = json.loads(out_path.read_text(encoding="utf-8"))
             except (json.JSONDecodeError, OSError):
                 print(f"  [重新转录] {compressed_stem} (已有文件损坏)")
             else:
-                print(f"[跳过] {compressed_stem} (已有转录)")
+                existing_engine = existing.get("engine", "local")
+                if existing_engine != current_engine:
+                    print(
+                        f"[跳过] {compressed_stem} (已有转录 engine={existing_engine}, "
+                        f"当前配置 {current_engine}；如需重跑请使用 --force)"
+                    )
+                else:
+                    print(f"[跳过] {compressed_stem} (已有转录, engine={current_engine})")
                 state.mark(orig_stem, "transcribe", "skipped")
                 if tracker:
                     tracker.next(message=f"跳过 {compressed_stem}")
@@ -294,14 +302,18 @@ def run_transcribe_all(
 
         try:
             if tracker:
-                tracker.update(phase="transcribe", message=f"{compressed_stem}: 加载 Whisper 模型...")
-                tracker.log(f"{compressed_stem}: 加载 Whisper 模型...")
-            segments = transcribe_audio(wav_path, config, progress_callback=_on_transcribe_progress)
+                engine_label = current_engine if current_engine != "local" else "本地 Whisper"
+                tracker.update(phase="transcribe", message=f"{compressed_stem}: {engine_label} 转录中...")
+                tracker.log(f"{compressed_stem}: {engine_label} 转录中...")
+            segments = transcribe_audio(
+                wav_path, config, progress_callback=_on_transcribe_progress, cancel_event=cancel_event
+            )
             transcript: dict[str, Any] = {
                 "source_video": original_video.name,
                 "source_stem": compressed_stem,
                 "language": config.whisper.language,
                 "model_size": config.whisper.model_size,
+                "engine": current_engine,
                 "segments": segments,
                 "generated_at": datetime.now().isoformat(),
             }
@@ -402,6 +414,7 @@ def run_transcribe_one(
             wav_path,
             config,
             progress_callback=(lambda pct: progress_callback(10 + int(pct * 0.8))) if progress_callback else None,
+            cancel_event=cancel_event,
         )
         t2 = time.time()
         print(f"  [transcribe_one] Whisper 完成: {len(segments)} 段, 耗时 {t2 - t1:.1f}s")
