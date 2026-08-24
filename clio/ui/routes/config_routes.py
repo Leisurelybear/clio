@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import tempfile
 from dataclasses import asdict, is_dataclass
@@ -222,7 +223,6 @@ _SPLIT_PROJECT: dict[str, set[str]] = {
         "max_segments_per_clip",
         "transcripts_subdir",
         "engine",
-        "cloud_provider",
     },
 }
 
@@ -366,9 +366,22 @@ def handle_get_config_project(handler: HandlerProtocol, qs: dict[str, Any]) -> N
     handler._send_json(_merge_project_with_defaults(raw if isinstance(raw, dict) else {}))
 
 
+def _inject_asr_choices(schema: dict[str, list[dict[str, Any]]], asr_caps) -> dict[str, list[dict[str, Any]]]:
+    schema = copy.deepcopy(schema)
+    for layer in ("project", "global"):
+        for section in schema.get(layer, []):
+            for field in section.get("fields", []):
+                if field.get("path") == "whisper.engine":
+                    field["choices"] = [c.id for c in asr_caps]
+    return schema
+
+
 def handle_get_config_schema(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     """Handle GET /api/config/schema."""
-    handler._send_json(build_config_schema())
+    from clio.asr.factory import list_providers
+
+    schema = _inject_asr_choices(build_config_schema(), list_providers())
+    handler._send_json(schema)
 
 
 def _validate_global_against_registry(config_path: Path, candidate: Path) -> list[dict[str, str]]:
