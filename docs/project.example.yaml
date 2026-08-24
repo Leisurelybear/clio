@@ -9,7 +9,7 @@
 #   compress: target_size_mb, max_width
 #   analyze: window_max_min, window_overlap_sec, max_analyze_duration_min, ...
 #   script, plan, export
-#   whisper: enabled, model_size, language, device, max_segments_per_clip, transcripts_subdir
+#   whisper: enabled, model_size, language, device, max_segments_per_clip, transcripts_subdir, engine
 
 paths:
   # 注意：原始视频不再通过 input_dir 配置。
@@ -85,7 +85,6 @@ whisper:
   device: auto
   max_segments_per_clip: 5
   transcripts_subdir: transcripts
-  # ASR 引擎: local（faster-whisper）或 cloud
+  # ASR 引擎 id: local（faster-whisper）或云端 provider（如 aliyun）
   engine: local
-  # 云端 provider 名称，engine 为 cloud 时必填
-  cloud_provider: ""
+  # 云端引擎需在 .env 中配置 DASHSCOPE_API_KEY=...（阿里云百炼平台申请）

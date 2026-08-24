@@ -58,7 +58,8 @@ vlog-video-analysis/
 │   │                           notification-center.js,
 │   │                          sidebar.js, sidebar-data.js, sidebar-video-filter.js,
 │   │                          runner.js, editor-config.js, ...
-│   └── ai/                    AI providers
+│   ├── ai/                    AI providers
+│   └── asr/                   ASR provider registry (local / aliyun / extensible)
 │       ├── base.py            TaskName enum, Provider Protocol
 │       ├── factory.py         Provider lookup by name
 │       ├── gemini.py          Gemini multimodal

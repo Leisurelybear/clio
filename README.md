@@ -22,7 +22,7 @@
 | 🤖 | **AI 视频理解** | ✅ Gemini | 看懂画面 → 标题 / 地点 / 心情 / 摘要 / 时间轴 |
 | ✍️ | **AI 口播文案** | ✅ DeepSeek | 基于模板 + AI 分析，自动写 vlog 旁白稿 |
 | 📋 | **AI 剪辑规划** | ✅ DeepSeek | AI 编排片段顺序、目标时长、主题 |
-| 🧠 | **AI 语音转录** | ✅ Whisper | faster-whisper ASR，CUDA 加速，离线字幕稿 |
+| 🧠 | **AI 语音转录** | ✅ Whisper / 云端 ASR | faster-whisper 本地引擎 + 阿里云 Paraformer 云端引擎，一键切换 |
 | 🔧 | **AI 审阅修正** | ✅ DeepSeek | trip 上下文审阅已有输出，支持定点修复 `--fix` |
 | 🏷️ | **烧录序号** | | 把编号水印写到压缩视频上，剪映里对照不乱 |
 | ✂️ | **精准裁剪** | | 按规划逐段裁剪，支持快剪 / 重编码 |
@@ -97,7 +97,7 @@ graph LR
 | 1️⃣ 压缩 | | `compress` | 4K 原片 → 640p / ~5MB / 去音频（1 原片 1 压缩文件） |
 | 2️⃣ 🤖 **AI 分析** | **Gemini** 2.5 Flash | `analyze` | 压缩视频 → AI 摘要 + 时间轴 JSON |
 | 3️⃣ ✍️ **AI 口播** | **DeepSeek** / OpenAI | `scripts` | 分析 JSON → AI 生成旁白文案 |
-| 4️⃣ 🧠 **AI 转录** | **Whisper** ASR | `transcribe` | 压缩视频 → 离线语音字幕 |
+| 4️⃣ 🧠 **AI 转录** | **Whisper** / 云端 ASR | `transcribe` | 压缩视频 → 语音字幕（本地或云端） |
 | 5️⃣ 🤖 **AI 规划** | **DeepSeek** / OpenAI | `plan --day day1` | 分析 + 转录 → AI 编排剪辑顺序 |
 | 6️⃣ 🔧 **AI 审阅** | **DeepSeek** / Gemini | `refine` | 已有输出 + trip 上下文 → AI 修正 |
 | 7️⃣ 裁剪 | | `cut --day day1` | 规划 → 按时间轴截取片段 |
@@ -208,6 +208,20 @@ python main.py compare-models \
 
 ---
 
+### 云端 ASR 配置
+
+默认使用本地 faster-whisper。如需切换到云端引擎（解决 CUDA 依赖 / 打包版不可用）：
+
+1. 在[阿里云百炼平台](https://bailian.console.aliyun.com/)开通服务并创建 API Key
+2. 在 `.env` 中添加 `DASHSCOPE_API_KEY=sk-...`
+3. 在项目设置（Web UI 或 `project.yaml`）中选择 `whisper.engine: aliyun`
+
+切换引擎后，已有转录文件会因 `engine` 不匹配自动重新转录。
+
+新增其他云端 provider 只需要在 `clio/asr/` 下新建文件并使用 `@register_provider` 装饰器注册，UI 下拉框自动出现新选项。
+
+---
+
 ## 📁 项目结构
 
 ```
@@ -226,6 +240,7 @@ vlog-video-analysis/
 │   ├── prompts.py             # 💬 所有提示词模板
 │   ├── pipeline.py            # 🔄 流水线编排
 │   ├── config/                # ⚙️ 配置解析 / 校验
+│   ├── asr/                   # 🎙️ ASR provider 注册表（local / aliyun / 可扩展）
 │   ├── ai/                    # 🧠 AI 适配层（Gemini / OpenAI 兼容）
 │   ├── tasks/                 # 📂 各步骤具体实现
 │   ├── ui/                    # 🌐 Web UI（零依赖纯 stdlib）

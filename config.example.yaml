@@ -17,7 +17,7 @@
 #   compress: target_size_mb, max_width
 #   analyze: window_max_min, window_overlap_sec, max_analyze_duration_min, ...
 #   script, plan, export
-#   whisper: enabled, model_size, language, device, max_segments_per_clip, transcripts_subdir, engine, cloud_provider
+#   whisper: enabled, model_size, language, device, max_segments_per_clip, transcripts_subdir, engine
 
 proxy:
   enabled: false
