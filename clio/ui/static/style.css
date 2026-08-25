@@ -1710,6 +1710,11 @@ button.match-badge:focus-visible { outline: 2px solid var(--border-focus); outli
 .config-card-arrow {
   font-size: 10px;
   transform: rotate(90deg);
+  transition: transform var(--transition-fast);
+  color: var(--text-tertiary);
+  line-height: 1;
+}
+
 
 /* Advanced config field badge */
 .config-adv-badge {
@@ -1733,10 +1738,6 @@ button.match-badge:focus-visible { outline: 2px solid var(--border-focus); outli
   font-size: var(--text-sm);
   cursor: pointer;
   user-select: none;
-}
-  transition: transform var(--transition-fast);
-  color: var(--text-tertiary);
-  line-height: 1;
 }
 .config-card.collapsed .config-card-arrow { transform: rotate(0deg); }
 .config-card-title { flex: 1; }
