@@ -23,7 +23,7 @@ from clio.config.models import (
 _KEY_PATTERN = re.compile(r"\{name\}")
 
 # Valid description keys that don't map to a specific dataclass field
-_EXTRA_DESCRIPTION_KEYS = {"paths.project_dir"}
+_EXTRA_DESCRIPTION_KEYS = {"paths.project_dir", "whisper.engine"}
 
 # Map of config field name → dataclass type (hardcoded to avoid annotation resolution issues)
 _CONFIG_DC_MAP: list[tuple[str, type]] = [
