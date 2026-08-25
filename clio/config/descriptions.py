@@ -63,6 +63,7 @@ CONFIG_DESCRIPTIONS: dict[str, str] = {
     "whisper.model_size": "Whisper 模型大小。small（快速）、medium（平衡）、large-v3（高精度）",
     "whisper.language": "转录语言。zh（中文）、en（英文）、auto（自动检测）",
     "whisper.device": "计算设备。auto（自动）、cpu（CPU）、cuda（GPU）",
+    "whisper.engine": "ASR 引擎。local 使用本地 faster-whisper；选择云端引擎（如 aliyun）需在 .env 中配置对应 API Key",
     "whisper.max_segments_per_clip": "每段视频最多取前 N 条转录结果注入规划",
     "whisper.cache_dir": "Whisper 模型缓存目录，留空使用程序默认路径",
     "whisper.transcripts_subdir": "转录结果存放的子目录名",

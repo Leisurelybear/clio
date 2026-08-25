@@ -93,6 +93,7 @@ const FIELD_LABELS = {
   'whisper.device': '运行设备',
   'whisper.max_segments_per_clip': '每片段最多转录段数',
   'whisper.transcripts_subdir': '转录子目录',
+  'whisper.engine': 'ASR 引擎',
   // export
   'export.canvas_ratio': '画布比例',
   'export.output_subdir': '导出子目录',
@@ -240,7 +241,11 @@ export function _renderConfigForm(obj, path, descriptions = null, layer = 'proje
   if (typeof obj === 'string') {
     if (sf && sf.ui === 'select' && Array.isArray(sf.choices)) {
       const opts = sf.choices.map(c => `<option value="${escapeHtml(String(c))}"${String(c) === String(obj) ? ' selected' : ''}>${escapeHtml(String(c))}</option>`).join('');
-      return `<label class="config-field config-str"><span class="config-key">${labelFromPath(path)}${tip}</span> <select data-path="${path}"><option value=""${!sf.choices.includes(obj) ? ' selected' : ''}>-- \u9009\u62e9 --</option>${opts}</select></label>`;
+      let selectHint = '';
+      if (path === 'whisper.engine' && obj && obj !== 'local') {
+        selectHint = '<br><span class="hint">使用云端引擎前，请到「全局 → 编辑 .env 文件」配置对应 API Key（aliyun 需要 <code>DASHSCOPE_API_KEY</code>），保存后重启服务生效。</span>';
+      }
+      return `<label class="config-field config-str"><span class="config-key">${labelFromPath(path)}${tip}</span> <select data-path="${path}"><option value=""${!sf.choices.includes(obj) ? ' selected' : ''}>-- 选择 --</option>${opts}</select></label>${selectHint}`;
     }
     const multiline = path === 'ai.context' || obj.length > 80 || obj.includes('\n');
     if (multiline) {
