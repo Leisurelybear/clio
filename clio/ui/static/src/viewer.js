@@ -31,6 +31,8 @@ import {
   serializeLatestWrites,
 } from './subtitle-settings.js';
 import { phaseNewSource } from './video-fade.js';
+import { preloadNextSegment, clearPreload } from './preview-preload.js';
+import { videoUrlFor } from './video-url.js';
 
 let _fadeCancel = null;
 let _subtitleSettingsFrame = 0;
@@ -125,12 +127,7 @@ export function playerSrcMatchesFile(playerSrc, file, source) {
  * @param {boolean} wantPlay
  */
 function buildVideoSrc(v) {
-  const projParam = state.currentProjectName
-    ? `&project=${encodeURIComponent(state.currentProjectName)}` : '';
-  const tokenParam = sessionStorage.getItem('api_token');
-  const extraParam = tokenParam ? `&token=${encodeURIComponent(tokenParam)}` : '';
-  const absParam = v?.abs_path ? `&abspath=${encodeURIComponent(v.abs_path)}` : '';
-  return `/api/video?file=${encodeURIComponent(v.file)}&source=${state.source}${absParam}${projParam}${extraParam}`;
+  return videoUrlFor(v, state.source, state.currentProjectName);
 }
 
 function _loadAndSeekSource(v, seekSec, wantPlay) {
@@ -256,6 +253,15 @@ function seekToGlobal(globalSec, opts = {}) {
   _softUpdateSegBlockClasses(loc.segIndex);
   updateWaveformPlayhead(player);
   if (opts.syncExpand !== false) _syncPlanExpandFromPreview();
+  preloadNextSegment(
+    state.previewActive,
+    tl,
+    loc.segIndex,
+    _nextPlayableWithVideo,
+    state.source,
+    state.videos || [],
+    state.currentProjectName,
+  );
 }
 
 function _softUpdateSegBlockClasses(activeIndex) {
@@ -607,6 +613,7 @@ function stopPreview() {
   state.previewActive = false;
   state.previewIndex = -1;
   state._previewEndTime = null;
+  clearPreload();
   const player = $('player');
   player.pause();
   hidePlanSubtitle();

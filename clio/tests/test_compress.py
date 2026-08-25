@@ -81,6 +81,7 @@ class TestCompressVideo:
         vf_idx = args.index("-vf")
         assert "scale" in args[vf_idx + 1]
         assert "fps=15" in args[vf_idx + 1]
+        assert "+faststart" in args
         assert "-an" in args
         assert "-b:v" in args
 

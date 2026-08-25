@@ -470,14 +470,14 @@ def send_video_range(handler, path: Path) -> None:
         handler.send_header("Content-Length", str(size))
     handler.send_header("Accept-Ranges", "bytes")
     handler.send_header("Content-Type", _VIDEO_MIME.get(path.suffix.lower(), "video/mp4"))
-    handler.send_header("Cache-Control", "no-store")
+    handler.send_header("Cache-Control", "private, max-age=3600")
     handler.end_headers()
     if getattr(handler, "command", "GET").upper() == "HEAD":
         return
     with path.open("rb") as f:
         f.seek(start)
         remaining = length
-        chunk = 64 * 1024
+        chunk = 1024 * 1024
         try:
             while remaining > 0:
                 buf = f.read(min(chunk, remaining))

@@ -62,7 +62,7 @@ def compress_video(
     cfg = config.compress
     vf = f"scale=min({cfg.max_width}\\,iw):-2,fps={cfg.fps}"
 
-    args = ["-i", str(input_path), "-vf", vf, "-c:v", cfg.codec]
+    args = ["-i", str(input_path), "-vf", vf, "-c:v", cfg.codec, "-movflags", "+faststart"]
 
     if cfg.remove_audio:
         args.append("-an")

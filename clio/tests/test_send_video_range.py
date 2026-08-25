@@ -52,6 +52,12 @@ class TestSendVideoRange:
         written = b"".join(c.args[0] for c in h.wfile.write.call_args_list)
         assert written == b"01234567"
 
+    def test_response_is_browser_cacheable(self, video: Path):
+        h = _handler(range_hdr="bytes=0-7")
+        send_video_range(h, video)
+        headers = {c.args[0]: c.args[1] for c in h.send_header.call_args_list}
+        assert headers.get("Cache-Control") == "private, max-age=3600"
+
     def test_head_sends_headers_without_body(self, video: Path):
         h = _handler(method="HEAD", range_hdr="bytes=0-7")
         send_video_range(h, video)
