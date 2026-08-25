@@ -27,12 +27,18 @@ def handle_get_env(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     if env_path and env_path.is_file():
         text = env_path.read_text(encoding="utf-8")
     else:
-        text = (
-            "# 在此设置环境变量，每行 KEY=VALUE\n"
-            "# 示例:\n"
-            "# DEEPSEEK_API_KEY=your_key_here\n"
-            "# GEMINI_API_KEY=your_key_here\n"
-        )
+        template_path = env_path.parent / ".env.example" if env_path else None
+        if template_path and template_path.is_file():
+            text = template_path.read_text(encoding="utf-8")
+        else:
+            text = (
+                "# 在此设置环境变量，每行 KEY=VALUE\n"
+                "# GEMINI_API_KEY=your_api_key_here\n"
+                "# OPENAI_API_KEY=sk-...\n"
+                "# DEEPSEEK_API_KEY=sk-...\n"
+                "# 云端 ASR（whisper.engine 设为云端引擎时需要）\n"
+                "# DASHSCOPE_API_KEY=sk-...\n"
+            )
     handler._send_json({"path": str(env_path) if env_path else "", "content": text})
 
 
@@ -61,7 +67,7 @@ def _sync_env_to_environ(content: str, config_dir: Path) -> None:
         if m and not line.strip().startswith("#"):
             new_keys[m.group(1)] = m.group(2)
     for key in list(os.environ.keys()):
-        if key.startswith(("DEEPSEEK_", "GEMINI_", "OPENAI_", "MOONSHOT_", "TONGYI_")):
+        if key.startswith(("DEEPSEEK_", "GEMINI_", "OPENAI_", "MOONSHOT_", "TONGYI_", "DASHSCOPE_")):
             if key in new_keys:
                 os.environ[key] = new_keys[key]
             else:
