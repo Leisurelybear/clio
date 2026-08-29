@@ -6,6 +6,7 @@
   --bg-surface-3: #22222e;
   --bg-hover: #272735;
   --bg-active: rgba(99, 102, 241, 0.1);
+  --bg-input: #1e1e1e;
 
   --border: #2a2a3a;
   --border-light: #3a3a4e;
@@ -80,6 +81,7 @@ body.light-theme {
   --bg-surface-3: #e9ecef;
   --bg-hover: #dee2e6;
   --bg-active: rgba(99, 102, 241, 0.08);
+  --bg-input: #f1f3f5;
 
   --border: #e2e4e9;
   --border-light: #d0d3d8;
@@ -104,6 +106,7 @@ body.light-theme {
     --bg-surface-3: #e9ecef;
     --bg-hover: #dee2e6;
     --bg-active: rgba(99, 102, 241, 0.08);
+    --bg-input: #f1f3f5;
     --border: #e2e4e9;
     --border-light: #d0d3d8;
     --text-primary: #1a1a2e;
