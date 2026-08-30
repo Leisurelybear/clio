@@ -29,11 +29,13 @@ _VALID_PLAN = {
 def handler(tmp_path: Path) -> MagicMock:
     h = MagicMock()
     cfg = MagicMock()
+    ffprobe = tmp_path / "ffprobe"
+    ffprobe.write_bytes(b"fake ffprobe")
     cfg.plans_dir = tmp_path
     cfg.paths.output_dir = tmp_path / "output"
     cfg._project_dir = tmp_path / "input"
     cfg.project_dir = tmp_path / "input"
-    cfg.paths.ffprobe = "ffprobe"
+    cfg.paths.ffprobe = str(ffprobe)
     cfg.texts_dir = tmp_path / "texts"
     cfg.export.canvas_ratio = "16:9"
     cfg.export.auto_copy_draft = False
@@ -67,6 +69,28 @@ class TestHandlePostExport:
         args, kwargs = handler._send_json.call_args
         assert args[1] == 404 or kwargs.get("status") == 404
         assert not args[0].get("ok", True)
+
+    def test_missing_media_dependency_blocks_before_task_submit(self, handler: MagicMock, monkeypatch):
+        plan_path = handler._get_config.return_value.plans_dir / "day1_plan.json"
+        plan_path.write_text(json.dumps(_VALID_PLAN), encoding="utf-8")
+        handler._get_task_manager = MagicMock()
+        monkeypatch.setattr("clio.ui.routes.export.collect_project_indices", lambda cfg: ({"001"}, set()))
+        failed = {
+            "ok": False,
+            "required": ["ffprobe"],
+            "ffmpeg": None,
+            "ffprobe": None,
+            "missing": ["ffprobe"],
+            "detail": "未找到 ffprobe",
+        }
+        monkeypatch.setattr("clio.ui.routes.export.preflight_config_media_deps", lambda *a, **k: failed)
+
+        handle_post_export(handler, {}, {"day": "day1", "format": "jianying", "force": True})
+
+        payload, status = handler._send_json.call_args.args
+        assert status == 424
+        assert payload["code"] == "media_dependency_missing"
+        assert handler._get_task_manager.call_count == 0
 
     def test_empty_sequence_blocked(self, handler: MagicMock) -> None:
         plan_path = handler._get_config.return_value.plans_dir / "day1_plan.json"

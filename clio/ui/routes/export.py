@@ -21,7 +21,7 @@ from clio.task_center.reporter import TaskCancelled
 from clio.task_center.store import TaskQuery
 from clio.ui.handler_protocol import HandlerProtocol
 from clio.ui.services.file_service import _is_safe_basename
-from clio.utils import resolve_binary, write_bytes_atomic
+from clio.utils import media_dependency_error, preflight_config_media_deps, resolve_binary, write_bytes_atomic
 
 
 def _managed_task_manager(handler: Any) -> TaskManager | None:
@@ -157,6 +157,11 @@ def handle_post_export(
     blocked = readiness_block_payload(result, force=force)
     if blocked is not None:
         handler._send_json(blocked, 400)
+        return
+
+    preflight = preflight_config_media_deps(cfg, required=("ffprobe",))
+    if not preflight["ok"]:
+        handler._send_json(media_dependency_error(preflight), 424)
         return
 
     manager = _managed_task_manager(handler)

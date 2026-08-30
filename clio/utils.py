@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import TypeVar
 
@@ -287,39 +287,104 @@ def probe_ffmpeg_deps(
         missing: list of missing tool names.
         detail: Chinese message for UI (empty when ok).
     """
+    result = preflight_media_deps(
+        ffmpeg_configured,
+        ffprobe_configured,
+        required=("ffmpeg", "ffprobe"),
+    )
+    missing = result["missing"]
+    if isinstance(missing, list) and missing:
+        setup = "setup.ps1" if os.name == "nt" else "setup.sh"
+        labels = "、".join(str(name) for name in missing)
+        result["detail"] = (
+            f"未找到 {labels}。请运行 {setup}，或在 config.yaml 的 paths.ffmpeg / paths.ffprobe 中填写路径。"
+            " 压缩 / 裁剪 / 转录抽音 / 波形等功能不可用。"
+        )
+    return {key: result[key] for key in ("ok", "ffmpeg", "ffprobe", "missing", "detail")}
+
+
+_MEDIA_DEPENDENCIES_BY_STEP: dict[str, tuple[str, ...]] = {
+    "compress": ("ffmpeg", "ffprobe"),
+    "label": ("ffmpeg",),
+    "transcribe": ("ffmpeg", "ffprobe"),
+}
+_ALL_PIPELINE_STEPS = ("compress", "analyze", "voiceover", "transcribe", "plan", "label")
+
+
+def media_dependencies_for_steps(steps: Iterable[str] | None) -> tuple[str, ...]:
+    """Return the required media binaries for a pipeline step selection.
+
+    An empty selection has the same meaning as the pipeline's default (all
+    steps), so it includes every dependency used by the default pipeline.
+    Unknown steps are ignored here and remain subject to pipeline validation.
+    """
+    selected = tuple(steps) if steps else _ALL_PIPELINE_STEPS
+    required: list[str] = []
+    for step in selected:
+        for binary in _MEDIA_DEPENDENCIES_BY_STEP.get(step, ()):
+            if binary not in required:
+                required.append(binary)
+    return tuple(required)
+
+
+def preflight_media_deps(
+    ffmpeg_configured: str = "",
+    ffprobe_configured: str = "",
+    *,
+    required: Iterable[str] = ("ffmpeg", "ffprobe"),
+) -> dict[str, object]:
+    """Resolve only the media binaries required by the pending operation.
+
+    This is intentionally side-effect free: it only resolves configured paths
+    or discovery locations and never creates tasks, directories, or files.
+    """
+    requested = set(required)
+    required_names = tuple(name for name in ("ffmpeg", "ffprobe") if name in requested)
+    configured = {
+        "ffmpeg": ffmpeg_configured if isinstance(ffmpeg_configured, str) else "",
+        "ffprobe": ffprobe_configured if isinstance(ffprobe_configured, str) else "",
+    }
     found: dict[str, str | None] = {"ffmpeg": None, "ffprobe": None}
     missing: list[str] = []
-    for name, configured in (
-        ("ffmpeg", ffmpeg_configured or ""),
-        ("ffprobe", ffprobe_configured or ""),
-    ):
+    for name in required_names:
         try:
-            found[name] = resolve_binary(configured, name)
+            found[name] = resolve_binary(configured[name], name)
         except FileNotFoundError:
-            found[name] = None
             missing.append(name)
 
-    if not missing:
-        return {
-            "ok": True,
-            "ffmpeg": found["ffmpeg"],
-            "ffprobe": found["ffprobe"],
-            "missing": [],
-            "detail": "",
-        }
-
     setup = "setup.ps1" if os.name == "nt" else "setup.sh"
-    labels = "、".join(missing)
-    detail = (
-        f"未找到 {labels}。请运行 {setup}，或在 config.yaml 的 paths.ffmpeg / paths.ffprobe 中填写路径。"
-        " 压缩 / 裁剪 / 转录抽音 / 波形等功能不可用。"
-    )
+    detail = ""
+    if missing:
+        labels = "、".join(missing)
+        detail = f"未找到 {labels}。请运行 {setup}，或在 config.yaml 的 paths.ffmpeg / paths.ffprobe 中填写路径。"
     return {
-        "ok": False,
+        "ok": not missing,
+        "required": list(required_names),
         "ffmpeg": found["ffmpeg"],
         "ffprobe": found["ffprobe"],
         "missing": missing,
         "detail": detail,
+    }
+
+
+def preflight_config_media_deps(config: object, *, required: Iterable[str]) -> dict[str, object]:
+    """Run :func:`preflight_media_deps` against an AppConfig-like object."""
+    paths = getattr(config, "paths", None)
+    return preflight_media_deps(
+        getattr(paths, "ffmpeg", ""),
+        getattr(paths, "ffprobe", ""),
+        required=required,
+    )
+
+
+def media_dependency_error(preflight: dict[str, object]) -> dict[str, object]:
+    """Build the stable HTTP error payload for a failed media preflight."""
+    detail = str(preflight.get("detail") or "媒体依赖不可用")
+    return {
+        "ok": False,
+        "code": "media_dependency_missing",
+        "error": detail,
+        "preflight": preflight,
     }
 
 

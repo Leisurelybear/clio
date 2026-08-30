@@ -27,6 +27,7 @@ from clio.tasks.cut import (
     restore_orphaned_cut_backups,
 )
 from clio.ui.services.file_service import _is_safe_basename, _save_atomic
+from clio.utils import media_dependency_error, preflight_config_media_deps
 
 if TYPE_CHECKING:
     from clio.ui.handler_protocol import HandlerProtocol
@@ -220,6 +221,10 @@ def handle_post_cut(handler: HandlerProtocol, qs: dict[str, list[str]], obj: dic
     blocked = readiness_block_payload(result, force=force)
     if blocked is not None:
         return handler._send_json(blocked, 400)
+
+    preflight = preflight_config_media_deps(cfg, required=("ffmpeg", "ffprobe"))
+    if not preflight["ok"]:
+        return handler._send_json(media_dependency_error(preflight), 424)
 
     existing = list_existing_cut_videos(actual_out_path)
     if existing and not overwrite:

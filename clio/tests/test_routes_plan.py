@@ -201,6 +201,39 @@ class TestHandlePostCut:
         handle_post_cut(handler, {}, {"source": "invalid"})
         handler._send_json.assert_called_once_with({"ok": False, "error": "source must be compressed|original"}, 400)
 
+    def test_missing_media_dependency_blocks_before_task_submit(self, tmp_path: Path, monkeypatch):
+        plans = tmp_path / "plans"
+        plans.mkdir()
+        (plans / "day1_plan.json").write_text(json.dumps({"sequence": []}), encoding="utf-8")
+        cfg = MagicMock()
+        cfg.plans_dir = plans
+        handler = MagicMock()
+        handler._resolve_project_dir.return_value = tmp_path
+        handler._get_config.return_value = cfg
+        handler._get_task_manager = MagicMock()
+        failed = {
+            "ok": False,
+            "required": ["ffmpeg", "ffprobe"],
+            "ffmpeg": None,
+            "ffprobe": None,
+            "missing": ["ffmpeg"],
+            "detail": "未找到 ffmpeg",
+        }
+        monkeypatch.setattr("clio.ui.routes.plan.preflight_config_media_deps", lambda *a, **k: failed)
+
+        # Plan validation is bypassed so this test isolates the dependency gate.
+        monkeypatch.setattr("clio.ui.routes.plan.readiness_block_payload", lambda *a, **k: None)
+        monkeypatch.setattr("clio.ui.routes.plan.collect_project_indices", lambda cfg: (set(), set()))
+        monkeypatch.setattr("clio.ui.routes.plan.resolve_cut_output_dir", lambda *a: tmp_path / "cuts")
+        monkeypatch.setattr("clio.ui.routes.plan.list_existing_cut_videos", lambda *a: [])
+
+        handle_post_cut(handler, {}, {"day_label": "day1", "source": "compressed", "force": True})
+
+        payload, status = handler._send_json.call_args.args
+        assert status == 424
+        assert payload["code"] == "media_dependency_missing"
+        assert handler._get_task_manager.call_count == 0
+
     def test_non_string_day_label_returns_400(self):
         """day_label must be str (same as run routes); list/dict must not TypeError → 500."""
         handler = MagicMock()
@@ -245,7 +278,7 @@ class TestHandlePostCut:
 
         cfg = AppConfig(
             global_cfg=GlobalConfig(
-                paths=GlobalPathsConfig(ffmpeg="ffmpeg", ffprobe="ffprobe"),
+                paths=GlobalPathsConfig(),
                 naming=NamingConfig(index_width=3),
             ),
             project_cfg=ProjectConfig(
@@ -264,6 +297,13 @@ class TestHandlePostCut:
         handler._resolve_project_dir.return_value = tmp_path
         handler._get_config.return_value = cfg
         handler._send_json = MagicMock()
+
+        ffmpeg = tmp_path / "ffmpeg"
+        ffprobe = tmp_path / "ffprobe"
+        ffmpeg.write_bytes(b"fake ffmpeg")
+        ffprobe.write_bytes(b"fake ffprobe")
+        cfg.global_cfg.paths.ffmpeg = str(ffmpeg)
+        cfg.global_cfg.paths.ffprobe = str(ffprobe)
 
         handle_post_cut(handler, {}, {"day_label": "day1", "source": "compressed", "overwrite": False, "force": True})
         args = handler._send_json.call_args

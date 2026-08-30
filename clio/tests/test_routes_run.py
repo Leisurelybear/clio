@@ -203,6 +203,32 @@ class TestHandlePostRunStart:
         assert payload["ok"] is True
         assert manager.wait(payload["task_id"]).status.value == "succeeded"
 
+    def test_missing_media_dependency_blocks_before_task_submit(self, tmp_path, monkeypatch):
+        from clio.task_center.manager import TaskManager
+        from clio.task_center.store import TaskStore
+
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+        handler, _, _ = _managed_handler(tmp_path, manager)
+        handler._get_task_manager = MagicMock(return_value=manager)
+        failed = {
+            "ok": False,
+            "required": ["ffmpeg", "ffprobe"],
+            "ffmpeg": None,
+            "ffprobe": None,
+            "missing": ["ffmpeg", "ffprobe"],
+            "detail": "未找到 ffmpeg、ffprobe",
+        }
+        monkeypatch.setattr("clio.ui.routes.run.preflight_config_media_deps", lambda *a, **k: failed)
+
+        handle_post_run_start(handler, {}, {"steps": ["compress"]})
+
+        payload, status = handler._send_json.call_args.args
+        assert status == 424
+        assert payload["code"] == "media_dependency_missing"
+        assert payload["preflight"] is failed
+        assert handler._get_task_manager.call_count == 0
+        assert manager.store.list() == []
+
 
 class TestHandlePostRunPreview:
     def test_builds_preview_from_request(self, tmp_path: Path, _handler, monkeypatch):
@@ -236,6 +262,28 @@ class TestHandlePostRunPreview:
             day_label="day3",
         )
         handler._send_json.assert_called_once_with({"ok": True, "preview": expected})
+
+    def test_preview_includes_media_preflight(self, tmp_path: Path, _handler, monkeypatch):
+        handler = _handler
+        handler._resolve_project_dir.return_value = tmp_path / "input"
+        cfg = MagicMock()
+        handler._get_config.return_value = cfg
+        expected = {"input": {}, "steps": [], "totals": {}}
+        preflight = {
+            "ok": False,
+            "required": ["ffmpeg"],
+            "ffmpeg": None,
+            "ffprobe": None,
+            "missing": ["ffmpeg"],
+            "detail": "未找到 ffmpeg",
+        }
+        monkeypatch.setattr("clio.ui.routes.run.build_run_preview", MagicMock(return_value=expected))
+        monkeypatch.setattr("clio.ui.routes.run.preflight_config_media_deps", MagicMock(return_value=preflight))
+
+        handle_post_run_preview(handler, {}, {"steps": ["label"]})
+
+        payload = handler._send_json.call_args.args[0]
+        assert payload["preview"]["preflight"] is preflight
 
     def test_rejects_non_list_files(self, tmp_path: Path, _handler):
         handler = _handler

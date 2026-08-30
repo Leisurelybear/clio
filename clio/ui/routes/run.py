@@ -20,6 +20,7 @@ from clio.tasks.transcribe import run_transcribe_one
 from clio.ui.services.file_service import _find_original_for_compressed, _find_texts_dirs, _is_safe_basename
 from clio.ui.services.project_service import _project_output_dir, collect_allowed_project_paths
 from clio.ui.services.run_preview import build_run_preview
+from clio.utils import media_dependencies_for_steps, media_dependency_error, preflight_config_media_deps
 from clio.vmeta import VideoMeta
 
 if TYPE_CHECKING:
@@ -312,6 +313,10 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
     if task_prompts and (len(task_prompts) > 20 or any(len(value) > 100_000 for value in task_prompts.values())):
         return handler._send_json({"ok": False, "error": "task_prompts is too large"}, 400)
 
+    preflight = preflight_config_media_deps(cfg, required=media_dependencies_for_steps(steps))
+    if not preflight["ok"]:
+        return handler._send_json(media_dependency_error(preflight), 424)
+
     manager = _managed_task_manager(handler)
     if manager is None:
         return handler._send_json({"ok": False, "error": "task center unavailable"}, 500)
@@ -403,6 +408,11 @@ def handle_post_run_preview(handler: HandlerProtocol, qs: dict[str, Any], obj: d
         files=files_list,
         day_label=day_label,
     )
+    if isinstance(preview, dict):
+        preview["preflight"] = preflight_config_media_deps(
+            cfg,
+            required=media_dependencies_for_steps(steps),
+        )
     handler._send_json({"ok": True, "preview": preview})
 
 
