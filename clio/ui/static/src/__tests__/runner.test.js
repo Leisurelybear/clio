@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   buildSkippedDiagnostics,
   renderRunPreviewHtml,
+  formatRunStartError,
+  missingMediaDepsForSteps,
   renderSkippedDiagnosticsHtml,
   collectRunOptions,
   getRunButtonText,
@@ -75,6 +77,48 @@ describe('renderRunPreviewHtml', () => {
 
   it('renders a neutral state without preview data', () => {
     expect(renderRunPreviewHtml(null)).toContain('选择步骤后显示预览');
+  });
+
+  it('renders backend media preflight failures before the run can start', () => {
+    const html = renderRunPreviewHtml({
+      input: { path: 'D:/trip/videos', count: 1 },
+      totals: { selected_steps: 1, will_run: 1, will_skip: 0, warnings: 0 },
+      steps: [],
+      preflight: {
+        ok: false,
+        required: ['ffmpeg', 'ffprobe'],
+        missing: ['ffmpeg'],
+        detail: '未找到 ffmpeg，请先安装',
+      },
+    });
+
+    expect(html).toContain('媒体依赖未就绪');
+    expect(html).toContain('未找到 ffmpeg，请先安装');
+    expect(html).toContain('缺少 ffmpeg');
+  });
+});
+
+describe('formatRunStartError', () => {
+  it('prefers structured backend preflight details', () => {
+    expect(formatRunStartError({
+      status: 424,
+      message: 'HTTP 424: media dependency missing',
+      body: {
+        code: 'media_dependency_missing',
+        error: '媒体依赖不可用',
+        preflight: { detail: '未找到 ffprobe', missing: ['ffprobe'] },
+      },
+    })).toBe('未找到 ffprobe（缺少 ffprobe）');
+  });
+
+  it('keeps generic API errors readable', () => {
+    expect(formatRunStartError({ message: 'HTTP 500: server error' })).toBe('HTTP 500: server error');
+  });
+});
+
+describe('missingMediaDepsForSteps', () => {
+  it('does not block label when only ffprobe is missing', () => {
+    expect(missingMediaDepsForSteps(['label'], { missing: ['ffprobe'] })).toEqual([]);
   });
 });
 

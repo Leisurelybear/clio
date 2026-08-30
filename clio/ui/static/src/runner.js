@@ -32,10 +32,23 @@ const RUN_STEPS = [
 ];
 
 const FFMPEG_RUN_STEPS = new Set(['compress', 'label', 'transcribe']);
+const MEDIA_STEP_DEPENDENCIES = {
+  compress: ['ffmpeg', 'ffprobe'],
+  label: ['ffmpeg'],
+  transcribe: ['ffmpeg', 'ffprobe'],
+};
 
 /** True if any selected step hard-requires ffmpeg/ffprobe. */
 export function mediaStepsNeedFfmpeg(steps) {
   return (Array.isArray(steps) ? steps : []).some((s) => FFMPEG_RUN_STEPS.has(s));
+}
+
+/** Return only missing binaries that affect the selected media steps. */
+export function missingMediaDepsForSteps(steps, deps) {
+  const missing = Array.isArray(deps?.missing) ? deps.missing : [];
+  const required = new Set((Array.isArray(steps) ? steps : [])
+    .flatMap(step => MEDIA_STEP_DEPENDENCIES[step] || []));
+  return missing.filter(binary => required.has(binary));
 }
 
 function loadStepSelection() {
@@ -215,6 +228,12 @@ function renderRunPreviewHtml(preview) {
   const input = preview.input || {};
   const totals = preview.totals || {};
   const steps = Array.isArray(preview.steps) ? preview.steps : [];
+  const preflight = preview.preflight;
+  const missing = Array.isArray(preflight?.missing) ? preflight.missing : [];
+  const preflightLine = preflight && preflight.ok === false
+    ? `<p class="err run-preflight-error">媒体依赖未就绪：${escapeHtml(preflight.detail || '所选步骤无法运行')}\n` +
+      `${missing.length ? `缺少 ${escapeHtml(missing.join('、'))}。` : ''}</p>`
+    : '';
   const stepRows = steps.map(step => {
     const warnings = (step.warnings || []).map(w => `<div class="warn">${escapeHtml(w)}</div>`).join('');
     return `
@@ -239,10 +258,20 @@ function renderRunPreviewHtml(preview) {
         <span>待执行 ${Number(totals.will_run || 0)}</span>
         <span>跳过 ${Number(totals.will_skip || 0)}</span>
       </div>
+      ${preflightLine}
       ${warningLine}
       <div class="run-preview-steps">${stepRows}</div>
     </section>
   `;
+}
+
+export function formatRunStartError(error) {
+  const preflight = error?.body?.code === 'media_dependency_missing' ? error.body.preflight : null;
+  const detail = preflight?.detail || error?.body?.error || error?.message || '启动失败';
+  const missing = Array.isArray(preflight?.missing) && preflight.missing.length
+    ? `（缺少 ${preflight.missing.join('、')}）`
+    : '';
+  return `${detail}${missing}`;
 }
 
 async function refreshRunPreview({ silent = false } = {}) {
@@ -310,8 +339,9 @@ async function startRun() {
     setStatus('请至少选择一个步骤', 'warn');
     return;
   }
-  if (state.deps && state.deps.ok === false && mediaStepsNeedFfmpeg(options.steps)) {
-    const msg = state.deps.detail || '需要 ffmpeg/ffprobe 才能运行所选步骤';
+  const missingMediaDeps = missingMediaDepsForSteps(options.steps, state.deps);
+  if (state.deps && state.deps.ok === false && missingMediaDeps.length > 0) {
+    const msg = state.deps.detail || `需要 ${missingMediaDeps.join('、')} 才能运行所选步骤`;
     setStatus(msg, 'warn');
     addToast(msg, 'warning', 6000, { persist: false });
     updateRunStartButtonState();
@@ -338,8 +368,9 @@ async function startRun() {
       throw new Error(r.error || '启动失败');
     }
   } catch (e) {
-    $('run-progress').innerHTML = `<p class="err">${escapeHtml(e.message)}</p>`;
-    const msg = '启动失败: ' + e.message;
+    const display = formatRunStartError(e);
+    $('run-progress').innerHTML = `<p class="err">${escapeHtml(display)}</p>`;
+    const msg = '启动失败: ' + display;
     setStatus(msg, 'err');
     addToast(msg, 'error', 6000, { title: '流水线启动失败' });
     _runActive = false;
