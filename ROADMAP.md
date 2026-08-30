@@ -500,6 +500,7 @@ Spec/plan: `docs/superpowers/specs|plans/2026-07-23-r033-hardening-and-pipeline-
 | Phase | ID | Status | Notes |
 | --- | --- | --- | --- |
 | A | R-028a | **Done** (2026-07-18) | Probe + banner + narrow soft-disable + waveform early-fail |
+| A+ | R-028a+ | **Done** (2026-08-31) | Backend preflight gates run/cut/export before task or media output |
 | B | R-028b | Open | setup.ps1/sh zip fallback after winget/apt/… fail |
 | C | R-028c | Open | Banner “安装 ffmpeg” + progress API |
 
@@ -512,7 +513,16 @@ Spec/plan: `docs/superpowers/specs|plans/2026-07-23-r033-hardening-and-pipeline-
 - [x] Config save + reload re-probe via `refreshFfmpegDepsUi`
 - [x] Spec/plan under `docs/superpowers/specs|plans/2026-07-18-ffmpeg-handling*`
 
-**A+ optional later:** deps request fail-closed banner; pre-grey run button; `POST /api/run/start` preflight
+**R-028a+ delivered (2026-08-31):**
+- [x] Centralized required-binary mapping and side-effect-free preflight (`ffmpeg` / `ffprobe`)
+- [x] `POST /api/run/start` rejects missing media dependencies with HTTP 424 before Task Center submission
+- [x] `POST /api/cut` rejects missing `ffmpeg` / `ffprobe` before starting a worker or writing cut output
+- [x] `POST /api/export` rejects missing `ffprobe` before starting a worker or writing a draft
+- [x] `/api/run/preview` and the Run UI display missing binaries and the blocking reason
+- [x] Structured `media_dependency_missing` responses and regression coverage
+
+**Still open:** dependency installation/distribution (R-028b/c), bundled ffmpeg and release installer work (R-032e),
+and additional preflight coverage for lower-traffic media actions such as cover/waveform.
 
 **Recently completed (2026-07-18):** R-028a ffmpeg missing-path Phase A; video waveform lazy peaks + orphan lock recovery; cover thumbs on video list; plan reorder feedback.
 
