@@ -5,6 +5,42 @@ Mark `[ ]` as `[x]` when done, `[~]` for in-progress, `[!]` for blocked.
 
 Design discussions / decision history in `AGENTS.md`, implementation details in git log.
 
+## Active backlog (2026-10-20)
+
+- R-047-FU Optional Baidu ASR provider (deferred; Aliyun cloud transcription is complete)
+- R-042 Opt-in desktop OS notifications when the app is backgrounded
+- R-043 Frontend module decomposition and remaining legacy mypy debt
+
+Detailed sections and historical delivery notes remain below.
+
+## Recently completed (2026-10-20)
+
+### R-047 Cloud transcription (Aliyun)
+
+**Status:** Complete for the committed Aliyun scope (2026-10-20); Baidu provider deferred.
+
+**Goal:** Add optional cloud ASR as an alternative to the fragile local `faster-whisper`
+pipeline (cuBLAS/CUDA/model download failures; unavailable in packaged builds), while keeping
+the `_transcript.json` schema identical across engines.
+
+- [x] Phase 1: `clio/asr/` provider protocol, registry, and local-engine adapter
+- [x] Phase 2: Aliyun provider (DashScope async HTTP API + OSS upload)
+- [x] Phase 4: Web UI engine selection, readiness guidance, and engine-aware failure copy
+- [x] Phase 5: Docs, `whisper.engine` default/migration, README, and config examples
+- [x] Engine recorded in transcripts; engine changes trigger re-transcription with legacy-as-local fallback
+- [x] Bounded retry for transient cloud failures and cancellation through upload/submit/poll/download
+
+**Delivery evidence:** `2a9408c`, `3fd23e2`, `700ee2b`, `136e03f`, `b1e9c7c`, `a4a6b6c`;
+architecture details in `docs/architecture/04-asr-transcription.md` and
+`docs/architecture/10-ui-frontend.md`.
+
+**Divergence from the original plan:** the implementation uses the provider id directly as
+`whisper.engine` (`local`, `aliyun`) instead of a generic `cloud` object, and calls DashScope/OSS
+over HTTP rather than requiring the `dashscope` Python SDK. This keeps dependencies smaller and
+lets the existing registry remain the single extension point.
+
+Plan: `docs/superpowers/plans/2026-08-16-cloud-asr-integration-plan.md`
+
 ### R-046 Unified file-system picker experience (2026-08-17)
 
 **Status:** Complete; full Python and frontend suites verified locally.
@@ -73,23 +109,20 @@ Review: `docs/analysis/2026-08-16-full-project-code-review.md`
 - [x] Documentation/package/support-matrix alignment and configurable Task Center retention
 - [~] Larger frontend module decomposition and remaining non-Task-Center legacy mypy debt remain follow-up maintenance work
 
-## Remaining Open Items (2026-07-26)
+## Detailed backlog and delivery history (since 2026-07-26)
 
-### R-047 Cloud transcription (云端 ASR)
+### R-047-FU Optional Baidu ASR provider
 
-**Status:** Planned (2026-08-16); design complete, awaiting user confirmation.
+**Status:** Backlog; not scheduled.
 
-**Goal:** Add optional cloud ASR as an alternative to the fragile local `faster-whisper`
-pipeline (cuBLAS/CUDA/model download failures; unavailable in packaged builds). Users pick
-`local` or `cloud` engine per project; output `_transcript.json` schema stays identical.
+**Goal:** Add Baidu as a second cloud provider only if users need a vendor beyond Aliyun.
 
-- [ ] Phase 1: `clio/asr/` core abstraction + local-engine refactor (no cloud dependency)
-- [ ] Phase 2: Aliyun provider (DashScope, `paraformer-v2`)
-- [ ] Phase 3: Baidu provider (HTTP API + token cache)
-- [ ] Phase 4: Web UI adaptation (engine selector, cloud key cards, whisper check)
-- [ ] Phase 5: Docs, config migration (`engine` default `local`), README
+- [ ] Implement the Baidu HTTP provider and token cache behind the existing registry
+- [ ] Add provider readiness, retry, cancellation, parsing, and contract tests
+- [ ] Add setup documentation and verify end-to-end with a real credential
 
-Plan: `docs/superpowers/plans/2026-08-16-cloud-asr-integration-plan.md`
+**Decision:** Deferred in the original R-047 delivery. The registry already supports additive
+providers, so this does not block Aliyun cloud transcription or packaged-build use.
 
 ### R-042 Notification center
 

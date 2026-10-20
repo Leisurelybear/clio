@@ -1,8 +1,14 @@
 ﻿# 云端 ASR 集成 — 实现方案
 
 > **日期:** 2026-08-16
-> **状态:** 设计阶段，待用户确认
+> **状态:** 阿里云范围已实现（2026-10-20）；百度 Provider 延后。原始设计保留作决策记录。
 > **关联:** 继承自 `2026-06-14-whisper-transcription-plan.md`（本地 Whisper 转录）
+
+> **Implementation outcome (2026-10-20):** Phases 1, 2, 4, and 5 are delivered.
+> The shipped implementation registers `local` and `aliyun` directly as `whisper.engine`
+> provider ids, migrates the deprecated generic `cloud` value, and calls DashScope/OSS over
+> HTTP without the `dashscope` Python SDK. Phase 3 (Baidu) remains optional backlog. See
+> `ROADMAP.md` and `docs/architecture/04-asr-transcription.md` for the current contract.
 
 ## 1. 背景与动机
 
