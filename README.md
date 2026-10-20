@@ -266,7 +266,10 @@ vlog-video-analysis/
 # 跑全部测试
 python -m pytest clio/tests/ -v
 
-# 1846 pytest + 470 Vitest · GitHub Actions CI（Ubuntu + Windows + macOS · Python 3.11 / 3.12；Node 22）
+# 前端单测需要 Node.js 22.12+（Web UI 运行本身仍然无需 Node）
+npm test
+
+# GitHub Actions CI（Ubuntu + Windows + macOS · Python 3.11 / 3.12；Node 22.12+）
 # 代码风格: ruff (format + lint)
 ```
 

@@ -134,4 +134,4 @@ Use focused tests first, then full regression:
 - Notifications: `test_notifications.py`; frontend coverage includes `notification-center.test.js` and `task-center.test.js`
 - Media identity: `test_identity.py`, `test_vmeta.py`, `test_routes_videos.py`, `test_file_service.py`
 - UI dispatch/auth: `test_server.py`, route-specific `test_routes_*.py`
-- Frontend modules: `npm test` with Node 18+; `node --check` works on individual ES modules for syntax only
+- Frontend modules: `npm test` with Node 22.12+; `node --check` works on individual ES modules for syntax only

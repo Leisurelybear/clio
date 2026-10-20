@@ -15,6 +15,7 @@ from clio.utils import discover_ffmpeg_bin, no_console_kwargs
 
 DoctorStatus = Literal["OK", "WARN", "FAIL"]
 PLACEHOLDER_KEYS = {"your_api_key_here", "YOUR_API_KEY", ""}
+NODE_MIN_VERSION = (22, 12, 0)
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,29 @@ def parse_node_major(version_text: str) -> int | None:
         text = text[1:]
     first = text.split(".", 1)[0]
     return int(first) if first.isdigit() else None
+
+
+def parse_node_version(version_text: str) -> tuple[int, int, int] | None:
+    text = version_text.strip()
+    if text.startswith("v"):
+        text = text[1:]
+    parts = text.split(".")
+    if len(parts) < 2:
+        return None
+    try:
+        major = int(parts[0])
+        minor = int(parts[1])
+        patch = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+    except ValueError:
+        return None
+    return major, minor, patch
+
+
+def node_version_supported(version_text: str | None) -> bool:
+    if not version_text:
+        return False
+    version = parse_node_version(version_text)
+    return version is not None and version >= NODE_MIN_VERSION
 
 
 def is_virtualenv_python(
@@ -200,12 +224,11 @@ def collect_doctor_checks(
 
     node_text = node_version_getter()
     if not node_text:
-        items.append(DoctorItem("Node.js", "WARN", "未找到；仅运行 UI 单元测试需要 Node.js 18+"))
+        items.append(DoctorItem("Node.js", "WARN", "未找到；仅运行 UI 单元测试需要 Node.js 22.12+"))
     else:
-        major = parse_node_major(node_text)
-        ok = major is not None and major >= 18
+        ok = node_version_supported(node_text)
         status: DoctorStatus = "OK" if ok else "WARN"
-        items.append(DoctorItem("Node.js", status, f"{node_text} (UI 单元测试需要 18+)"))
+        items.append(DoctorItem("Node.js", status, f"{node_text} (UI 单元测试需要 22.12+)"))
 
     return items
 

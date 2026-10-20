@@ -19,7 +19,9 @@ from clio.doctor import (
     collect_doctor_checks,
     doctor_exit_code,
     is_virtualenv_python,
+    node_version_supported,
     parse_node_major,
+    parse_node_version,
 )
 
 
@@ -63,6 +65,20 @@ def test_parse_node_major() -> None:
     assert parse_node_major("v22.4.1") == 22
     assert parse_node_major("16.14.0") == 16
     assert parse_node_major("not node") is None
+
+
+def test_parse_node_version() -> None:
+    assert parse_node_version("v22.12.0") == (22, 12, 0)
+    assert parse_node_version("24.1") == (24, 1, 0)
+    assert parse_node_version("not node") is None
+
+
+def test_node_version_supported_requires_22_12() -> None:
+    assert node_version_supported("v22.12.0")
+    assert node_version_supported("v24.0.0")
+    assert not node_version_supported("v22.11.0")
+    assert not node_version_supported("v20.19.0")
+    assert not node_version_supported(None)
 
 
 def test_is_virtualenv_python_accepts_prefix_difference() -> None:
@@ -130,7 +146,33 @@ def test_collect_checks_warns_for_old_node(tmp_path: Path) -> None:
 
     node_item = next(item for item in items if item.name == "Node.js")
     assert node_item.status == "WARN"
-    assert "18+" in node_item.detail
+    assert "22.12+" in node_item.detail
+
+
+def test_collect_checks_accepts_node_22_12(tmp_path: Path) -> None:
+    config = _config(tmp_path, provider=ProviderConfig(name="gemini", type="gemini", api_key="secret"))
+    items = collect_doctor_checks(
+        config,
+        discover_binary=lambda name: f"/usr/bin/{name}",
+        environ={},
+        node_version_getter=lambda: "v22.12.0",
+    )
+
+    node_item = next(item for item in items if item.name == "Node.js")
+    assert node_item.status == "OK"
+
+
+def test_collect_checks_warns_for_node_22_before_minimum(tmp_path: Path) -> None:
+    config = _config(tmp_path, provider=ProviderConfig(name="gemini", type="gemini", api_key="secret"))
+    items = collect_doctor_checks(
+        config,
+        discover_binary=lambda name: f"/usr/bin/{name}",
+        environ={},
+        node_version_getter=lambda: "v22.11.0",
+    )
+
+    node_item = next(item for item in items if item.name == "Node.js")
+    assert node_item.status == "WARN"
 
 
 def test_collect_checks_reports_missing_cloud_asr_key(tmp_path: Path) -> None:

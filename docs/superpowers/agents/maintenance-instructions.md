@@ -50,4 +50,4 @@ Rate limiting should sleep outside shared locks when concurrency is involved.
 
 The useful Python tests call production entry points and assert observable results. Avoid tests that duplicate production loops or only prove "does not raise" unless no observable state exists.
 
-Route-dispatch tests are allowed to be mock-heavy, but handler behavior belongs in handler/service tests. Frontend tests require Node 18 or newer; local Node 16 fails before Vitest can execute because Vite imports newer `node:fs/promises` APIs.
+Route-dispatch tests are allowed to be mock-heavy, but handler behavior belongs in handler/service tests. Frontend tests require Node 22.12 or newer; Vite 8 also accepts Node 20.19+, but the project standardizes on the Node 22 LTS line.
