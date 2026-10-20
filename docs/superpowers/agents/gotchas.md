@@ -153,3 +153,13 @@ See `clio/compress.py`.
 - Helper predicates live in pure `sidebar-video-filter.js` (unit-tested); do not inline the
   same logic in `sidebar-data.js`.
 - Only the user's local config files are touched; `config.example.yaml` is never modified
+
+### 9.23 Never Start Real pywebview Under pytest
+
+- `clio.desktop.app._reject_real_webview_under_pytest()` runs before `start_server` and
+  refuses to open a real window when `PYTEST_CURRENT_TEST` is set.
+- Desktop-host tests must inject `sys.modules["webview"]` with a fake module (no `__file__`),
+  as `test_desktop_app.py::_install_fake_webview()` does.
+- `CLIO_ALLOW_DESKTOP_UNDER_PYTEST=1` is an explicit escape hatch for intentional GUI tests;
+  never set it in normal CI. A missed mock previously left multiple Clio/WebView2 windows and
+  hung pytest processes because each temp config dir had its own lock and random API token.

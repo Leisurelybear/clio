@@ -19,6 +19,29 @@ from clio.desktop.single_instance import (
 )
 from clio.ui.server import set_desktop_focus_callback
 
+PYTEST_GUI_OVERRIDE = "CLIO_ALLOW_DESKTOP_UNDER_PYTEST"
+
+
+def _reject_real_webview_under_pytest() -> None:
+    """Fail fast instead of opening a real GUI during pytest.
+
+    Tests that exercise the desktop host install a fake ``webview`` module
+    (no ``__file__``). A real installed package has ``__file__``; launching it
+    inside pytest would create orphan windows and block the test run.
+    """
+    if not os.environ.get("PYTEST_CURRENT_TEST"):
+        return
+    if os.environ.get(PYTEST_GUI_OVERRIDE) == "1":
+        return
+    module = sys.modules.get("webview")
+    if module is not None and not getattr(module, "__file__", None):
+        return
+    raise RuntimeError(
+        "Refusing to start the real pywebview UI while running under pytest. "
+        "Inject a fake 'webview' module in the test, or set "
+        f"{PYTEST_GUI_OVERRIDE}=1 for an intentional GUI test."
+    )
+
 
 def _confirm_web_continue() -> bool:
     """Ask the user whether to launch the desktop app while the web UI is running."""
@@ -171,6 +194,7 @@ def main(
         if not _confirm_web_continue():
             return 0
 
+    _reject_real_webview_under_pytest()
     handle = start_server(
         cfg,
         config_path=cfg_file,

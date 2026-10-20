@@ -33,6 +33,7 @@ setup_logging(cfg.paths.logs_dir)
 instance_token = secrets.token_hex(16)
 read_lock → focus_first_instance(port)?  → focus original window, exit 0
 is_web_running(8765)?                    → confirm dialog, else continue
+_reject_real_webview_under_pytest()      → fail fast unless a fake webview is injected
 handle = start_server(host=127.0.0.1, port=0, api_token=None → fresh random token)
 url = http://{host}:{port}/?token={token} → pywebview window (1280×800, text_select)
   ├─ DesktopApi(config_dir) as window.js_api (native pickers)
@@ -99,3 +100,7 @@ joins the thread, `shutdown_task_manager`, and runs `before_stop()` hooks.
 5. pywebview is optional (import guarded); `clio desktop` on a machine without WebView2 shows a
    startup-error dialog with install guidance, but there is no silent CLI-fallback mode — a
    headless run intentionally errors rather than behaving like `serve`.
+6. Under pytest, `app.main` refuses to continue unless `sys.modules["webview"]` is a fake
+   module (no `__file__`) or `CLIO_ALLOW_DESKTOP_UNDER_PYTEST=1` is set explicitly. Real
+   pywebview windows block the test process and can leave orphan WebView2 children; tests must
+   use the fake module in `clio/tests/test_desktop_app.py`.

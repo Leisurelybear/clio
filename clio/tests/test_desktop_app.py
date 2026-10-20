@@ -7,6 +7,8 @@ import types
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 import clio.desktop.app as app_mod
 from clio.config import AppConfig
 from clio.desktop.server_host import (
@@ -204,6 +206,50 @@ def test_main_takes_over_stale_lock(monkeypatch, tmp_path):
     assert rv == 0
     fake_webview.create_window.assert_called_once()
     app_mod.write_lock.assert_called_once()
+
+
+def test_main_refuses_real_webview_under_pytest(monkeypatch, tmp_path):
+    monkeypatch.setattr(app_mod, "is_web_running", MagicMock(return_value=False))
+    monkeypatch.setattr(app_mod, "focus_first_instance", MagicMock(return_value=False))
+    monkeypatch.setattr(app_mod, "read_lock", MagicMock(return_value=None))
+    start_mock = MagicMock()
+    monkeypatch.setattr("clio.desktop.server_host.start_server", start_mock)
+    real_like = types.ModuleType("webview")
+    real_like.__file__ = "/site-packages/webview/__init__.py"
+    monkeypatch.setitem(sys.modules, "webview", real_like)
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text("key: value\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="Refusing to start the real pywebview"):
+        app_mod.main(argv=[], config_path=cfg_file)
+
+    start_mock.assert_not_called()
+
+
+def test_main_allows_real_webview_with_explicit_pytest_override(monkeypatch, tmp_path):
+    monkeypatch.setenv(app_mod.PYTEST_GUI_OVERRIDE, "1")
+    monkeypatch.setattr("clio.config.load_config", MagicMock(return_value=MagicMock()))
+    monkeypatch.setattr("clio.log.setup_logging", MagicMock())
+    monkeypatch.setattr("clio.desktop.server_host.start_server", MagicMock(return_value=_FakeHandle()))
+    monkeypatch.setattr("clio.desktop.server_host.stop_server", MagicMock())
+    monkeypatch.setattr(app_mod, "is_web_running", MagicMock(return_value=False))
+    monkeypatch.setattr(app_mod, "read_lock", MagicMock(return_value=None))
+    monkeypatch.setattr(app_mod, "write_lock", MagicMock())
+    monkeypatch.setattr(app_mod, "remove_lock", MagicMock())
+    monkeypatch.setattr(app_mod, "set_desktop_focus_callback", MagicMock())
+    real_like = types.ModuleType("webview")
+    real_like.__file__ = "/site-packages/webview/__init__.py"
+    real_like.create_window = MagicMock(return_value=_FakeWindow())
+    real_like.start = MagicMock()
+    monkeypatch.setitem(sys.modules, "webview", real_like)
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text("key: value\n", encoding="utf-8")
+
+    rv = app_mod.main(argv=[], config_path=cfg_file)
+
+    assert rv == 0
+    real_like.create_window.assert_called_once()
+    real_like.start.assert_called_once()
 
 
 def test_main_registers_focus_callback_that_shows_window(monkeypatch, tmp_path):
