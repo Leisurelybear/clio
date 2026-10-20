@@ -55,6 +55,10 @@ run_analyze_all            ({stem}.json: title/summary/highlights/timeline/locat
 
 - **skip_existing** is inherited from the `analyze` toggle: `run_plan_vlog` reuses an existing
   plan JSON when files are unchanged and history exists (`_plan_lineage_fingerprint`, plan.py:43).
+- **Input quality gate**: analysis inputs must be JSON objects with a usable index. Malformed,
+  unreadable, or non-object files are skipped with one aggregated warning; if candidate files
+  exist but none are usable, both single-day and all-days planning fail instead of reporting an
+  empty successful run.
 - Plan day discovery reuses **text stems** (`_discover_day_labels`), and default segment clips
   come from `source_file`/`videos.json` ordering — independent of cut/export phase.
 - Refinement (`--fix`) targets a **single file** (required `-i`), emits a `_changelog`, and the

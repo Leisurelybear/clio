@@ -23,6 +23,30 @@ from clio.tasks._helpers import _matches_selected_artifact, _selected_stems
 from clio.utils import format_index, safe_basename, write_json_atomic, write_text_atomic
 
 
+def _read_analysis_json(path: Path) -> tuple[dict[str, Any] | None, str | None]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeError):
+        return None, "JSON 无法读取"
+    if not isinstance(data, dict):
+        return None, "JSON 顶层不是对象"
+    return data, None
+
+
+def _report_skipped_inputs(skipped: list[tuple[str, str]]) -> None:
+    if not skipped:
+        return
+    preview = ", ".join(f"{name} ({reason})" for name, reason in skipped[:5])
+    suffix = f" 等 {len(skipped)} 个文件" if len(skipped) > 5 else ""
+    print(f"[警告] 已跳过 {len(skipped)} 个不可用的分析文件: {preview}{suffix}")
+
+
+def _unusable_inputs_error(skipped: list[tuple[str, str]]) -> RuntimeError:
+    names = ", ".join(name for name, _ in skipped[:5])
+    suffix = " 等" if len(skipped) > 5 else ""
+    return RuntimeError(f"无法生成规划：分析文件均不可用（{names}{suffix}）")
+
+
 def _analysis_day_label(data: dict) -> str:
     raw = data.get("day_label") or data.get("day") or data.get("dayLabel") or "day1"
     label = str(raw).strip()
@@ -113,14 +137,20 @@ def _plan_lineage_fingerprint(
 
 
 def _discover_day_labels(config: AppConfig) -> list[str]:
+    labels, _ = _discover_day_labels_with_errors(config)
+    return labels
+
+
+def _discover_day_labels_with_errors(config: AppConfig) -> tuple[list[str], list[tuple[str, str]]]:
     labels: set[str] = set()
+    skipped: list[tuple[str, str]] = []
     for json_file in sorted(config.texts_dir.glob("*.json")):
-        try:
-            data = json.loads(json_file.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
+        data, error = _read_analysis_json(json_file)
+        if error is not None:
+            skipped.append((json_file.name, error))
             continue
         labels.add(_analysis_day_label(data))
-    return sorted(labels)
+    return sorted(labels), skipped
 
 
 def run_plan_vlog(
@@ -146,13 +176,17 @@ def run_plan_vlog(
     out_md = config.plans_dir / f"{safe_day}_plan.md"
 
     clips = []
+    skipped_inputs: list[tuple[str, str]] = []
     for json_file in sorted(config.texts_dir.glob("*.json")):
         if cancel_event and cancel_event.is_set():
             print("[取消] plan 步骤被用户终止")
             return
         if selected is not None and not _matches_selected_artifact(json_file, selected):
             continue
-        data = json.loads(json_file.read_text(encoding="utf-8"))
+        data, error = _read_analysis_json(json_file)
+        if error is not None:
+            skipped_inputs.append((json_file.name, error))
+            continue
         if filter_by_day and _analysis_day_label(data) != day_label:
             continue
         raw_idx = data.get("index")
@@ -162,6 +196,7 @@ def run_plan_vlog(
             idx = int(raw_idx)
         except (ValueError, TypeError):
             print(f"  [跳过] 无效 index '{raw_idx}' 在 {json_file.name}")
+            skipped_inputs.append((json_file.name, "index 无效"))
             continue
         identity = load_identity(data)
         if identity is not None:
@@ -187,7 +222,10 @@ def run_plan_vlog(
             }
         )
 
+    _report_skipped_inputs(skipped_inputs)
     if not clips:
+        if skipped_inputs:
+            raise _unusable_inputs_error(skipped_inputs)
         print("[规划] 无可用素材（选片过滤后为空或尚未 analyze）")
         return None
 
@@ -317,8 +355,11 @@ def run_plan_all_days(
     context_override: str | None = None,
     task_prompts: dict[str, str] | None = None,
 ) -> dict[str, Any] | None:
-    labels = _discover_day_labels(config)
+    labels, skipped_inputs = _discover_day_labels_with_errors(config)
     if not labels:
+        if skipped_inputs:
+            _report_skipped_inputs(skipped_inputs)
+            raise _unusable_inputs_error(skipped_inputs)
         print("没有可用的分析结果，请先运行 analyze")
         return None
 

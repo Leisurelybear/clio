@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from clio.config import AppConfig
 from clio.tasks.plan import (
     _analysis_day_label,
@@ -288,14 +290,42 @@ class TestRunPlanVlog:
         assert len(clips) == 1
         assert clips[0]["index"] == "002"
 
-    def test_invalid_index_skipped(self, loaded_config: AppConfig) -> None:
+    def test_invalid_index_only_fails(self, loaded_config: AppConfig) -> None:
         bad = _analysis("not-a-number", source="BAD")
         bad["media_identity"]["compressed_stem"] = "BAD"
         _write_analysis(loaded_config, bad)
         with patch("clio.tasks.plan.plan_daily_vlog", return_value={"day_title": "day1", "sequence": []}) as mock:
-            result = run_plan_vlog(loaded_config, "day1")
-        assert result is None
+            with pytest.raises(RuntimeError, match="分析文件均不可用"):
+                run_plan_vlog(loaded_config, "day1")
         mock.assert_not_called()
+
+    def test_corrupt_analysis_skipped_with_warning(self, loaded_config: AppConfig, capsys) -> None:
+        _write_analysis(loaded_config, _analysis("001"))
+        (loaded_config.texts_dir / "002_BAD.json").write_text("{corrupt", encoding="utf-8")
+        fake_plan = {
+            "day_title": "day1",
+            "sequence": [{"index": "001", "title": "A", "use_timeline": "00:00-00:10"}],
+        }
+        with patch("clio.tasks.plan.plan_daily_vlog", return_value=fake_plan) as mock:
+            result = run_plan_vlog(loaded_config, "day1")
+        assert result is not None
+        assert mock.call_args.args[0][0]["index"] == "001"
+        out = capsys.readouterr().out
+        assert "已跳过 1 个不可用的分析文件" in out
+        assert "002_BAD.json" in out
+
+    def test_all_corrupt_analyses_fail_with_file_names(self, loaded_config: AppConfig, capsys) -> None:
+        loaded_config.texts_dir.mkdir(parents=True, exist_ok=True)
+        (loaded_config.texts_dir / "001_BAD.json").write_text("{corrupt", encoding="utf-8")
+        (loaded_config.texts_dir / "002_ALSO_BAD.json").write_text("[]", encoding="utf-8")
+        with patch("clio.tasks.plan.plan_daily_vlog") as mock:
+            with pytest.raises(RuntimeError, match="001_BAD.json.*002_ALSO_BAD.json"):
+                run_plan_vlog(loaded_config, "day1")
+        mock.assert_not_called()
+        assert not (loaded_config.plans_dir / "day1_plan.json").exists()
+        out = capsys.readouterr().out
+        assert "JSON 无法读取" in out
+        assert "JSON 顶层不是对象" in out
 
     def test_legacy_analysis_without_identity(self, loaded_config: AppConfig) -> None:
         legacy = {
@@ -452,6 +482,13 @@ class TestRunPlanAllDays:
     def test_no_labels_returns_none(self, loaded_config: AppConfig, capsys) -> None:
         assert run_plan_all_days(loaded_config) is None
         assert "没有可用的分析结果" in capsys.readouterr().out
+
+    def test_all_corrupt_analyses_fail(self, loaded_config: AppConfig, capsys) -> None:
+        loaded_config.texts_dir.mkdir(parents=True, exist_ok=True)
+        (loaded_config.texts_dir / "001_BAD.json").write_text("{corrupt", encoding="utf-8")
+        with pytest.raises(RuntimeError, match="分析文件均不可用"):
+            run_plan_all_days(loaded_config)
+        assert "001_BAD.json" in capsys.readouterr().out
 
     def test_aggregates_summary(self, loaded_config: AppConfig) -> None:
         _write_analysis(loaded_config, _analysis("001", day="day1"))
