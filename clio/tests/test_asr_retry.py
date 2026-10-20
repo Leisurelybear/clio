@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+
 import httpx
 import pytest
 
@@ -68,3 +70,36 @@ def test_exhausted_network_retries_are_readable():
         request_with_retry(request, label="测试请求", attempts=2, sleep=lambda _: None)
 
     assert calls == 2
+
+
+def test_cancelled_before_request_does_not_call_network():
+    cancel_event = threading.Event()
+    cancel_event.set()
+    calls = 0
+
+    def request():
+        nonlocal calls
+        calls += 1
+        return _response(200)
+
+    with pytest.raises(RuntimeError, match="测试请求已取消"):
+        request_with_retry(request, label="测试请求", cancel_event=cancel_event)
+
+    assert calls == 0
+
+
+def test_cancel_interrupts_retry_backoff():
+    class CancelDuringWait:
+        def is_set(self) -> bool:
+            return False
+
+        def wait(self, timeout: float) -> bool:
+            return True
+
+    with pytest.raises(RuntimeError, match="测试请求已取消"):
+        request_with_retry(
+            lambda: _response(503),
+            label="测试请求",
+            sleep=lambda _: pytest.fail("sleep should not run when cancellation is supported"),
+            cancel_event=CancelDuringWait(),
+        )

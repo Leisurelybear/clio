@@ -47,19 +47,30 @@ class AliyunASRProvider:
         if not api_key:
             raise RuntimeError("DASHSCOPE_API_KEY 未设置，请在 .env 中配置")
 
-        file_url = dashscope_upload(audio_path, progress_callback=progress_callback)
+        file_url = dashscope_upload(
+            audio_path,
+            progress_callback=progress_callback,
+            cancel_event=cancel_event,
+        )
         if progress_callback:
             progress_callback(6)
 
-        task_id = self._submit_task(file_url, language, api_key)
+        task_id = self._submit_task(file_url, language, api_key, cancel_event=cancel_event)
         result = self._poll_task(task_id, api_key, progress_callback, cancel_event)
 
-        segments = self._parse_result(result)
+        segments = self._parse_result(result, cancel_event=cancel_event)
         if progress_callback:
             progress_callback(100)
         return segments
 
-    def _submit_task(self, file_url: str, language: str, api_key: str) -> str:
+    def _submit_task(
+        self,
+        file_url: str,
+        language: str,
+        api_key: str,
+        *,
+        cancel_event: threading.Event | None = None,
+    ) -> str:
         lang_hints = [language] if language not in ("auto", "") else ["zh"]
         body = {
             "model": "paraformer-v2",
@@ -80,6 +91,7 @@ class AliyunASRProvider:
             ),
             label="提交云端 ASR 任务",
             attempts=_MAX_NETWORK_RETRIES,
+            cancel_event=cancel_event,
         )
         data = resp.json()
         return data["output"]["task_id"]
@@ -106,6 +118,7 @@ class AliyunASRProvider:
                 ),
                 label="查询云端 ASR 状态",
                 attempts=_MAX_NETWORK_RETRIES,
+                cancel_event=cancel_event,
             )
             data: dict = resp.json()
             status = data["output"]["task_status"]
@@ -119,9 +132,17 @@ class AliyunASRProvider:
             if progress_callback and _POLL_TIMEOUT_S > 0:
                 pct = min(95, int(5 + (elapsed / _POLL_TIMEOUT_S) * 90))
                 progress_callback(pct)
-            time.sleep(_POLL_INTERVAL_S)
+            if cancel_event is None:
+                time.sleep(_POLL_INTERVAL_S)
+            elif cancel_event.wait(_POLL_INTERVAL_S):
+                raise RuntimeError("云端 ASR 任务已取消")
 
-    def _parse_result(self, result: dict) -> list[TranscriptSegment]:
+    def _parse_result(
+        self,
+        result: dict,
+        *,
+        cancel_event: threading.Event | None = None,
+    ) -> list[TranscriptSegment]:
         output = result.get("output", {})
         results = output.get("results", [])
         if not results:
@@ -135,6 +156,7 @@ class AliyunASRProvider:
             lambda: httpx.get(transcription_url, timeout=60),
             label="下载 ASR 转录结果",
             attempts=_MAX_NETWORK_RETRIES,
+            cancel_event=cancel_event,
         )
         transcript_data: dict = resp.json()
 

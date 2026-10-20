@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from collections.abc import Callable
 
@@ -26,10 +27,23 @@ def request_with_retry(
     base_delay: float = 0.5,
     max_delay: float = 3.0,
     sleep: Callable[[float], None] = time.sleep,
+    cancel_event: threading.Event | None = None,
 ) -> httpx.Response:
     """Run a request and retry only transient network/service failures."""
+
+    def check_cancelled() -> None:
+        if cancel_event is not None and cancel_event.is_set():
+            raise RuntimeError(f"{label}已取消")
+
+    def wait_before_retry(seconds: float) -> None:
+        if cancel_event is None:
+            sleep(seconds)
+        elif cancel_event.wait(seconds):
+            raise RuntimeError(f"{label}已取消")
+
     last_status: int | None = None
     for attempt in range(attempts):
+        check_cancelled()
         try:
             response = request()
             response.raise_for_status()
@@ -44,7 +58,9 @@ def request_with_retry(
             if attempt == attempts - 1:
                 raise RuntimeError(f"{label}失败：网络连接不稳定，请检查网络后重试") from None
 
-        sleep(min(base_delay * (2**attempt), max_delay))
+        wait_before_retry(min(base_delay * (2**attempt), max_delay))
+
+    check_cancelled()
 
     if last_status is not None:
         reason = _status_message(last_status)

@@ -95,6 +95,11 @@ retry semantics: 408/429/5xx and connection/timeouts are retried up to three att
 0.5s→1s backoff; other 4xx responses fail immediately with a Chinese error that includes the
 status and request purpose.
 
+The task cancel event is checked before every HTTP attempt, during retry backoff and while
+waiting between polls, so cancellation does not wait for a full 3-second poll interval. A
+single HTTP request already in flight may still complete before the cancellation is observed;
+the provider will not retry it or continue to the next stage.
+
 Keys come from `.env` (`DASHSCOPE_API_KEY` / `ALIYUN_ACCESS_KEY_ID`/`SECRET` for the OSS
 upload) — never in `config.yaml` or task payloads. The output is converted to the same
 `TranscriptSegment` list, so the batch writer in `clio/tasks/transcribe.py` stores an identical

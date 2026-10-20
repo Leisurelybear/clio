@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Protocol
@@ -25,7 +26,10 @@ def dashscope_upload(
     audio_path: Path,
     model: str = "paraformer-v2",
     progress_callback: Callable[[int], None] | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> str:
+    if cancel_event is not None and cancel_event.is_set():
+        raise RuntimeError("音频上传已取消")
     api_key = get_api_key()
     if not api_key:
         raise RuntimeError("DASHSCOPE_API_KEY 未设置，请在 .env 中配置")
@@ -38,6 +42,7 @@ def dashscope_upload(
             timeout=30,
         ),
         label="获取音频上传凭证",
+        cancel_event=cancel_event,
     )
     policy: dict[str, Any] = resp.json()["data"]
 
@@ -64,7 +69,7 @@ def dashscope_upload(
                 timeout=300,
             )
 
-    request_with_retry(upload_file, label="上传音频")
+    request_with_retry(upload_file, label="上传音频", cancel_event=cancel_event)
     if progress_callback:
         progress_callback(5)
     return f"oss://{key}"

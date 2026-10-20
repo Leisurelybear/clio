@@ -170,3 +170,49 @@ def test_poll_retries_503():
 
     assert result == _make_poll_result()
     assert get.call_count == 2
+
+
+def test_poll_cancel_interrupts_interval_wait():
+    class CancelDuringWait:
+        def is_set(self) -> bool:
+            return False
+
+        def wait(self, timeout: float) -> bool:
+            return True
+
+    provider = AliyunASRProvider(MagicMock())
+    running = MagicMock()
+    running.json.return_value = {"output": {"task_status": "RUNNING"}}
+
+    with patch("httpx.get", return_value=running):
+        with pytest.raises(RuntimeError, match="云端 ASR 任务已取消"):
+            provider._poll_task("task-123", "test-key", None, CancelDuringWait())
+
+
+def test_transcribe_passes_cancel_event_to_all_cloud_stages():
+    from pathlib import Path
+
+    provider = AliyunASRProvider(MagicMock())
+    cancel_event = threading.Event()
+
+    with (
+        patch.dict("os.environ", {"DASHSCOPE_API_KEY": "test-key"}),
+        patch("clio.asr.aliyun.dashscope_upload", return_value="oss://test/file.wav") as upload,
+        patch.object(provider, "_submit_task", return_value="task-123") as submit,
+        patch.object(provider, "_poll_task", return_value=_make_poll_result()),
+        patch.object(provider, "_parse_result", return_value=[]) as parse,
+    ):
+        provider.transcribe(Path("fake.wav"), "zh", cancel_event=cancel_event)
+
+    upload.assert_called_once_with(
+        Path("fake.wav"),
+        progress_callback=None,
+        cancel_event=cancel_event,
+    )
+    submit.assert_called_once_with(
+        "oss://test/file.wav",
+        "zh",
+        "test-key",
+        cancel_event=cancel_event,
+    )
+    parse.assert_called_once_with(_make_poll_result(), cancel_event=cancel_event)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -59,3 +60,16 @@ def test_upload_policy_403_is_not_retried(tmp_path: Path):
 
     assert get.call_count == 1
     post.assert_not_called()
+
+
+def test_upload_cancel_short_circuits_before_api_key_check(tmp_path: Path):
+    audio = tmp_path / "audio.wav"
+    audio.write_bytes(b"audio")
+    cancel_event = threading.Event()
+    cancel_event.set()
+
+    with patch("httpx.get") as get:
+        with pytest.raises(RuntimeError, match="音频上传已取消"):
+            dashscope_upload(audio, cancel_event=cancel_event)
+
+    get.assert_not_called()
