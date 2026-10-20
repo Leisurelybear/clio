@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -12,13 +13,10 @@ from clio.progress import ProgressTracker
 
 
 @pytest.fixture(autouse=True)
-def _mock_whisper_deps():
+def _mock_whisper_deps(monkeypatch):
     """Patch faster_whisper + check_whisper so import and guard inside run_transcribe_all work."""
-    with (
-        patch.dict("sys.modules", {"faster_whisper": MagicMock()}),
-        patch("clio.transcribe.check_whisper", return_value=True),
-    ):
-        yield
+    monkeypatch.setitem(sys.modules, "faster_whisper", MagicMock())
+    monkeypatch.setattr("clio.transcribe.check_whisper", lambda: True)
 
 
 @pytest.fixture
@@ -378,6 +376,7 @@ class TestRunTranscribeOne:
             result = run_transcribe_one(cfg, video)
 
         assert "error" not in result
+        assert result["engine"] == "aliyun"
         assert result["segments"] == [{"start": 0.0, "end": 1.0, "text": "hi"}]
 
     @patch("clio.tasks.transcribe.resolve_binary", return_value="ffmpeg")
@@ -398,6 +397,7 @@ class TestRunTranscribeOne:
             result = run_transcribe_one(cfg, video)
             assert "error" not in result
             assert result["source_stem"] == "test"
+            assert result["engine"] == "local"
             assert len(result["segments"]) == 1
 
     def test_file_not_found(self, cfg, tmp_path):

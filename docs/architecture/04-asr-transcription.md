@@ -100,7 +100,8 @@ Per segment (`TranscriptSegment.to_dict`):
 
 Files are `<stem>_transcript.json` under `whisper.transcripts_subdir`; the batch task
 (`clio/tasks/transcribe.py`) splits the audio, runs segments through the chosen engine, merges
-with `max_segments_per_clip`, and marks errors. Plan generation reads these via
+with `max_segments_per_clip`, and marks errors. Both batch and single-file writes include the
+`engine` field; legacy files without it are treated as `local`. Plan generation reads these via
 `plan_daily_vlog(use_transcripts=True)` to ground voiceover timeline choices.
 
 ## 7. Cross-Module Dependencies

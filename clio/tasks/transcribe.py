@@ -425,6 +425,7 @@ def run_transcribe_one(
             "source_stem": video_path.stem,
             "language": config.whisper.language,
             "model_size": config.whisper.model_size,
+            "engine": getattr(config.whisper, "engine", "local"),
             "segments": segments,
             "generated_at": datetime.now().isoformat(),
         }
