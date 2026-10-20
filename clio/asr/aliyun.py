@@ -9,6 +9,7 @@ import httpx
 
 from clio.asr.base import ProviderCapabilities, TranscriptSegment
 from clio.asr.factory import register_provider
+from clio.asr.retry import request_with_retry
 from clio.asr.upload import DASHSCOPE_BASE, dashscope_upload, get_api_key
 
 _POLL_INTERVAL_S = 3
@@ -65,18 +66,21 @@ class AliyunASRProvider:
             "input": {"file_urls": [file_url]},
             "parameters": {"language_hints": lang_hints},
         }
-        resp = httpx.post(
-            f"{DASHSCOPE_BASE}/services/audio/asr/transcription",
-            json=body,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "X-DashScope-Async": "enable",
-                "X-DashScope-OssResourceResolve": "enable",
-                "Content-Type": "application/json",
-            },
-            timeout=60,
+        resp = request_with_retry(
+            lambda: httpx.post(
+                f"{DASHSCOPE_BASE}/services/audio/asr/transcription",
+                json=body,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "X-DashScope-Async": "enable",
+                    "X-DashScope-OssResourceResolve": "enable",
+                    "Content-Type": "application/json",
+                },
+                timeout=60,
+            ),
+            label="提交云端 ASR 任务",
+            attempts=_MAX_NETWORK_RETRIES,
         )
-        resp.raise_for_status()
         data = resp.json()
         return data["output"]["task_id"]
 
@@ -94,21 +98,15 @@ class AliyunASRProvider:
             if time.monotonic() - start > _POLL_TIMEOUT_S:
                 raise RuntimeError(f"云端 ASR 转录超时（{_POLL_TIMEOUT_S // 60} 分钟）")
 
-            resp = None
-            for attempt in range(_MAX_NETWORK_RETRIES):
-                try:
-                    resp = httpx.get(
-                        f"{DASHSCOPE_BASE}/tasks/{task_id}",
-                        headers={"Authorization": f"Bearer {api_key}"},
-                        timeout=30,
-                    )
-                    resp.raise_for_status()
-                    break
-                except httpx.RequestError:
-                    if attempt == _MAX_NETWORK_RETRIES - 1:
-                        raise RuntimeError("查询云端 ASR 状态失败：网络连接不稳定") from None
-                    time.sleep(min(0.5 * (2**attempt), 3))
-            assert resp is not None
+            resp = request_with_retry(
+                lambda: httpx.get(
+                    f"{DASHSCOPE_BASE}/tasks/{task_id}",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    timeout=30,
+                ),
+                label="查询云端 ASR 状态",
+                attempts=_MAX_NETWORK_RETRIES,
+            )
             data: dict = resp.json()
             status = data["output"]["task_status"]
             if status == "SUCCEEDED":
@@ -133,8 +131,11 @@ class AliyunASRProvider:
         if not transcription_url:
             raise RuntimeError("阿里云 ASR 结果缺少 transcription_url")
 
-        resp = httpx.get(transcription_url, timeout=60)
-        resp.raise_for_status()
+        resp = request_with_retry(
+            lambda: httpx.get(transcription_url, timeout=60),
+            label="下载 ASR 转录结果",
+            attempts=_MAX_NETWORK_RETRIES,
+        )
         transcript_data: dict = resp.json()
 
         segments: list[TranscriptSegment] = []

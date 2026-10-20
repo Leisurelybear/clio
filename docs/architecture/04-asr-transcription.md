@@ -19,6 +19,7 @@
 | `asr/base.py` | `TranscriptSegment` (`:11`, frozen, `to_dict`), `ProviderCapabilities` (`:31`), `TranscriptionProvider` protocol (`:41`) |
 | `asr/factory.py` | `register_provider` decorator (`:10`), `list_providers` (`:18`), `build_provider(engine_id, config)` (`:22`) — decorator-based registry |
 | `asr/readiness.py` | `check_asr_ready(config, engine=..., environ=...)` — builds the configured provider and asks it for a user-facing readiness blocker |
+| `asr/retry.py` | `request_with_retry` — retries 408/429/5xx and network errors for cloud ASR HTTP calls with bounded exponential backoff |
 | `asr/local.py` | `LocalWhisperProvider` (`:12`) — adapter delegating to `transcribe._transcribe_local_whisper` |
 | `asr/aliyun.py` | `AliyunASRProvider` (`:20`) — DashScope async task submit + poll + result parse (ms→s) |
 | `asr/upload.py` | `dashscope_upload` (`:22`) — OSS multipart upload with progress callback |
@@ -85,9 +86,14 @@ Environment machinery:
 ```text
 1. dashscope_upload (OSSUpload): multipart upload, progress 0→5        (asr/upload.py:22)
 2. submit async task (paraformer-v2, file_url, language)
-3. poll every 3s up to 30min: progress 5→95, cancel-aware, network retries
+3. poll every 3s up to 30min: progress 5→95, cancel-aware, retries 429/5xx/network errors
 4. fetch transcription_url result, parse segments, ms → seconds
 ```
+
+All cloud HTTP calls (upload policy, OSS upload, submit, poll, result download) share bounded
+retry semantics: 408/429/5xx and connection/timeouts are retried up to three attempts with
+0.5s→1s backoff; other 4xx responses fail immediately with a Chinese error that includes the
+status and request purpose.
 
 Keys come from `.env` (`DASHSCOPE_API_KEY` / `ALIYUN_ACCESS_KEY_ID`/`SECRET` for the OSS
 upload) — never in `config.yaml` or task payloads. The output is converted to the same

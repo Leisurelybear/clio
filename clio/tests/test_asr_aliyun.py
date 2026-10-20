@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 
 from clio.asr.aliyun import AliyunASRProvider
@@ -137,3 +138,35 @@ def test_cancel_event_stops_polling():
     ):
         with pytest.raises(RuntimeError, match="已取消"):
             provider.transcribe(Path("fake.wav"), "zh", cancel_event=cancel_event)
+
+
+def test_submit_retries_429():
+    provider = AliyunASRProvider(MagicMock())
+    rate_limited = httpx.Response(429, request=httpx.Request("POST", "https://example.com"))
+    success = MagicMock()
+    success.json.return_value = {"output": {"task_id": "task-123"}}
+
+    with (
+        patch("httpx.post", side_effect=[rate_limited, success]) as post,
+        patch("clio.asr.retry.time.sleep"),
+    ):
+        task_id = provider._submit_task("oss://test/file.wav", "zh", "test-key")
+
+    assert task_id == "task-123"
+    assert post.call_count == 2
+
+
+def test_poll_retries_503():
+    provider = AliyunASRProvider(MagicMock())
+    unavailable = httpx.Response(503, request=httpx.Request("GET", "https://example.com"))
+    success = MagicMock()
+    success.json.return_value = _make_poll_result()
+
+    with (
+        patch("httpx.get", side_effect=[unavailable, success]) as get,
+        patch("clio.asr.retry.time.sleep"),
+    ):
+        result = provider._poll_task("task-123", "test-key", None, None)
+
+    assert result == _make_poll_result()
+    assert get.call_count == 2
