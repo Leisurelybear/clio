@@ -7,7 +7,7 @@
 [![CI](https://github.com/Leisurelybear/Clio/actions/workflows/test.yml/badge.svg)](https://github.com/Leisurelybear/Clio/actions/workflows/test.yml)
 [![codecov](https://codecov.io/gh/Leisurelybear/Clio/branch/main/graph/badge.svg?token=PEG3XQM76C)](https://codecov.io/gh/Leisurelybear/Clio)
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
-![tests](https://img.shields.io/badge/tests-1800%2B-brightgreen)
+![tests](https://img.shields.io/badge/tests-2000%2B-brightgreen)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 [English](README.en.md) · **简体中文**
@@ -247,7 +247,7 @@ vlog-video-analysis/
 │   ├── ai/                    # 🧠 AI 适配层（Gemini / OpenAI 兼容）
 │   ├── tasks/                 # 📂 各步骤具体实现
 │   ├── ui/                    # 🌐 Web UI（零依赖纯 stdlib）
-│   └── tests/                 # 🧪 1800+ 单元测试
+│   └── tests/                 # 🧪 2000+ 单元测试
 └── output/
     ├── compressed/            # 🗜️ 压缩后的视频
     ├── texts/                 # 📝 AI 分析结果 JSON
@@ -269,6 +269,7 @@ python -m pytest clio/tests/ -v
 # 前端单测需要 Node.js 22.12+（Web UI 运行本身仍然无需 Node）
 npm test
 
+# 2037 pytest（12 skipped）+ 532 Vitest（本机 Python 3.10.6 验证）
 # GitHub Actions CI（Ubuntu + Windows + macOS · Python 3.11 / 3.12；Node 22.12+）
 # 代码风格: ruff (format + lint)
 ```
@@ -289,6 +290,9 @@ npm test
 | 📊 processing_state | 8 | 标记 / 重置 / 持久化 |
 | 🧪 vmeta | 13 | 侧边栏元数据 / 索引 / 过期检测 |
 | 其他 | ~96 | pipeline / plan / log / ratelimit / 主入口等 |
+
+> 全量套件基线（2026-10-21，本机 Python 3.10.6）：2037 pytest passed / 12 skipped，
+> 532 Vitest passed。项目声明 Python 3.11+，最终以 CI 的 Python 3.11 / 3.12 矩阵为准。
 
 ---
 

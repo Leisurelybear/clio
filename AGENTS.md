@@ -14,7 +14,7 @@ An AI preprocessing pipeline: raw travel vlog footage -> ffmpeg compression -> G
 - google-genai (Gemini 2.5 Flash video File API)
 - httpx (DeepSeek / OpenAI compatible calls)
 - PyYAML (config parsing; split into `config.yaml` global + `project.yaml` per-project)
-- pytest (unit tests, auto-run in CI; 1800+ test cases)
+- pytest (unit tests, auto-run in CI; 2000+ test cases)
 
 Dependencies in `requirements.txt`; `setup.ps1`/`setup.sh` creates venv + installs ffmpeg + copies `.env` in one click.
 
@@ -68,7 +68,7 @@ vlog-video-analysis/
 ├── config.example.yaml / .env.example
 ├── requirements.txt / requirements-locked.txt
 ├── .github/workflows/test.yml
-└── clio/tests/                pytest unit tests (1800+ cases)
+└── clio/tests/                pytest unit tests (2000+ cases)
 ```
 
 > See `docs/superpowers/agents/directory-tree.md` for full tree with file-level annotations and test coverage details.
@@ -178,10 +178,10 @@ For new features: discuss plan first -> user confirms -> implement -> one commit
 ```bash
 python -m pytest clio/tests/ -v
 python -m pytest clio/tests/test_utils.py -v
-npm test                # frontend Vitest (requires Node 18+)
+npm test                # frontend Vitest (requires Node 22.12+)
 ```
 
-GitHub Actions runs pytest on Python 3.11/3.12 (Ubuntu, Windows, and macOS); Vitest runs on Node 22 in CI.
+GitHub Actions runs pytest on Python 3.11/3.12 (Ubuntu, Windows, and macOS); Vitest runs on Node 22.12+ in CI.
 
 ### Code Formatting
 

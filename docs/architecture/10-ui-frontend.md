@@ -11,7 +11,7 @@
 - Keep the browser/desktop two integrations aligned: the desktop shell passes a token and
   folder-picker bridge; the plain browser shows an auth modal and server-side picker.
 - Everything stateful lives in vanilla JS — no framework, no bundler. Pure logic modules are
-  unit-tested with Vitest (532 tests across 52 files in CI on Node 22.12+).
+  unit-tested with Vitest (532 tests across 52 files in the current suite on Node 22.12+).
 
 ## 2. Module Map (key files in `static/src/`)
 

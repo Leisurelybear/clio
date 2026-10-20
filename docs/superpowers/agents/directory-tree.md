@@ -32,6 +32,14 @@ vlog-video-analysis/
 │   │   ├── validators.py       # ownership and validation helpers
 │   │   ├── parsers.py          # provider/task parsing
 │   │   └── descriptions.py     # UI field descriptions
+│   ├── asr/
+│   │   ├── base.py             # TranscriptSegment and provider protocol
+│   │   ├── factory.py          # Decorator-based provider registry
+│   │   ├── readiness.py        # Engine-aware readiness blockers
+│   │   ├── retry.py            # Bounded cloud HTTP retry helper
+│   │   ├── local.py            # faster-whisper adapter
+│   │   ├── aliyun.py           # DashScope async ASR provider
+│   │   └── upload.py           # OSS multipart upload
 │   ├── ai/
 │   │   ├── base.py             # TaskName enum and provider protocol
 │   │   ├── factory.py          # Provider cache and lookup
@@ -108,7 +116,7 @@ vlog-video-analysis/
 │   │           ├── runtime-warnings.js  # Register frontend warnings in the notification inbox
 │   │           ├── toast.js
 │   │           └── utils.js
-│   └── tests/                 # 1300+ pytest cases
+│   └── tests/                 # 2000+ pytest cases
 ├── docs/
 │   ├── cli-reference.md
 │   ├── archive/               # Archived completed roadmap/history sections

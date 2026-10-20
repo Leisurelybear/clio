@@ -7,7 +7,7 @@
 [![CI](https://github.com/Leisurelybear/Clio/actions/workflows/test.yml/badge.svg)](https://github.com/Leisurelybear/Clio/actions/workflows/test.yml)
 [![codecov](https://codecov.io/gh/Leisurelybear/Clio/branch/main/graph/badge.svg?token=PEG3XQM76C)](https://codecov.io/gh/Leisurelybear/Clio)
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
-![tests](https://img.shields.io/badge/tests-1800%2B-brightgreen)
+![tests](https://img.shields.io/badge/tests-2000%2B-brightgreen)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **English** · [简体中文](README.md)
@@ -22,7 +22,7 @@
 | 🤖 | **AI Video Understanding** | ✅ Gemini | Watches footage → title / location / mood / summary / timeline |
 | ✍️ | **AI Voiceover** | ✅ DeepSeek | Writes narration from template + AI analysis |
 | 📋 | **AI Edit Planning** | ✅ DeepSeek | AI arranges segment order, target duration, theme |
-| 🧠 | **AI ASR Transcription** | ✅ Whisper | faster-whisper offline ASR with CUDA |
+| 🧠 | **AI ASR Transcription** | ✅ Whisper / Cloud ASR | faster-whisper offline ASR or Aliyun Paraformer cloud ASR, switchable in project settings |
 | 🔧 | **AI Refine** | ✅ DeepSeek | Review + fix output with trip context, `--fix` support |
 | 🏷️ | **Label Burn-in** | | Burn index watermark onto compressed video |
 | ✂️ | **Precision Cutting** | | Plan-based cutting, fast or re-encode |
@@ -58,7 +58,7 @@
 - 📝 **Three Editing Tabs** — Analysis / Voiceover / Plan, Ctrl+S to save
 - ⚙ **Visual Config Editor** — Full YAML form, global & per-project modes
 - ▶ **Pipeline Runner** — Step-by-step or full run, live progress + ETA
-- 🔄 **Whisper Model Download** — One-click in UI, auto-rerun transcription
+- 🔄 **Local Whisper Model Download** — One-click in UI, auto-rerun transcription; cloud engines need no model download
 - 🗂️ **Task Center & Notifications** — Browse task history and live status across projects with cancel/retry; task events and UI warnings land in a filterable notification inbox
 
 Launch: `python main.py serve` → open `http://127.0.0.1:8765`
@@ -179,7 +179,7 @@ Each task can use a different provider/model via `config.yaml` → `ai.tasks`. S
 > ── 🤖 AI takes over ──────────────────
 >   ✅ Gemini analyzed all footage → titles / timelines
 >   ✅ DeepSeek wrote voiceover scripts → templated style
->   ✅ Whisper ASR done → medium model, offline
+>   ✅ Whisper / Cloud ASR done → local or cloud engine
 >   ✅ DeepSeek planned edit order → 11 segs / ~3min
 > ── 🔧 Non-AI steps ──────────────────
 >   ✅ Clips cut by plan
@@ -190,6 +190,24 @@ Each task can use a different provider/model via `config.yaml` → `ai.tasks`. S
 
 📱 Open CapCut, import output/cuts/day1/, drag, add effects, done!
 ```
+
+---
+
+### Cloud ASR Configuration
+
+The default engine is local faster-whisper. To use the Aliyun cloud engine:
+
+1. Enable the service in [Alibaba Cloud Model Studio](https://bailian.console.aliyun.com/) and create an API key
+2. Add `DASHSCOPE_API_KEY=sk-...` to `.env`
+3. Set `whisper.engine: aliyun` in project settings (Web UI or `project.yaml`)
+
+Readiness checks follow the active engine: `local` checks faster-whisper/cuBLAS, while cloud
+engines check only their own credentials. The transcript panel, run panel, video menu, and empty
+states show the corresponding local-model or cloud-credential guidance.
+
+Changing engines makes existing transcripts stale, so `skip_existing` re-transcribes them and
+records the reason in the task log. A new cloud provider only needs a registered
+`TranscriptionProvider` under `clio/asr/`; the UI engine list updates automatically.
 
 ---
 
@@ -211,10 +229,11 @@ vlog-video-analysis/
 │   ├── prompts.py             # 💬 All prompt templates
 │   ├── pipeline.py            # 🔄 Pipeline orchestration
 │   ├── config/                # ⚙️ Config parsing / validation
+│   ├── asr/                   # 🎙️ ASR provider registry (local / aliyun / extensible)
 │   ├── ai/                    # 🧠 AI adapters (Gemini / OpenAI compat)
 │   ├── tasks/                 # 📂 Step implementations
 │   ├── ui/                    # 🌐 Web UI (stdlib only, zero deps)
-│   └── tests/                 # 🧪 1800+ unit tests
+│   └── tests/                 # 🧪 2000+ unit tests
 └── output/
     ├── compressed/            # 🗜️ Compressed videos
     ├── texts/                 # 📝 AI analysis JSON
@@ -232,7 +251,8 @@ vlog-video-analysis/
 ```bash
 python -m pytest clio/tests/ -v
 
-# 1846 pytest + 470 Vitest · GitHub Actions CI (Ubuntu + Windows + macOS · Python 3.11 / 3.12; Node 22)
+# 2037 pytest (12 skipped) + 532 Vitest · verified locally on Python 3.10.6
+# GitHub Actions CI (Ubuntu + Windows + macOS · Python 3.11 / 3.12; Node 22.12+)
 # Code style: ruff (format + lint)
 ```
 
@@ -252,6 +272,10 @@ python -m pytest clio/tests/ -v
 | 📊 processing_state | 8 | Mark / reset / persistence |
 | 🧪 vmeta | 13 | Sidecar meta / index / staleness |
 | Others | ~96 | Pipeline / plan / log / ratelimit / main entry etc. |
+
+> Full-suite baseline (2026-10-21, local Python 3.10.6): 2037 pytest passed / 12 skipped and
+> 532 Vitest passed. The project declares Python 3.11+, so the Python 3.11 / 3.12 CI matrix
+> remains authoritative.
 
 ---
 
