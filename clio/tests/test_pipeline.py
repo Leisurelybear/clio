@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from clio.pipeline import run_pipeline_steps
+from clio.pipeline import run_full_pipeline, run_pipeline_steps
 
 
 def _mock_config(tmp_path: Path):
@@ -196,3 +196,12 @@ class TestRunPipelineStepsCancel:
             "warning_count": 0,
             "error_count": 0,
         }
+
+    def test_full_pipeline_propagates_transcribe_failure(self, tmp_path: Path):
+        config = _mock_config(tmp_path)
+        with (
+            patch("clio.pipeline._STEP_FUNCS", {"transcribe": lambda *args, **kwargs: 1}),
+            patch("builtins.print"),
+        ):
+            with pytest.raises(RuntimeError, match="语音转录失败"):
+                run_full_pipeline(config)

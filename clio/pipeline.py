@@ -35,21 +35,8 @@ from clio.tasks.transcribe import run_transcribe_all  # noqa: F401
 
 
 def run_full_pipeline(config: AppConfig, day_label: str = "day1") -> None:
-    config.paths.output_dir.mkdir(parents=True, exist_ok=True)
-    auto_reindex_if_needed(config)
-    with timed("=== 1/7 压缩原视频 ==="):
-        run_compress_all(config)
-    with timed("=== 2/7 AI 分析素材 ==="):
-        run_analyze_all(config)
-    with timed("=== 3/7 生成口播文案 ==="):
-        run_generate_scripts(config)
-    with timed("=== 4/7 语音转录 ==="):
-        run_transcribe_all(config)
-    with timed("=== 5/7 vlog 剪辑规划 ==="):
-        run_plan_vlog(config, day_label)
-    with timed("=== 6/7 烧录序号标注 ==="):
-        run_label_videos(config)
-    print("\n完成！输出目录:", config.paths.output_dir)
+    """Run every pipeline step with the same failure semantics as the Web UI."""
+    run_pipeline_steps(config, day_label=day_label, steps=list(_STEP_FUNCS))
 
 
 _STEP_LABELS = {

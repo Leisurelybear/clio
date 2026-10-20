@@ -60,7 +60,8 @@ Exceptions are converted to `错误: …` on stderr with exit code 1; `before_st
   (`ProgressTracker.update`), propagates `cancel_event`/`files`/`overwrite`/`context_override`/
   `task_prompts` kwargs, treats a non-zero int result as failure, and returns
   `{steps, processed, warning_count, error_count}`.
-- `run_full_pipeline` (`:37`): the immutable 7-step scripted flow used by `main.py run`.
+- `run_full_pipeline` (`:37`): delegates to `run_pipeline_steps` with every registered step, so the
+  CLI `run` command shares the same non-zero-result failure semantics as the Web UI.
 
 Step functions follow a common signature: `run_X(config, tracker=None, cancel_event=None,
 files=None, overwrite=False, **kwargs) -> int | list | None`. Non-AI steps silently accept and

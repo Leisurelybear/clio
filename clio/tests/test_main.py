@@ -172,3 +172,11 @@ def test_plan_all_days(mock_run_plan_all_days, cli_runner, config_path):
     assert result == 0
     cfg_arg = mock_run_plan_all_days.call_args[0][0]
     assert cfg_arg.plan.use_transcripts is False
+
+
+@patch("clio.pipeline.run_full_pipeline", side_effect=RuntimeError("语音转录失败（退出码 1）"))
+def test_full_run_failure_returns_nonzero(mock_run_full, cli_runner, config_path):
+    result = cli_runner(["--config", str(config_path), "run"])
+
+    assert result == 1
+    mock_run_full.assert_called_once()
