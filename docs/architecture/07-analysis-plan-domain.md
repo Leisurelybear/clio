@@ -59,6 +59,9 @@ run_analyze_all            ({stem}.json: title/summary/highlights/timeline/locat
   unreadable, or non-object files are skipped with one aggregated warning; if candidate files
   exist but none are usable, both single-day and all-days planning fail instead of reporting an
   empty successful run.
+- **Output quality gate**: `plan_daily_vlog` raises when the model returns no sequence or when
+  every segment is rejected as an invalid index / out-of-timeline range. `run_plan_vlog` therefore
+  writes neither plan JSON nor markdown and the managed task fails instead of reporting success.
 - Plan day discovery reuses **text stems** (`_discover_day_labels`), and default segment clips
   come from `source_file`/`videos.json` ordering — independent of cut/export phase.
 - Refinement (`--fix`) targets a **single file** (required `-i`), emits a `_changelog`, and the
@@ -102,6 +105,8 @@ run_analyze_all            ({stem}.json: title/summary/highlights/timeline/locat
   (`media_identity` + `source_file`/`compressed_file`), then cross-maps offline originals via
   `load_selected_videos`.
 - `readiness_block_payload` centralizes the HTTP 400 response for export/cut endpoints.
+- `sequence_empty` remains a defensive gate for legacy or hand-edited plans; AI generation fails
+  earlier, before an empty plan artifact is written.
 
 ## 7. Cross-Module Dependencies
 

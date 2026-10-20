@@ -85,6 +85,18 @@ def test_plan_lineage_changes_with_analysis_timeline(cfg: AppConfig):
     assert _plan_lineage_fingerprint(cfg, first) != _plan_lineage_fingerprint(cfg, second)
 
 
+def test_plan_failure_does_not_write_artifacts(cfg: AppConfig):
+    from clio.tasks.plan import run_plan_vlog
+
+    _write_text(cfg, "001_A.json", "A", 1)
+    with patch("clio.tasks.plan.plan_daily_vlog", side_effect=RuntimeError("没有可用片段")):
+        with pytest.raises(RuntimeError, match="没有可用片段"):
+            run_plan_vlog(cfg, day_label="day1", overwrite=True)
+
+    assert not (cfg.plans_dir / "day1_plan.json").exists()
+    assert not (cfg.plans_dir / "day1_plan.md").exists()
+
+
 class TestRunPlanVlogFilesFilter:
     def test_files_selection_bypasses_skip_existing(self, cfg: AppConfig):
         """When files= is set, do not return the full prior plan via skip-existing (I1)."""

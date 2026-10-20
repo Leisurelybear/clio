@@ -52,7 +52,13 @@ def test_plan_prompt_includes_transcripts():
         patch("clio.analyze.get_task_provider", return_value=(provider_mock, "deepseek-chat")),
         patch("clio.analyze._wrap_with_context", return_value="prompt") as mock_wrap,
         patch("clio.analyze._call_ai", return_value="{}"),
-        patch("clio.analyze.extract_json", return_value={"sequence": [], "day_title": "test"}),
+        patch(
+            "clio.analyze.extract_json",
+            return_value={
+                "sequence": [{"index": "001", "use_timeline": "00:00-00:10"}],
+                "day_title": "test",
+            },
+        ),
     ):
         result = plan_daily_vlog(clips, cfg, "day1", transcripts_map=transcripts_map)
         assert result["day_title"] == "test"
@@ -89,7 +95,13 @@ def test_plan_no_transcript_fallback():
         patch("clio.analyze.get_task_provider", return_value=(provider_mock, "deepseek-chat")),
         patch("clio.analyze._wrap_with_context", return_value="prompt"),
         patch("clio.analyze._call_ai", return_value="{}"),
-        patch("clio.analyze.extract_json", return_value={"sequence": [], "day_title": "test"}),
+        patch(
+            "clio.analyze.extract_json",
+            return_value={
+                "sequence": [{"index": "001", "use_timeline": "00:00-00:10"}],
+                "day_title": "test",
+            },
+        ),
     ):
         result = plan_daily_vlog(clips, cfg, "day1", transcripts_map=None)
         assert result["day_title"] == "test"

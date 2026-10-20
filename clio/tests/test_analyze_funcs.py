@@ -7,6 +7,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
+
 from clio.ai.base import AIResponse
 from clio.analyze import (
     _merge_refinement_result,
@@ -392,7 +394,7 @@ class TestPlanDailyVlog:
 
         def fake_call(label, pid, model, prompt, fn, **kwargs):
             captured.append(prompt)
-            return '{"sequence": []}'
+            return '{"sequence": [{"index": "007", "use_timeline": "00:00-00:01"}]}'
 
         monkeypatch.setattr("clio.analyze._call_ai", fake_call)
 
@@ -400,26 +402,51 @@ class TestPlanDailyVlog:
 
         assert "example=007" in captured[0]
 
-    def test_filter_empty_sequence(self, monkeypatch):
-        """Empty sequence should pass through."""
+    def test_empty_sequence_fails(self, monkeypatch):
+        """An empty AI plan must not be persisted as a successful result."""
         monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (MagicMock(), "model"))
         monkeypatch.setattr("clio.analyze._wrap_with_context", lambda *a, **kw: "prompt")
         monkeypatch.setattr("clio.analyze._call_ai", lambda *a, **kw: '{"sequence": []}')
         cfg = _fake_config()
         cfg.ai.providers = {}
-        result = plan_daily_vlog([{"index": "001", "title": "A"}], cfg)
-        assert "sequence" in result
-        assert result["sequence"] == []
+        with pytest.raises(RuntimeError, match="没有可用片段.*原始 0 段"):
+            plan_daily_vlog([{"index": "001", "title": "A"}], cfg)
 
-    def test_no_sequence_key(self, monkeypatch):
-        """If AI returns no sequence key, no crash."""
+    def test_no_sequence_key_fails(self, monkeypatch):
+        """A response without sequence is unusable even if other keys exist."""
         monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (MagicMock(), "model"))
         monkeypatch.setattr("clio.analyze._wrap_with_context", lambda *a, **kw: "prompt")
         monkeypatch.setattr("clio.analyze._call_ai", lambda *a, **kw: '{"title": "plan"}')
         cfg = _fake_config()
         cfg.ai.providers = {}
-        result = plan_daily_vlog([{"index": "001", "title": "A"}], cfg)
-        assert result["title"] == "plan"
+        with pytest.raises(RuntimeError, match="没有可用片段.*原始 0 段"):
+            plan_daily_vlog([{"index": "001", "title": "A"}], cfg)
+
+    def test_all_invalid_indices_fail(self, monkeypatch):
+        mock_result = {"sequence": [{"index": "002"}, {"index": "999"}]}
+        monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (MagicMock(), "model"))
+        monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, cfg, **kw: prompt)
+        monkeypatch.setattr("clio.analyze._call_ai", lambda *a, **kw: json.dumps(mock_result))
+        cfg = _fake_config()
+
+        with pytest.raises(RuntimeError, match="没有可用片段.*原始 2 段"):
+            plan_daily_vlog([{"index": "001", "title": "A"}], cfg)
+
+    def test_all_ranges_outside_timeline_fail(self, monkeypatch):
+        clips = [{"index": "001", "title": "A", "timeline": [{"start": "00:00", "end": "00:10"}]}]
+        mock_result = {
+            "sequence": [
+                {"index": "001", "use_timeline": "00:20-00:25"},
+                {"index": "001", "use_timeline": "00:30-00:35"},
+            ]
+        }
+        monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (MagicMock(), "model"))
+        monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, cfg, **kw: prompt)
+        monkeypatch.setattr("clio.analyze._call_ai", lambda *a, **kw: json.dumps(mock_result))
+        cfg = _fake_config()
+
+        with pytest.raises(RuntimeError, match="没有可用片段.*原始 2 段"):
+            plan_daily_vlog(clips, cfg)
 
 
 def test_voiceover_prompt_includes_timeline_duration(monkeypatch):

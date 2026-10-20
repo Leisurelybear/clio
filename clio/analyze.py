@@ -636,6 +636,7 @@ def plan_daily_vlog(
         task_name=TaskName.VLOG_PLAN,
     )
     result = _validate_plan(extract_json(text), day_label)
+    raw_sequence_count = len(result.get("sequence", []))
 
     # 后处理：过滤掉 segment 中引用不存在的 index 的项
     # 用整数比较（去零填充），兼容 "001"、"1"、1 等不同格式
@@ -668,6 +669,10 @@ def plan_daily_vlog(
         max_clips=int(getattr(config.plan, "max_clips_per_day", 0) or 0),
         target_duration_sec=float(getattr(config.plan, "target_duration_sec", 0) or 0),
     )
+    if not result.get("sequence"):
+        raise RuntimeError(
+            f"AI 规划结果没有可用片段（原始 {raw_sequence_count} 段），请重试或检查模型输出；本次未写入规划文件"
+        )
 
     return result
 
