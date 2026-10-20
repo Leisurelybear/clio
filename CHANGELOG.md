@@ -1,5 +1,31 @@
 # Changelog
 
+## 2026-10-21
+
+Completed the full-project review iteration with 13 focused commits. The batch hardens ASR
+engine consistency, cloud retry/cancellation, failure propagation, plan integrity, and
+same-project artifact serialization while keeping the CLI and artifact layout compatible.
+
+- fix(asr): make readiness, doctor, batch transcription, and Whisper checks engine-aware;
+  record `engine` in every transcript, re-transcribe on engine changes, and treat legacy
+  transcripts as `local`
+- fix(asr): retry transient DashScope/OSS failures and propagate cancellation through upload,
+  submit, polling, backoff, and result download
+- fix(pipeline): propagate partial step failures and empty transcription results through full
+  runs instead of reporting false success
+- fix(plan): reject unusable analysis inputs and empty AI-generated plans
+- fix(task-center): serialize pipeline, rerun, cut export, and export writers per project while
+  preserving cross-project concurrency
+- fix(ui): show local-model or cloud-credential guidance for the selected transcription engine
+- chore(node): require Node `>=22.12.0` consistently in package metadata, doctor, and docs
+- fix(desktop): prevent pytest from launching real pywebview windows; support an explicit
+  GUI-test escape hatch
+- docs: reconcile R-047 Aliyun delivery status and add the review iteration summary
+
+Local verification: `2037 passed, 12 skipped` (Python 3.10.6), `532` Vitest tests across
+`52` files, Ruff check/format clean, and mypy clean across the 38-file configured scope.
+The Python 3.11/3.12 CI matrix remains the next release gate; this batch has not been pushed.
+
 ## 2026-08-23
 
 Completed R-041 Phase G: run/rerun consumers now use the unified Task Center.

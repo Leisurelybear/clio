@@ -5,13 +5,41 @@ Mark `[ ]` as `[x]` when done, `[~]` for in-progress, `[!]` for blocked.
 
 Design discussions / decision history in `AGENTS.md`, implementation details in git log.
 
-## Active backlog (2026-10-20)
+## Active backlog (2026-10-21)
 
 - R-047-FU Optional Baidu ASR provider (deferred; Aliyun cloud transcription is complete)
 - R-042 Opt-in desktop OS notifications when the app is backgrounded
 - R-043 Frontend module decomposition and remaining legacy mypy debt
+- Follow-up: add endpoint-level HTTP/SSE lifecycle coverage (restart retry, late subscription,
+  reconnect/replay, multi-tab cancel, terminal-event races)
+- Release gate: run the Python 3.11/3.12 CI matrix for the 2026-10-21 batch after an approved push
 
 Detailed sections and historical delivery notes remain below.
+
+## Recently completed (2026-10-21)
+
+### Full-project reliability review iteration
+
+**Status:** Complete locally; not pushed. Full Python and frontend suites, Ruff, and mypy pass.
+
+**Goal:** Close the highest-impact ASR, failure-reporting, plan-integrity, concurrency, and
+test-isolation gaps found during the 2026-10 full-project review without changing the public
+CLI, HTTP, or artifact layout.
+
+- [x] Make ASR readiness, doctor, batch transcription, and Whisper checks engine-aware
+- [x] Record transcript engine and re-transcribe when the configured engine changes
+- [x] Add bounded retry and cancellation propagation to DashScope/OSS calls
+- [x] Propagate pipeline step failures and unusable plan inputs instead of reporting false success
+- [x] Serialize same-project pipeline/rerun/cut/export artifact writers
+- [x] Make transcript UI guidance follow the active engine
+- [x] Require Node 22.12+ consistently and block real pywebview windows under pytest
+- [x] Reconcile R-047 delivery status and document the iteration
+
+**Verification:** `2037 passed, 12 skipped` locally on Python 3.10.6; `532` Vitest tests across
+`52` files; Ruff and mypy clean. CI Python 3.11/3.12 verification remains pending because the
+batch has not been pushed.
+
+**Summary:** `docs/analysis/2026-10-21-review-iteration-summary.md`
 
 ## Recently completed (2026-10-20)
 
@@ -1535,4 +1563,4 @@ Sorted by priority: P0 (immediate) → P1 (near-term) → P2 (mid-term) → P3 (
 
 Older completed sections (commit log, test coverage verification, code review audit) archived to [`docs/archive/2026-07-01-roadmap-archive.md`](docs/archive/2026-07-01-roadmap-archive.md).
 
-### Test count: 1846 pytest (12 skipped) + 470 Vitest (as of 2026-08-16 review follow-up)
+### Test count: 2037 pytest (12 skipped) + 532 Vitest (as of 2026-10-21 review iteration)
