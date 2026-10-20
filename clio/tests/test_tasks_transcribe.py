@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -15,7 +16,7 @@ def _mock_whisper_deps():
     """Patch faster_whisper + check_whisper so import and guard inside run_transcribe_all work."""
     with (
         patch.dict("sys.modules", {"faster_whisper": MagicMock()}),
-        patch("clio.tasks.transcribe.check_whisper", return_value=True),
+        patch("clio.transcribe.check_whisper", return_value=True),
     ):
         yield
 
@@ -153,7 +154,7 @@ class TestRunTranscribeAll:
         tracker.update.assert_called_once()
         assert tracker.update.call_args[1].get("phase") == "transcribe"
 
-    @patch("clio.tasks.transcribe.check_whisper", return_value=False)
+    @patch("clio.transcribe.check_whisper", return_value=False)
     def test_tracker_error_when_whisper_missing(self, mock_check, cfg, tmp_path):
         """当 faster-whisper 未安装时 tracker.error 被调用"""
         from clio.tasks.transcribe import run_transcribe_all
@@ -351,6 +352,34 @@ class TestRunTranscribeAll:
 
 
 class TestRunTranscribeOne:
+    def test_cloud_engine_does_not_require_local_whisper(self, cfg, tmp_path):
+        from clio.tasks.transcribe import run_transcribe_one
+
+        cfg.whisper.engine = "aliyun"
+        cfg.paths.output_dir = tmp_path / "output"
+        cfg.transcripts_dir = cfg.paths.output_dir / "transcripts"
+        video = tmp_path / "test.mp4"
+        video.write_text("fake video")
+
+        with (
+            patch("clio.transcribe.check_whisper", return_value=False),
+            patch.dict(os.environ, {"DASHSCOPE_API_KEY": "test-key"}, clear=False),
+            patch("clio.tasks.transcribe._extract_audio", return_value=tmp_path / "fake.wav"),
+            patch("clio.tasks.transcribe.resolve_binary", return_value="ffmpeg"),
+            patch("clio.tasks.transcribe._get_video_duration", return_value=10.0),
+            patch("clio.tasks.transcribe.transcribe_audio", return_value=[{"start": 0.0, "end": 1.0, "text": "hi"}]),
+            patch("clio.tasks.transcribe.resolve_identity"),
+            patch("clio.tasks.transcribe._identity_to_dict", return_value={}),
+            patch("clio.tasks.transcribe.add_schema_version"),
+            patch("clio.tasks.transcribe.write_json_atomic"),
+            patch("clio.tasks.transcribe.enrich_matching_analysis_files", return_value=[]),
+        ):
+            (tmp_path / "fake.wav").touch()
+            result = run_transcribe_one(cfg, video)
+
+        assert "error" not in result
+        assert result["segments"] == [{"start": 0.0, "end": 1.0, "text": "hi"}]
+
     @patch("clio.tasks.transcribe.resolve_binary", return_value="ffmpeg")
     def test_success(self, mock_resolve, cfg, tmp_path):
         from clio.tasks.transcribe import run_transcribe_one

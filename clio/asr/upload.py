@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -15,8 +15,9 @@ class TempUploadStrategy(Protocol):
     def upload(self, audio_path: Path) -> str: ...
 
 
-def get_api_key() -> str:
-    return os.environ.get("DASHSCOPE_API_KEY", "")
+def get_api_key(environ: Mapping[str, str] | None = None) -> str:
+    env = os.environ if environ is None else environ
+    return env.get("DASHSCOPE_API_KEY", "")
 
 
 def dashscope_upload(

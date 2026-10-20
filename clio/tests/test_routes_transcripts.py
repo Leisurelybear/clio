@@ -485,6 +485,7 @@ class TestHandleGetWhisperCheck:
 
         with (
             patch("clio.ui.routes.whisper_check.check_whisper", return_value=True),
+            patch("clio.transcribe.check_whisper", return_value=True),
             patch("ctranslate2.get_cuda_device_count", return_value=1),
         ):
             handle_get_whisper_check(handler, {})
@@ -497,7 +498,10 @@ class TestHandleGetWhisperCheck:
         handler = MagicMock()
         handler._send_json = MagicMock()
 
-        with patch("clio.ui.routes.whisper_check.check_whisper", return_value=False):
+        with (
+            patch("clio.ui.routes.whisper_check.check_whisper", return_value=False),
+            patch("clio.transcribe.check_whisper", return_value=False),
+        ):
             handle_get_whisper_check(handler, {})
             args = handler._send_json.call_args
             assert args[0][0]["installed"] is False

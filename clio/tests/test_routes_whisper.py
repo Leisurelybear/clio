@@ -69,6 +69,7 @@ class TestFrozenInstallGuard:
 
         with (
             patch("clio.ui.routes.whisper_check.check_whisper", return_value=False),
+            patch("clio.transcribe.check_whisper", return_value=False),
             patch("clio.ui.routes.whisper_check.sys.frozen", True, create=True),
         ):
             handle_get_whisper_check(handler, {})
@@ -110,6 +111,7 @@ def _make_handler(proj_dir: Path, proj_output: Path) -> MagicMock:
 
     cfg = MagicMock()
     cfg.whisper.model_size = "small"
+    cfg.whisper.engine = "local"
     cfg.whisper.hf_endpoint = ""
     cfg.whisper.cache_dir = ""
     cfg.proxy.enabled = False
@@ -133,11 +135,38 @@ class TestProjectQueryConsistency:
         handler = _make_handler(proj_dir, proj_output)
         qs = {"project": "project_a"}
 
-        with patch("clio.ui.routes.whisper_check.check_whisper", return_value=False):
+        with (
+            patch("clio.ui.routes.whisper_check.check_whisper", return_value=False),
+            patch("clio.transcribe.check_whisper", return_value=False),
+        ):
             handle_get_whisper_check(handler, qs)
 
         handler._resolve_project_dir.assert_called_with(qs)
         handler._get_config.assert_called_once_with(proj_dir)
+
+    def test_get_whisper_check_reports_cloud_readiness(self, tmp_path: Path) -> None:
+        proj_dir = tmp_path / "project_cloud"
+        proj_dir.mkdir()
+        proj_output = tmp_path / "output_cloud"
+        proj_output.mkdir()
+        handler = _make_handler(proj_dir, proj_output)
+        handler._get_config.return_value.whisper.engine = "aliyun"
+
+        with patch.dict("os.environ", {"DASHSCOPE_API_KEY": ""}, clear=False):
+            handle_get_whisper_check(handler, {})
+
+        payload = handler._send_json.call_args[0][0]
+        assert payload["engine"] == "aliyun"
+        assert payload["requires_local_model"] is False
+        assert payload["ready"] is False
+        assert "DASHSCOPE_API_KEY" in payload["readiness_error"]
+
+        with patch.dict("os.environ", {"DASHSCOPE_API_KEY": "test-key"}, clear=False):
+            handle_get_whisper_check(handler, {})
+
+        payload = handler._send_json.call_args[0][0]
+        assert payload["ready"] is True
+        assert payload["readiness_error"] is None
 
     def test_get_whisper_models_uses_qs(self, tmp_path: Path) -> None:
         """handle_get_whisper_models should pass qs to _resolve_project_input."""

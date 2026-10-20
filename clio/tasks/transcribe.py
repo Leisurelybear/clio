@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from clio.asr.readiness import check_asr_ready
 from clio.config import AppConfig
 from clio.identity import _identity_to_dict, resolve_identity
 from clio.log import format_duration
@@ -20,7 +21,7 @@ from clio.progress import ProgressTracker
 from clio.schema import add_schema_version
 from clio.tasks._helpers import _matches_selected_stem, _selected_stems
 from clio.tasks.transcript_align import enrich_matching_analysis_files
-from clio.transcribe import check_whisper, transcribe_audio
+from clio.transcribe import transcribe_audio
 from clio.utils import find_videos, no_console_kwargs, popen_subprocess, resolve_binary, write_json_atomic
 
 # isort: split
@@ -187,8 +188,9 @@ def run_transcribe_all(
             tracker.log("Whisper 转录未启用，跳过")
             tracker.update(phase="transcribe", current=0, total=0, message="Whisper 未启用，跳过")
         return 0
-    if not check_whisper():
-        msg = "faster-whisper 未安装，跳过转录。执行: python main.py whisper install"
+    readiness = check_asr_ready(config)
+    if not readiness.ready:
+        msg = f"{readiness.display_name} 不可用：{readiness.error}"
         print(f"警告：{msg}")
         if tracker:
             tracker.error(msg)
@@ -370,15 +372,15 @@ def run_transcribe_one(
     """单文件转录（供 UI rerun 使用）。"""
     import time
 
-    if not check_whisper():
-        return {"error": "faster-whisper 未安装，无法转录。执行: python main.py whisper install"}
-
     t0 = time.time()
     print(f"  [transcribe_one] 开始处理: {video_path.name}")
     if not video_path.is_file():
         return {"error": f"文件不存在: {video_path}"}
     if cancel_event and cancel_event.is_set():
         return {"error": "转录被用户取消"}
+    readiness = check_asr_ready(config)
+    if not readiness.ready:
+        return {"error": f"{readiness.display_name} 不可用：{readiness.error}"}
     print("  [transcribe_one] 提取音频...")
     if progress_callback:
         progress_callback(0)

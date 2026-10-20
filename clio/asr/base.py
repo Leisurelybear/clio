@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, runtime_checkable
@@ -40,6 +40,10 @@ class ProviderCapabilities:
 @runtime_checkable
 class TranscriptionProvider(Protocol):
     capabilities: ProviderCapabilities
+
+    def readiness_error(self, environ: Mapping[str, str] | None = None) -> str | None:
+        """Return a user-facing blocker before transcription starts, or None."""
+        ...
 
     def transcribe(
         self,

@@ -10,6 +10,7 @@ from clio.config.models import (
     ProjectAIConfig,
     ProjectConfig,
     ProjectPathsConfig,
+    ProjectWhisperConfig,
     ProviderConfig,
     TaskConfig,
 )
@@ -22,7 +23,12 @@ from clio.doctor import (
 )
 
 
-def _config(tmp_path: Path, *, provider: ProviderConfig | None = None) -> AppConfig:
+def _config(
+    tmp_path: Path,
+    *,
+    provider: ProviderConfig | None = None,
+    whisper: ProjectWhisperConfig | None = None,
+) -> AppConfig:
     provider = provider or ProviderConfig(
         name="gemini",
         type="gemini",
@@ -40,6 +46,7 @@ def _config(tmp_path: Path, *, provider: ProviderConfig | None = None) -> AppCon
         project_cfg=ProjectConfig(
             paths=ProjectPathsConfig(output_dir=output_dir),
             ai=ProjectAIConfig(tasks={"video_analyze": TaskConfig(provider=provider.name, model="m")}),
+            whisper=whisper or ProjectWhisperConfig(),
         ),
     )
 
@@ -124,3 +131,30 @@ def test_collect_checks_warns_for_old_node(tmp_path: Path) -> None:
     node_item = next(item for item in items if item.name == "Node.js")
     assert node_item.status == "WARN"
     assert "18+" in node_item.detail
+
+
+def test_collect_checks_reports_missing_cloud_asr_key(tmp_path: Path) -> None:
+    config = _config(tmp_path, whisper=ProjectWhisperConfig(engine="aliyun"))
+    items = collect_doctor_checks(
+        config,
+        discover_binary=lambda name: f"/usr/bin/{name}",
+        environ={},
+        node_version_getter=lambda: "v22.0.0",
+    )
+
+    asr_item = next(item for item in items if item.name.startswith("ASR:"))
+    assert asr_item.status == "FAIL"
+    assert "DASHSCOPE_API_KEY" in asr_item.detail
+
+
+def test_collect_checks_accepts_cloud_asr_key_without_local_whisper(tmp_path: Path) -> None:
+    config = _config(tmp_path, whisper=ProjectWhisperConfig(engine="aliyun"))
+    items = collect_doctor_checks(
+        config,
+        discover_binary=lambda name: f"/usr/bin/{name}",
+        environ={"DASHSCOPE_API_KEY": "cloud-key"},
+        node_version_getter=lambda: "v22.0.0",
+    )
+
+    asr_item = next(item for item in items if item.name.startswith("ASR:"))
+    assert asr_item.status == "OK"

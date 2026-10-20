@@ -155,10 +155,6 @@ def _run_rerun_task(context) -> dict[str, Any]:
         if task_name in ("transcribe", "all"):
             context.reporter.raise_if_cancelled()
             _log("Step: transcribing audio...")
-            from clio.transcribe import check_whisper
-
-            if not check_whisper():
-                raise RuntimeError("faster-whisper 未安装。执行: python main.py whisper install")
             result = run_transcribe_one(
                 cfg,
                 original_video,

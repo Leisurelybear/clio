@@ -30,6 +30,11 @@ class AliyunASRProvider:
     def __init__(self, config) -> None:
         self._config = config
 
+    def readiness_error(self, environ=None) -> str | None:
+        if get_api_key(environ):
+            return None
+        return "DASHSCOPE_API_KEY 未设置，请在 .env 中配置阿里云百炼 API Key。"
+
     def transcribe(
         self,
         audio_path: Path,

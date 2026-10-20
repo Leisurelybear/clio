@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePath, PureWindowsPath
 from typing import Literal
 
+from clio.asr.readiness import check_asr_ready
 from clio.config import AppConfig, load_config
 from clio.utils import discover_ffmpeg_bin, no_console_kwargs
 
@@ -137,6 +138,18 @@ def collect_doctor_checks(
 
     items.append(_binary_check("ffmpeg", config.paths.ffmpeg, discover_binary))
     items.append(_binary_check("ffprobe", config.paths.ffprobe, discover_binary))
+
+    if config.whisper.enabled:
+        readiness = check_asr_ready(config, environ=environ)
+        items.append(
+            DoctorItem(
+                f"ASR: {readiness.display_name}",
+                "OK" if readiness.ready else "FAIL",
+                readiness.error or readiness.engine,
+            )
+        )
+    else:
+        items.append(DoctorItem("ASR", "OK", "whisper.enabled=false，已禁用"))
 
     from clio.tasks._video_loader import source_videos
 

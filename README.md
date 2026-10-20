@@ -216,6 +216,8 @@ python main.py compare-models \
 2. 在 `.env` 中添加 `DASHSCOPE_API_KEY=sk-...`
 3. 在项目设置（Web UI 或 `project.yaml`）中选择 `whisper.engine: aliyun`
 
+运行前的依赖检查会跟随当前 engine：`local` 才检查 faster-whisper/cuBLAS，云端引擎只检查对应 API Key。
+
 切换引擎后，已有转录文件会因 `engine` 不匹配自动重新转录。
 
 新增其他云端 provider 只需要在 `clio/asr/` 下新建文件并使用 `@register_provider` 装饰器注册，UI 下拉框自动出现新选项。

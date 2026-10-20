@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -40,7 +41,7 @@ def _make_config(tmp_path: Path, engine: str, transcript_engine: str | None = No
 
 @pytest.fixture(autouse=True)
 def _skip_whisper_check():
-    with patch("clio.tasks.transcribe.check_whisper", return_value=True):
+    with patch("clio.transcribe.check_whisper", return_value=True):
         yield
 
 
@@ -49,6 +50,7 @@ def test_engine_mismatch_skips_with_hint(tmp_path: Path, capsys):
     video = tmp_path / "compressed" / "001_test.mp4"
 
     with (
+        patch.dict(os.environ, {"DASHSCOPE_API_KEY": "test-key"}, clear=False),
         patch("clio.tasks.transcribe.find_videos", return_value=[video]),
         patch("clio.tasks.transcribe._build_original_stem_map", return_value={"test": video.parent}),
         patch("clio.tasks.transcribe.resolve_identity"),
@@ -98,3 +100,29 @@ def test_engine_match_skips_retranscription(tmp_path: Path):
         run_transcribe_all(cfg)
 
     mock_ta.assert_not_called()
+
+
+def test_cloud_engine_does_not_require_local_whisper(tmp_path: Path):
+    cfg = _make_config(tmp_path, engine="aliyun")
+    video = tmp_path / "compressed" / "001_test.mp4"
+    (tmp_path / "transcripts" / "001_test_transcript.json").unlink()
+
+    with (
+        patch("clio.transcribe.check_whisper", return_value=False),
+        patch.dict(os.environ, {"DASHSCOPE_API_KEY": "test-key"}, clear=False),
+        patch("clio.tasks.transcribe.find_videos", return_value=[video]),
+        patch("clio.tasks.transcribe._build_original_stem_map", return_value={"test": video.parent}),
+        patch("clio.tasks.transcribe.resolve_identity"),
+        patch("clio.tasks.transcribe._identity_to_dict", return_value={}),
+        patch("clio.tasks.transcribe.add_schema_version"),
+        patch("clio.tasks.transcribe.enrich_matching_analysis_files", return_value=[]),
+        patch("clio.tasks.transcribe.transcribe_audio", return_value=[]) as mock_transcribe,
+        patch("clio.tasks.transcribe._extract_audio", return_value=tmp_path / "fake.wav"),
+        patch("clio.tasks.transcribe.resolve_binary", return_value="ffmpeg"),
+        patch("clio.tasks.transcribe._get_video_duration", return_value=10.0),
+        patch("clio.tasks.transcribe.write_json_atomic"),
+    ):
+        result = run_transcribe_all(cfg)
+
+    assert result == 0
+    mock_transcribe.assert_called_once()

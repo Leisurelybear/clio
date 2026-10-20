@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -50,12 +51,11 @@ whisper:
 
 
 @pytest.fixture(autouse=True)
-def _mock_whisper_deps():
+def _mock_whisper_deps(monkeypatch):
     """Mock faster_whisper import so CLI imports work."""
     fake_fw = MagicMock()
     fake_fw.__version__ = "1.0.0"
-    with patch.dict("sys.modules", {"faster_whisper": fake_fw}):
-        yield
+    monkeypatch.setitem(sys.modules, "faster_whisper", fake_fw)
 
 
 @pytest.fixture
@@ -76,7 +76,7 @@ def config_path(tmp_path):
     return cfg
 
 
-@patch("clio.tasks.transcribe.check_whisper", return_value=True)
+@patch("clio.transcribe.check_whisper", return_value=True)
 def test_transcribe_subcommand(mock_check_whisper, cli_runner, config_path):
     result = cli_runner(["--config", str(config_path), "transcribe"])
     assert result == 0

@@ -19,6 +19,16 @@ class LocalWhisperProvider:
     def __init__(self, config) -> None:
         self._config = config
 
+    def readiness_error(self, environ=None) -> str | None:
+        from clio.transcribe import check_whisper
+
+        if check_whisper():
+            return None
+        return (
+            "本地 faster-whisper 不可用。请执行 `python main.py whisper install`，"
+            "并检查 CUDA/cuBLAS；打包版请改用云端 ASR。"
+        )
+
     def transcribe(
         self,
         audio_path: Path,

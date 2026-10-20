@@ -18,6 +18,7 @@
 |---|---|
 | `asr/base.py` | `TranscriptSegment` (`:11`, frozen, `to_dict`), `ProviderCapabilities` (`:31`), `TranscriptionProvider` protocol (`:41`) |
 | `asr/factory.py` | `register_provider` decorator (`:10`), `list_providers` (`:18`), `build_provider(engine_id, config)` (`:22`) — decorator-based registry |
+| `asr/readiness.py` | `check_asr_ready(config, engine=..., environ=...)` — builds the configured provider and asks it for a user-facing readiness blocker |
 | `asr/local.py` | `LocalWhisperProvider` (`:12`) — adapter delegating to `transcribe._transcribe_local_whisper` |
 | `asr/aliyun.py` | `AliyunASRProvider` (`:20`) — DashScope async task submit + poll + result parse (ms→s) |
 | `asr/upload.py` | `dashscope_upload` (`:22`) — OSS multipart upload with progress callback |
@@ -38,6 +39,11 @@ Engine selection (`ui/routes/whisper_check.py` + `transcribe.py`):
 aliases) → `build_provider(engine_id, config)` → `capabilities.supported_languages` check against
 the desired `language` → `provider.transcribe(audio_path, language, progress_callback,
 cancel_event)`.
+
+Before any batch or single-file transcription, `check_asr_ready()` invokes the selected provider's
+`readiness_error()`. The local provider checks `faster-whisper`/cuBLAS; cloud providers check only
+their own credentials. This keeps packaged builds and cloud-only machines from being blocked by a
+missing local Whisper stack. `doctor` and `GET /api/whisper/check` expose the same readiness result.
 
 `ProviderCapabilities` drives UI behavior: `requires_public_url` (cloud must upload first),
 `max_audio_mb`, `supported_languages` (`["*"]` = any). Unknown engine ids raise a
