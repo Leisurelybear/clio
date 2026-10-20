@@ -11,6 +11,7 @@ from clio._constants import VIDEO_EXTS
 from clio.config import load_config
 from clio.pipeline import run_analyze_all, run_compress_all, run_generate_scripts, run_pipeline_steps
 from clio.progress import ProgressTracker
+from clio.task_center.executor import project_artifact_key
 from clio.task_center.manager import TaskAlreadyRunningError, TaskManager
 from clio.task_center.models import TaskKind, TaskStatus
 from clio.task_center.reporter import TaskCancelled, TaskProgressReporter
@@ -53,14 +54,14 @@ def _ensure_run_handlers(manager: TaskManager) -> None:
     manager.ensure_registered(
         TaskKind.PIPELINE,
         _run_pipeline_task,
-        concurrency_key=lambda task: f"run:{task.project_id or task.project_path}",
+        concurrency_key=project_artifact_key,
         max_concurrency=1,
         cancellable=True,
     )
     manager.ensure_registered(
         TaskKind.RERUN,
         _run_rerun_task,
-        concurrency_key=lambda task: f"run:{task.project_id or task.project_path}",
+        concurrency_key=project_artifact_key,
         max_concurrency=1,
         cancellable=True,
     )
@@ -319,7 +320,7 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
     _ensure_run_handlers(manager)
     project_id = str(proj_dir.resolve())
     if _active_managed_run(manager, project_id) is not None:
-        return handler._send_json({"ok": False, "error": "pipeline is already running"}, 409)
+        return handler._send_json({"ok": False, "error": "该项目已有任务正在运行"}, 409)
     input_data = {
         "config_path": str(config_path) if config_path is not None else None,
         "project_dir": project_id,
@@ -350,7 +351,7 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
             reject_if_active=True,
         )
     except TaskAlreadyRunningError:
-        return handler._send_json({"ok": False, "error": "pipeline is already running"}, 409)
+        return handler._send_json({"ok": False, "error": "该项目已有任务正在运行"}, 409)
     label = "+".join(steps) if steps else "all"
     return handler._send_json(
         {
@@ -521,7 +522,7 @@ def handle_post_rerun(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -
     _ensure_run_handlers(manager)
     project_id = str(proj_dir.resolve())
     if _active_managed_run(manager, project_id) is not None:
-        return handler._send_json({"ok": False, "error": "a task is already running"}, 409)
+        return handler._send_json({"ok": False, "error": "该项目已有任务正在运行"}, 409)
     try:
         managed_task = manager.submit(
             TaskKind.RERUN,
@@ -542,7 +543,7 @@ def handle_post_rerun(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -
             reject_if_active=True,
         )
     except TaskAlreadyRunningError:
-        return handler._send_json({"ok": False, "error": "a task is already running"}, 409)
+        return handler._send_json({"ok": False, "error": "该项目已有任务正在运行"}, 409)
     return handler._send_json(
         {
             "ok": True,

@@ -63,6 +63,10 @@ submit(kind, title, input_data, private_input_data, …)
 - **Concurrency policy**: per-kind `BoundedSemaphore(max_concurrency)` keyed by
   `concurrency_key`; `reject_if_active: True` raises `TaskAlreadyRunningError` (used for e.g.
   `WHISPER_INSTALL`); otherwise extra requests **queue** on the thread + semaphore.
+- **Project artifact lock**: `PIPELINE`, `RERUN`, `CUT_EXPORT`, and `EXPORT` all use
+  `project_artifact_key` (`project-artifacts:<project_id|project_path>`, max concurrency 1).
+  The atomic `reject_if_active` check therefore blocks cross-kind overlap that could read or
+  mutate the same plan/media/output tree; tasks in different projects still run in parallel.
 - **Privacy**: `input_data` is sanitized (`_PRIVATE_TASK_KEYS`) before persistence so history
   stays retryable without persisting prompts/API keys/paths; the live `context` receives the
   full `private_input_data` (in-memory + thread only).
@@ -117,3 +121,6 @@ Frontend run-panel buttons map to `submit`, `request_cancel`, `wait`, and the ta
 5. Cleanup runs on a timer (`cleanup_interval_sec`, default 1h) inside the manager thread; a
    long-lived server with *no active tasks* still prunes read notifications but never touches
    unread history by design.
+6. The project artifact lock is deliberately coarse: two exports of different days/formats in
+   the same project do not run concurrently. This prevents overlap with plan/media/output
+   mutation; split the lock by resource only after the writers have explicit ownership rules.

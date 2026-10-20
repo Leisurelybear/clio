@@ -16,6 +16,7 @@ from clio.plan_readiness import (
     readiness_block_payload,
 )
 from clio.schema import add_schema_version
+from clio.task_center.executor import project_artifact_key
 from clio.task_center.manager import TaskAlreadyRunningError, TaskManager
 from clio.task_center.models import TaskKind, TaskStatus
 from clio.task_center.reporter import TaskCancelled, TaskProgressReporter
@@ -67,7 +68,7 @@ def _ensure_cut_handler(manager: TaskManager) -> None:
     manager.ensure_registered(
         TaskKind.CUT_EXPORT,
         _run_cut_task,
-        concurrency_key=lambda task: f"cut:{task.project_id or task.project_path}",
+        concurrency_key=project_artifact_key,
         max_concurrency=1,
         cancellable=True,
     )
@@ -275,7 +276,7 @@ def handle_post_cut(handler: HandlerProtocol, qs: dict[str, list[str]], obj: dic
                 reject_if_active=True,
             )
         except TaskAlreadyRunningError:
-            return handler._send_json({"ok": False, "error": "另一个剪辑任务正在运行"}, 409)
+            return handler._send_json({"ok": False, "error": "该项目已有任务正在运行"}, 409)
         return handler._send_json(
             {
                 "ok": True,

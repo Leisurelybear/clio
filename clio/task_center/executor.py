@@ -26,6 +26,12 @@ class TaskHandler(Protocol):
 ConcurrencyKey = str | Callable[[TaskRecord], str | None] | None
 
 
+def project_artifact_key(task: TaskRecord) -> str | None:
+    """Serialize tasks that read or mutate the same project's artifacts."""
+    scope = task.project_id or task.project_path
+    return f"project-artifacts:{scope}" if scope else None
+
+
 @dataclass(frozen=True, slots=True)
 class TaskHandlerRegistration:
     kind: TaskKind

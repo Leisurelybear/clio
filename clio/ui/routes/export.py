@@ -15,6 +15,7 @@ from clio.plan_readiness import (
     collect_project_indices,
     readiness_block_payload,
 )
+from clio.task_center.executor import project_artifact_key
 from clio.task_center.manager import TaskAlreadyRunningError, TaskManager
 from clio.task_center.models import TaskKind, TaskStatus
 from clio.task_center.reporter import TaskCancelled
@@ -98,10 +99,7 @@ def _ensure_export_handler(manager: TaskManager) -> None:
     manager.ensure_registered(
         TaskKind.EXPORT,
         _run_export_task,
-        concurrency_key=lambda task: (
-            f"export:{task.project_id or task.project_path}:"
-            f"{task.input_data.get('day', 'day1')}:{task.input_data.get('format', 'jianying')}"
-        ),
+        concurrency_key=project_artifact_key,
         max_concurrency=1,
         cancellable=True,
     )
@@ -188,7 +186,7 @@ def handle_post_export(
                 reject_if_active=True,
             )
         except TaskAlreadyRunningError:
-            return handler._send_json({"ok": False, "error": "同一草稿导出任务正在运行"}, 409)
+            return handler._send_json({"ok": False, "error": "该项目已有任务正在运行"}, 409)
         return handler._send_json(
             {
                 "ok": True,
