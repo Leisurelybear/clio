@@ -45,7 +45,7 @@ def _skip_whisper_check():
         yield
 
 
-def test_engine_mismatch_skips_with_hint(tmp_path: Path, capsys):
+def test_engine_mismatch_retranscribes(tmp_path: Path, capsys):
     cfg = _make_config(tmp_path, engine="aliyun", transcript_engine="local")
     video = tmp_path / "compressed" / "001_test.mp4"
 
@@ -57,17 +57,19 @@ def test_engine_mismatch_skips_with_hint(tmp_path: Path, capsys):
         patch("clio.tasks.transcribe._identity_to_dict", return_value={}),
         patch("clio.tasks.transcribe.add_schema_version"),
         patch("clio.tasks.transcribe.enrich_matching_analysis_files", return_value=[]),
-        patch("clio.tasks.transcribe.transcribe_audio") as mock_ta,
+        patch("clio.tasks.transcribe.transcribe_audio", return_value=[]) as mock_ta,
         patch("clio.tasks.transcribe._extract_audio", return_value=tmp_path / "fake.wav"),
         patch("clio.tasks.transcribe.resolve_binary", return_value="ffmpeg"),
         patch("clio.tasks.transcribe._get_video_duration", return_value=10.0),
         patch("clio.tasks.transcribe.write_json_atomic"),
     ):
-        run_transcribe_all(cfg)
+        result = run_transcribe_all(cfg)
 
-    mock_ta.assert_not_called()
+    assert result == 0
+    mock_ta.assert_called_once()
     output = capsys.readouterr().out
-    assert "engine=local" in output or "local" in output
+    assert "重新转录" in output
+    assert "engine=local" in output
     assert "aliyun" in output
 
 

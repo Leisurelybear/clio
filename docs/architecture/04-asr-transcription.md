@@ -49,6 +49,10 @@ missing local Whisper stack. `doctor` and `GET /api/whisper/check` expose the sa
 `max_audio_mb`, `supported_languages` (`["*"]` = any). Unknown engine ids raise a
 `RuntimeError` listing available engines.
 
+When `skip_existing` is enabled, a transcript whose stored `engine` differs from the configured
+one is treated as stale and re-transcribed. A matching engine is skipped normally; legacy files
+without `engine` are treated as `local`.
+
 ## 4. Local Engine (faster-whisper)
 
 `transcribe_audio` (`transcribe.py:248`) flow:

@@ -250,16 +250,19 @@ def run_transcribe_all(
                 existing_engine = existing.get("engine", "local")
                 if existing_engine != current_engine:
                     print(
-                        f"[跳过] {compressed_stem} (已有转录 engine={existing_engine}, "
-                        f"当前配置 {current_engine}；如需重跑请使用 --force)"
+                        f"  [重新转录] {compressed_stem} (已有转录 engine={existing_engine}, 当前配置 {current_engine})"
                     )
+                    if tracker:
+                        tracker.log(
+                            f"{compressed_stem}: engine 已从 {existing_engine} 切换到 {current_engine}，重新转录"
+                        )
                 else:
                     print(f"[跳过] {compressed_stem} (已有转录, engine={current_engine})")
-                state.mark(orig_stem, "transcribe", "skipped")
-                if tracker:
-                    tracker.next(message=f"跳过 {compressed_stem}")
-                    tracker.log(f"跳过 {compressed_stem}（已转录）")
-                continue
+                    state.mark(orig_stem, "transcribe", "skipped")
+                    if tracker:
+                        tracker.next(message=f"跳过 {compressed_stem}")
+                        tracker.log(f"跳过 {compressed_stem}（已转录）")
+                    continue
 
         if cancel_event and cancel_event.is_set():
             print("  [取消] 转录阶段被终止")
