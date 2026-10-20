@@ -5,6 +5,7 @@ import { playVideoSegment } from './viewer.js';
 import { renderVideoList } from './sidebar.js';
 import { renderRefineUI, refineCurrentFile } from './editor-refine.js';
 import { renderEmptyArtifactHtml, bindEmptyArtifactActions } from './empty-states.js';
+import { transcriptionReadinessPrompt } from './transcription-status.js';
 
 
 function _jumpToTranscriptTime(timeSec) {
@@ -202,7 +203,7 @@ export function renderTranscript() {
       `<p style="margin-top:12px">
         <button id="btn-create-transcript" type="button" class="btn-primary">${icon('plus', 14)} 创建手动转录</button>
       </p>
-      <p class="hint" style="margin-top:8px">手动创建后可自由编辑时间轴；也可上方重跑 Whisper 或去运行流水线自动生成。</p>`
+      <p class="hint" style="margin-top:8px">手动创建后可自由编辑时间轴；也可上方重跑语音转录或去运行流水线自动生成。</p>`
     );
     pane.querySelector('#btn-create-transcript').onclick = async () => {
       const v = state.videos.find(x => x.file === state.currentVideo);
@@ -470,28 +471,22 @@ export function renderTranscript() {
 export async function renderWhisperInstallPrompt(pane) {
   let check;
   try { check = await api('GET', '/api/whisper/check'); } catch { return; }
-  if (!check) return;
-  if (check.model_cached) return;
-  const installed = check.installed;
+  const prompt = transcriptionReadinessPrompt(check);
+  if (!prompt) return;
   const div = document.createElement('div');
   div.id = 'whisper-install-prompt';
   div.style.cssText = 'margin-top:12px;padding:12px;background:var(--warning-bg,#2a2520);border:1px solid var(--warning-border,#b8860b);border-radius:6px';
-  if (check.frozen) {
-    div.innerHTML = `
-      <p style="margin:0 0 8px;font-weight:600">⚠ 打包版不内置 Whisper 转录</p>
-      <p style="margin:0;font-size:var(--text-sm);color:var(--text-secondary)">faster-whisper（约 4 GB）未打包进 clio.exe。如需转录，请改用源码版运行 <code>python main.py whisper install</code>。</p>
-    `;
-    pane.appendChild(div);
-    return;
-  }
+  const settingsLink = prompt.settingsLabel
+    ? ` <a href="#" id="whisper-go-settings" style="text-decoration:underline;color:var(--accent)">${escapeHtml(prompt.settingsLabel)}</a>`
+    : '';
   div.innerHTML = `
-    <p style="margin:0 0 8px;font-weight:600">⚠ Whisper 模型未下载</p>
-    <p style="margin:0 0 8px;font-size:var(--text-sm);color:var(--text-secondary)">需要下载 ${installed ? '模型文件（约 1-2 GB）' : 'faster-whisper 依赖及模型文件'}，请前往 <a href="#" id="whisper-go-settings" style="text-decoration:underline;color:var(--accent)">设置 → Whisper 模型管理</a> 手动下载。</p>
+    <p style="margin:0 0 8px;font-weight:600">⚠ ${escapeHtml(prompt.title)}</p>
+    <p style="margin:0;font-size:var(--text-sm);color:var(--text-secondary)">${escapeHtml(prompt.before)}${settingsLink}${escapeHtml(prompt.after)}</p>
   `;
   pane.appendChild(div);
-  var settingsLink = $('whisper-go-settings');
-  if (settingsLink) {
-    settingsLink.onclick = function(e) { e.preventDefault(); import('./sidebar.js').then(function(s) { s.selectConfig(); }); };
+  var link = $('whisper-go-settings');
+  if (link) {
+    link.onclick = function(e) { e.preventDefault(); import('./sidebar.js').then(function(s) { s.selectConfig(); }); };
   }
 }
 

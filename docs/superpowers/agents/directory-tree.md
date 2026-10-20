@@ -93,6 +93,7 @@ vlog-video-analysis/
 │   │           ├── sidebar-rerun.js
 │   │           ├── sidebar-browse.js
 │   │           ├── runner.js
+│   │           ├── transcription-status.js # Pure local/cloud ASR guidance and legacy fallback
 │   │           ├── viewer.js
 │   │           ├── editor.js
 │   │           ├── editor-config.js

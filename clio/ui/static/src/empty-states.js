@@ -74,7 +74,7 @@ export function renderEmptyArtifactHtml(kind, opts = {}) {
     return `
       <div class="empty-state empty-artifact">
         <h4>没有转录</h4>
-        <p class="muted">当前视频还没有 Whisper 转录结果。可在运行面板勾选转录，或对当前视频单独转写。</p>
+        <p class="muted">当前视频还没有语音转录结果。可在运行面板勾选转录，或对当前视频单独转写。</p>
         <p style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
           <button type="button" class="sidebar-btn empty-cta" data-empty-action="run" style="${_btnPrimary}">
             去运行流水线

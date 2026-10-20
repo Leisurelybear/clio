@@ -10,6 +10,7 @@ import { beginLatest, endLatest, isLatest, isAbortError } from './latest.js';
 import { addToast } from './toast.js';
 import { registerNotification } from './notification-center.js';
 import { subscribeTaskEvents, fetchTask } from './task-center.js';
+import { transcriptionFailureNotice } from './transcription-status.js';
 
 let _lastRunDay = 'day1';
 let _runActive = false;
@@ -26,7 +27,7 @@ const RUN_STEPS = [
   { key: 'compress', label: '压缩原视频', hint: '将原片压缩为 640p，为 AI 分析做准备' },
   { key: 'analyze', label: 'AI 分析', hint: '提交 Gemini 分析压缩后的视频内容' },
   { key: 'voiceover', label: '生成口播文案', hint: '基于分析结果生成每段的口播脚本' },
-  { key: 'transcribe', label: 'Whisper 语音转录', hint: '用 faster-whisper 转录音频为文字（需安装）' },
+  { key: 'transcribe', label: '语音转录', hint: '用当前本地或云端 ASR 引擎将视频语音转为文字' },
   { key: 'plan', label: 'vlog 剪辑规划', hint: '根据所有素材生成剪辑顺序和时间轴' },
   { key: 'label', label: '烧录序号', hint: '在压缩视频左上角标上序号便于剪映对照' },
 ];
@@ -469,10 +470,10 @@ async function refreshVideosAfterRun() {
   } catch { /* 刷新失败不阻断完成后的导航/提示 */ }
 }
 
-/** Stale-progress warning box; Whisper model hint only for the transcribe phase. */
+/** Stale-progress warning box; ASR configuration hint only for the transcribe phase. */
 function staleWarningHtml(phase) {
   const whisperHint = phase === 'transcribe'
-    ? `<span style="color:var(--text-secondary)">可前往 <a href="#" id="link-stale-settings" style="text-decoration:underline;color:var(--accent)">设置 → Whisper 模型管理</a> 检查模型状态</span>`
+    ? `<span style="color:var(--text-secondary)">可前往 <a href="#" id="link-stale-settings" style="text-decoration:underline;color:var(--accent)">设置</a> 检查 ASR 引擎、模型或 API Key 状态</span>`
     : '';
   return `
     <div id="stale-warn" style="display:none;margin-top:8px;padding:8px;background:var(--warning-bg,#2a2520);border:1px solid var(--warning-border,#b8860b);border-radius:6px;font-size:var(--text-sm)">
@@ -480,6 +481,43 @@ function staleWarningHtml(phase) {
       ${whisperHint}
     </div>
   `;
+}
+
+async function _showTranscriptionFailureNotice(prog) {
+  try {
+    const ps = await api('GET', '/api/processing-state');
+    const hasTranscribeErr = Object.values(ps.files || {}).some((f) => f.transcribe === 'error');
+    if (!hasTranscribeErr) return;
+
+    let check = null;
+    try { check = await api('GET', '/api/whisper/check'); } catch { /* 旧服务仍显示通用本地提示 */ }
+    const notice = transcriptionFailureNotice(check);
+    registerNotification({
+      title: notice.title,
+      message: `${notice.message} 请前往${notice.settingsLabel}完成配置，再重跑「语音转录」。`,
+      severity: 'error',
+      sourceType: 'ui_status',
+      sourceId: 'transcribe-failure',
+      dedupeKey: `pipeline:transcribe-failure:${state.currentProjectDir || state.currentProjectName || 'global'}`,
+      data: { action_id: 'go-settings-keys' },
+    });
+
+    const warn = document.createElement('div');
+    warn.id = 'run-transcribe-warn';
+    warn.style.cssText = 'margin-top:12px;padding:12px;background:var(--warning-bg,#2a2520);border:1px solid var(--warning-border,#b8860b);border-radius:6px';
+    warn.innerHTML = `
+      <p style="margin:0 0 8px;font-weight:600">❗ ${escapeHtml(notice.title)}</p>
+      <p style="margin:0 0 8px;font-size:var(--text-sm);color:var(--text-secondary)">${escapeHtml(notice.message)} 请前往 <a href="#" id="link-go-settings" style="text-decoration:underline;color:var(--accent)">${escapeHtml(notice.settingsLabel)}</a> 完成配置，再重跑「语音转录」。</p>
+    `;
+    prog.appendChild(warn);
+    const settingsLink = $('link-go-settings');
+    if (settingsLink) {
+      settingsLink.onclick = (e) => {
+        e.preventDefault();
+        import('./sidebar.js').then((mod) => mod.selectConfig());
+      };
+    }
+  } catch { /* 通知失败不应阻断运行收尾 */ }
 }
 
 export async function _handleRunStatus(s) {
@@ -569,38 +607,7 @@ export async function _handleRunStatus(s) {
       setStatus('流水线完成', 'ok', { persist: !_managedTaskId });
       addToast(s.message || '流水线完成', 'success', undefined, { persist: false });
       if (hasRunDom) renderProcessingState($('run-state-container'));
-      // 检查是否有转录失败（如缺少模型），弹出下载引导
-      if (hasRunDom) {
-        (async () => {
-          try {
-            const ps = await api('GET', '/api/processing-state');
-            const hasTranscribeErr = Object.values(ps.files || {}).some(function(f) { return f.transcribe === 'error'; });
-            if (hasTranscribeErr) {
-              registerNotification({
-                title: '部分视频转录失败',
-                message: 'Whisper 模型未下载，请前往设置 → Whisper 模型管理手动下载模型，再重跑「Whisper 转录」。',
-                severity: 'error',
-                sourceType: 'ui_status',
-                sourceId: 'transcribe-model-missing',
-                dedupeKey: `pipeline:transcribe-model-missing:${state.currentProjectDir || state.currentProjectName || 'global'}`,
-                data: { action_id: 'go-settings-keys' },
-              });
-              const warn = document.createElement('div');
-              warn.id = 'run-transcribe-warn';
-              warn.style.cssText = 'margin-top:12px;padding:12px;background:var(--warning-bg,#2a2520);border:1px solid var(--warning-border,#b8860b);border-radius:6px';
-              warn.innerHTML = `
-                <p style="margin:0 0 8px;font-weight:600">❗ 部分视频转录失败</p>
-                <p style="margin:0 0 8px;font-size:var(--text-sm);color:var(--text-secondary)">Whisper 模型未下载，请前往 <a href="#" id="link-go-settings" style="text-decoration:underline;color:var(--accent)">设置 → Whisper 模型管理</a> 手动下载模型（约 1-2 GB），再重跑「Whisper 转录」。</p>
-              `;
-              prog.appendChild(warn);
-              var settingsLink = $('link-go-settings');
-              if (settingsLink) {
-                settingsLink.onclick = function(e) { e.preventDefault(); import('./sidebar.js').then(function(s) { s.selectConfig(); }); };
-              }
-            }
-          } catch { /* 静默 */ }
-        })();
-      }
+      if (hasRunDom) await _showTranscriptionFailureNotice(prog);
       state.currentDay = _lastRunDay;
       state.plan = null;
       await import('./sidebar.js').then(mod => mod.loadPlans());

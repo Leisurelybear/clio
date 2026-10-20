@@ -213,19 +213,19 @@ describe('getRunButtonText / updateRunStartButtonState', () => {
 });
 
 describe('staleWarningHtml', () => {
-  it('shows the Whisper model hint only for the transcribe phase', () => {
+  it('shows a generic ASR hint only for the transcribe phase', () => {
     const html = staleWarningHtml('transcribe');
     expect(html).toContain('stale-warn');
-    expect(html).toContain('Whisper 模型管理');
+    expect(html).toContain('ASR 引擎、模型或 API Key');
     expect(html).toContain('link-stale-settings');
   });
 
-  it('omits the Whisper hint for non-transcribe phases', () => {
+  it('omits the ASR hint for non-transcribe phases', () => {
     for (const phase of ['compress', 'analyze', 'voiceover', 'plan', 'label', '启动', '']) {
       const html = staleWarningHtml(phase);
       expect(html).toContain('stale-warn');
       expect(html).toContain('进度长时间未更新');
-      expect(html).not.toContain('Whisper');
+      expect(html).not.toContain('ASR 引擎');
       expect(html).not.toContain('link-stale-settings');
     }
   });
@@ -241,12 +241,17 @@ describe('refreshVideosAfterRun', () => {
 });
 
 describe('run completion notifications', () => {
-  it('registers a persistent transcribe failure notification once per project', async () => {
+  it('registers a persistent local transcribe failure notification once per project', async () => {
     const { api } = await import('../api.js');
     const { registerNotification } = await import('../notification-center.js');
     vi.mocked(api).mockReset();
     vi.mocked(registerNotification).mockClear();
-    api.mockResolvedValue({ files: { GL010684: { transcribe: 'error' } } });
+    api.mockImplementation((method, url) => {
+      if (url === '/api/whisper/check') {
+        return Promise.resolve({ engine: 'local', ready: false, model_cached: false });
+      }
+      return Promise.resolve({ files: { GL010684: { transcribe: 'error' } } });
+    });
     state.currentProjectDir = 'G:/projects/trip';
     document.body.innerHTML = '<div id="run-progress"></div><div id="run-state-container"></div>';
 
@@ -254,12 +259,44 @@ describe('run completion notifications', () => {
 
     expect(api).toHaveBeenCalledWith('GET', '/api/processing-state');
     const notification = registerNotification.mock.calls.map(([payload]) => payload)
-      .find(payload => payload.sourceId === 'transcribe-model-missing');
+      .find(payload => payload.sourceId === 'transcribe-failure');
     expect(notification).toMatchObject({
       title: '部分视频转录失败',
       severity: 'error',
-      dedupeKey: 'pipeline:transcribe-model-missing:G:/projects/trip',
+      dedupeKey: 'pipeline:transcribe-failure:G:/projects/trip',
     });
+    expect(notification.message).toContain('faster-whisper');
+    expect(notification.message).not.toContain('API Key');
+  });
+
+  it('uses cloud credential guidance after a cloud transcription failure', async () => {
+    const { api } = await import('../api.js');
+    const { registerNotification } = await import('../notification-center.js');
+    vi.mocked(api).mockReset();
+    vi.mocked(registerNotification).mockClear();
+    api.mockImplementation((method, url) => {
+      if (url === '/api/whisper/check') {
+        return Promise.resolve({
+          engine: 'aliyun',
+          engine_display_name: '阿里云 Paraformer',
+          ready: false,
+          readiness_error: '阿里云 ASR 未配置 DASHSCOPE_API_KEY。',
+          requires_local_model: false,
+        });
+      }
+      return Promise.resolve({ files: { GL010684: { transcribe: 'error' } } });
+    });
+    state.currentProjectDir = 'G:/projects/trip';
+    document.body.innerHTML = '<div id="run-progress"></div><div id="run-state-container"></div>';
+
+    await _handleRunStatus({ status: 'done', steps: ['transcribe'] });
+
+    const notification = registerNotification.mock.calls.map(([payload]) => payload)
+      .find(payload => payload.sourceId === 'transcribe-failure');
+    expect(notification.message).toContain('阿里云 Paraformer');
+    expect(notification.message).toContain('API Key');
+    expect(notification.message).not.toContain('Whisper 模型未下载');
+    expect(document.getElementById('run-transcribe-warn').textContent).toContain('编辑 .env 文件');
   });
 });
 

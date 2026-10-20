@@ -65,7 +65,7 @@ export function buildVideoMenuItems(video, source, deps = null) {
     if (missing) {
       items = [
         { action: 'compress', label: '压缩视频', disabled: true, title: '文件离线' },
-        { action: 'transcribe', label: 'Whisper 转录', disabled: true, title: '文件离线' },
+        { action: 'transcribe', label: '语音转录', disabled: true, title: '文件离线' },
         { divider: true },
         {
           action: 'relink',
@@ -91,9 +91,9 @@ export function buildVideoMenuItems(video, source, deps = null) {
         },
         {
           action: 'transcribe',
-          label: 'Whisper 转录',
+          label: '语音转录',
           disabled: false,
-          title: '用 faster-whisper 提取音频转文字',
+          title: '用当前 ASR 引擎提取音频转文字',
         },
         {
           action: 'analyze',
@@ -149,7 +149,7 @@ export function buildVideoMenuItems(video, source, deps = null) {
       },
       {
         action: 'transcribe',
-        label: 'Whisper 转录',
+        label: '语音转录',
         disabled: true,
         title: '文件离线',
       },
@@ -192,9 +192,9 @@ export function buildVideoMenuItems(video, source, deps = null) {
     },
     {
       action: 'transcribe',
-      label: 'Whisper 转录',
+      label: '语音转录',
       disabled: false,
-      title: '用 faster-whisper 对压缩视频转写语音',
+      title: '用当前本地或云端 ASR 引擎对压缩视频转写语音',
     },
     {
       action: 'all',

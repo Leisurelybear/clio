@@ -36,6 +36,8 @@ describe('renderEmptyArtifactHtml', () => {
   it('transcript empty state with CTAs', () => {
     const html = renderEmptyArtifactHtml('transcript', { hasVideo: true });
     expect(html).toContain('没有转录');
+    expect(html).toContain('语音转录');
+    expect(html).not.toContain('Whisper');
     expect(html).toContain('data-empty-action="rerun-transcribe"');
   });
 

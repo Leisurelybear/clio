@@ -64,6 +64,10 @@ describe('buildVideoMenuItems', () => {
     expect(actions).toContain('remove');
     expect(actions).not.toContain('relink');
     expect(items.find((i) => i.action === 'compress')?.disabled).toBe(true);
+    expect(items.find((i) => i.action === 'transcribe')).toMatchObject({
+      label: '语音转录',
+      title: '用当前本地或云端 ASR 引擎对压缩视频转写语音',
+    });
   });
 
   it('original online: compress+transcribe enabled; analyze/voiceover/all disabled; remove', () => {

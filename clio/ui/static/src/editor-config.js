@@ -12,6 +12,7 @@ import {
   formatLogTime,
 } from './logs-filter.js';
 import { LOGS_BUFFER_MAX, appendLogEntries } from './logs-buffer.js';
+import { transcriptionModelManagementNotice } from './transcription-status.js';
 // Dynamic import avoids static cycle: editor.js → editor-config.js → editor.js (A-006)
 
 const DEFAULT_PROVIDERS = ['gemini', 'openai', 'deepseek'];
@@ -1395,7 +1396,7 @@ export function renderConfig() {
     wrapper.innerHTML = `
       <div class="config-card-header" tabindex="0" role="button">
         <span class="config-card-arrow">▶</span>
-        <span class="config-card-title">Whisper 模型管理</span>
+        <span class="config-card-title">本地 Whisper 模型管理</span>
       </div>
       <div class="config-card-body"></div>`;
     wrapper.querySelector('.config-card-body').appendChild(renderModelManagement());
@@ -1798,7 +1799,11 @@ async function _loadModelMgmt() {
     const cublasOk = check.cublas !== false;
     const frozen = check.frozen === true;
 
-    let html = '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:end">';
+    const engineNotice = transcriptionModelManagementNotice(check);
+    let html = engineNotice
+      ? `<p class="hint" style="margin:0 0 10px">${escapeHtml(engineNotice)}</p>`
+      : '';
+    html += '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:end">';
 
     html += '<div style="flex:1;min-width:140px">';
     html += '<label style="font-size:var(--text-xs);color:var(--text-secondary)">当前模型</label>';

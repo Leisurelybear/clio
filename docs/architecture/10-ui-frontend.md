@@ -11,7 +11,7 @@
 - Keep the browser/desktop two integrations aligned: the desktop shell passes a token and
   folder-picker bridge; the plain browser shows an auth modal and server-side picker.
 - Everything stateful lives in vanilla JS — no framework, no bundler. Pure logic modules are
-  unit-tested with Vitest (509 tests across 50 files in CI on Node 22).
+  unit-tested with Vitest (532 tests across 52 files in CI on Node 22).
 
 ## 2. Module Map (key files in `static/src/`)
 
@@ -29,6 +29,7 @@
 | `plan-edit.js` | **Pure functions**: `reorderSequence`/`removeSegment`/`insertSegment`, timeline↔file time mapping (`planSecFromPlayer`/`fileSecFromPlan`), range parsing |
 | `plan-timeline.js` / `plan-waveform.js` / `plan-subtitle.js` / `plan-range-picker.js` / `plan-export.js` | Timeline geometry, per-source peak stitching, subtitle scheduling/rendering, range-picker, `exportJianyingDraft` |
 | `runner.js` | Run panel: dependency gating (`mediaStepsNeedFfmpeg`), step toggle, preview/force, status handling |
+| `transcription-status.js` | **Pure ASR guidance**: local/cloud detection, readiness/failure copy, legacy-response fallback, local-model management notice |
 | `task-center.js` | Task list, filters, SSE subscription, `waitForTask` promise bridge |
 | `notification-center.js` | **Global SSE inbox** (R-042): unread badge, filters, read actions, deep links into Task Center |
 | `subtitle-settings.js` | Subtitle style config (mode auto/manual, position, font) |
@@ -79,6 +80,12 @@ renderPlan(plan)                 [editor-plan.js]
 (gemini for video), dependency state (`missingMediaDepsForSteps` warns about missing ffmpeg
 before any encode), and skip flags (`--force` equivalent). Starting a run submits a
 `PIPELINE`/`RERUN` task; status events drive step progress via `task-center.js`.
+
+Transcription guidance follows `GET /api/whisper/check`. Local engines keep the model/install
+prompts, while cloud engines show credential/readiness errors from `readiness_error` and never
+advertise a local model download. Responses without `engine`/`requires_local_model` are treated
+as legacy local responses. The same contract drives the run panel failure notice, transcript
+empty state, per-video menu labels, and config model-management notice.
 
 ## 7. Cross-Module Dependencies
 
