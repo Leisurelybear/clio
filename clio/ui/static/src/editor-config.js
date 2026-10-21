@@ -12,6 +12,12 @@ import {
   formatLogTime,
 } from './logs-filter.js';
 import { LOGS_BUFFER_MAX, appendLogEntries } from './logs-buffer.js';
+import {
+  formatLogHour,
+  historyStatusText,
+  logFileLabel,
+  sortLogFiles,
+} from './logs-history.js';
 import { transcriptionModelManagementNotice } from './transcription-status.js';
 // Dynamic import avoids static cycle: editor.js → editor-config.js → editor.js (A-006)
 
@@ -1442,8 +1448,17 @@ let _logsFilterQuery = '';
 let _logsFilterLevel = 'all';
 /** 0 = all; else window in ms */
 let _logsFilterSinceMs = 0;
-/** Skip overlapping /api/logs polls (P2-P38). */
-let _logsPollInFlight = false;
+/** Poll generation currently in flight; prevents overlap without blocking a new mode. */
+let _logsPollInFlightGen = null;
+/** Invalidate in-flight polls when leaving/re-entering live mode. */
+let _logsPollGeneration = 0;
+/** Empty means live session; otherwise an hourly log basename. */
+let _logsSource = '';
+/** @type {Array<{ts: number|null, text: string}>} */
+let _logsHistoryBuffer = [];
+let _logsHistoryTruncated = false;
+/** Ignore stale historical-file responses after switching sources. */
+let _logsHistorySeq = 0;
 
 const _LEVEL_LABELS = {
   debug: '调试',
@@ -1465,6 +1480,10 @@ function _logsFilterOpts() {
     level: _logsFilterLevel,
     sinceMs: _logsFilterSinceMs || undefined,
   };
+}
+
+function _activeLogsBuffer() {
+  return _logsSource ? _logsHistoryBuffer : _logsBuffer;
 }
 
 function _appendLogLineEl(view, entryOrLine) {
@@ -1494,23 +1513,50 @@ function _appendLogLineEl(view, entryOrLine) {
 
 function _paintLogsView(view) {
   if (!view) return;
-  const visible = filterLogEntries(_logsBuffer, _logsFilterOpts());
+  const buffer = _activeLogsBuffer();
+  const visible = filterLogEntries(buffer, _logsFilterOpts());
   view.innerHTML = '';
   for (const entry of visible) {
     _appendLogLineEl(view, entry);
   }
   const empty = $('logs-empty-hint');
   if (empty) {
-    const filteredOut = _logsBuffer.length > 0 && visible.length === 0;
+    const filteredOut = buffer.length > 0 && visible.length === 0;
     empty.hidden = !filteredOut;
   }
   const countEl = $('logs-match-count');
   if (countEl) {
-    countEl.textContent = _logsBuffer.length
-      ? `显示 ${visible.length} / ${_logsBuffer.length}`
+    countEl.textContent = buffer.length
+      ? `显示 ${visible.length} / ${buffer.length}`
       : '';
   }
   if (_logsAutoScroll) view.scrollTop = view.scrollHeight;
+}
+
+function _syncLogsSourceUi(statusText = '') {
+  const select = $('logs-source-select');
+  if (select) select.value = _logsSource;
+
+  const clearBtn = $('btn-logs-clear');
+  if (clearBtn) {
+    clearBtn.disabled = Boolean(_logsSource);
+    clearBtn.title = _logsSource
+      ? '历史日志只读；切回当前会话后可清空'
+      : '清空当前会话与磁盘日志';
+  }
+
+  const status = $('logs-source-status');
+  if (status) {
+    status.textContent = statusText || (
+      _logsSource
+        ? historyStatusText({
+          name: _logsSource,
+          logs: _logsHistoryBuffer,
+          truncated: _logsHistoryTruncated,
+        })
+        : '实时'
+    );
+  }
 }
 
 function _syncLogsLevelChips() {
@@ -1536,7 +1582,9 @@ export function stopLogsPolling() {
     clearInterval(_logsTimer);
     _logsTimer = null;
   }
-  _logsPollInFlight = false;
+  _logsPollInFlightGen = null;
+  _logsPollGeneration += 1;
+  _logsHistorySeq += 1;
 }
 
 export function renderLogs() {
@@ -1548,6 +1596,10 @@ export function renderLogs() {
   pane.innerHTML = `
     <div class="logs-toolbar">
       <span class="logs-toolbar-title">会话日志</span>
+      <select id="logs-source-select" class="logs-source-select" aria-label="日志来源">
+        <option value="">当前会话</option>
+      </select>
+      <span id="logs-source-status" class="logs-source-status muted" role="status"></span>
       <input type="search" id="logs-filter-query" class="logs-filter-input"
         placeholder="过滤关键字…" autocomplete="off"
         value="${escapeHtml(_logsFilterQuery)}"
@@ -1598,11 +1650,14 @@ export function renderLogs() {
   _syncLogsSinceChips();
 
   $('btn-logs-clear').onclick = async () => {
+    if (_logsSource) return;
     try {
       await api('POST', '/api/logs/clear', {});
       _logsBuffer = [];
       _logsOffset = 0;
       _paintLogsView(view);
+      _syncLogsSourceUi();
+      void refreshSourceOptions();
     } catch { /* ignore */ }
   };
 
@@ -1636,24 +1691,108 @@ export function renderLogs() {
   };
 
   const pollOnce = async () => {
-    if (_logsPollInFlight) return;
-    _logsPollInFlight = true;
+    if (_logsPollInFlightGen === _logsPollGeneration) return;
+    const generation = _logsPollGeneration;
+    _logsPollInFlightGen = generation;
     try {
       const r = await api('GET', `/api/logs?offset=${_logsOffset}`);
       if (!r || !r.logs) return;
       // Left the logs pane while in flight — do not touch detached DOM.
-      if (!$('logs-view')) return;
+      if (!$('logs-view') || generation !== _logsPollGeneration || _logsSource) return;
       ingest(r.logs);
       if (typeof r.total === 'number') _logsOffset = r.total;
     } catch { /* ignore */ } finally {
-      _logsPollInFlight = false;
+      if (_logsPollInFlightGen === generation) _logsPollInFlightGen = null;
     }
   };
 
-  // Re-enter: show retained buffer immediately, then resume from offset.
+  const startLivePolling = () => {
+    stopLogsPolling();
+    if (_logsSource) return;
+    _logsTimer = setInterval(pollOnce, 2000);
+    void pollOnce();
+  };
+
+  const switchToLive = () => {
+    stopLogsPolling();
+    _logsSource = '';
+    _logsHistoryBuffer = [];
+    _logsHistoryTruncated = false;
+    _syncLogsSourceUi();
+    _paintLogsView(view);
+    startLivePolling();
+  };
+
+  const loadHistoryFile = async (name) => {
+    stopLogsPolling();
+    const seq = ++_logsHistorySeq;
+    _logsSource = name;
+    _logsHistoryBuffer = [];
+    _logsHistoryTruncated = false;
+    _syncLogsSourceUi('正在加载历史日志…');
+    _paintLogsView(view);
+    try {
+      const r = await api('GET', `/api/logs/file?name=${encodeURIComponent(name)}`);
+      if (seq !== _logsHistorySeq || !$('logs-view')) return;
+      _logsHistoryBuffer = Array.isArray(r?.logs)
+        ? r.logs.map(normalizeLogEntry)
+        : [];
+      _logsHistoryTruncated = Boolean(r?.truncated);
+      _syncLogsSourceUi();
+      _paintLogsView(view);
+    } catch {
+      if (seq !== _logsHistorySeq || !$('logs-view')) return;
+      _logsHistoryBuffer = [];
+      _logsHistoryTruncated = false;
+      _syncLogsSourceUi('历史日志加载失败');
+      _paintLogsView(view);
+    }
+  };
+
+  const refreshSourceOptions = async () => {
+    try {
+      const r = await api('GET', '/api/logs/files');
+      const select = $('logs-source-select');
+      if (!select) return;
+      const files = sortLogFiles(r?.files);
+      const options = ['<option value="">当前会话</option>'];
+      for (const file of files) {
+        options.push(
+          `<option value="${escapeHtml(file.name)}">${escapeHtml(logFileLabel(file))}</option>`
+        );
+      }
+      const currentMissing = _logsSource && !files.some((file) => file.name === _logsSource);
+      if (currentMissing) {
+        options.push(
+          `<option value="${escapeHtml(_logsSource)}">${escapeHtml(formatLogHour(_logsSource))}（不可用）</option>`
+        );
+      }
+      select.innerHTML = options.join('');
+      select.value = _logsSource;
+      _syncLogsSourceUi(currentMissing ? '历史日志文件不存在或已被清理' : '');
+    } catch {
+      if ($('logs-source-status')) _syncLogsSourceUi('历史日志列表加载失败');
+    }
+  };
+
+  const sourceSelect = $('logs-source-select');
+  if (sourceSelect) {
+    sourceSelect.onchange = () => {
+      const selected = sourceSelect.value || '';
+      if (!selected) {
+        switchToLive();
+      } else {
+        void loadHistoryFile(selected);
+      }
+    };
+  }
+
+  // Re-enter: show the retained source immediately. Live mode resumes from offset;
+  // historical mode stays paused and read-only.
   _paintLogsView(view);
-  _logsTimer = setInterval(pollOnce, 2000);
-  pollOnce();
+  _syncLogsSourceUi();
+  void refreshSourceOptions();
+  if (!_logsSource) startLivePolling();
 }
 
 

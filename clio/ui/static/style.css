@@ -1321,6 +1321,19 @@ button.match-badge:focus-visible { outline: 2px solid var(--border-focus); outli
   flex-shrink: 0;
 }
 .logs-toolbar-title { font-weight: 600; }
+.logs-source-select {
+  max-width: 220px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+}
+.logs-source-status {
+  flex: 0 1 auto;
+  font-size: var(--text-xs);
+}
 .logs-filter-input {
   min-width: 140px;
   flex: 1 1 160px;
@@ -1350,6 +1363,10 @@ button.match-badge:focus-visible { outline: 2px solid var(--border-focus); outli
   color: #fff;
 }
 .logs-match-count { font-size: var(--text-xs); margin-left: 4px; }
+#btn-logs-clear:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 .logs-autoscroll-label {
   margin-left: auto;
   display: flex;
