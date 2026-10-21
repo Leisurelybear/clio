@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+from datetime import datetime, timezone
 
 import httpx
 import pytest
@@ -10,6 +11,14 @@ from clio.asr.retry import request_with_retry
 
 def _response(status: int) -> httpx.Response:
     return httpx.Response(status, request=httpx.Request("GET", "https://example.com"))
+
+
+def _response_with_retry_after(value: str) -> httpx.Response:
+    return httpx.Response(
+        429,
+        headers={"Retry-After": value},
+        request=httpx.Request("GET", "https://example.com"),
+    )
 
 
 def test_retries_429_then_succeeds():
@@ -23,6 +32,62 @@ def test_retries_429_then_succeeds():
     )
 
     assert result.status_code == 200
+    assert delays == [0.5]
+
+
+def test_retry_after_seconds_overrides_exponential_backoff():
+    responses = iter([_response_with_retry_after("2"), _response(200)])
+    delays: list[float] = []
+
+    result = request_with_retry(
+        lambda: next(responses),
+        label="测试请求",
+        sleep=delays.append,
+    )
+
+    assert result.status_code == 200
+    assert delays == [2.0]
+
+
+def test_retry_after_is_capped_by_max_delay():
+    responses = iter([_response_with_retry_after("30"), _response(200)])
+    delays: list[float] = []
+
+    request_with_retry(
+        lambda: next(responses),
+        label="测试请求",
+        max_delay=3.0,
+        sleep=delays.append,
+    )
+
+    assert delays == [3.0]
+
+
+def test_retry_after_http_date_is_supported(monkeypatch):
+    now = datetime(2026, 10, 21, 7, 27, 58, tzinfo=timezone.utc).timestamp()  # noqa: UP017
+    monkeypatch.setattr("clio.asr.retry.time.time", lambda: now)
+    responses = iter([_response_with_retry_after("Wed, 21 Oct 2026 07:28:00 GMT"), _response(200)])
+    delays: list[float] = []
+
+    request_with_retry(
+        lambda: next(responses),
+        label="测试请求",
+        sleep=delays.append,
+    )
+
+    assert delays == [2.0]
+
+
+def test_invalid_retry_after_falls_back_to_exponential_backoff():
+    responses = iter([_response_with_retry_after("not-a-date"), _response(200)])
+    delays: list[float] = []
+
+    request_with_retry(
+        lambda: next(responses),
+        label="测试请求",
+        sleep=delays.append,
+    )
+
     assert delays == [0.5]
 
 
@@ -103,3 +168,16 @@ def test_cancel_interrupts_retry_backoff():
             sleep=lambda _: pytest.fail("sleep should not run when cancellation is supported"),
             cancel_event=CancelDuringWait(),
         )
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"attempts": 0}, "attempts must be at least 1"),
+        ({"base_delay": -1}, "retry delays must be non-negative"),
+        ({"max_delay": -1}, "retry delays must be non-negative"),
+    ],
+)
+def test_rejects_invalid_retry_policy(kwargs, message):
+    with pytest.raises(ValueError, match=message):
+        request_with_retry(lambda: _response(200), label="测试请求", **kwargs)

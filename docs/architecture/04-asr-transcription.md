@@ -92,8 +92,9 @@ Environment machinery:
 
 All cloud HTTP calls (upload policy, OSS upload, submit, poll, result download) share bounded
 retry semantics: 408/429/5xx and connection/timeouts are retried up to three attempts with
-0.5s→1s backoff; other 4xx responses fail immediately with a Chinese error that includes the
-status and request purpose.
+0.5s→1s backoff. A valid `Retry-After` header (integer seconds or HTTP date) overrides that
+backoff but is capped by the configured maximum; other 4xx responses fail immediately with a
+Chinese error that includes the status and request purpose.
 
 The task cancel event is checked before every HTTP attempt, during retry backoff and while
 waiting between polls, so cancellation does not wait for a full 3-second poll interval. A
