@@ -172,3 +172,14 @@ See `clio/compress.py`.
   and provide `retry_blocked_reason`; the manager then rejects retry and the Task Center hides it.
 - Pipeline requests with `context_override` or `task_prompts` already use this contract. Without
   the flag, retry would silently run with different prompts/context and produce misleading output.
+
+### 9.25 Managed Route Tests Must Stub Media Preflight
+
+- `handle_post_run_start` and `handle_post_cut` call `preflight_config_media_deps` before entering
+  the Task Center path. A developer machine with ffmpeg installed can hide a test that never stubs it,
+  while every CI runner fails with a prefixed 424 response and no `task_id`.
+- Tests targeting managed task submission must monkeypatch the route module's
+  `preflight_config_media_deps` to `{"ok": True}`; keep the dedicated missing-dependency tests for
+  the real failure branch.
+- Reproduce CI locally by clearing `PATH`, `LOCALAPPDATA`, `USERPROFILE`, and `FFMPEG_HOME` before
+  running pytest. `discover_ffmpeg_bin` searches those locations even when PATH is clean.
