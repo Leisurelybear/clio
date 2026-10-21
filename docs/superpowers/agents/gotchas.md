@@ -163,3 +163,12 @@ See `clio/compress.py`.
 - `CLIO_ALLOW_DESKTOP_UNDER_PYTEST=1` is an explicit escape hatch for intentional GUI tests;
   never set it in normal CI. A missed mock previously left multiple Clio/WebView2 windows and
   hung pytest processes because each temp config dir had its own lock and random API token.
+
+### 9.24 Retry Only Tasks With Reconstructible Inputs
+
+- `TaskManager.retry` persists and reuses `input_data`, but deliberately does not persist
+  `private_input_data` (which may contain prompts, config objects, or secrets).
+- A handler that depends on ephemeral private input must set `input_summary["retryable"] = False`
+  and provide `retry_blocked_reason`; the manager then rejects retry and the Task Center hides it.
+- Pipeline requests with `context_override` or `task_prompts` already use this contract. Without
+  the flag, retry would silently run with different prompts/context and produce misleading output.

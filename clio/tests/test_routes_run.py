@@ -203,6 +203,37 @@ class TestHandlePostRunStart:
         assert payload["ok"] is True
         assert manager.wait(payload["task_id"]).status.value == "succeeded"
 
+    def test_pipeline_with_ephemeral_context_is_not_retryable(self, tmp_path, monkeypatch):
+        from clio.task_center.manager import TaskManager
+        from clio.task_center.store import TaskStore
+        from clio.ui.routes.tasks import handle_post_task_retry
+
+        monkeypatch.setattr("clio.ui.routes.run._run_pipeline_task", lambda context: {"ok": True})
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+        handler, _, _ = _managed_handler(tmp_path, manager)
+
+        handle_post_run_start(
+            handler,
+            {},
+            {
+                "steps": ["analyze"],
+                "context_override": "这次请重点讲天气",
+                "task_prompts": {"analyze": "关注海边镜头"},
+            },
+        )
+
+        payload = handler._send_json.call_args.args[0]
+        task = manager.wait(payload["task_id"])
+        assert task.input_summary["retryable"] is False
+        assert "无法安全重试" in task.input_summary["retry_blocked_reason"]
+        handler._send_json.reset_mock()
+
+        handle_post_task_retry(handler, {}, {}, task.id)
+
+        body, status = handler._send_json.call_args.args
+        assert status == 409
+        assert "无法安全重试" in body["error"]
+
     def test_missing_media_dependency_blocks_before_task_submit(self, tmp_path, monkeypatch):
         from clio.task_center.manager import TaskManager
         from clio.task_center.store import TaskStore

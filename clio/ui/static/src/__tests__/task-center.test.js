@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filterTasks, kindLabel, statusGroup, statusLabel } from '../task-center.js';
+import { filterTasks, isTaskRetryable, kindLabel, statusGroup, statusLabel } from '../task-center.js';
 
 const tasks = [
   { id: 'a', status: 'running', kind: 'pipeline', project_name: 'Paris' },
@@ -20,6 +20,13 @@ describe('task center helpers', () => {
     expect(filterTasks(tasks, { status: 'active', kind: 'all', project: 'all' }).map(t => t.id)).toEqual(['a']);
     expect(filterTasks(tasks, { status: 'all', kind: 'rerun', project: 'Paris' }).map(t => t.id)).toEqual(['b']);
     expect(filterTasks(tasks, { status: 'done', kind: 'all', project: 'Tokyo' }).map(t => t.id)).toEqual(['c']);
+  });
+
+  it('allows retry only for terminal tasks with retryable inputs', () => {
+    expect(isTaskRetryable({ status: 'failed' })).toBe(true);
+    expect(isTaskRetryable({ status: 'cancelled' })).toBe(true);
+    expect(isTaskRetryable({ status: 'running' })).toBe(false);
+    expect(isTaskRetryable({ status: 'failed', input_summary: { retryable: false } })).toBe(false);
   });
 });
 
@@ -70,5 +77,28 @@ describe('task nav badge', () => {
     await loadTasks();
     const badge = document.querySelector('.task-nav-badge');
     expect(badge.hidden).toBe(true);
+  });
+
+  it('hides retry and explains why a task cannot be retried', async () => {
+    const task = {
+      id: 'blocked',
+      status: 'failed',
+      kind: 'pipeline',
+      title: '处理素材',
+      input_summary: {
+        retryable: false,
+        retry_blocked_reason: '此任务使用了临时上下文或自定义提示词，无法安全重试；请重新提交运行。',
+      },
+      updated_at: '2024-01-01',
+    };
+    api.mockResolvedValueOnce({ tasks: [task], latest_seq: 1 });
+    const { loadTasks, selectTask } = await import('../task-center.js');
+    await loadTasks();
+    api.mockResolvedValueOnce({ task, events: [], latest_seq: 1 });
+
+    await selectTask(task.id);
+
+    expect(document.querySelector('.task-retry')).toBeNull();
+    expect(document.querySelector('#tab-tasks').textContent).toContain('无法安全重试');
   });
 });

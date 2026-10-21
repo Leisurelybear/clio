@@ -17,6 +17,8 @@ same-project artifact serialization while keeping the CLI and artifact layout co
 - fix(task-center): serialize pipeline, rerun, cut export, and export writers per project while
   preserving cross-project concurrency
 - fix(ui): show local-model or cloud-credential guidance for the selected transcription engine
+- fix(task-center): reject retry for pipeline tasks that used ephemeral context overrides or
+  custom prompts, and explain the reason in the task detail UI
 - chore(node): require Node `>=22.12.0` consistently in package metadata, doctor, and docs
 - fix(desktop): prevent pytest from launching real pywebview windows; support an explicit
   GUI-test escape hatch

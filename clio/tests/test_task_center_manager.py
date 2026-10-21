@@ -338,6 +338,24 @@ def test_retry_creates_new_linked_task_with_same_safe_input(tmp_path):
     assert finished.input_data == {"video": "001.mp4"}
 
 
+def test_retry_rejects_task_that_needs_ephemeral_runtime_inputs(tmp_path):
+    manager = _manager(tmp_path)
+    manager.register(TaskKind.PIPELINE, lambda context: {"ok": True})
+    original = manager.submit(
+        TaskKind.PIPELINE,
+        "处理素材",
+        input_data={"steps": ["analyze"]},
+        input_summary={
+            "retryable": False,
+            "retry_blocked_reason": "此任务使用了临时上下文或自定义提示词，无法安全重试；请重新提交运行。",
+        },
+    )
+    assert manager.wait(original.id).status is TaskStatus.SUCCEEDED
+
+    with pytest.raises(ValueError, match="无法安全重试"):
+        manager.retry(original.id)
+
+
 def test_reporter_log_level_is_preserved(tmp_path):
     manager = _manager(tmp_path)
 

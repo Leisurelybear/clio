@@ -194,6 +194,9 @@ class TaskManager:
         original = self.store.require(task_id)
         if not original.is_terminal:
             raise ValueError("only terminal tasks can be retried")
+        if original.input_summary.get("retryable") is False:
+            reason = original.input_summary.get("retry_blocked_reason")
+            raise ValueError(str(reason) if reason else "task cannot be retried without its ephemeral runtime inputs")
         return self.submit(
             original.kind,
             original.title,

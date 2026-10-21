@@ -28,6 +28,11 @@ export function statusGroup(status) {
   return status || 'unknown';
 }
 
+export function isTaskRetryable(task) {
+  if (!task || task.input_summary?.retryable === false) return false;
+  return task.status === 'failed' || task.status === 'interrupted' || task.status === 'cancelled';
+}
+
 function _updateNavBadge() {
   const badge = document.querySelector('.project-item[data-entity="tasks"] .task-nav-badge');
   if (!badge) return;
@@ -89,7 +94,11 @@ function _detailHtml(detail) {
   const task = detail.task || detail;
   const events = detail.events || [];
   const canCancel = task.cancellable && ACTIVE.has(task.status) && !task.cancel_requested;
-  const canRetry = task.status === 'failed' || task.status === 'interrupted' || task.status === 'cancelled';
+  const canRetry = isTaskRetryable(task);
+  const retryBlocked = task.input_summary?.retryable === false && TERMINAL.has(task.status);
+  const retryNote = retryBlocked
+    ? `<p class="muted">${escapeHtml(task.input_summary.retry_blocked_reason || '此任务包含临时运行输入，无法安全重试。')}</p>`
+    : '';
   const error = task.error_message ? `<div class="task-error"><strong>错误：</strong>${escapeHtml(task.error_message)}</div>` : '';
   const timeline = events.length
     ? events.slice().reverse().map(event => `<li class="task-event task-event-${escapeHtml(event.level || 'info')}">
@@ -98,7 +107,7 @@ function _detailHtml(detail) {
   return `<div class="task-detail-head"><div><h3>${escapeHtml(task.title || kindLabel(task.kind))}</h3>
     <div class="task-detail-sub">${escapeHtml(kindLabel(task.kind))} · ${escapeHtml(task.project_name || task.project_id || '全局')} · ${escapeHtml(statusLabel(task.status))}</div></div>
     <div class="task-detail-actions">${canCancel ? '<button class="btn-secondary task-cancel">取消</button>' : ''}${canRetry ? '<button class="btn-primary task-retry">重试</button>' : ''}</div></div>
-    ${_progress(task)}<div class="task-phase">${escapeHtml(task.phase || task.message || '')}</div>${error}
+    ${_progress(task)}<div class="task-phase">${escapeHtml(task.phase || task.message || '')}</div>${error}${retryNote}
     <dl class="task-meta-grid"><dt>创建</dt><dd>${escapeHtml(_time(task.created_at))}</dd><dt>开始</dt><dd>${escapeHtml(_time(task.started_at))}</dd><dt>结束</dt><dd>${escapeHtml(_time(task.finished_at))}</dd><dt>任务 ID</dt><dd class="mono">${escapeHtml(task.id)}</dd></dl>
     <h4>执行事件</h4><ol class="task-events">${timeline}</ol>`;
 }

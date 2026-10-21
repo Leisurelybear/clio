@@ -330,6 +330,15 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
         "overwrite": overwrite,
         "use_transcripts": cfg.plan.use_transcripts,
     }
+    retryable = not (context_override or task_prompts)
+    input_summary = {
+        "steps": list(steps or []),
+        "file_count": len(files_list) if files_list is not None else None,
+        "day_label": day_label,
+        "retryable": retryable,
+    }
+    if not retryable:
+        input_summary["retry_blocked_reason"] = "此任务使用了临时上下文或自定义提示词，无法安全重试；请重新提交运行。"
     try:
         task = manager.submit(
             TaskKind.PIPELINE,
@@ -343,11 +352,7 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
                 "context_override": context_override,
                 "task_prompts": task_prompts,
             },
-            input_summary={
-                "steps": list(steps or []),
-                "file_count": len(files_list) if files_list is not None else None,
-                "day_label": day_label,
-            },
+            input_summary=input_summary,
             reject_if_active=True,
         )
     except TaskAlreadyRunningError:

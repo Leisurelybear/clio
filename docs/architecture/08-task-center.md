@@ -113,8 +113,11 @@ Frontend run-panel buttons map to `submit`, `request_cancel`, `wait`, and the ta
    logs `context.input` could leak prompts/keys — keep the sanitization split documented.
 2. `INTERRUPTED` is *not* a user action status; a restart mid-run silently replaces `RUNNING`
    with `INTERRUPTED`, so the UI must treat it as "the task did not finish" rather than "failure".
-3. `retry` re-uses the original `input_data` but *not* `private_input_data` — re-running a task
-   whose handler needs private context will fail unless the caller re-supplies it.
+3. `retry` re-uses the original `input_data` but *not* `private_input_data`. Pipeline requests
+   that include ephemeral `context_override` or `task_prompts` therefore set
+   `input_summary.retryable=false` plus a `retry_blocked_reason`; the UI hides the retry action
+   and the manager rejects direct retry calls. Any new handler with non-reconstructible private
+   input must opt into the same flag instead of failing silently after retry.
 4. `cancellable=True` is enforced at `request_cancel` (throws `TaskNotCancellableError`) but the
    handler must still honor `cancel_event` cooperatively; a busy ffmpeg child process holds the
    thread until it returns (see `run_ffmpeg` cancel plumbing).
