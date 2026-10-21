@@ -62,8 +62,13 @@ def list_log_files(logs_dir: Path) -> list[dict[str, Any]]:
     if not root.is_dir():
         return []
 
+    try:
+        entries = list(root.iterdir())
+    except OSError:
+        return []
+
     files: list[dict[str, Any]] = []
-    for entry in root.iterdir():
+    for entry in entries:
         if not _valid_log_name(entry.name):
             continue
         try:

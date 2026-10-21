@@ -36,6 +36,14 @@ def test_list_log_files_missing_directory_is_empty(tmp_path):
     assert list_log_files(tmp_path / "missing") == []
 
 
+def test_list_log_files_unreadable_directory_is_empty(tmp_path, monkeypatch):
+    def _deny(*args, **kwargs):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(Path, "iterdir", _deny)
+    assert list_log_files(tmp_path) == []
+
+
 def test_read_log_file_parses_timestamps_and_continuation_lines(tmp_path):
     name = "2026-07-20-22.log"
     _write_log(
