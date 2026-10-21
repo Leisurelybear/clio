@@ -269,7 +269,7 @@ python -m pytest clio/tests/ -v
 # 前端单测需要 Node.js 22.12+（Web UI 运行本身仍然无需 Node）
 npm test
 
-# 2037 pytest（12 skipped）+ 532 Vitest（本机 Python 3.10.6 验证）
+# 2047 pytest（12 skipped）+ 534 Vitest（本机 Python 3.10.6 验证）
 # GitHub Actions CI（Ubuntu + Windows + macOS · Python 3.11 / 3.12；Node 22.12+）
 # 代码风格: ruff (format + lint)
 ```
@@ -291,8 +291,8 @@ npm test
 | 🧪 vmeta | 13 | 侧边栏元数据 / 索引 / 过期检测 |
 | 其他 | ~96 | pipeline / plan / log / ratelimit / 主入口等 |
 
-> 全量套件基线（2026-10-21，本机 Python 3.10.6）：2037 pytest passed / 12 skipped，
-> 532 Vitest passed。项目声明 Python 3.11+，最终以 CI 的 Python 3.11 / 3.12 矩阵为准。
+> 全量套件基线（2026-10-21，本机 Python 3.10.6）：2047 pytest passed / 12 skipped，
+> 534 Vitest passed。项目声明 Python 3.11+，最终以 CI 的 Python 3.11 / 3.12 矩阵为准。
 
 ---
 

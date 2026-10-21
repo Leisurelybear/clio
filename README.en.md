@@ -251,7 +251,7 @@ vlog-video-analysis/
 ```bash
 python -m pytest clio/tests/ -v
 
-# 2037 pytest (12 skipped) + 532 Vitest · verified locally on Python 3.10.6
+# 2047 pytest (12 skipped) + 534 Vitest · verified locally on Python 3.10.6
 # GitHub Actions CI (Ubuntu + Windows + macOS · Python 3.11 / 3.12; Node 22.12+)
 # Code style: ruff (format + lint)
 ```
@@ -273,8 +273,8 @@ python -m pytest clio/tests/ -v
 | 🧪 vmeta | 13 | Sidecar meta / index / staleness |
 | Others | ~96 | Pipeline / plan / log / ratelimit / main entry etc. |
 
-> Full-suite baseline (2026-10-21, local Python 3.10.6): 2037 pytest passed / 12 skipped and
-> 532 Vitest passed. The project declares Python 3.11+, so the Python 3.11 / 3.12 CI matrix
+> Full-suite baseline (2026-10-21, local Python 3.10.6): 2047 pytest passed / 12 skipped and
+> 534 Vitest passed. The project declares Python 3.11+, so the Python 3.11 / 3.12 CI matrix
 > remains authoritative.
 
 ---

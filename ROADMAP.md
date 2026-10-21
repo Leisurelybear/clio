@@ -33,13 +33,16 @@ CLI, HTTP, or artifact layout.
 - [x] Serialize same-project pipeline/rerun/cut/export artifact writers
 - [x] Make transcript UI guidance follow the active engine
 - [x] Require Node 22.12+ consistently and block real pywebview windows under pytest
+- [x] Block retry for pipeline tasks that used ephemeral context or custom prompts
+- [x] Honor `Retry-After` and surface DashScope subtask failures from cloud ASR
 - [x] Reconcile R-047 delivery status and document the iteration
 
-**Verification:** `2037 passed, 12 skipped` locally on Python 3.10.6; `532` Vitest tests across
+**Verification:** `2047 passed, 12 skipped` locally on Python 3.10.6; `534` Vitest tests across
 `52` files; Ruff and mypy clean. CI Python 3.11/3.12 verification remains pending because the
 batch has not been pushed.
 
 **Summary:** `docs/analysis/2026-10-21-review-iteration-summary.md`
+**Follow-up evidence:** `c6a9594`, `f87d0e5`, `08adaa8`
 
 ## Recently completed (2026-10-20)
 
@@ -1563,4 +1566,4 @@ Sorted by priority: P0 (immediate) → P1 (near-term) → P2 (mid-term) → P3 (
 
 Older completed sections (commit log, test coverage verification, code review audit) archived to [`docs/archive/2026-07-01-roadmap-archive.md`](docs/archive/2026-07-01-roadmap-archive.md).
 
-### Test count: 2037 pytest (12 skipped) + 532 Vitest (as of 2026-10-21 review iteration)
+### Test count: 2047 pytest (12 skipped) + 534 Vitest (as of 2026-10-21 review iteration)

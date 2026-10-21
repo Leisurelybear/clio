@@ -8,7 +8,7 @@
 ## 1. Outcome
 
 This iteration closed the highest-impact reliability gaps found in the full-project review.
-Thirteen focused commits cover ASR engine consistency, cloud ASR retry/cancellation, pipeline
+Sixteen focused commits cover ASR engine consistency, cloud ASR retry/cancellation, pipeline
 and plan failure semantics, Task Center project-artifact serialization, engine-aware UI
 guidance, Node toolchain consistency, and desktop-test isolation.
 
@@ -36,6 +36,9 @@ No CLI command or artifact path changed. The only transcript format change is th
 | Node toolchain | `cb7b24a` | `package.json`, doctor checks, and docs now require Node `>=22.12.0` consistently. |
 | Desktop test isolation | `51ef4d0` | `pytest` refuses to launch a real pywebview window unless tests explicitly opt in or inject a fake `webview` module. |
 | Roadmap reconciliation | `3fc6202` | R-047 now reflects the delivered Aliyun scope and the deferred Baidu follow-up. |
+| Retry safety | `c6a9594` | Pipeline tasks using ephemeral context/prompts are marked non-retryable; the manager rejects retry and the UI explains why. |
+| Retry timing | `f87d0e5` | Cloud ASR honors `Retry-After` seconds/HTTP dates, capped by the configured maximum delay. |
+| Cloud error detail | `08adaa8` | DashScope per-file `subtask_status=FAILED` surfaces the provider message/code instead of a missing-URL error. |
 
 ## 3. Key Decisions
 
@@ -55,8 +58,8 @@ No CLI command or artifact path changed. The only transcript format change is th
 
 | Check | Result | Notes |
 |---|---|---|
-| `python -m pytest clio/tests/ -q --disable-warnings` | `2037 passed, 12 skipped` in 64.45s | Local Python 3.10.6; project declares Python 3.11+ |
-| `npm test -- --run` | `52 files passed, 532 tests passed` | Vitest |
+| `python -m pytest clio/tests/ -q --disable-warnings` | `2047 passed, 12 skipped` in 69.95s | Local Python 3.10.6; project declares Python 3.11+ |
+| `npm test -- --run` | `52 files passed, 534 tests passed` | Vitest |
 | `ruff check clio main.py` | Passed | No lint findings |
 | `ruff format --check clio main.py` | Passed | 232 files already formatted |
 | `mypy --check-untyped-defs --show-error-codes` | Passed | 38 configured source files |
@@ -109,4 +112,7 @@ a4a6b6c fix(ui): make transcription guidance engine-aware
 cb7b24a chore(node): require Node 22.12 or newer
 3fc6202 docs(roadmap): reconcile cloud ASR delivery status
 51ef4d0 fix(desktop): block real webview under pytest
+c6a9594 fix(task-center): block retry for ephemeral pipeline inputs
+f87d0e5 fix(asr): honor Retry-After on transient failures
+08adaa8 fix(asr): surface DashScope subtask failures
 ```

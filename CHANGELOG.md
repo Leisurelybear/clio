@@ -2,7 +2,7 @@
 
 ## 2026-10-21
 
-Completed the full-project review iteration with 13 focused commits. The batch hardens ASR
+Completed the full-project review iteration with 16 focused commits. The batch hardens ASR
 engine consistency, cloud retry/cancellation, failure propagation, plan integrity, and
 same-project artifact serialization while keeping the CLI and artifact layout compatible.
 
@@ -26,7 +26,7 @@ same-project artifact serialization while keeping the CLI and artifact layout co
   GUI-test escape hatch
 - docs: reconcile R-047 Aliyun delivery status and add the review iteration summary
 
-Local verification: `2037 passed, 12 skipped` (Python 3.10.6), `532` Vitest tests across
+Local verification: `2047 passed, 12 skipped` (Python 3.10.6), `534` Vitest tests across
 `52` files, Ruff check/format clean, and mypy clean across the 38-file configured scope.
 The Python 3.11/3.12 CI matrix remains the next release gate; this batch has not been pushed.
 
