@@ -85,7 +85,48 @@ jobs:
 
     - name: Run tests with coverage
       run: |
-        python -m pytest clio/tests/ -p randomly --cov=clio --cov-branch --cov-report=term --cov-report=xml --cov-config=pyproject.toml
+        python -m pytest clio/tests/ -p randomly --cov=clio --cov-branch --cov-report=term --cov-report=xml --cov-config=pyproject.toml --junitxml=.pytest_cache/pytest-results.xml
+
+    - name: Annotate pytest failures
+      if: failure()
+      shell: bash
+      run: |
+        python - <<'PY'
+        import xml.etree.ElementTree as ET
+        from pathlib import Path
+
+        def escape(value: str) -> str:
+            return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+        report = Path(".pytest_cache/pytest-results.xml")
+        if not report.is_file():
+            print("::error title=Pytest report missing::pytest exited non-zero before writing JUnit XML")
+            raise SystemExit(0)
+
+        root = ET.parse(report).getroot()
+        failed = 0
+        for case in root.iter("testcase"):
+            problem = case.find("failure")
+            if problem is None:
+                problem = case.find("error")
+            if problem is None:
+                continue
+            failed += 1
+            if failed > 25:
+                continue
+            file_name = case.attrib.get("file", "")
+            line = case.attrib.get("line", "1")
+            name = f"{case.attrib.get('classname', '')}::{case.attrib.get('name', '')}"
+            message = (problem.attrib.get("message") or problem.text or "failed")[:800]
+            print(
+                f"::error file={file_name},line={line},title=Pytest failed::"
+                f"{escape(name)} - {escape(message)}"
+            )
+
+        if not failed:
+            rate = root.attrib.get("line-rate", "unknown")
+            print(f"::error title=Pytest exited 1::No failed testcase in JUnit XML; coverage line-rate={rate}")
+        PY
 
     - name: Check tests left the working tree clean
       # bash syntax; the default Windows runner shell is PowerShell.
