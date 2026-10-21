@@ -101,6 +101,11 @@ waiting between polls, so cancellation does not wait for a full 3-second poll in
 single HTTP request already in flight may still complete before the cancellation is observed;
 the provider will not retry it or continue to the next stage.
 
+Polling can report `SUCCEEDED` while an individual file result is marked `subtask_status=FAILED`
+(for example, when DashScope cannot download the uploaded object). The parser surfaces that
+subtask `message`/`code` directly instead of treating the missing transcription URL as a generic
+format error.
+
 Keys come from `.env` (`DASHSCOPE_API_KEY` / `ALIYUN_ACCESS_KEY_ID`/`SECRET` for the OSS
 upload) — never in `config.yaml` or task payloads. The output is converted to the same
 `TranscriptSegment` list, so the batch writer in `clio/tasks/transcribe.py` stores an identical

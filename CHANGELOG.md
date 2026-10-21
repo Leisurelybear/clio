@@ -12,6 +12,7 @@ same-project artifact serialization while keeping the CLI and artifact layout co
 - fix(asr): retry transient DashScope/OSS failures and propagate cancellation through upload,
   submit, polling, backoff, and result download
 - fix(asr): honor `Retry-After` on transient HTTP failures, capped by the configured maximum delay
+- fix(asr): surface DashScope subtask failure messages instead of reporting a missing transcript URL
 - fix(pipeline): propagate partial step failures and empty transcription results through full
   runs instead of reporting false success
 - fix(plan): reject unusable analysis inputs and empty AI-generated plans

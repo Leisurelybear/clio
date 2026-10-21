@@ -148,7 +148,13 @@ class AliyunASRProvider:
         if not results:
             raise RuntimeError("阿里云 ASR 返回结果为空")
 
-        transcription_url = results[0].get("transcription_url")
+        first_result = results[0]
+        subtask_status = str(first_result.get("subtask_status") or "").upper()
+        if subtask_status and subtask_status != "SUCCEEDED":
+            message = first_result.get("message") or first_result.get("code") or subtask_status
+            raise RuntimeError(f"阿里云 ASR 转录失败: {message}")
+
+        transcription_url = first_result.get("transcription_url")
         if not transcription_url:
             raise RuntimeError("阿里云 ASR 结果缺少 transcription_url")
 

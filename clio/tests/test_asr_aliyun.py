@@ -119,6 +119,25 @@ def test_task_failed_raises():
             provider.transcribe(Path("fake.wav"), "zh")
 
 
+def test_subtask_failure_surfaces_provider_message():
+    provider = AliyunASRProvider(MagicMock())
+
+    with pytest.raises(RuntimeError, match="音频下载失败"):
+        provider._parse_result(
+            {
+                "output": {
+                    "results": [
+                        {
+                            "subtask_status": "FAILED",
+                            "code": "InvalidFile.DownloadFailed",
+                            "message": "音频下载失败",
+                        }
+                    ]
+                }
+            }
+        )
+
+
 def test_cancel_event_stops_polling():
     from pathlib import Path
 
