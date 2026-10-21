@@ -322,6 +322,7 @@ class TestHandlePostCut:
         from clio.task_center.models import TaskKind, TaskStatus
         from clio.task_center.store import TaskStore
 
+        monkeypatch.setattr("clio.ui.routes.plan.preflight_config_media_deps", lambda *a, **k: {"ok": True})
         project_dir = tmp_path / "project"
         plans_dir = tmp_path / "plans"
         output_dir = tmp_path / "cuts" / "day1"

@@ -53,6 +53,13 @@ def _managed_handler(tmp_path, manager):
     return handler, project_dir, output_dir
 
 
+def _allow_media_preflight(monkeypatch):
+    monkeypatch.setattr(
+        "clio.ui.routes.run.preflight_config_media_deps",
+        lambda *args, **kwargs: {"ok": True},
+    )
+
+
 @pytest.fixture
 def _handler():
     """Create a mock handler with _get_state returning a per-project ServerState-like object."""
@@ -193,6 +200,7 @@ class TestHandlePostRunStart:
         from clio.task_center.manager import TaskManager
         from clio.task_center.store import TaskStore
 
+        _allow_media_preflight(monkeypatch)
         monkeypatch.setattr("clio.ui.routes.run._run_pipeline_task", lambda context: {"ok": True})
         manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
         handler, _, _ = _managed_handler(tmp_path, manager)
@@ -480,6 +488,7 @@ class TestManagedRunIntegration:
         from clio.task_center.models import TaskKind, TaskStatus
         from clio.task_center.store import TaskStore
 
+        _allow_media_preflight(monkeypatch)
         manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
         captured = {}
 
@@ -505,6 +514,7 @@ class TestManagedRunIntegration:
         from clio.task_center.manager import TaskManager
         from clio.task_center.store import TaskStore
 
+        _allow_media_preflight(monkeypatch)
         manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
         entered = threading.Event()
         release = threading.Event()
@@ -529,6 +539,7 @@ class TestManagedRunIntegration:
         from clio.task_center.models import TaskStatus
         from clio.task_center.store import TaskStore
 
+        _allow_media_preflight(monkeypatch)
         manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
         entered = threading.Event()
 
@@ -913,6 +924,7 @@ class TestManagedCancelErrors:
         from clio.task_center.store import TaskStore
         from clio.ui.routes.tasks import handle_post_task_cancel
 
+        _allow_media_preflight(monkeypatch)
         manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
 
         def worker(context):
