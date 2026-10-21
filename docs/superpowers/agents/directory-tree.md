@@ -24,6 +24,9 @@ vlog-video-analysis/
 │   ├── identity.py             # Canonical media identity helpers
 │   ├── progress.py             # `.progress.json` tracker for CLI/UI runs
 │   ├── processing_state.py     # Per-file step status
+│   ├── log.py                  # Tee/stdout capture, hourly disk rotation, redaction
+│   ├── session_log.py          # Process-memory log ring buffer for live UI tail
+│   ├── log_history.py          # Read-only hourly-log listing and size-capped tail (R-027e)
 │   ├── prompt_overrides.py     # Prompt override lookup and caching
 │   ├── shutdown.py             # beforeStop hooks and subprocess cleanup
 │   ├── config/
@@ -105,6 +108,9 @@ vlog-video-analysis/
 │   │           ├── viewer.js
 │   │           ├── editor.js
 │   │           ├── editor-config.js
+│   │           ├── logs-filter.js   # Log entry normalization, severity, filters
+│   │           ├── logs-buffer.js   # Client ring buffer
+│   │           ├── logs-history.js  # Historical source labels/status helpers
 │   │           ├── editor-plan.js
 │   │           ├── editor-texts.js
 │   │           ├── editor-voiceover.js
@@ -140,6 +146,8 @@ Use focused tests first, then full regression:
 - Pipeline/run: `test_pipeline.py`, `test_routes_run.py`, `test_progress.py`, `test_processing_state.py`
 - Task Center: `test_task_center_manager.py`, `test_task_center_models.py`, `test_task_center_store.py`
 - Notifications: `test_notifications.py`; frontend coverage includes `notification-center.test.js` and `task-center.test.js`
+- Logs: `test_log.py`, `test_session_log.py`, `test_log_history.py`; frontend `logs-filter.test.js`,
+  `logs-buffer.test.js`, `logs-history.test.js`, `logs-ui.test.js`
 - Media identity: `test_identity.py`, `test_vmeta.py`, `test_routes_videos.py`, `test_file_service.py`
 - UI dispatch/auth: `test_server.py`, route-specific `test_routes_*.py`
 - Frontend modules: `npm test` with Node 22.12+; `node --check` works on individual ES modules for syntax only

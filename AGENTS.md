@@ -34,6 +34,8 @@ vlog-video-analysis/
 │   ├── whisper_cli.py         Whisper CLI
 │   ├── utils.py               ffmpeg discovery, file IO, extract_json
 │   ├── log.py                 Logging (hourly rotating, TeeWriter)
+│   ├── session_log.py         In-memory live log ring buffer
+│   ├── log_history.py         Read-only hourly log listing/tail (R-027e)
 │   ├── cut.py                 Segment cutting (ffmpeg wrapper)
 │   ├── plan_model.py          Plan/PlanSegment domain + save validation (R-026)
 │   ├── plan_readiness.py      Export/cut readiness (error/warning tiers)
@@ -56,6 +58,7 @@ vlog-video-analysis/
 │   │       └── src/           ES modules: editor-plan.js, plan-edit.js,
 │   │                           task-center.js,
 │   │                           notification-center.js,
+│   │                           logs-history.js, logs-filter.js, logs-buffer.js,
 │   │                          sidebar.js, sidebar-data.js, sidebar-video-filter.js,
 │   │                          runner.js, editor-config.js, ...
 │   ├── ai/                    AI providers
@@ -147,6 +150,15 @@ Provider management is a frontend-only experience - no new backend APIs needed:
 - Unread notifications are never removed by retention cleanup; only read history is bounded.
 - `notification-center.js` owns the global SSE connection, unread badge, inbox filters,
   read actions, and Task Center deep links.
+
+### 4.9 Historical Logs (R-027e)
+
+- `clio/log_history.py` is the only supported reader for hourly disk logs in the UI.
+- Accepted names are direct children matching `YYYY-MM-DD-HH.log`; never accept arbitrary paths.
+- Reads are tail-only: 2 MB default, 5 MB hard cap, partial first line discarded.
+- Historical mode pauses live polling and disables clear; returning to `当前会话` resumes from the
+  retained session offset. Keep the live and historical buffers separate.
+- Endpoint changes must cover traversal, symlink escape, unreadable/missing files, and truncation.
 
 ## 5. User Preferences
 

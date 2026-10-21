@@ -5,16 +5,41 @@ Mark `[ ]` as `[x]` when done, `[~]` for in-progress, `[!]` for blocked.
 
 Design discussions / decision history in `AGENTS.md`, implementation details in git log.
 
-## Active backlog (2026-10-21)
+## Active backlog (2026-10-22)
 
 - R-047-FU Optional Baidu ASR provider (deferred; Aliyun cloud transcription is complete)
 - R-042 Opt-in desktop OS notifications when the app is backgrounded
 - R-043 Frontend module decomposition and remaining legacy mypy debt
+- R-028b ffmpeg setup zip fallback after package-manager installation fails
+- R-028c UI one-click ffmpeg installation with progress reporting
+- R-031b Plan preview: prefer cut/concat media on the global timeline
+- R-032e Optional ffmpeg bundling and signed desktop installer
+- R-025 Multi-language / i18n for UI and CLI user-facing copy (large)
 - Follow-up: add endpoint-level HTTP/SSE lifecycle coverage (restart retry, late subscription,
   reconnect/replay, multi-tab cancel, terminal-event races)
-- Release gate: run the Python 3.11/3.12 CI matrix for the 2026-10-21 batch after an approved push
+- Release gate: run the Python 3.11/3.12 CI matrix for the 2026-10-21/22 batches after an approved push
 
 Detailed sections and historical delivery notes remain below.
+
+## Recently completed (2026-10-22)
+
+### R-027e Historical session logs
+
+**Status:** Complete locally; not pushed. Backend and frontend suites pass.
+
+**Goal:** Browse hourly files written under `paths.logs_dir` without leaving the Web UI or
+exposing arbitrary filesystem reads.
+
+- [x] Add read-only `clio/log_history.py` with basename-only hourly filename validation
+- [x] Add `GET /api/logs/files` and `GET /api/logs/file?name=...&max_bytes=...`
+- [x] Read the file tail (default 2 MB, hard cap 5 MB) and parse `YYYY-MM-DD HH:MM:SS` prefixes
+- [x] Add a source picker; historical mode pauses live polling and disables destructive clear
+- [x] Return to the live session from the retained offset without losing buffered lines
+- [x] Cover traversal, symlink escape, missing/unreadable files, truncation, and UI mode switching
+
+**Commits:** `22d9c80`, `eaae223`, `05ac502`
+**Summary:** `docs/analysis/2026-10-22-r027e-log-history-summary.md`
+**Verification:** `2070 passed, 12 skipped`; `540` Vitest tests across `54` files; Ruff and mypy clean.
 
 ## Recently completed (2026-10-21)
 
@@ -326,7 +351,7 @@ Review: `docs/analysis/2026-07-25-full-project-review-and-fixes.md`
 | ID | Item | Effort | Priority |
 | --- | --- | --- | --- |
 | R-025 | Multi-language / i18n (UI + CLI user-facing copy) | Large | Medium |
-| R-027e | Session logs: **load historical files** from `logs/YYYY-MM-DD-HH.log` | Medium | Medium |
+| R-027e | Session logs: load historical files — **Done** (2026-10-22) | Medium | Medium |
 | R-028b | ffmpeg setup zip fallback (package manager fail → static build) | Medium | Medium |
 | R-028c | UI one-click ffmpeg install (banner action, Whisper-like) | Medium | Medium |
 | R-031b | Plan preview: prefer cut / concat media on the global timeline | Medium | Medium |
@@ -585,8 +610,10 @@ Spec/plan: `docs/superpowers/specs|plans/2026-07-23-r033-hardening-and-pipeline-
 - [x] `/api/run/preview` and the Run UI display missing binaries and the blocking reason
 - [x] Structured `media_dependency_missing` responses and regression coverage
 
-**Still open:** dependency installation/distribution (R-028b/c), bundled ffmpeg and release installer work (R-032e),
-and additional preflight coverage for lower-traffic media actions such as cover/waveform.
+**Still open:** dependency installation/distribution (R-028b/c) and bundled ffmpeg / release
+installer work (R-032e). Waveform already probes `ffmpeg`/`ffprobe` before locking or starting a
+job. Cover extraction is an optional analyze post-step that logs a warning instead of failing the
+pipeline, so it is intentionally not a blocking preflight dependency.
 
 **Recently completed (2026-07-18):** R-028a ffmpeg missing-path Phase A; video waveform lazy peaks + orphan lock recovery; cover thumbs on video list; plan reorder feedback.
 
@@ -594,7 +621,7 @@ and additional preflight coverage for lower-traffic media actions such as cover/
 
 **Goal:** In the **会话日志** panel (`renderLogs` / `entity-logs`), users can narrow the live log stream so long runs are readable, with inferred severity badges; later load past hours from disk and filter by time.
 
-**Status:** **R-027a/b/d Done** (2026-07-22). **R-027e open** (historical files). R-027c server `?q=` still deferred.
+**Status:** **R-027a/b/d/e Done** (2026-10-22). R-027c server `?q=` remains deferred.
 
 #### Phases
 
@@ -604,7 +631,7 @@ and additional preflight coverage for lower-traffic media actions such as cover/
 | B | R-027b | **Done** | Level chips + badges (heuristic severity) |
 | C | R-027c | Deferred | Server `?q=` / level only if client buffer too large |
 | D | R-027d | **Done** (2026-07-22) | Show timestamps + recent 5/15/60 min chips (slim; no from–to) |
-| E | R-027e | **Open** | **Load historical logs** from on-disk `logs/YYYY-MM-DD-HH.log` (list hours, open one or merge range) |
+| E | R-027e | **Done** (2026-10-22) | Load one historical `logs/YYYY-MM-DD-HH.log` with a size-capped tail; no merge range yet |
 
 **Delivered (a/b):**
 - [x] Pure helpers `logs-filter.js`: `inferLogLevel`, `filterLogLines`, `lineMatchesLogFilter` + Vitest
@@ -625,18 +652,22 @@ and additional preflight coverage for lower-traffic media actions such as cover/
 
 **Non-goals for d:** timezone picker; absolute wall-clock sync; R-027e historical files.
 
-#### R-027e — Load historical logs from `logs/` (open)
+#### R-027e — Load historical logs from `logs/` (**Done**, 2026-10-22)
 
 **Why:** Session buffer is in-memory (max ~10k lines, cleared on restart/clear). Disk already has hourly files under `paths.logs_dir` (`logs/YYYY-MM-DD-HH.log`). Users need “昨天晚上那次失败” without grepping the filesystem.
 
-**Proposed scope:**
-1. **API** — e.g. `GET /api/logs/files` list available hour files (name, size, mtime); `GET /api/logs/file?name=…` or `?from=&to=` stream/read tail of one or more files (size-capped, path-sanitized under logs_dir only).
-2. **UI** — dropdown / date+hour picker: “当前会话” | “2026-07-20 22:00” | …; optional “加载更多历史”.
-3. **Mode** — historical view: pause live poll (or badge “历史”); switch back to live resumes offset tail.
-4. **Reuse filters** — same keyword / level / time-range over loaded lines.
-5. **Safety** — basename-only names; reject `..`; optional max bytes (e.g. last 2–5 MB per request).
+**Delivered:**
+1. **API** — `GET /api/logs/files` lists hourly files (`name`, `size`, `mtime`);
+   `GET /api/logs/file?name=…&max_bytes=…` reads one file tail.
+2. **UI** — source picker: “当前会话” | “2026-07-20 22:00 · 1.2 MB” | …; one file per view.
+3. **Mode** — historical view pauses live polling and disables clear; switching back to live
+   resumes from the retained offset and fills the gap.
+4. **Filters** — the existing keyword / level / recent-time filters apply to historical entries.
+5. **Safety** — basename matching `YYYY-MM-DD-HH.log`, resolved-parent check, symlink rejection,
+   2 MB default tail, 5 MB hard cap, and partial-first-line discard.
 
-**Depends on:** R-027d timestamp display makes historical lines readable; can ship e with parse-from-line-prefix first if d not done.
+**Deferred:** merging multiple hours or a from–to range in one request; open one hour at a time
+for now.
 
 #### Nice-to-have (unscheduled, after d/e)
 
@@ -1566,4 +1597,4 @@ Sorted by priority: P0 (immediate) → P1 (near-term) → P2 (mid-term) → P3 (
 
 Older completed sections (commit log, test coverage verification, code review audit) archived to [`docs/archive/2026-07-01-roadmap-archive.md`](docs/archive/2026-07-01-roadmap-archive.md).
 
-### Test count: 2047 pytest (12 skipped) + 534 Vitest (as of 2026-10-21 review iteration)
+### Test count: 2070 pytest (12 skipped) + 540 Vitest (as of 2026-10-22 R-027e iteration)

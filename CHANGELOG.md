@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-10-22
+
+Completed R-027e historical session-log browsing. The Web UI can now open an hourly file from
+`logs/` without leaving the app, while the live session remains available from its retained offset.
+
+- feat(logs): add a read-only hourly-log reader with basename validation, resolved-parent checks,
+  symlink rejection, and a 2 MB default / 5 MB maximum tail
+- feat(logs): expose `GET /api/logs/files` and `GET /api/logs/file`
+- feat(ui): add a source picker, historical mode status/truncation hints, read-only clear state,
+  and stale-request protection when switching sources or returning to live
+- fix(logs): treat unreadable or concurrently removed log directories as empty instead of failing
+- docs: close R-027e, reconcile the active backlog, and document the API/UI safety contract
+
+Local verification: `2070 passed, 12 skipped` (Python 3.10.6), `540` Vitest tests across `54`
+files, Ruff check/format clean across `234` files, and mypy clean across the 39-file configured
+scope. The Python 3.11/3.12 CI matrix still requires an approved push.
+
 ## 2026-10-21
 
 Completed the full-project review iteration with 16 focused commits. The batch hardens ASR

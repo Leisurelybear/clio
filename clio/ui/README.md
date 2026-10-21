@@ -139,18 +139,22 @@ UI 只读 / 写 `config.yaml` 里 `paths.output_dir` 下的文件：
 
 ## 会话日志 (R-027)
 
-侧栏 **日志** 读服务端内存会话缓冲（`GET /api/logs?offset=`），与磁盘 `logs/YYYY-MM-DD-HH.log` 同源写入（`print` / pipeline 进度经 Tee 进入缓冲）。
+侧栏 **日志** 默认读服务端内存会话缓冲（`GET /api/logs?offset=`），与磁盘 `logs/YYYY-MM-DD-HH.log` 同源写入（`print` / pipeline 进度经 Tee 进入缓冲）。来源下拉框可切换到已落盘的小时文件。
 
 **已有能力：**
 
 | 能力 | 说明 |
 | --- | --- |
 | 自动刷新 | 每 2s 增量拉取；自动滚动可关 |
-| 清空 | `POST /api/logs/clear` 清空服务端缓冲；本地过滤条件保留 |
+| 历史日志 | `GET /api/logs/files` 列出小时文件；`GET /api/logs/file?name=…` 读取尾部（默认 2 MB，上限 5 MB） |
+| 模式切换 | 历史模式暂停 live tail、显示行数与截断提示；切回「当前会话」从原 offset 继续补拉 |
+| 清空 | `POST /api/logs/clear` 清空服务端缓冲与磁盘日志；历史模式禁用，避免误删 |
 | 关键字过滤 | 工具栏搜索框，不区分大小写子串（客户端） |
 | 等级 chips | 全部 / 信息 / 警告 / 错误 |
 | 等级徽章 | 每行推断 severity 并着色 |
 | 匹配计数 | `显示 N / M` |
+
+历史接口只接受 `logs_dir` 下的 `YYYY-MM-DD-HH.log` basename；越界路径、符号链接逃逸和无效小时名会被拒绝。日志行前缀 `YYYY-MM-DD HH:MM:SS` 会解析为时间列，Traceback 等无前缀续行沿用上一条时间。
 
 **等级推断**（纯客户端 `logs-filter.js`，非结构化 JSON 日志）：
 
@@ -159,14 +163,15 @@ UI 只读 / 写 `config.yaml` 里 `paths.output_dir` 下的文件：
 3. ⚠ / 跳过 / skip → 警告
 4. 其它 → 信息
 
-**已排期后续（见 `ROADMAP.md` R-027）：**
+**阶段状态（见 `ROADMAP.md` R-027）：**
 
 | ID | 能力 | 说明 |
 | --- | --- | --- |
-| R-027d | **时间展示 + 按时间筛选** | 行首/列显示 `HH:MM:SS`；快捷「最近 5/15/60 分钟」与 from–to；与关键字/等级 AND |
-| R-027e | **加载磁盘历史日志** | 列 `logs/YYYY-MM-DD-HH.log`，选择小时文件或时间范围读入面板（限大小）；历史模式暂停 live tail |
+| R-027d | **Done** | 行时间列 + 最近 5/15/60 分钟快捷筛选，与关键字/等级 AND |
+| R-027e | **Done** | 来源下拉框加载单个小时文件；历史模式只读并暂停 live tail |
+| R-027c | Deferred | 服务端 `?q=` / level 过滤仅在客户端缓冲不足时再考虑 |
 
-**其它可选（未排期）：** 复制/导出过滤结果；手动暂停刷新；步骤 chips；≥ 等级；打开 `logs/` 目录；跨项目分桶；R-027c 服务端 `?q=`。
+**其它可选（未排期）：** 复制/导出过滤结果；手动暂停刷新；步骤 chips；≥ 等级；打开 `logs/` 目录；跨项目分桶；多小时合并/时间范围加载。
 
 ## 视频源切换 (Source Toggle)
 

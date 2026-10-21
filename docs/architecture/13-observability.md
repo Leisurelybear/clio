@@ -1,6 +1,6 @@
 # Clio — Observability (Logs, Progress, State, Privacy)
 
-> Series: `13` of `00-overview.md`. Covers `clio/log.py`, `clio/session_log.py`,
+> Series: `13` of `00-overview.md`. Covers `clio/log.py`, `clio/session_log.py`, `clio/log_history.py`,
 > `clio/progress.py`, `clio/processing_state.py`, and `clio/privacy.py` — how Clio records what it
 > did, where it is in the pipeline, and what it is careful *not* to record. Series concludes
 > here; back to `00-overview.md` for the full map.
@@ -10,6 +10,8 @@
 - Unified logging: mirror all `print`/exception output to both console and hourly-rotating,
   privacy-redacted, quota-bounded disk logs.
 - Live UI console: an in-memory **session log** the web UI tails (offset-based `GET /api/logs`).
+- Historical UI console: read-only access to hourly disk logs, one file at a time, with a
+  size-capped tail (`GET /api/logs/files`, `GET /api/logs/file`).
 - Progress + state: `.progress.json` (current run) and `.processing.json` (per-file step matrix)
   let the UI/CLI resume and summarize without holding process state.
 - Privacy: credentials (Bearer, `sk-*`, URL userinfo, `key=…`) are redacted *before* lines reach
@@ -21,6 +23,7 @@
 |---|---|
 | `log.py` | `setup_logging` (`:210`, idempotent) / `teardown_logging` (`:246`); `_HourlyFileHandler` (`:30`) — rotates `logs/YYYY-MM-DD-HH.log`, 64MB quota, 5-consecutive-failure mute; `_TeeWriter` (`:138`) mirrors stdout→INFO / stderr→WARNING and feeds `session_log`; `_install_excepthook` (`:191`) folds uncaught tracebacks into one ERROR; `timed` (`:306`), `format_size`/`format_duration` (`:282`/`:293`), `clear_disk_logs` (`:268`, UI "clear logs") |
 | `session_log.py` | Ring buffer (10k entries) of `{ts, text, seq}`; `write`/`read(offset)`/`clear`; consumed by `/api/logs` |
+| `log_history.py` | Read-only hourly-file access (R-027e): validates direct `YYYY-MM-DD-HH.log` children under `logs_dir`, lists `{name,size,mtime}`, reads the last 2 MB by default (5 MB cap), drops a partial first tail line, and parses `{ts,text}` entries for `/api/logs/files` and `/api/logs/file` |
 | `progress.py` | `ProgressTracker` (`:30`) — thread-safe `.progress.json` writer: `phase/current/total/message/status/eta_sec`, atomic tmp-replace, ETA from elapsed rate, `logs` tail (100) |
 | `processing_state.py` | `ProcessingState` (`:35`) — per-file `{step: status}` matrix in `.processing.json`, debounced flush (0.5s, 20 pending, `atexit` weakref sweep), `mark`/`reset_step`/`get_state` |
 | `privacy.py` | `redact_sensitive` (`:17`) — masks `://user:pass@`, `Authorization: Bearer`, `api_key=…`/`token`/`secret`/`password` assignments, `sk-…` tokens; truncates lines > 4096 chars |
@@ -96,7 +99,7 @@ line > 4096 chars            → truncated with "[已截断 N 字符]"
 ## 6. Cross-Module Dependencies
 
 - Consumers of `setup_logging`: `main.py`, `clio/ui/server.run`, `clio/desktop/app.main`
-- `session_log` is read by `routes` (logs endpoint) — served to the web UI log pane
+- `session_log` and `log_history` are read by the server logs handlers — served to the web UI log pane
 - `ProgressTracker` ↔ legacy step functions and `TaskProgressReporter` bridge (08)
 - `ProcessingState` used by compress/analyze/… runners and `processing_state_routes.py`
 - `privacy` used by `log.py`, `server.py`, and anywhere a raw credential line could escape
@@ -106,8 +109,9 @@ line > 4096 chars            → truncated with "[已截断 N 字符]"
 1. `.progress.json` and `.processing.json` live in `output/` next to real media; a very long run
    rewriting the ETA every 0.5s is disk-friendly but still *a* write per update — bulk batch
    updates should use `ProgressTracker.update` once per item, not per sub-line.
-2. Hourly file rotation means a long sprint at midnight splits one logical run across two files;
-   UI log-filtering must merge `*.log` across hours, and `clear_disk_logs` only clears `*.log`.
+2. Hourly file rotation means a long sprint at midnight splits one logical run across two files.
+   R-027e intentionally opens one file at a time; merging hours/ranges remains a follow-up.
+   `clear_disk_logs` only clears `*.log`.
 3. Redaction is regex-based; a credential format outside the patterns (e.g. JSON `"password":"…"`
    with no `=`/`:` after the key, or Bearer in uppercase header variants) can slip through —
    the system prompt’s "no secrets in config/examples" rule is the backstop.
