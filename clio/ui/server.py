@@ -23,6 +23,7 @@ from typing import Any, ClassVar
 from urllib.parse import parse_qs, urlparse
 
 from clio.config import AppConfig
+from clio.log_history import DEFAULT_READ_BYTES, MAX_READ_BYTES, list_log_files, read_log_file
 from clio.session_log import clear as clear_session_log
 from clio.session_log import read as read_session_log
 from clio.shutdown import before_stop, install_hooks
@@ -210,6 +211,37 @@ def _parse_int_param(qs: dict, key: str, default: int, min_val: int = 0, max_val
 def _handle_get_logs(handler, qs):
     offset = _parse_int_param(qs, "offset", 0)
     return handler._send_json(read_session_log(offset))
+
+
+def _logs_dir_from_config(handler) -> Path:
+    return Path(handler._get_config().paths.logs_dir)
+
+
+def _handle_get_log_files(handler, qs):
+    return handler._send_json({"files": list_log_files(_logs_dir_from_config(handler))})
+
+
+def _handle_get_log_file(handler, qs):
+    name = (qs.get("name", [""])[0] or "").strip()
+    max_bytes = _parse_int_param(
+        qs,
+        "max_bytes",
+        DEFAULT_READ_BYTES,
+        min_val=1,
+        max_val=MAX_READ_BYTES,
+    )
+    try:
+        result = read_log_file(_logs_dir_from_config(handler), name, max_bytes=max_bytes)
+    except ValueError as exc:
+        return handler._send_json({"ok": False, "error": str(exc)}, 400)
+    except FileNotFoundError:
+        return handler._send_json({"ok": False, "error": "log file not found"}, 404)
+    except OSError as exc:
+        return handler._send_json(
+            {"ok": False, "error": f"failed to read log file: {exc}"},
+            500,
+        )
+    return handler._send_json(result)
 
 
 def _handle_post_logs_clear(handler, qs, obj):
@@ -698,6 +730,8 @@ def make_handler(
             Route("GET", "/api/env", "handle_get_env"),
             Route("GET", "/api/prompts", "handle_get_prompts"),
             Route("GET", "/api/logs", "_handle_get_logs"),
+            Route("GET", "/api/logs/files", "_handle_get_log_files"),
+            Route("GET", "/api/logs/file", "_handle_get_log_file"),
             Route("PUT", "/api/config/raw", "handle_put_config_raw"),
             Route("PUT", "/api/config/global", "handle_put_config_global"),
             Route("PUT", "/api/config/project", "handle_put_config_project"),

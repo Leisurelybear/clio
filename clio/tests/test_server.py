@@ -594,6 +594,67 @@ class TestDoGET:
         mock_read.assert_called_once_with(5)
         handler.send_response.assert_called_once_with(200)
 
+    @patch("clio.ui.server.list_log_files")
+    def test_api_log_files(self, mock_list, handler_cls, tmp_path):
+        mock_list.return_value = [{"name": "2026-07-20-22.log", "size": 12, "mtime": 1.0}]
+        handler = _build_handler(handler_cls, path="/api/logs/files")
+        cfg = MagicMock()
+        cfg.paths.logs_dir = tmp_path
+        handler._get_config = MagicMock(return_value=cfg)
+
+        handler.do_GET()
+
+        mock_list.assert_called_once_with(tmp_path)
+        handler.send_response.assert_called_once_with(200)
+
+    @patch("clio.ui.server.read_log_file")
+    def test_api_log_file(self, mock_read, handler_cls, tmp_path):
+        mock_read.return_value = {"logs": [], "truncated": False}
+        handler = _build_handler(
+            handler_cls,
+            path="/api/logs/file?name=2026-07-20-22.log&max_bytes=1024",
+        )
+        cfg = MagicMock()
+        cfg.paths.logs_dir = tmp_path
+        handler._get_config = MagicMock(return_value=cfg)
+
+        handler.do_GET()
+
+        mock_read.assert_called_once_with(
+            tmp_path,
+            "2026-07-20-22.log",
+            max_bytes=1024,
+        )
+        handler.send_response.assert_called_once_with(200)
+
+    def test_api_log_file_rejects_traversal(self, handler_cls, tmp_path):
+        handler = _build_handler(
+            handler_cls,
+            path="/api/logs/file?name=..%2F2026-07-20-22.log",
+        )
+        cfg = MagicMock()
+        cfg.paths.logs_dir = tmp_path
+        handler._get_config = MagicMock(return_value=cfg)
+
+        handler.do_GET()
+
+        handler.send_response.assert_called_once_with(400)
+
+    @patch("clio.ui.server.read_log_file")
+    def test_api_log_file_returns_404_when_missing(self, mock_read, handler_cls, tmp_path):
+        mock_read.side_effect = FileNotFoundError("log file not found")
+        handler = _build_handler(
+            handler_cls,
+            path="/api/logs/file?name=2026-07-20-22.log",
+        )
+        cfg = MagicMock()
+        cfg.paths.logs_dir = tmp_path
+        handler._get_config = MagicMock(return_value=cfg)
+
+        handler.do_GET()
+
+        handler.send_response.assert_called_once_with(404)
+
     def test_not_found(self, handler_cls):
         handler = _build_handler(handler_cls, path="/api/unknown")
         handler.do_GET()
