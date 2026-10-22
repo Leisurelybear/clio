@@ -42,6 +42,11 @@ class TestIsSafeBasename:
     def test_control_chars(self):
         assert _is_safe_basename("foo\x00bar.mp4") is False
 
+    def test_windows_illegal_or_drive_relative_chars(self):
+        assert _is_safe_basename("C:foo") is False
+        assert _is_safe_basename("bad<name>.mp4") is False
+        assert _is_safe_basename("what?.mp4") is False
+
     def test_cjk_punctuation_accepted(self):
         assert _is_safe_basename("002：巴黎.mp4") is True
 

@@ -71,12 +71,70 @@ def test_accepts_old_clip_without_cut_info(tmp_path: Path):
     assert result["segments"][0]["file"] == "001_old_seg_001.mp4"
 
 
+def test_rejects_old_clip_without_metadata_after_plan_change(tmp_path: Path):
+    cuts_dir = tmp_path / "cuts" / "day1"
+    segment = {"index": "001", "title": "old", "use_timeline": "00:00-00:03"}
+    clip = _add_clip(cuts_dir, segment, 1, info=None)
+    plan_mtime = clip.stat().st_mtime + 10
+    result = build_preview_media(_plan(segment), cuts_dir, day="day1", plan_mtime=plan_mtime)
+    assert result["segments"][0]["file"] is None
+
+
+def test_new_plan_times_accept_offset_or_truncated_actual_times(tmp_path: Path):
+    cuts_dir = tmp_path / "cuts" / "day1"
+    segment = {"index": "001", "title": "offset", "use_timeline": "00:00-00:10"}
+    clip = _add_clip(
+        cuts_dir,
+        segment,
+        1,
+        info={
+            "seg_index": 1,
+            "timeline": "00:00-00:10",
+            "plan_start_sec": 0,
+            "plan_end_sec": 10,
+            "start_sec": 120,
+            "end_sec": 128,
+        },
+    )
+    old = clip.stat().st_mtime - 20
+    os.utime(clip, (old, old))
+    result = build_preview_media(_plan(segment), cuts_dir, day="day1", plan_mtime=old + 10)
+    assert result["segments"][0]["file"] == "001_offset_seg_001.mp4"
+
+
+def test_legacy_actual_times_are_accepted_while_clip_is_current(tmp_path: Path):
+    cuts_dir = tmp_path / "cuts" / "day1"
+    segment = {"index": "001", "title": "legacy", "use_timeline": "00:00-00:10"}
+    clip = _add_clip(
+        cuts_dir,
+        segment,
+        1,
+        info={"seg_index": 1, "timeline": "00:00-00:10", "start_sec": 120, "end_sec": 128},
+    )
+    plan_mtime = clip.stat().st_mtime - 5
+    result = build_preview_media(_plan(segment), cuts_dir, day="day1", plan_mtime=plan_mtime)
+    assert result["segments"][0]["file"] == "001_legacy_seg_001.mp4"
+
+
+def test_legacy_actual_times_are_rejected_after_plan_change(tmp_path: Path):
+    cuts_dir = tmp_path / "cuts" / "day1"
+    segment = {"index": "001", "title": "legacy", "use_timeline": "00:00-00:10"}
+    clip = _add_clip(
+        cuts_dir,
+        segment,
+        1,
+        info={"seg_index": 1, "timeline": "00:00-00:10", "start_sec": 120, "end_sec": 128},
+    )
+    plan_mtime = clip.stat().st_mtime + 10
+    result = build_preview_media(_plan(segment), cuts_dir, day="day1", plan_mtime=plan_mtime)
+    assert result["segments"][0]["file"] is None
+
+
 @pytest.mark.parametrize(
     "info",
     [
         {"seg_index": 2, "timeline": "00:00-00:03"},
         {"seg_index": 1, "timeline": "00:00-00:04"},
-        {"seg_index": 1, "timeline": "00:00-00:03", "start_sec": 1, "end_sec": 3},
         {"timeline": "00:00-00:03"},
     ],
 )
@@ -126,6 +184,10 @@ def test_symlink_clip_is_not_mapped(tmp_path: Path):
 def test_preview_route_rejects_bad_day_and_missing_plan(tmp_path: Path):
     handler = MagicMock()
     handle_get_plan_preview_media(handler, {"day": ["../secret"]})
+    assert handler._send_json.call_args.args[1] == 403
+
+    handler = MagicMock()
+    handle_get_plan_preview_media(handler, {"day": ["C:foo"]})
     assert handler._send_json.call_args.args[1] == 403
 
     cfg = MagicMock()

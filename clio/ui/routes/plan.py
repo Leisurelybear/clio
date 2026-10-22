@@ -111,7 +111,11 @@ def handle_get_plan(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     day = qs.get("day", [""])[0]
     if not _is_safe_basename(day) or not day:
         return handler._send_json({"error": "forbidden"}, 403)
-    p = _plans_dir(handler, qs) / f"{day}_plan.json"
+    plans_dir = _plans_dir(handler, qs)
+    try:
+        p = validate_within_root(plans_dir / f"{day}_plan.json", plans_dir)
+    except (OSError, ValueError):
+        return handler._send_json({"error": "forbidden"}, 403)
     if not p.is_file():
         return handler._send_json({"error": f"规划文件不存在: {p}"}, 404)
     handler._send_bytes(p.read_bytes(), "application/json; charset=utf-8")
@@ -124,11 +128,15 @@ def handle_get_plan_preview_media(handler: HandlerProtocol, qs: dict[str, Any]) 
         return handler._send_json({"ok": False, "error": "forbidden"}, 403)
     proj_dir = handler._resolve_project_dir(qs)
     cfg = handler._get_config(proj_dir)
-    plan_path = cfg.plans_dir / f"{day}_plan.json"
+    try:
+        plan_path = validate_within_root(cfg.plans_dir / f"{day}_plan.json", cfg.plans_dir)
+    except (OSError, ValueError):
+        return handler._send_json({"ok": False, "error": "forbidden"}, 403)
     if not plan_path.is_file():
         return handler._send_json({"ok": False, "error": f"规划文件不存在: {plan_path}"}, 404)
     try:
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        plan_mtime = plan_path.stat().st_mtime
     except (OSError, json.JSONDecodeError) as exc:
         return handler._send_json({"ok": False, "error": str(exc)}, 400)
     output_root = Path(cfg.paths.output_dir).expanduser()
@@ -136,7 +144,14 @@ def handle_get_plan_preview_media(handler: HandlerProtocol, qs: dict[str, Any]) 
         cuts_dir = validate_within_root(output_root / "cuts" / day, output_root)
     except (OSError, ValueError):
         return handler._send_json({"ok": False, "error": "forbidden"}, 403)
-    handler._send_json(build_preview_media(plan if isinstance(plan, dict) else {}, cuts_dir, day=day))
+    handler._send_json(
+        build_preview_media(
+            plan if isinstance(plan, dict) else {},
+            cuts_dir,
+            day=day,
+            plan_mtime=plan_mtime,
+        )
+    )
 
 
 def handle_put_plan(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
@@ -144,7 +159,11 @@ def handle_put_plan(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> 
     day = qs.get("day", [""])[0]
     if not _is_safe_basename(day) or not day:
         return handler._send_json({"ok": False, "error": "forbidden"}, 403)
-    p = _plans_dir(handler, qs) / f"{day}_plan.json"
+    plans_dir = _plans_dir(handler, qs)
+    try:
+        p = validate_within_root(plans_dir / f"{day}_plan.json", plans_dir)
+    except (OSError, ValueError):
+        return handler._send_json({"ok": False, "error": "forbidden"}, 403)
     plan = Plan.from_dict(obj if isinstance(obj, dict) else {})
     issues = plan.validate_for_save()
     if issues:

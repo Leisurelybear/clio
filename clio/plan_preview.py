@@ -38,15 +38,17 @@ def _same_time(left: Any, right: float) -> bool:
 
 def _cut_info_matches(
     sidecar: Path,
+    clip_path: Path,
     cuts_dir: Path,
     *,
     clip_index: int,
     timeline: str,
     start: float,
     end: float,
+    plan_mtime: float | None,
 ) -> bool:
     if not sidecar.is_file():
-        return True
+        return _clip_is_current(clip_path, plan_mtime)
     try:
         info_path = validate_within_root(sidecar, cuts_dir)
         data = json.loads(info_path.read_text(encoding="utf-8"))
@@ -54,7 +56,7 @@ def _cut_info_matches(
         return False
     info = data.get("_cut_info") if isinstance(data, dict) else None
     if info is None:
-        return True
+        return _clip_is_current(clip_path, plan_mtime)
     if not isinstance(info, dict):
         return False
     try:
@@ -64,14 +66,27 @@ def _cut_info_matches(
         return False
     if str(info.get("timeline") or "").strip() != timeline:
         return False
+    if "plan_start_sec" in info or "plan_end_sec" in info:
+        return _same_time(info.get("plan_start_sec"), start) and _same_time(info.get("plan_end_sec"), end)
     if "start_sec" in info and not _same_time(info.get("start_sec"), start):
-        return False
+        return _clip_is_current(clip_path, plan_mtime)
     if "end_sec" in info and not _same_time(info.get("end_sec"), end):
-        return False
+        return _clip_is_current(clip_path, plan_mtime)
     return True
 
 
-def _valid_clip(cuts_dir: Path, segment: dict[str, Any], clip_index: int) -> dict[str, Any] | None:
+def _clip_is_current(clip_path: Path, plan_mtime: float | None) -> bool:
+    if plan_mtime is None:
+        return True
+    try:
+        return clip_path.stat().st_mtime >= plan_mtime - 0.001
+    except OSError:
+        return False
+
+
+def _valid_clip(
+    cuts_dir: Path, segment: dict[str, Any], clip_index: int, plan_mtime: float | None = None
+) -> dict[str, Any] | None:
     timeline = str(segment.get("use_timeline") or "").strip()
     parsed = _parse_plan_range(timeline)
     if parsed is None:
@@ -90,11 +105,13 @@ def _valid_clip(cuts_dir: Path, segment: dict[str, Any], clip_index: int) -> dic
         return None
     if not _cut_info_matches(
         clip_path.with_suffix(".json"),
+        clip_path,
         cuts_dir,
         clip_index=clip_index,
         timeline=timeline,
         start=start,
         end=end,
+        plan_mtime=plan_mtime,
     ):
         return None
     return {
@@ -105,7 +122,9 @@ def _valid_clip(cuts_dir: Path, segment: dict[str, Any], clip_index: int) -> dic
     }
 
 
-def build_preview_media(plan: dict[str, Any], cuts_dir: Path, *, day: str) -> dict[str, Any]:
+def build_preview_media(
+    plan: dict[str, Any], cuts_dir: Path, *, day: str, plan_mtime: float | None = None
+) -> dict[str, Any]:
     """Map plan sequence entries to standard cut clips without exposing paths."""
     sequence = plan.get("sequence") if isinstance(plan, dict) else None
     if not isinstance(sequence, list):
@@ -117,7 +136,7 @@ def build_preview_media(plan: dict[str, Any], cuts_dir: Path, *, day: str) -> di
         clip_index = offset + 1
         timeline = str(segment.get("use_timeline") or "").strip()
         parsed = _parse_plan_range(timeline)
-        clip = _valid_clip(cuts_dir, segment, clip_index) if cuts_dir.is_dir() else None
+        clip = _valid_clip(cuts_dir, segment, clip_index, plan_mtime) if cuts_dir.is_dir() else None
         segments.append(
             {
                 "seg_index": offset,

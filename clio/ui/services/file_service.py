@@ -49,6 +49,8 @@ def _is_safe_basename(name: str) -> bool:
         return False
     if "/" in name or "\\" in name or ".." in name:
         return False
+    if any(char in name for char in '<>:"|?*'):
+        return False
     if any(ord(c) < 0x20 or ord(c) == 0x7F for c in name):
         return False
     return True
