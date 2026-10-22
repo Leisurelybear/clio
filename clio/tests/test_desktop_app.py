@@ -1,11 +1,13 @@
 # clio/tests/test_desktop_app.py
 from __future__ import annotations
 
+import json
 import os
 import sys
 import types
 from pathlib import Path
 from unittest.mock import MagicMock
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 
@@ -68,6 +70,43 @@ def test_fetch_active_tasks_and_cancel_roundtrip(loaded_config: AppConfig, monke
         request_run_cancel(handle.host, handle.port, handle.token)  # no exception while idle
     finally:
         stop_server(handle)
+
+
+def test_fetch_active_tasks_requests_active_statuses_and_filters_terminal(monkeypatch):
+    payload = {
+        "tasks": [
+            {"id": "queued-1", "status": "queued"},
+            {"id": "running-1", "status": "running"},
+            {"id": "cancelling-1", "status": "cancelling"},
+            {"id": "succeeded-1", "status": "succeeded"},
+            {"id": "failed-1", "status": "failed"},
+        ]
+    }
+    requested_urls: list[str] = []
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc_info):
+            return False
+
+        def read(self):
+            return json.dumps(payload).encode("utf-8")
+
+    def fake_urlopen(url, timeout):
+        requested_urls.append(url)
+        return _Response()
+
+    monkeypatch.setattr("clio.desktop.server_host.urllib.request.urlopen", fake_urlopen)
+
+    tasks = fetch_active_tasks("127.0.0.1", 8765, "secret-token")
+
+    query = parse_qs(urlparse(requested_urls[0]).query)
+    assert set(query["status"][0].split(",")) == {"queued", "running", "cancelling"}
+    assert query["visibility"] == ["all"]
+    assert query["token"] == ["secret-token"]
+    assert [task["id"] for task in tasks] == ["queued-1", "running-1", "cancelling-1"]
 
 
 def test_fetch_active_tasks_unreachable_returns_empty():

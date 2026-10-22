@@ -96,12 +96,21 @@ def fetch_active_tasks(host: str, port: int, token: str = "") -> list[dict]:
     Returns an empty list when the server is unreachable / malformed.
     """
     try:
-        url = f"http://{host}:{port}/api/tasks?visibility=all&limit=50"
+        url = f"http://{host}:{port}/api/tasks?visibility=all&status=queued,running,cancelling&limit=200"
         if token:
             url = f"{url}&token={token}"
         with urllib.request.urlopen(url, timeout=3) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
-        return [task for task in payload.get("tasks", []) if task.get("status") in {"queued", "running", "cancelling"}]
+        if not isinstance(payload, dict):
+            return []
+        raw_tasks = payload.get("tasks", [])
+        if not isinstance(raw_tasks, list):
+            return []
+        return [
+            task
+            for task in raw_tasks
+            if isinstance(task, dict) and task.get("status") in {"queued", "running", "cancelling"}
+        ]
     except (OSError, ValueError, json.JSONDecodeError):
         return []
 
