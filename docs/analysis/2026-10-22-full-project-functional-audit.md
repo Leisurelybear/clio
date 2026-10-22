@@ -70,9 +70,18 @@ mypy --check-untyped-defs --show-error-codes
 | A-08 | 中 | 已修复 | 自定义 `-c /other/config.yaml` 且未给 `-p` 时，强制 cwd 为项目目录，忽略同目录 project.yaml | 改为仅在显式/有效目录时覆盖 project_dir |
 | A-09 | 中 | 已修复 | 选片、转录、规划仍只剥离 `_segNN`，其他 legacy 分段会错配或丢失转录 | 任务层统一复用 `SEGMENT_SUFFIX_RE`，移除重复死代码 |
 | A-10 | 中 | 已修复 | UI 原始视频解析、运行预览和字幕查找仍只识别 `_segNN` | UI 层统一复用 `SEGMENT_SUFFIX_RE` |
-| A-11 | 中 | 修复中 | 裁剪任务仍只识别 `_segNN`，legacy `_part/_pt/_chunk` 无法计算偏移、反解原始视频或记录正确状态 | 统一复用 `SEGMENT_SUFFIX_RE`，补充别名与大小写回归测试 |
-| A-12 | 中 | 修复中 | 导出接口未校验格式，未知或非字符串格式会先创建异步任务再失败 | 在读取配置和提交任务前校验 `FORMAT_REGISTRY` |
-| A-13 | 中 | 修复中 | 裁剪接口未校验 `output_dir` 类型，JSON 数字/对象会触发未捕获 `TypeError` | 仅接受 `null`、空字符串或字符串路径，否则返回 400 |
+| A-11 | 中 | 已修复 | 裁剪任务仍只识别 `_segNN`，legacy `_part/_pt/_chunk` 无法计算偏移、反解原始视频或记录正确状态 | 统一复用 `SEGMENT_SUFFIX_RE`，补充别名与大小写回归测试 |
+| A-12 | 中 | 已修复 | 导出接口未校验格式，未知或非字符串格式会先创建异步任务再失败 | 在读取配置和提交任务前校验 `FORMAT_REGISTRY` |
+| A-13 | 中 | 已修复 | 裁剪接口未校验 `output_dir` 类型，JSON 数字/对象会触发未捕获 `TypeError` | 仅接受 `null`、空字符串或字符串路径，否则返回 400 |
+| A-14 | 中 | 已修复 | 侧栏标签只剥离 `_segNN`，natural/legacy 分段名仍显示伪后缀，且可能把自然 `_partNN` 当成分段 | 复用统一分段正则，并仅对可解析的 legacy 序号剥离显示后缀 |
+| A-15 | 中 | 已修复 | 裁剪解析未优先使用 exact source stem，自然 `_partNN` 文件名会被错误归并到其他源视频 | 原始/压缩视频解析优先 exact match，再回退分段基名 |
+| A-16 | 中 | 已修复 | 转录源视频解析同样未优先 exact stem，可能为自然 `_partNN` 视频选择错误源文件 | 与裁剪路径统一 exact-first 解析顺序 |
+| A-17 | 中 | 已修复 | reindex 会把多个自然 `_partNN` 文件归并到同一源，产生错误分组 | 仅在同一精确源文件存在时才按分段后缀归并 |
+| A-18 | 低 | 已修复 | provider 名称含 `-` 时前端生成非法环境变量名，API key 无法持久化或读取 | 环境变量名统一大写并把非字母数字转换为 `_` |
+| A-19 | 中 | 已修复 | 删除自定义 `.env` key 后只更新文件，当前进程仍保留旧值，运行中的 provider 继续使用已删除配置 | 保存 `.env` 时同步清理进程环境中被移除的自定义 key |
+| A-20 | 中 | 已修复 | `/api/run` 对未知 pipeline step 先登记任务再异步失败，任务中心产生无意义失败记录 | 白名单校验前置，未知步骤同步返回 400 |
+| A-21 | 中 | 已修复 | 字幕样式并发保存失败时 waiter 被静默 resolve，前端仍显示已保存 | 失败传播到所有 waiter，队列恢复后可继续保存；补 Vitest 回归 |
+| A-22 | 中 | 已修复 | 重跑接口拒绝项目子目录中的原片路径，合法的 `footage/foo.mp4` 无法重跑 | 允许安全的项目相对路径，继续拒绝绝对路径、盘符和 `..` 穿越 |
 
 ## 5. 优化 backlog
 
@@ -84,6 +93,11 @@ mypy --check-untyped-defs --show-error-codes
 | O-03 | P2 | 外部服务契约测试 | 为 Gemini/DeepSeek/DashScope 增加可选 live smoke suite，默认 CI 跳过 |
 | O-04 | P2 | 任务锁生命周期 | `TaskManager._task_locks` 不清理已完成任务的锁，长期运行会随历史任务数量增长 |
 | O-05 | P3 | 桌面关闭确认 | `fetch_active_tasks` 只检查前 50 条，极端历史量下可能漏掉活跃任务 |
+| O-06 | P1 | Provider 非 ASCII 名称 | 后端接受中文等非 ASCII provider 名，但前端对纯非 ASCII 名称统一生成 `CUSTOM_PROVIDER_API_KEY`，多个 provider 会共用/覆盖 key；需产品决策是拒绝名称还是生成稳定编码 |
+| O-07 | P2 | Gemini 文件轮询韧性 | `_wait_for_file` 每轮只有单次 `files.get()`，长任务遇到一次瞬时网络错误即失败；可为瞬时错误增加有界重试 |
+| O-08 | P3 | Trip context 缓存淘汰 | `_trip_context_cache` 以 project+mtime 为 key，修改文件后旧 key 不会淘汰，长期切换项目会缓慢增长 |
+| O-09 | P3 | CLI 文档同步 | `docs/cli-reference.md` 仍以 `-i/--input` 为主，且缺少 `doctor`、`desktop`、`tokens`、`migrate`、`migrate-config`、`compare-models` 等命令 |
+| O-10 | P3 | 测试基线漂移 | `README*` 与 `ROADMAP.md` 的 pytest/Vitest 数量已落后；最终验证后统一回填 |
 
 ## 6. 修复与提交记录
 
@@ -100,9 +114,18 @@ mypy --check-untyped-defs --show-error-codes
 | `37bcd3e` | `fix(packaging): bundle first-run config and templates` | 138 related tests passed；wheel 安装及首次配置生成实测通过 |
 | `540d056` | `fix(tasks): strip all legacy split suffixes` | 65 related tests passed；Ruff 通过 |
 | `dd8b9e2` | `fix(ui): match all legacy split suffixes` | 154 related tests passed；Ruff 通过 |
-| 待填 | `fix(cut): recognize all legacy split suffixes` | `test_tasks_cut.py` 44 passed；Ruff 通过 |
-| 待填 | `fix(export): reject unknown formats before submission` | `test_export*.py` 41 passed；Ruff 通过 |
-| 待填 | `fix(cut): validate output directory type` | `test_routes_plan.py` 25 passed；Ruff 通过 |
+| `0363b23` | `fix(cut): recognize all legacy split suffixes` | `test_tasks_cut.py` 44 passed；Ruff 通过 |
+| `3aa8b81` | `fix(export): reject unknown formats before submission` | `test_export*.py` 41 passed；Ruff 通过 |
+| `a3ec111` | `fix(cut): validate output directory type` | `test_routes_plan.py` 25 passed；Ruff 通过 |
+| `ba8d6ab` | `fix(cut): prefer exact original stems` | 相关后端测试通过；Ruff 通过 |
+| `db388e2` | `fix(transcribe): prefer exact source stems` | 相关后端测试通过；Ruff 通过 |
+| `701fb3c` | `fix(reindex): group natural part names by exact source` | 相关后端测试通过；Ruff 通过 |
+| `fcbfb6f` | `fix(ui): strip legacy segment suffixes in sidebar labels` | 相关后端测试通过；Ruff 通过 |
+| `927333d` | `fix(ui): normalize provider API key env names` | 相关前端测试通过；Ruff 通过 |
+| `712eb31` | `fix(env): clear removed custom keys from process` | 相关后端测试通过；Ruff 通过 |
+| `ca5713b` | `fix(run): reject unknown pipeline steps` | `test_routes_run.py` 55 passed；Ruff 通过 |
+| `ee96a3f` | `fix(ui): surface subtitle save failures` | `subtitle-settings.test.js` 17 passed |
+| `e8fdcef` | `fix(rerun): allow nested original video paths` | `test_routes_run.py` 55 passed；Ruff 通过 |
 
 ## 7. 未实机验证项
 
