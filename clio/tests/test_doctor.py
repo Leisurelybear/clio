@@ -16,6 +16,7 @@ from clio.config.models import (
 )
 from clio.doctor import (
     DoctorItem,
+    _print_doctor_items,
     collect_doctor_checks,
     doctor_exit_code,
     is_virtualenv_python,
@@ -133,6 +134,38 @@ def test_collect_checks_accepts_env_provider_key(tmp_path: Path) -> None:
 
     provider_item = next(item for item in items if item.name == "AI provider: gemini")
     assert provider_item.status == "OK"
+
+
+def test_collect_checks_uses_english_locale(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CLIO_LANG", "en")
+    config = _config(tmp_path)
+
+    items = collect_doctor_checks(
+        config,
+        discover_binary=lambda name: None,
+        environ={},
+        node_version_getter=lambda: None,
+    )
+
+    assert any(item.name == "Virtual environment" for item in items)
+    provider_item = next(item for item in items if item.name == "AI provider: gemini")
+    assert "Missing environment variable GEMINI_API_KEY" in provider_item.detail
+    assert next(item for item in items if item.name == "ffmpeg").detail == (
+        "Not found; run the setup script or configure the path in config.yaml"
+    )
+    assert next(item for item in items if item.name == "Node.js").detail == (
+        "Not found; Node.js 22.12+ is only needed for UI unit tests"
+    )
+
+
+def test_doctor_output_header_uses_english_locale(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("CLIO_LANG", "en")
+
+    _print_doctor_items([DoctorItem("Python", "OK")])
+
+    output = capsys.readouterr().out
+    assert "Environment diagnosis:" in output
+    assert "done (exit code: 0)" in output
 
 
 def test_collect_checks_warns_for_old_node(tmp_path: Path) -> None:

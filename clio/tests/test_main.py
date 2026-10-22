@@ -88,6 +88,18 @@ def test_whisper_help(cli_runner, config_path):
     assert result == 0
 
 
+def test_cli_help_uses_english_locale(cli_runner, config_path, monkeypatch, capsys):
+    monkeypatch.setenv("CLIO_LANG", "en")
+
+    result = cli_runner(["--config", str(config_path), "--help"])
+
+    assert result == 0
+    output = capsys.readouterr().out
+    assert "Vlog editing assistant" in output
+    assert "Compress videos in the source folder only" in output
+    assert "环境检查" not in output
+
+
 def test_whisper_check_subcommand(cli_runner, config_path):
     result = cli_runner(["--config", str(config_path), "whisper", "check"])
     assert result == 0
@@ -119,6 +131,16 @@ def test_missing_explicit_path_is_rejected(cli_runner, config_path, tmp_path, ca
 
     assert result == 2
     assert "不存在" in capsys.readouterr().err
+
+
+def test_missing_explicit_path_is_localized_in_english(cli_runner, config_path, tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("CLIO_LANG", "en")
+    missing = tmp_path / "missing"
+
+    result = cli_runner(["--config", str(config_path), "compress", "-p", str(missing)])
+
+    assert result == 2
+    assert "Project path does not exist" in capsys.readouterr().err
 
 
 def test_project_path_must_be_directory(cli_runner, config_path, tmp_path, capsys):

@@ -63,6 +63,14 @@ class TestProbeFfmpegDeps:
             probe_ffmpeg_deps("", "")
         assert calls == [("", "ffmpeg"), ("", "ffprobe")]
 
+    def test_missing_dependency_detail_uses_english_locale(self, monkeypatch):
+        monkeypatch.setenv("CLIO_LANG", "en")
+        with patch("clio.utils.discover_ffmpeg_bin", return_value=None):
+            out = probe_ffmpeg_deps("", "")
+
+        assert out["detail"].startswith("Could not find ffmpeg, ffprobe.")
+        assert "Compression, cutting, transcription audio extraction, and waveforms are unavailable." in out["detail"]
+
 
 class TestMediaPreflight:
     def test_step_dependencies_are_minimal(self):

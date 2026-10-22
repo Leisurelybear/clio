@@ -31,7 +31,7 @@ exclude = ["clio.tests*", "clio*.tests", "packaging*"]
 # Static UI assets must travel inside the wheel: the HTTP server resolves
 # them via `Path(__file__).parent / "static"` at runtime.
 [tool.setuptools.package-data]
-clio = ["ui/static/**/*", "ui/static/**/.*"]
+clio = ["ui/static/**/*", "ui/static/**/.*", "locales/*.json"]
 
 # First-run config and default templates are not importable packages, so ship
 # them under the installation prefix for the CLI and wheel entry point.

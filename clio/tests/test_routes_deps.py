@@ -100,6 +100,22 @@ class TestHandleGetDepsKeys:
         payload = h._send_json.call_args[0][0]
         assert payload["missing"] == []
 
+    def test_reports_missing_keys_in_english_locale(self, tmp_path: Path, monkeypatch):
+        h = _handler(tmp_path)
+        monkeypatch.setenv("CLIO_LANG", "en")
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+        h._get_config.return_value = _cfg(
+            providers={"deepseek": SimpleNamespace(api_key="", api_key_env="DEEPSEEK_API_KEY")},
+            tasks={"voiceover": SimpleNamespace(provider="deepseek")},
+        )
+
+        handle_get_deps_keys(h, {})
+
+        payload = h._send_json.call_args[0][0]
+        assert payload["missing"][0]["detail"] == (
+            "Missing environment variable DEEPSEEK_API_KEY (set it in .env; do not put the key in yaml api_key)"
+        )
+
     def test_reports_inline_api_key_as_present(self, tmp_path: Path):
         h = _handler(tmp_path)
         h._get_config.return_value = _cfg(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from clio.i18n import t
 from clio.task_center.models import TaskEventLevel
 
 if TYPE_CHECKING:
@@ -23,7 +24,7 @@ class TaskReporter:
 
     def raise_if_cancelled(self) -> None:
         if self.cancel_requested:
-            raise TaskCancelled("任务已取消")
+            raise TaskCancelled(t("task.cancelled"))
 
     def progress(
         self,
@@ -85,6 +86,6 @@ class TaskProgressReporter:
             self._legacy.error(message)
 
     def cancelled(self, message: str = "") -> None:
-        self._reporter.log(message or "任务已取消", level=TaskEventLevel.WARNING)
+        self._reporter.log(message or t("task.cancelled"), level=TaskEventLevel.WARNING)
         if self._legacy is not None:
             self._legacy.cancelled(message)

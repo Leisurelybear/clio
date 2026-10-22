@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from clio._constants import VIDEO_EXTS
 from clio.config import load_config
+from clio.i18n import t
 from clio.pipeline import PIPELINE_STEPS, run_analyze_all, run_compress_all, run_generate_scripts, run_pipeline_steps
 from clio.progress import ProgressTracker
 from clio.task_center.executor import project_artifact_key
@@ -98,7 +99,7 @@ def _run_pipeline_task(context) -> dict[str, Any]:
             task_prompts=input_data.get("task_prompts"),
         )
     except TaskCancelled:
-        tracker.cancelled("任务已取消")
+        tracker.cancelled(t("task.cancelled"))
         raise
     except Exception as e:
         tracker.error(f"pipeline failed: {e}")
@@ -130,21 +131,21 @@ def _run_rerun_task(context) -> dict[str, Any]:
                 lambda: run_compress_all(
                     cfg, tracker=tracker, single_file=original_video, cancel_event=context.cancel_event
                 ),
-                "压缩视频",
+                t("task.step.compress"),
             ),
             (
                 "analyze",
                 lambda: run_analyze_all(
                     cfg, tracker=tracker, single_file=original_video, cancel_event=context.cancel_event
                 ),
-                "AI 分析",
+                t("task.step.analyze"),
             ),
             (
                 "voiceover",
                 lambda: run_generate_scripts(
                     cfg, tracker=tracker, single_file=texts_json, cancel_event=context.cancel_event
                 ),
-                "生成口播",
+                t("task.step.voiceover"),
             ),
         ]:
             if task_name not in (step_name, "all"):
@@ -161,7 +162,10 @@ def _run_rerun_task(context) -> dict[str, Any]:
                 original_video,
                 cancel_event=context.cancel_event,
                 progress_callback=lambda pct: tracker.update(
-                    phase="transcribe", current=pct, total=100, message=f"{video_basename}: 转录 ({pct}%)"
+                    phase="transcribe",
+                    current=pct,
+                    total=100,
+                    message=t("task.transcribing", {"video": video_basename, "pct": pct}),
                 ),
             )
             if "error" in result:
@@ -170,7 +174,7 @@ def _run_rerun_task(context) -> dict[str, Any]:
         context.reporter.raise_if_cancelled()
         tracker.done(f"{task_name} → {video_basename} complete")
     except TaskCancelled:
-        tracker.cancelled("任务已取消")
+        tracker.cancelled(t("task.cancelled"))
         raise
     except Exception as e:
         tracker.error(f"rerun failed: {e}")
@@ -333,7 +337,7 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
     _ensure_run_handlers(manager)
     project_id = str(proj_dir.resolve())
     if _active_managed_run(manager, project_id) is not None:
-        return handler._send_json({"ok": False, "error": "该项目已有任务正在运行"}, 409)
+        return handler._send_json({"ok": False, "error": t("task.project_busy")}, 409)
     input_data = {
         "config_path": str(config_path) if config_path is not None else None,
         "project_dir": project_id,
@@ -351,11 +355,11 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
         "retryable": retryable,
     }
     if not retryable:
-        input_summary["retry_blocked_reason"] = "此任务使用了临时上下文或自定义提示词，无法安全重试；请重新提交运行。"
+        input_summary["retry_blocked_reason"] = t("task.retry_blocked")
     try:
         task = manager.submit(
             TaskKind.PIPELINE,
-            "运行素材处理流水线",
+            t("task.pipeline_title"),
             project_id=project_id,
             project_name=proj_dir.name,
             project_path=project_id,
@@ -369,7 +373,7 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
             reject_if_active=True,
         )
     except TaskAlreadyRunningError:
-        return handler._send_json({"ok": False, "error": "该项目已有任务正在运行"}, 409)
+        return handler._send_json({"ok": False, "error": t("task.project_busy")}, 409)
     label = "+".join(steps) if steps else "all"
     return handler._send_json(
         {
@@ -556,11 +560,11 @@ def handle_post_rerun(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -
     _ensure_run_handlers(manager)
     project_id = str(proj_dir.resolve())
     if _active_managed_run(manager, project_id) is not None:
-        return handler._send_json({"ok": False, "error": "该项目已有任务正在运行"}, 409)
+        return handler._send_json({"ok": False, "error": t("task.project_busy")}, 409)
     try:
         managed_task = manager.submit(
             TaskKind.RERUN,
-            f"重跑 {task}: {video_basename}",
+            t("task.rerun_title", {"task": task, "video": video_basename}),
             project_id=project_id,
             project_name=proj_dir.name,
             project_path=project_id,
@@ -577,7 +581,7 @@ def handle_post_rerun(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -
             reject_if_active=True,
         )
     except TaskAlreadyRunningError:
-        return handler._send_json({"ok": False, "error": "该项目已有任务正在运行"}, 409)
+        return handler._send_json({"ok": False, "error": t("task.project_busy")}, 409)
     return handler._send_json(
         {
             "ok": True,

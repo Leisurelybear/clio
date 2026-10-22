@@ -11,6 +11,7 @@ from typing import Literal
 
 from clio.asr.readiness import check_asr_ready
 from clio.config import AppConfig, load_config
+from clio.i18n import t
 from clio.utils import discover_ffmpeg_bin, no_console_kwargs
 
 DoctorStatus = Literal["OK", "WARN", "FAIL"]
@@ -104,7 +105,7 @@ def _binary_check(name: str, configured: str, discover_binary: Callable[[str], s
     found = configured or discover_binary(name)
     if found:
         return DoctorItem(name, "OK", str(found))
-    return DoctorItem(name, "FAIL", "未找到，请运行 setup 脚本或在 config.yaml 中配置路径")
+    return DoctorItem(name, "FAIL", t("doctor.binary.missing"))
 
 
 def _path_writable(path: Path) -> bool:
@@ -120,12 +121,12 @@ def _provider_has_key(provider, environ: Mapping[str, str]) -> bool:
 
 def _provider_key_detail(provider) -> str:
     if provider.api_key_env:
-        return f"缺少环境变量 {provider.api_key_env}（在 .env 中设置，不要写入 yaml api_key）"
-    return "缺少 api_key_env（请配置环境变量名，密钥放在 .env）"
+        return t("doctor.provider.missing_env", {"env": provider.api_key_env})
+    return t("doctor.provider.missing_env_name")
 
 
 def provider_key_missing(provider, environ: Mapping[str, str] | None = None) -> str | None:
-    """Return a Chinese detail string when the provider's API key is missing, else None."""
+    """Return a localized detail string when the provider's API key is missing, else None."""
     environ = environ if environ is not None else os.environ
     if _provider_has_key(provider, environ):
         return None
@@ -147,16 +148,21 @@ def collect_doctor_checks(
         DoctorItem(
             "Python",
             "OK" if py_ok else "FAIL",
-            f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro} (需要 3.11+)",
+            t(
+                "doctor.python.version",
+                {
+                    "version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+                },
+            ),
         )
     )
 
     venv_ok = is_virtualenv_python()
     items.append(
         DoctorItem(
-            "虚拟环境",
+            t("doctor.item.venv"),
             "OK" if venv_ok else "WARN",
-            sys.executable if venv_ok else f"{sys.executable} (建议使用 .venv)",
+            sys.executable if venv_ok else t("doctor.venv.hint", {"python": sys.executable}),
         )
     )
 
@@ -173,7 +179,7 @@ def collect_doctor_checks(
             )
         )
     else:
-        items.append(DoctorItem("ASR", "OK", "whisper.enabled=false，已禁用"))
+        items.append(DoctorItem("ASR", "OK", t("doctor.asr.disabled")))
 
     from clio.tasks._video_loader import source_videos
 
@@ -184,27 +190,27 @@ def collect_doctor_checks(
         offline = len(videos) - existing
         if not videos:
             status: DoctorStatus = "WARN"
-            detail = f"{project_dir} (0 个视频 — 请在 UI 添加或 migrate)"
+            detail = t("doctor.project.empty", {"path": project_dir})
         elif offline:
             status = "WARN"
-            detail = f"{project_dir} ({len(videos)} 个视频, {offline} 个离线)"
+            detail = t("doctor.project.offline", {"path": project_dir, "count": len(videos), "offline": offline})
         else:
             status = "OK"
-            detail = f"{project_dir} ({len(videos)} 个视频)"
-        items.append(DoctorItem("项目视频", status, detail))
+            detail = t("doctor.project.ready", {"path": project_dir, "count": len(videos)})
+        items.append(DoctorItem(t("doctor.item.project_videos"), status, detail))
     else:
         items.append(
             DoctorItem(
-                "项目视频",
+                t("doctor.item.project_videos"),
                 "WARN",
-                "未指定项目，使用 -p/--project 选择项目",
+                t("doctor.project.unselected"),
             )
         )
 
     output_dir = config.paths.output_dir
     items.append(
         DoctorItem(
-            "输出目录可写",
+            t("doctor.item.output_writable"),
             "OK" if _path_writable(output_dir) else "FAIL",
             str(output_dir),
         )
@@ -214,7 +220,7 @@ def collect_doctor_checks(
     for provider_name in sorted(referenced_providers):
         provider = config.ai.providers.get(provider_name)
         if provider is None:
-            items.append(DoctorItem(f"AI provider: {provider_name}", "FAIL", "任务引用了未配置的 provider"))
+            items.append(DoctorItem(f"AI provider: {provider_name}", "FAIL", t("doctor.provider.unconfigured")))
             continue
         if _provider_has_key(provider, environ):
             detail = provider.api_key_env or "api_key"
@@ -224,11 +230,11 @@ def collect_doctor_checks(
 
     node_text = node_version_getter()
     if not node_text:
-        items.append(DoctorItem("Node.js", "WARN", "未找到；仅运行 UI 单元测试需要 Node.js 22.12+"))
+        items.append(DoctorItem("Node.js", "WARN", t("doctor.node.missing")))
     else:
         ok = node_version_supported(node_text)
         status: DoctorStatus = "OK" if ok else "WARN"
-        items.append(DoctorItem("Node.js", status, f"{node_text} (UI 单元测试需要 22.12+)"))
+        items.append(DoctorItem("Node.js", status, t("doctor.node.version", {"version": node_text})))
 
     return items
 
@@ -239,9 +245,9 @@ def run_doctor(config_path: Path, project_dir: Path | None = None) -> int:
         config = load_config(config_path)
         if project_dir is not None:
             config = load_config(config_path, project_dir=project_dir)
-        items.append(DoctorItem("配置文件", "OK", str(config_path)))
+        items.append(DoctorItem(t("doctor.item.config_file"), "OK", str(config_path)))
     except Exception as exc:
-        items.append(DoctorItem("配置文件", "FAIL", str(exc)))
+        items.append(DoctorItem(t("doctor.item.config_file"), "FAIL", str(exc)))
         _print_doctor_items(items)
         return doctor_exit_code(items)
 
@@ -251,8 +257,8 @@ def run_doctor(config_path: Path, project_dir: Path | None = None) -> int:
 
 
 def _print_doctor_items(items: list[DoctorItem]) -> None:
-    print("环境诊断:")
+    print(t("doctor.header"))
     for item in items:
         suffix = f" - {item.detail}" if item.detail else ""
         print(f"  [{item.status}] {item.name}{suffix}")
-    print(f"\ndone (exit code: {doctor_exit_code(items)})")
+    print(t("doctor.done_exit_code", {"code": doctor_exit_code(items)}))

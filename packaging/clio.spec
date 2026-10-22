@@ -45,6 +45,7 @@ a = Analysis(
     binaries=[],
     datas=[
         (str(ROOT / "clio" / "ui" / "static"), "clio/ui/static"),
+        (str(ROOT / "clio" / "locales"), "clio/locales"),
         (str(ROOT / "templates"), "templates"),
         (str(ROOT / "config.example.yaml"), "clio/config"),
         # License + third-party attribution ship inside the bundle (GAP-P2-15).

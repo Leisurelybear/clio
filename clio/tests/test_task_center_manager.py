@@ -177,6 +177,30 @@ def test_running_task_can_be_cancelled_cooperatively(tmp_path):
     assert cancelled.cancel_requested is True
 
 
+def test_lifecycle_messages_use_english_locale(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLIO_LANG", "en")
+    manager = _manager(tmp_path)
+
+    manager.register(TaskKind.PIPELINE, lambda context: {})
+    completed = manager.wait(manager.submit(TaskKind.PIPELINE, "work").id)
+    assert completed.message == "Task completed"
+
+    entered = threading.Event()
+
+    def cancellable(context):
+        entered.set()
+        while True:
+            context.reporter.raise_if_cancelled()
+            time.sleep(0.005)
+
+    manager.register(TaskKind.RERUN, cancellable, cancellable=True)
+    running = manager.submit(TaskKind.RERUN, "cancel me")
+    assert entered.wait(timeout=2)
+    manager.request_cancel(running.id)
+    cancelled = manager.wait(running.id)
+    assert cancelled.message == "Task cancelled"
+
+
 def test_non_cancellable_task_rejects_cancel(tmp_path):
     manager = _manager(tmp_path)
     release = threading.Event()

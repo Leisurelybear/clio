@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import TypeVar
 
 from clio._constants import VIDEO_EXTENSIONS
+from clio.i18n import t
 from clio.shutdown import register_process, unregister_process
 
 T = TypeVar("T")
@@ -98,10 +99,26 @@ def with_retry(
                 raise
             last_exc = e
             if i + 1 >= attempts:
-                print(f"  [重试] {what} 失败 {attempts} 次，放弃: {type(e).__name__}: {e}")
+                print(
+                    t(
+                        "utils.retry.give_up",
+                        {"what": what, "attempts": attempts, "error": f"{type(e).__name__}: {e}"},
+                    )
+                )
                 break
             delay = base_delay * (2**i)
-            print(f"  [重试] {what} 失败 ({type(e).__name__}: {str(e)[:80]})，{delay:.1f}s 后重试 ({i + 2}/{attempts})")
+            print(
+                t(
+                    "utils.retry.retrying",
+                    {
+                        "what": what,
+                        "error": f"{type(e).__name__}: {str(e)[:80]}",
+                        "delay": f"{delay:.1f}",
+                        "attempt": i + 2,
+                        "attempts": attempts,
+                    },
+                )
+            )
             time.sleep(delay)
     assert last_exc is not None
     raise last_exc
@@ -183,7 +200,10 @@ def extract_json(text: str) -> dict:
 
     if len(text) > MAX_EXTRACT_JSON_SCAN_CHARS:
         raise ValueError(
-            f"AI 返回内容过长，已跳过 JSON 正则提取：{len(text)} 字符 > {MAX_EXTRACT_JSON_SCAN_CHARS} 字符"
+            t(
+                "utils.json.too_long",
+                {"actual": len(text), "limit": MAX_EXTRACT_JSON_SCAN_CHARS},
+            )
         )
 
     match = re.search(r"\{[\s\S]*\}", text)
@@ -210,7 +230,7 @@ def extract_json(text: str) -> dict:
         if repaired:
             loaded = _try_load_json_object(repaired)
             if loaded is not None:
-                print("  [JSON] AI 输出被截断，已尽力补全括号/字符串后解析")
+                print(t("utils.json.repaired"))
                 return loaded
         try:
             json.loads(candidate)
@@ -218,7 +238,7 @@ def extract_json(text: str) -> dict:
             last_err = e
 
     hint = f" ({last_err})" if last_err else ""
-    raise ValueError(f"AI 返回内容无法解析为 JSON{hint}:\n{text[:500]}")
+    raise ValueError(t("utils.json.parse_failed", {"hint": hint, "preview": text[:500]}))
 
 
 def mask_if_looks_like_key(value: str) -> str:
@@ -275,13 +295,13 @@ def resolve_binary(configured: str, fallback: str) -> str:
         path = Path(configured)
         if path.is_file():
             return str(path)
-        raise FileNotFoundError(f"找不到可执行文件: {configured}")
+        raise FileNotFoundError(t("utils.binary.configured_missing", {"path": configured}))
 
     found = discover_ffmpeg_bin(fallback)
     if found:
         return found
     setup_script = "setup.ps1" if os.name == "nt" else "setup.sh"
-    raise FileNotFoundError(f"找不到 {fallback}。请运行 {setup_script} 安装，或在 config.yaml 的 paths 中填写路径。")
+    raise FileNotFoundError(t("utils.binary.missing_setup", {"binary": fallback, "setup": setup_script}))
 
 
 def probe_ffmpeg_deps(
@@ -304,11 +324,8 @@ def probe_ffmpeg_deps(
     missing = result["missing"]
     if isinstance(missing, list) and missing:
         setup = "setup.ps1" if os.name == "nt" else "setup.sh"
-        labels = "、".join(str(name) for name in missing)
-        result["detail"] = (
-            f"未找到 {labels}。请运行 {setup}，或在 config.yaml 的 paths.ffmpeg / paths.ffprobe 中填写路径。"
-            " 压缩 / 裁剪 / 转录抽音 / 波形等功能不可用。"
-        )
+        labels = t("common.list_separator").join(str(name) for name in missing)
+        result["detail"] = t("utils.media.missing_detail_compact", {"labels": labels, "setup": setup})
     return {key: result[key] for key in ("ok", "ffmpeg", "ffprobe", "missing", "detail")}
 
 
@@ -364,8 +381,8 @@ def preflight_media_deps(
     setup = "setup.ps1" if os.name == "nt" else "setup.sh"
     detail = ""
     if missing:
-        labels = "、".join(missing)
-        detail = f"未找到 {labels}。请运行 {setup}，或在 config.yaml 的 paths.ffmpeg / paths.ffprobe 中填写路径。"
+        labels = t("common.list_separator").join(missing)
+        detail = t("utils.media.missing_detail", {"labels": labels, "setup": setup})
     return {
         "ok": not missing,
         "required": list(required_names),
@@ -388,7 +405,7 @@ def preflight_config_media_deps(config: object, *, required: Iterable[str]) -> d
 
 def media_dependency_error(preflight: dict[str, object]) -> dict[str, object]:
     """Build the stable HTTP error payload for a failed media preflight."""
-    detail = str(preflight.get("detail") or "媒体依赖不可用")
+    detail = str(preflight.get("detail") or t("utils.media.unavailable"))
     return {
         "ok": False,
         "code": "media_dependency_missing",
@@ -399,7 +416,7 @@ def media_dependency_error(preflight: dict[str, object]) -> dict[str, object]:
 
 def find_videos(directory: Path, recursive: bool = False) -> list[Path]:
     if not directory.is_dir():
-        raise NotADirectoryError(f"素材目录不存在: {directory}")
+        raise NotADirectoryError(t("utils.directory.missing", {"path": directory}))
     if recursive:
         files = [p for p in sorted(directory.rglob("*")) if p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS]
     else:
@@ -483,7 +500,7 @@ def get_duration_sec(video_path: Path, ffprobe: str) -> float:
     result = run_probe(cmd)
     raw = result.stdout.strip()
     if raw in ("N/A", "inf", "-inf", ""):
-        raise ValueError(f"ffprobe 返回无效时长 '{raw}' for {video_path}")
+        raise ValueError(t("utils.ffprobe.invalid_duration", {"duration": raw, "path": video_path}))
     duration = float(raw)
     if key is not None:
         size_mb = key[2] / (1024 * 1024)
@@ -506,7 +523,7 @@ def _exclusive_random_tmp(path: Path) -> tuple[Path, int]:
         except FileExistsError:
             continue
         return tmp, fd
-    raise OSError(f"无法创建唯一临时文件: {path}")
+    raise OSError(t("utils.temp.unique_failed", {"path": path}))
 
 
 def write_text_atomic(path: Path, text: str) -> None:
@@ -643,7 +660,7 @@ def write_secret_atomic(path: Path, text: str) -> None:
     exposed copy is never silently replaced with fresh secrets.
     """
     if _secret_has_insecure_perms(path):
-        raise PermissionError(f"拒绝覆盖权限不安全的密钥文件: {path} (其他用户可读/写，请先 chmod 600 {path})")
+        raise PermissionError(t("utils.secret.insecure", {"path": path}))
     tmp, fd = _exclusive_random_tmp(path)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -681,9 +698,9 @@ def safe_basename(text: str, max_len: int = 40) -> str:
     """
     name = sanitize_name(text, max_len=max_len)
     if not name or name in {".", ".."}:
-        raise ValueError(f"非法的文件名: {text!r}")
+        raise ValueError(t("utils.name.invalid", {"name": repr(text)}))
     if ".." in name.split("_"):
-        raise ValueError(f"非法的文件名: {text!r}")
+        raise ValueError(t("utils.name.invalid", {"name": repr(text)}))
     return name
 
 
@@ -795,7 +812,7 @@ def run_ffmpeg(
             if cancel_event and cancel_event.is_set():
                 cancel_flag[0] = True
                 process.terminate()
-                raise InterruptedError("ffmpeg 被用户取消")
+                raise InterruptedError(t("utils.ffmpeg.cancelled"))
             try:
                 process.wait(timeout=0.2)
                 break
@@ -813,4 +830,4 @@ def run_ffmpeg(
     finally:
         unregister_process(process)
     if not cancel_flag[0] and process.returncode != 0:
-        raise RuntimeError(f"ffmpeg 执行失败:\n{' '.join(cmd)}\n{''.join(stderr_lines)}")
+        raise RuntimeError(t("utils.ffmpeg.failed", {"command": " ".join(cmd), "stderr": "".join(stderr_lines)}))

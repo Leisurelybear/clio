@@ -2,13 +2,29 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
+import pytest
+
 import clio.i18n as i18n
 from clio.resources import find_resource
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest.fixture(autouse=True)
+def _clear_catalog_cache():
+    i18n._reset_cache_for_tests()
+    yield
+    i18n._reset_cache_for_tests()
 
 
 def test_catalog_resources_are_bundled():
     assert find_resource("ui/static/locales/zh-CN.json") is not None
     assert find_resource("ui/static/locales/en.json") is not None
+    assert find_resource("locales/zh-CN.json") is not None
+    assert find_resource("locales/en.json") is not None
 
 
 def test_normalize_locale_accepts_short_and_regional_tags():
@@ -46,5 +62,48 @@ def test_fallback_prefers_english_then_chinese(monkeypatch):
 
 def test_clio_lang_env_sets_default_locale(monkeypatch):
     monkeypatch.setenv("CLIO_LANG", "en")
-    i18n._reset_cache_for_tests()
     assert i18n.t("app.title") == "Vlog Editing UI"
+
+
+def test_backend_catalog_keys_have_locale_parity():
+    catalogs = {
+        locale: json.loads((REPO_ROOT / "clio" / "locales" / f"{locale}.json").read_text(encoding="utf-8"))
+        for locale in i18n.SUPPORTED_LOCALES
+    }
+
+    assert set(catalogs["zh-CN"]) == set(catalogs["en"])
+
+
+def test_backend_catalog_overrides_ui_catalog_and_keeps_shared_keys(tmp_path, monkeypatch):
+    ui_catalog = tmp_path / "ui.json"
+    backend_catalog = tmp_path / "backend.json"
+    ui_catalog.write_text('{"app.title": "UI title", "ui.only": "UI only"}', encoding="utf-8")
+    backend_catalog.write_text('{"app.title": "Backend title", "backend.only": "Backend only"}', encoding="utf-8")
+    resources = {
+        "ui/static/locales/en.json": ui_catalog,
+        "locales/en.json": backend_catalog,
+    }
+
+    monkeypatch.setattr(i18n, "find_resource", lambda relative: resources.get(relative))
+
+    assert i18n.t("app.title", locale="en") == "Backend title"
+    assert i18n.t("ui.only", locale="en") == "UI only"
+    assert i18n.t("backend.only", locale="en") == "Backend only"
+
+
+def test_missing_parameters_leave_placeholders_visible():
+    assert i18n.t("task.rerun_title", {"task": "analyze"}, locale="en") == "Rerun analyze: {video}"
+
+
+def test_unknown_locale_behaves_like_the_default_locale():
+    assert i18n.t("cli.description", locale="fr") == i18n.t("cli.description", locale="zh-CN")
+
+
+def test_unknown_clio_lang_uses_default_locale(monkeypatch):
+    monkeypatch.setenv("CLIO_LANG", "fr")
+
+    assert i18n.t("cli.description") == i18n.t("cli.description", locale="zh-CN")
+
+
+def test_catalog_path_prefers_the_backend_catalog():
+    assert i18n.catalog_path("en") == find_resource("locales/en.json")

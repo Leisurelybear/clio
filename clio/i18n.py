@@ -7,6 +7,7 @@ import logging
 import os
 import re
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from clio.resources import find_resource
@@ -30,12 +31,13 @@ def normalize_locale(value: str | None, default: str = DEFAULT_LOCALE) -> str:
     return default
 
 
-@lru_cache(maxsize=len(SUPPORTED_LOCALES))
-def _load_catalog(locale: str) -> dict[str, str]:
-    path = find_resource(f"ui/static/locales/{locale}.json")
-    if path is None:
-        logger.debug("i18n catalog missing: %s", locale)
-        return {}
+_CATALOG_RESOURCES = (
+    "ui/static/locales/{locale}.json",
+    "locales/{locale}.json",
+)
+
+
+def _read_catalog(path: Path) -> dict[str, str]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -44,6 +46,22 @@ def _load_catalog(locale: str) -> dict[str, str]:
     if not isinstance(payload, dict):
         return {}
     return {str(key): value for key, value in payload.items() if isinstance(key, str) and isinstance(value, str)}
+
+
+@lru_cache(maxsize=len(SUPPORTED_LOCALES))
+def _load_catalog(locale: str) -> dict[str, str]:
+    """Merge shared UI keys first, then the backend catalog (backend wins)."""
+    merged: dict[str, str] = {}
+    found = False
+    for template in _CATALOG_RESOURCES:
+        path = find_resource(template.format(locale=locale))
+        if path is None:
+            continue
+        found = True
+        merged.update(_read_catalog(path))
+    if not found:
+        logger.debug("i18n catalog missing: %s", locale)
+    return merged
 
 
 def _interpolate(template: str, params: dict[str, Any] | None) -> str:
@@ -70,8 +88,10 @@ def t(key: str, params: dict[str, Any] | None = None, *, locale: str | None = No
     return str(key)
 
 
-def catalog_path(locale: str):
-    return find_resource(f"ui/static/locales/{normalize_locale(locale)}.json")
+def catalog_path(locale: str) -> Path | None:
+    """Return the backend catalog path, falling back to the shared UI catalog."""
+    normalized = normalize_locale(locale)
+    return find_resource(f"locales/{normalized}.json") or find_resource(f"ui/static/locales/{normalized}.json")
 
 
 def _reset_cache_for_tests() -> None:

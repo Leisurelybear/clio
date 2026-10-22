@@ -11,6 +11,7 @@ from pathlib import Path
 
 from clio.config import apply_run_paths, load_config
 from clio.doctor import is_virtualenv_python, run_doctor
+from clio.i18n import t
 from clio.log import setup_logging
 from clio.shutdown import before_stop, install_hooks
 from clio.utils import discover_ffmpeg_bin, resolve_binary, safe_basename
@@ -21,13 +22,13 @@ PLACEHOLDER_KEYS = {"your_api_key_here", "YOUR_API_KEY", ""}
 def _add_io_args(
     parser: argparse.ArgumentParser,
     *,
-    force_help: str = "忽略已存在的输出，强制重新生成（覆盖 config.yaml 的 skip_existing）",
+    force_help: str | None = None,
 ) -> None:
     parser.add_argument(
         "-p",
         "--project",
         type=Path,
-        help="项目目录（包含 project.yaml）",
+        help=t("cli.help.io.project"),
     )
     parser.add_argument(
         "-i",
@@ -39,13 +40,13 @@ def _add_io_args(
         "-o",
         "--output",
         type=Path,
-        help="输出文件夹覆盖",
+        help=t("cli.help.io.output"),
     )
     parser.add_argument(
         "--force",
         action="store_true",
         default=argparse.SUPPRESS,
-        help=force_help,
+        help=force_help or t("cli.help.io.force"),
     )
 
 
@@ -67,19 +68,19 @@ def _explicit_path_error(args: argparse.Namespace) -> str | None:
     project_path = getattr(args, "project", None)
     if project_path is not None and not project_path.is_dir():
         if not project_path.exists():
-            return f"项目路径不存在: {project_path}"
-        return f"项目路径不是目录: {project_path}"
+            return t("cli.path.project_missing", {"path": project_path})
+        return t("cli.path.project_not_dir", {"path": project_path})
 
     input_path = getattr(args, "input", None)
     if input_path is None:
         return None
     if not input_path.exists():
-        return f"输入路径不存在: {input_path}"
+        return t("cli.path.input_missing", {"path": input_path})
     if input_path.is_dir():
         return None
     if args.command in {"compress", "analyze", "scripts", "refine", "compare-models"}:
         return None
-    return f"该命令的 -i/--input 需要目录: {input_path}"
+    return t("cli.path.input_needs_dir", {"path": input_path})
 
 
 def run_check(config_path: Path, project_dir: Path | None = None) -> int:
@@ -95,19 +96,19 @@ def run_check(config_path: Path, project_dir: Path | None = None) -> int:
         if not passed:
             ok = False
 
-    print("环境检查:")
+    print(t("cli.check.title"))
     venv_ok = is_virtualenv_python()
     status(
-        "虚拟环境",
+        t("cli.check.venv"),
         venv_ok,
-        sys.executable + (" (建议使用 .venv 虚拟环境)" if not venv_ok else ""),
+        sys.executable + (t("cli.check.venv_hint") if not venv_ok else ""),
     )
 
     setup_script = "setup.ps1" if os.name == "nt" else "setup.sh"
     ffmpeg = config.paths.ffmpeg or discover_ffmpeg_bin("ffmpeg")
     ffprobe = config.paths.ffprobe or discover_ffmpeg_bin("ffprobe")
-    status("ffmpeg", bool(ffmpeg), ffmpeg or f"未找到，运行 {setup_script}")
-    status("ffprobe", bool(ffprobe), ffprobe or "未找到")
+    status("ffmpeg", bool(ffmpeg), ffmpeg or t("cli.check.binary_missing_setup", {"setup": setup_script}))
+    status("ffprobe", bool(ffprobe), ffprobe or t("cli.check.binary_missing"))
 
     from clio.tasks._video_loader import source_videos
 
@@ -116,39 +117,44 @@ def run_check(config_path: Path, project_dir: Path | None = None) -> int:
     if project_dir and project_dir.is_dir():
         existing = sum(1 for v in videos if v.is_file())
         offline = len(videos) - existing
-        detail = f"{project_dir} ({len(videos)} 个视频"
-        if offline:
-            detail += f", 其中 {offline} 个离线"
-        detail += ")"
-        mark = "OK" if videos and offline == 0 else ("WARN" if videos else "WARN")
-        print(f"  [{mark}] 项目 '{project_dir.name}' - {detail}")
         if not videos:
-            print("       提示: 在 Web UI 视频管理中勾选素材，或运行 python main.py migrate")
+            detail = t("cli.check.video_empty", {"path": project_dir})
+        elif offline:
+            detail = t(
+                "cli.check.video_offline",
+                {"path": project_dir, "count": len(videos), "offline": offline},
+            )
+        else:
+            detail = t("cli.check.video_ready", {"path": project_dir, "count": len(videos)})
+        mark = "OK" if videos and offline == 0 else ("WARN" if videos else "WARN")
+        print(f"  [{mark}] {t('cli.check.project_row', {'name': project_dir.name, 'detail': detail})}")
+        if not videos:
+            print(t("cli.check.video_hint"))
     else:
-        print("  [WARN] 未指定项目，使用 -p/--project 选择项目目录")
+        print(t("cli.check.no_project"))
 
-    print("\nAI 任务配置:")
+    print(t("cli.check.ai_tasks"))
     for task_name, task_cfg in config.ai.tasks.items():
         provider = config.ai.providers.get(task_cfg.provider)
         key_ok = provider is not None and provider.api_key not in PLACEHOLDER_KEYS
         detail = f"{task_cfg.provider}/{task_cfg.model}"
         if provider and not key_ok:
-            env_name = provider.api_key_env or "<未设置 api_key_env>"
-            detail += f" (需设置 {env_name} 于 .env / 环境变量)"
+            env_name = provider.api_key_env or t("cli.check.no_env_name")
+            detail += t("cli.check.key_env", {"env": env_name})
         status(f"  {task_name}", bool(provider) and key_ok, detail)
 
     status(
-        "代理",
+        t("cli.check.proxy"),
         not config.proxy.enabled or bool(config.proxy.url),
-        config.proxy.url if config.proxy.enabled else "未启用",
+        config.proxy.url if config.proxy.enabled else t("cli.check.proxy_disabled"),
     )
 
     if not project_dir or not project_dir.is_dir():
         print()
-        print("用法: python main.py <命令> -p <项目目录>")
+        print(t("cli.check.usage"))
         example_path = "G:\\vlog-projects\\巴黎行" if os.name == "nt" else "/path/to/project"
-        print(f"      例如: python main.py run -p {example_path}")
-    print(f"\ndone (exit code: {0 if ok else 1})")
+        print(t("cli.check.example", {"path": example_path}))
+    print(t("cli.done_exit_code", {"code": 0 if ok else 1}))
     return 0 if ok else 1
 
 
@@ -165,156 +171,154 @@ def cmd_tokens(args):
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Vlog 剪辑辅助工具：文件夹输入 → 压缩 → AI 分析 → 口播 → 规划",
+        description=t("cli.description"),
     )
     parser.add_argument(
         "-c",
         "--config",
         default="config.yaml",
-        help="配置文件路径（默认 config.yaml）",
+        help=t("cli.help.config"),
     )
     parser.add_argument(
         "--force",
         action="store_true",
-        help="忽略已存在的输出，强制重新生成（覆盖 config.yaml 的 skip_existing）",
+        help=t("cli.help.force"),
     )
 
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_compress = sub.add_parser("compress", help="仅压缩素材文件夹中的视频")
+    p_compress = sub.add_parser("compress", help=t("cli.help.compress"))
     _add_io_args(p_compress)
 
-    p_analyze = sub.add_parser("analyze", help="压缩 + AI 分析，输出文本和 CSV")
+    p_analyze = sub.add_parser("analyze", help=t("cli.help.analyze"))
     _add_io_args(p_analyze)
 
-    p_scripts = sub.add_parser("scripts", help="根据分析结果生成口播文案")
+    p_scripts = sub.add_parser("scripts", help=t("cli.help.scripts"))
     _add_io_args(p_scripts)
 
-    p_label = sub.add_parser("label", help="在压缩视频上烧录序号标注")
+    p_label = sub.add_parser("label", help=t("cli.help.label"))
     _add_io_args(p_label)
 
-    p_check = sub.add_parser("check", help="检查环境配置是否就绪")
-    p_check.add_argument("-p", "--project", type=Path, help="检查指定项目目录")
+    p_check = sub.add_parser("check", help=t("cli.help.check"))
+    p_check.add_argument("-p", "--project", type=Path, help=t("cli.help.check.project"))
     p_check.add_argument("-i", "--input", type=Path, help=argparse.SUPPRESS)
 
-    p_doctor = sub.add_parser("doctor", help="诊断本机环境、依赖、配置和常见运行风险")
-    p_doctor.add_argument("-p", "--project", type=Path, help="诊断指定项目目录")
+    p_doctor = sub.add_parser("doctor", help=t("cli.help.doctor"))
+    p_doctor.add_argument("-p", "--project", type=Path, help=t("cli.help.doctor.project"))
     p_doctor.add_argument("-i", "--input", type=Path, help=argparse.SUPPRESS)
 
-    p_plan = sub.add_parser("plan", help="生成单日 vlog 剪辑规划")
+    p_plan = sub.add_parser("plan", help=t("cli.help.plan"))
     _add_io_args(p_plan)
-    p_plan.add_argument("--day", default="day1", help="日 vlog 标签")
-    p_plan.add_argument("--all-days", action="store_true", help="按分析结果中的 day/day_label 批量生成多日规划")
-    p_plan.add_argument("--no-transcripts", action="store_true", help="不注入语音转录信息到 prompt")
+    p_plan.add_argument("--day", default="day1", help=t("cli.help.plan.day"))
+    p_plan.add_argument("--all-days", action="store_true", help=t("cli.help.plan.all_days"))
+    p_plan.add_argument("--no-transcripts", action="store_true", help=t("cli.help.plan.no_transcripts"))
 
-    p_run = sub.add_parser("run", help="一键执行完整流程")
+    p_run = sub.add_parser("run", help=t("cli.help.run"))
     _add_io_args(p_run)
-    p_run.add_argument("--day", default="day1", help="日 vlog 标签")
+    p_run.add_argument("--day", default="day1", help=t("cli.help.plan.day"))
 
-    p_cut = sub.add_parser("cut", help="根据规划从视频中裁剪片段")
-    _add_io_args(p_cut, force_help="忽略规划就绪警告（error 仍会阻止）")
-    p_cut.add_argument("--day", default="day1", help="日 vlog 标签（默认 day1）")
+    p_cut = sub.add_parser("cut", help=t("cli.help.cut"))
+    _add_io_args(p_cut, force_help=t("cli.help.cut.force"))
+    p_cut.add_argument("--day", default="day1", help=t("cli.help.cut.day"))
     p_cut.add_argument(
         "--out-dir",
         type=Path,
         default=None,
-        help="输出目录（默认 output/cuts/<day>/）",
+        help=t("cli.help.cut.out_dir"),
     )
     p_cut.add_argument(
         "--reencode",
         action="store_true",
-        help="重新编码（默认 -c copy 快剪；启用则用 libx264 精确剪）",
+        help=t("cli.help.cut.reencode"),
     )
     p_cut.add_argument(
         "--source",
         choices=["compressed", "original"],
         default="compressed",
-        help="视频来源（compressed: 从压缩版裁剪 / original: 从原片裁剪）",
+        help=t("cli.help.cut.source"),
     )
-    p_refine = sub.add_parser("refine", help="用 AI + trip 上下文 审阅并修正已有分析/口播")
-    p_refine.add_argument("-p", "--project", type=Path, help="项目目录（包含 project.yaml）")
-    p_refine.add_argument("-o", "--output", type=Path, help="输出文件夹覆盖")
+    p_refine = sub.add_parser("refine", help=t("cli.help.refine"))
+    p_refine.add_argument("-p", "--project", type=Path, help=t("cli.help.io.project"))
+    p_refine.add_argument("-o", "--output", type=Path, help=t("cli.help.io.output"))
     p_refine.add_argument(
         "--target",
         "-t",
         choices=["texts", "scripts", "all"],
         default="all",
-        help="要 refine 的目标（默认 all）",
+        help=t("cli.help.refine.target"),
     )
     p_refine.add_argument(
         "-i",
         "--input",
         type=Path,
-        help="指定单个 .json 文件或目录；省略则处理整个 texts/ 或 scripts/",
+        help=t("cli.help.refine.input"),
     )
     p_refine.add_argument(
         "--fix",
         "-f",
         type=str,
         default="",
-        help=(
-            "指定具体修改意见（必须配合 -i 单文件使用）。例: --fix '把 location 从曼谷素万那普机场改成巴黎戴高乐机场'"
-        ),
+        help=t("cli.help.refine.fix"),
     )
     p_refine.add_argument(
         "--context",
         "-C",
         type=str,
         default="",
-        help="临时上下文说明，附加到 ai.context 之后（仅本次 refine 生效）",
+        help=t("cli.help.refine.context"),
     )
 
-    p_compare = sub.add_parser("compare-models", help="用多个视频模型分析同一视频并生成对比报告")
-    p_compare.add_argument("-i", "--input", type=Path, required=True, help="要分析的视频文件")
+    p_compare = sub.add_parser("compare-models", help=t("cli.help.compare"))
+    p_compare.add_argument("-i", "--input", type=Path, required=True, help=t("cli.help.compare.input"))
     p_compare.add_argument(
         "--models",
         nargs="+",
         required=True,
-        help="模型列表，格式 provider:model；也支持逗号分隔",
+        help=t("cli.help.compare.models"),
     )
-    p_compare.add_argument("--out-dir", type=Path, default=None, help="报告输出目录（默认 output/model_compare/）")
+    p_compare.add_argument("--out-dir", type=Path, default=None, help=t("cli.help.compare.out_dir"))
     p_compare.add_argument(
         "--context",
         "-C",
         type=str,
         default="",
-        help="临时上下文说明，附加到 ai.context 之后（仅本次对比生效）",
+        help=t("cli.help.compare.context"),
     )
 
-    p_migrate = sub.add_parser("migrate-config", help="扫描已有项目的 project.yaml，补充缺失的 provider 配置字段")
-    p_migrate.add_argument("--projects-root", type=Path, default=None, help="项目根目录（扫描子目录中的 project.yaml）")
+    p_migrate = sub.add_parser("migrate-config", help=t("cli.help.migrate_config"))
+    p_migrate.add_argument("--projects-root", type=Path, default=None, help=t("cli.help.migrate_config.projects_root"))
 
     p_migrate_projects = sub.add_parser(
         "migrate",
-        help="将旧项目迁移到新结构（独立 project_dir + videos.json）",
+        help=t("cli.help.migrate"),
     )
     p_migrate_projects.add_argument(
         "--from",
         type=Path,
         default=None,
         dest="from_path",
-        help="指定要迁移的项目路径（默认扫描注册表）",
+        help=t("cli.help.migrate.from"),
     )
 
-    p_serve = sub.add_parser("serve", help="启动本地 web UI（浏览器里可视化编辑 AI 输出）")
-    p_serve.add_argument("--host", default="127.0.0.1", help="监听地址（默认 127.0.0.1，不暴露到局域网）")
-    p_serve.add_argument("--port", type=int, default=8765, help="端口（默认 8765）")
-    p_serve.add_argument("--no-browser", action="store_true", help="不自动打开浏览器")
-    p_serve.add_argument("--token", type=str, default=None, help="API Token（留空则自动生成）")
+    p_serve = sub.add_parser("serve", help=t("cli.help.serve"))
+    p_serve.add_argument("--host", default="127.0.0.1", help=t("cli.help.serve.host"))
+    p_serve.add_argument("--port", type=int, default=8765, help=t("cli.help.serve.port"))
+    p_serve.add_argument("--no-browser", action="store_true", help=t("cli.help.serve.no_browser"))
+    p_serve.add_argument("--token", type=str, default=None, help=t("cli.help.serve.token"))
 
     sub.add_parser(
         "desktop",
-        help="启动桌面窗口（pywebview + 本地 UI，系统文件对话框）",
+        help=t("cli.help.desktop"),
     )
 
-    p_tokens = sub.add_parser("tokens", help="查看 token 使用统计")
+    p_tokens = sub.add_parser("tokens", help=t("cli.help.tokens"))
     _add_io_args(p_tokens)
     p_tokens.set_defaults(func=cmd_tokens)
 
-    p_export = sub.add_parser("export", help="导出 plan 到剪辑软件草稿")
-    _add_io_args(p_export, force_help="忽略规划就绪警告（error 仍会阻止）")
-    p_export.add_argument("--format", default="jianying", choices=["jianying"], help="导出格式")
-    p_export.add_argument("--day", default="day1", help="日 vlog 标签（默认 day1）")
+    p_export = sub.add_parser("export", help=t("cli.help.export"))
+    _add_io_args(p_export, force_help=t("cli.help.export.force"))
+    p_export.add_argument("--format", default="jianying", choices=["jianying"], help=t("cli.help.export.format"))
+    p_export.add_argument("--day", default="day1", help=t("cli.help.export.day"))
     # -o/--output already from _add_io_args (output_dir override for config).
     # Export destination uses --out-dir to avoid argparse conflict.
     p_export.add_argument(
@@ -322,35 +326,35 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         default=None,
         dest="export_out_dir",
-        help="导出草稿输出目录（默认 output/export/<day>_<format>/）",
+        help=t("cli.help.export.out_dir"),
     )
-    _p_verify = sub.add_parser("verify", help="校验压缩文件与原始视频的完整性")
+    _p_verify = sub.add_parser("verify", help=t("cli.help.verify"))
     _add_io_args(_p_verify)
 
-    p_reindex = sub.add_parser("reindex", help="重建 .vmeta / .vindex sidecar 文件")
+    p_reindex = sub.add_parser("reindex", help=t("cli.help.reindex"))
     _add_io_args(p_reindex)
     p_reindex.add_argument(
         "--name",
         type=str,
         default="",
         dest="project_name",
-        help="按项目名匹配（可选；优先使用 -p/--project 目录）",
+        help=t("cli.help.reindex.name"),
     )
 
-    p_transcribe = sub.add_parser("transcribe", help="Whisper ASR 语音转录（需先安装 faster-whisper）")
-    _add_io_args(p_transcribe, force_help="忽略已有转录，重新生成")
+    p_transcribe = sub.add_parser("transcribe", help=t("cli.help.transcribe"))
+    _add_io_args(p_transcribe, force_help=t("cli.help.transcribe.force"))
 
-    p_whisper = sub.add_parser("whisper", help="Whisper 环境管理（安装/检测）")
+    p_whisper = sub.add_parser("whisper", help=t("cli.help.whisper"))
     whisper_sub = p_whisper.add_subparsers(dest="whisper_command", required=True)
-    whisper_sub.add_parser("install", help="安装 faster-whisper 依赖并预下载模型")
-    whisper_sub.add_parser("check", help="检测 faster-whisper / CUDA 状态")
+    whisper_sub.add_parser("install", help=t("cli.help.whisper.install"))
+    whisper_sub.add_parser("check", help=t("cli.help.whisper.check"))
 
     args = parser.parse_args(argv)
     config_path = Path(args.config)
 
     path_error = _explicit_path_error(args)
     if path_error:
-        print(f"错误: {path_error}", file=sys.stderr)
+        print(t("cli.error", {"detail": path_error}), file=sys.stderr)
         return 2
 
     if args.command == "doctor":
@@ -486,15 +490,11 @@ def main(argv: list[str] | None = None) -> int:
             from clio.pipeline import run_refine_scripts, run_refine_texts
 
             if not config.ai.context and not context_override:
-                print(
-                    "警告: config.yaml 里没有配置 ai.context 或 ai.context_file，"
-                    "refine 效果有限（AI 不知道你的行程背景和规范）。",
-                    file=sys.stderr,
-                )
+                print(t("cli.refine.no_context"), file=sys.stderr)
             fix = (getattr(args, "fix", "") or "").strip() or None
             target_path = getattr(args, "input", None)
             if fix and (target_path is None or target_path.is_dir()):
-                print("错误: --fix 必须配合 -i 指定单个 .json 文件", file=sys.stderr)
+                print(t("cli.refine.fix_requires_file"), file=sys.stderr)
                 return 1
             try:
                 if args.target in ("texts", "all"):
@@ -506,7 +506,7 @@ def main(argv: list[str] | None = None) -> int:
                         scripts_path = target_path
                     run_refine_scripts(config, scripts_path, fix=fix, context_override=context_override)
             except ValueError as e:
-                print(f"错误: {e}", file=sys.stderr)
+                print(t("cli.error", {"detail": e}), file=sys.stderr)
                 return 1
         elif args.command == "cut":
             from clio.pipeline import run_cut_all
@@ -521,14 +521,14 @@ def main(argv: list[str] | None = None) -> int:
             auto_reindex_if_needed(config)
             plan_path = config.plans_dir / f"{safe_basename(args.day, max_len=60)}_plan.json"
             if not plan_path.is_file():
-                print(f"错误: 规划文件不存在: {plan_path}", file=sys.stderr)
+                print(t("cli.error", {"detail": t("cli.plan.not_found", {"path": plan_path})}), file=sys.stderr)
                 return 1
             plan = Plan.from_dict(json.loads(plan_path.read_text(encoding="utf-8")))
             known, offline = collect_project_indices(config)
             ready = check_plan_export_readiness(plan, known_indices=known, offline_indices=offline, source=args.source)
             blocked = readiness_block_payload(ready, force=bool(getattr(args, "force", False)))
             if blocked is not None:
-                print(f"错误: {blocked['error']}", file=sys.stderr)
+                print(t("cli.error", {"detail": blocked["error"]}), file=sys.stderr)
                 for issue in ready.errors + (ready.warnings if not getattr(args, "force", False) else []):
                     print(f"  [{issue.level}] {issue.message}", file=sys.stderr)
                 return 1
@@ -544,19 +544,19 @@ def main(argv: list[str] | None = None) -> int:
 
             root = args.projects_root or (config.project_dir or config_path.parent)
             updated, errors = _migrate_project_configs(root)
-            print(f"已更新 {updated} 个 project.yaml")
+            print(t("cli.migrate_config.updated", {"count": updated}))
             if errors:
-                print("错误:")
+                print(t("cli.errors_header"))
                 for err in errors:
-                    print(f"  - {err}")
+                    print(t("cli.list_error", {"error": err}))
             return 1 if errors else 0
         elif args.command == "migrate":
             from clio.tasks.migrate import run_migrate
 
             updated, errors = run_migrate(config_path, getattr(args, "from_path", None))
-            print(f"已迁移 {updated} 个项目")
+            print(t("cli.migrate.updated", {"count": updated}))
             for err in errors:
-                print(f"  错误: {err}")
+                print(t("cli.indented_error", {"error": err}))
             return 1 if errors else 0
         elif args.command == "serve":
             import time as _time
@@ -588,14 +588,14 @@ def main(argv: list[str] | None = None) -> int:
 
             plan_path = config.plans_dir / f"{safe_basename(args.day, max_len=60)}_plan.json"
             if not plan_path.is_file():
-                print(f"错误: 规划文件不存在: {plan_path}", file=sys.stderr)
+                print(t("cli.error", {"detail": t("cli.plan.not_found", {"path": plan_path})}), file=sys.stderr)
                 return 1
             plan = Plan.from_dict(json.loads(plan_path.read_text(encoding="utf-8")))
             known, offline = collect_project_indices(config)
             ready = check_plan_export_readiness(plan, known_indices=known, offline_indices=offline, source="original")
             blocked = readiness_block_payload(ready, force=bool(getattr(args, "force", False)))
             if blocked is not None:
-                print(f"错误: {blocked['error']}", file=sys.stderr)
+                print(t("cli.error", {"detail": blocked["error"]}), file=sys.stderr)
                 for issue in ready.errors + (ready.warnings if not getattr(args, "force", False) else []):
                     print(f"  [{issue.level}] {issue.message}", file=sys.stderr)
                 return 1
@@ -617,10 +617,10 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
     except FileNotFoundError as e:
-        print(f"错误: {e}", file=sys.stderr)
+        print(t("cli.error", {"detail": e}), file=sys.stderr)
         return 1
     except Exception as e:
-        print(f"错误: {e}", file=sys.stderr)
+        print(t("cli.error", {"detail": e}), file=sys.stderr)
         return 1
     finally:
         before_stop()

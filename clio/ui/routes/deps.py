@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 from clio.ai.base import TaskName
 from clio.doctor import provider_key_missing
 from clio.ffmpeg_install import install_ffmpeg, normalize_system, select_asset
+from clio.i18n import t
 from clio.task_center.manager import TaskAlreadyRunningError, TaskManager
 from clio.task_center.models import TaskKind, TaskStatus
 from clio.task_center.reporter import TaskCancelled
@@ -38,9 +39,9 @@ def _run_ffmpeg_install_task(context) -> dict[str, Any]:
 
     result = install_ffmpeg(mode="download", reporter=report, cancel_event=context.cancel_event)
     if result.method == "cancelled":
-        raise TaskCancelled("ffmpeg 安装已取消")
+        raise TaskCancelled(t("deps.ffmpeg.cancelled"))
     if not result.ok:
-        raise RuntimeError(result.message or "ffmpeg 安装失败")
+        raise RuntimeError(result.message or t("deps.ffmpeg.failed"))
     return {"ffmpeg": result.ffmpeg, "ffprobe": result.ffprobe, "method": result.method}
 
 
@@ -102,21 +103,32 @@ def handle_post_deps_ffmpeg_install(handler: HandlerProtocol, qs: dict[str, Any]
     del qs
     manager = _managed_task_manager(handler)
     if manager is None:
-        return handler._send_json({"ok": False, "error": "task manager unavailable"}, 503)
+        return handler._send_json({"ok": False, "error": t("deps.task_manager_unavailable")}, 503)
+    capabilities = _ffmpeg_install_capabilities()
+    if not capabilities["automatic"]:
+        return handler._send_json(
+            {
+                **capabilities,
+                "ok": False,
+                "running": False,
+                "error": t("deps.ffmpeg.unsupported_platform"),
+            },
+            400,
+        )
     _ensure_ffmpeg_install_handler(manager)
     if _active_ffmpeg_task(manager) is not None:
-        return handler._send_json({"ok": False, "error": "ffmpeg install is already running"}, 409)
+        return handler._send_json({"ok": False, "error": t("deps.ffmpeg.already_running")}, 409)
     try:
         task = manager.submit(
             TaskKind.FFMPEG_INSTALL,
-            "安装 ffmpeg / ffprobe",
+            t("deps.ffmpeg.task_title"),
             input_summary={"mode": "download"},
             reject_if_active=True,
         )
     except TaskAlreadyRunningError:
-        return handler._send_json({"ok": False, "error": "ffmpeg install is already running"}, 409)
+        return handler._send_json({"ok": False, "error": t("deps.ffmpeg.already_running")}, 409)
     return handler._send_json(
-        {"ok": True, "message": "ffmpeg install started", "task_id": task.id, "task": task.to_dict()}
+        {"ok": True, "message": t("deps.ffmpeg.started"), "task_id": task.id, "task": task.to_dict()}
     )
 
 
@@ -152,7 +164,7 @@ def handle_get_deps_keys(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
                 {
                     "provider": name,
                     "api_key_env": "",
-                    "detail": f"任务引用了未配置的 provider '{name}'",
+                    "detail": t("deps.ffmpeg.provider_unconfigured", {"name": name}),
                 }
             )
             continue

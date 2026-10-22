@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass, replace
 from typing import Any
 
+from clio.i18n import t
 from clio.task_center.executor import (
     TaskContext,
     TaskExecutorRegistry,
@@ -228,7 +229,7 @@ class TaskManager:
             if task.status is TaskStatus.CANCELLING:
                 return task
             changed_at = utc_now_iso()
-            cancel_message = "已取消" if target is TaskStatus.CANCELLED else "正在取消"
+            cancel_message = t("task.cancelled") if target is TaskStatus.CANCELLED else t("task.cancelling")
             updated = transition_task(task, target, at=changed_at, message=cancel_message)
             event = TaskEvent(
                 task_id=task.id,
@@ -348,7 +349,7 @@ class TaskManager:
                         current,
                         TaskStatus.INTERRUPTED,
                         at=changed_at,
-                        message="应用重启，任务执行已中断",
+                        message=t("task.restart_interrupted"),
                     )
                     event = TaskEvent(
                         task_id=current.id,
@@ -381,7 +382,7 @@ class TaskManager:
                 continue
             runtime.thread.join(timeout=max(0.0, deadline - time.monotonic()))
             if runtime.thread.is_alive():
-                self._interrupt_active_task(task_id, "应用关闭，任务执行已中断")
+                self._interrupt_active_task(task_id, t("task.shutdown_interrupted"))
 
     def runtime_task_ids(self) -> tuple[str, ...]:
         with self._lock:
@@ -471,7 +472,7 @@ class TaskManager:
             if task.is_terminal:
                 return task
             changed_at = utc_now_iso()
-            completed = transition_task(task, TaskStatus.SUCCEEDED, at=changed_at, message="任务完成")
+            completed = transition_task(task, TaskStatus.SUCCEEDED, at=changed_at, message=t("task.completed"))
             updated = replace(
                 completed,
                 current=completed.total if completed.total > 0 else completed.current,
@@ -489,11 +490,16 @@ class TaskManager:
         self._notify()
         return updated
 
-    def _finish_cancelled(self, task_id: str, *, message: str = "任务已取消") -> TaskRecord:
+    def _finish_cancelled(self, task_id: str, *, message: str | None = None) -> TaskRecord:
         task = self.store.require(task_id)
         if task.is_terminal:
             return task
-        return self._transition_status(task_id, TaskStatus.CANCELLED, message=message, level=TaskEventLevel.WARNING)
+        return self._transition_status(
+            task_id,
+            TaskStatus.CANCELLED,
+            message=message or t("task.cancelled"),
+            level=TaskEventLevel.WARNING,
+        )
 
     def _finish_failed(self, task_id: str, error: Exception) -> TaskRecord:
         task = self.store.require(task_id)
@@ -503,7 +509,7 @@ class TaskManager:
             runtime = self._runtime.get(task_id)
             cancelled = runtime is not None and runtime.cancel_event.is_set()
         if cancelled:
-            return self._finish_cancelled(task_id, message=str(error) or "任务已取消")
+            return self._finish_cancelled(task_id, message=str(error) or t("task.cancelled"))
         return self._transition_status(
             task_id,
             TaskStatus.FAILED,
