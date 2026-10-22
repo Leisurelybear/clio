@@ -263,6 +263,20 @@ class TestComputeSegmentOffset:
             result = _compute_segment_offset(f"001_src_{alias}2", cfg.compressed_dir, Path("/dummy.mp4"), "ffprobe")
             assert result == 60.0
 
+    def test_natural_part_suffix_is_not_a_split_segment(self, cfg):
+        for n in (1, 2):
+            (cfg.compressed_dir / f"001_holiday_part{n:02d}.mp4").write_bytes(b"\x00")
+        with patch("clio.tasks.cut.get_duration_sec", return_value=120.0):
+            from clio.tasks.cut import _compute_segment_offset
+
+            result = _compute_segment_offset(
+                "001_holiday_part01",
+                cfg.compressed_dir,
+                cfg.project_dir / "holiday_part01.mov",
+                "ffprobe",
+            )
+            assert result == 0.0
+
 
 class TestResolveVideoPath:
     def test_resolve_video_path_reads_vmeta(self, cfg):
@@ -321,6 +335,28 @@ class TestResolveVideoPath:
 
         assert len(result) == 1
         assert mock_cut.call_args.args[0] == original
+
+    def test_resolve_video_path_prefers_exact_natural_part_stem(self, cfg):
+        compressed = cfg.compressed_dir / "001_holiday_part01.mp4"
+        compressed.write_bytes(b"\x00" * 100)
+        original = cfg.project_dir / "holiday_part01.mov"
+        original.write_bytes(b"\x00" * 1000)
+        save_selected_videos(cfg.project_dir, [original])
+
+        seq = [{"index": "001", "title": "A", "use_timeline": "00:00-00:10"}]
+        _write_plan(cfg, seq=seq)
+        with (
+            patch("clio.tasks.cut.cut_one") as mock_cut,
+            patch("clio.tasks.cut.resolve_binary", return_value="ffmpeg"),
+        ):
+            from clio.tasks.cut import run_cut_all
+
+            result = run_cut_all(cfg, "day1", source="original")
+
+        assert len(result) == 1
+        assert mock_cut.call_args.args[0] == original
+        state = json.loads((cfg.paths.output_dir / ".processing.json").read_text(encoding="utf-8"))
+        assert state["files"]["holiday_part01"]["cut"] == "done"
 
 
 class TestRunCutAll:

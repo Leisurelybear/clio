@@ -242,6 +242,8 @@ def _compute_segment_offset(compressed_stem: str, comp_dir: Path, original_path:
     if parts is None:
         return 0.0
     prefix, seg_num = parts
+    if prefix.casefold() == original_path.stem.casefold():
+        return 0.0
     prefix = prefix.lower()
     total = 0
     for p in sorted(comp_dir.iterdir()):
@@ -308,6 +310,8 @@ def run_cut_all(
 
     def _orig_stem_from_path(video_path: Path) -> str:
         stem = video_path.stem
+        if source == "original":
+            return stem
         if "_" in stem:
             stem = stem.split("_", 1)[1]
         return SEGMENT_SUFFIX_RE.sub("", stem)
@@ -337,14 +341,20 @@ def run_cut_all(
                 if src.is_file():
                     return src
 
-            # 降级：regex 反解 + videos.json
+            # 降级：regex 反解 + videos.json。先按完整 stem 匹配，避免把自然文件名
+            # 末尾的 _partNN 误认为历史分段后缀。
             suffix = compressed.stem.split("_", 1)[1].lower()
-            orig_stem = SEGMENT_SUFFIX_RE.sub("", suffix)
             from clio.tasks._video_loader import source_videos
 
-            for p in source_videos(config):
-                if p.stem.lower() == orig_stem:
+            videos = source_videos(config)
+            for p in videos:
+                if p.stem.lower() == suffix:
                     return p
+            orig_stem = SEGMENT_SUFFIX_RE.sub("", suffix)
+            if orig_stem != suffix:
+                for p in videos:
+                    if p.stem.lower() == orig_stem:
+                        return p
             return None
 
     clips: list[dict] = []
