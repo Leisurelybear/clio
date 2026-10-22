@@ -472,5 +472,71 @@ def test_cleanup_runs_after_task_completion_when_interval_elapsed(tmp_path):
     manager.store.cleanup.assert_called()
 
 
+def test_completed_task_releases_its_lock_after_worker_exits(tmp_path):
+    manager = _manager(tmp_path)
+    entered = threading.Event()
+    release = threading.Event()
+
+    def handler(context):
+        entered.set()
+        release.wait(timeout=2)
+        return {"ok": True}
+
+    manager.register(TaskKind.PIPELINE, handler)
+
+    task = manager.submit(TaskKind.PIPELINE, "处理素材", task_id="completed")
+    assert entered.wait(timeout=2)
+    assert task.id in manager._task_locks
+    release.set()
+    assert manager.wait(task.id).status is TaskStatus.SUCCEEDED
+
+    deadline = time.monotonic() + 2
+    while (task.id in manager.runtime_task_ids() or task.id in manager._task_locks) and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert task.id not in manager.runtime_task_ids()
+    assert task.id not in manager._task_locks
+
+
+def test_active_and_queued_tasks_keep_their_locks(tmp_path):
+    manager = _manager(tmp_path)
+    entered = threading.Event()
+    release = threading.Event()
+
+    def handler(context):
+        if context.task.id == "active":
+            entered.set()
+            release.wait(timeout=2)
+
+    manager.register(
+        TaskKind.PIPELINE,
+        handler,
+        concurrency_key="serial",
+        max_concurrency=1,
+    )
+    active = manager.submit(TaskKind.PIPELINE, "运行中", task_id="active")
+    assert entered.wait(timeout=2)
+    queued = manager.submit(TaskKind.PIPELINE, "排队中", task_id="queued")
+
+    assert manager.store.require(active.id).status is TaskStatus.RUNNING
+    assert manager.store.require(queued.id).status is TaskStatus.QUEUED
+    assert active.id in manager._task_locks
+    assert queued.id in manager._task_locks
+
+    release.set()
+    assert manager.wait(active.id).status is TaskStatus.SUCCEEDED
+    assert manager.wait(queued.id).status is TaskStatus.SUCCEEDED
+
+    deadline = time.monotonic() + 2
+    task_ids = {active.id, queued.id}
+    while (
+        set(manager.runtime_task_ids()) & task_ids or set(manager._task_locks) & task_ids
+    ) and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert active.id not in manager._task_locks
+    assert queued.id not in manager._task_locks
+
+
 def test_semaphore_policy_error_type_is_public():
     assert issubclass(TaskConcurrencyPolicyError, RuntimeError)

@@ -26,7 +26,7 @@ from clio.task_center.models import (
 )
 from clio.task_center.reporter import TaskCancelled, TaskReporter
 from clio.task_center.state_machine import InvalidTaskTransition, transition_task
-from clio.task_center.store import TaskQuery, TaskStore, TaskUpdateConflictError
+from clio.task_center.store import TaskQuery, TaskStore, TaskStoreError, TaskUpdateConflictError
 
 
 class TaskNotCancellableError(ValueError):
@@ -428,6 +428,7 @@ class TaskManager:
             with self._condition:
                 self._runtime.pop(task_id, None)
                 self._condition.notify_all()
+            self._release_task_lock_if_terminal(task_id)
 
     def _transition_status(
         self,
@@ -545,6 +546,17 @@ class TaskManager:
     def _task_lock(self, task_id: str) -> threading.Lock:
         with self._lock:
             return self._task_locks.setdefault(task_id, threading.Lock())
+
+    def _release_task_lock_if_terminal(self, task_id: str) -> None:
+        try:
+            task = self.store.require(task_id)
+        except TaskStoreError:
+            return
+        if not task.is_terminal:
+            return
+        with self._lock:
+            if task_id not in self._runtime:
+                self._task_locks.pop(task_id, None)
 
     def _notify(self) -> None:
         with self._condition:
