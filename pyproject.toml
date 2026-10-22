@@ -33,6 +33,13 @@ exclude = ["clio.tests*", "clio*.tests", "packaging*"]
 [tool.setuptools.package-data]
 clio = ["ui/static/**/*", "ui/static/**/.*"]
 
+# First-run config and default templates are not importable packages, so ship
+# them under the installation prefix for the CLI and wheel entry point.
+[tool.setuptools.data-files]
+"share/clio" = ["config.example.yaml"]
+"share/clio/docs" = ["docs/project.example.yaml"]
+"share/clio/templates" = ["templates/vlog_template.md", "templates/trip_context.md"]
+
 [tool.pytest.ini_options]
 testpaths = ["clio/tests"]
 addopts = "-v --tb=short"

@@ -20,6 +20,7 @@ vlog-video-analysis/
 │   ├── transcribe.py           # Whisper ASR core
 │   ├── whisper_cli.py          # Whisper CLI install/check entry
 │   ├── utils.py                # Subprocess wrappers, ffmpeg discovery, JSON extraction, atomic IO
+│   ├── resources.py            # Bundled config/template lookup for repo, wheel, and PyInstaller
 │   ├── vmeta.py                # `.vmeta` and `.vindex` sidecar models
 │   ├── identity.py             # Canonical media identity helpers
 │   ├── progress.py             # `.progress.json` tracker for CLI/UI runs

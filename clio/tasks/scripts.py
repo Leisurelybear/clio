@@ -17,9 +17,21 @@ from clio.log import timed
 from clio.processing_state import ProcessingState
 from clio.progress import ProgressTracker
 from clio.prompts import SCRIPT_PROMPT
+from clio.resources import find_resource
 from clio.schema import add_schema_version
 from clio.tasks._helpers import _matches_selected_artifact, _selected_stems
 from clio.utils import write_json_atomic, write_text_atomic
+
+
+def _load_script_template(config: AppConfig) -> str:
+    path = config.script.template_file
+    if path.is_file():
+        return path.read_text(encoding="utf-8")
+    if path.name == "vlog_template.md":
+        default = find_resource("templates/vlog_template.md")
+        if default is not None:
+            return default.read_text(encoding="utf-8")
+    return ""
 
 
 def _voiceover_lineage_fingerprint(
@@ -154,7 +166,7 @@ def run_generate_scripts(
     config.scripts_dir.mkdir(parents=True, exist_ok=True)
     token_store = FileTokenUsageStore(str(config.paths.output_dir))
     state = ProcessingState(config.paths.output_dir)
-    template = config.script.template_file.read_text(encoding="utf-8") if config.script.template_file.exists() else ""
+    template = _load_script_template(config)
 
     if single_file:
         input_files = [single_file]

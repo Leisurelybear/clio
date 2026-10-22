@@ -38,6 +38,7 @@ from clio.config.parsers import (
     _parse_tasks,
 )
 from clio.config.validators import _filter_dc, _validate_config, validate_global_config
+from clio.resources import find_resource
 
 
 def _resolve_engine(raw: dict) -> str:
@@ -107,11 +108,7 @@ def _example_config_path() -> Path | None:
     repo root in the dev tree (up three levels from clio/config/loader.py).
     Returns None when neither exists.
     """
-    for base in (Path(__file__).parent, Path(__file__).resolve().parent.parent.parent):
-        candidate = base / "config.example.yaml"
-        if candidate.is_file():
-            return candidate
-    return None
+    return find_resource("config.example.yaml")
 
 
 def _ensure_global_config(config_file: Path) -> None:

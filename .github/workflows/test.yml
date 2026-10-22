@@ -359,7 +359,12 @@ jobs:
         import clio
         from clio.ui.server import STATIC_DIR
         from clio.config import load_config
+        from clio.resources import find_resource
         assert STATIC_DIR.is_dir(), 'static dir missing from wheel'
         assert (STATIC_DIR / 'index.html').is_file(), 'index.html missing from wheel'
-        print('import OK, static assets OK')
+        assert find_resource('config.example.yaml') is not None, 'config template missing from wheel'
+        assert find_resource('docs/project.example.yaml') is not None, 'project template missing from wheel'
+        assert find_resource('templates/trip_context.md') is not None, 'trip template missing from wheel'
+        assert find_resource('templates/vlog_template.md') is not None, 'vlog template missing from wheel'
+        print('import OK, static assets OK, bundled resources OK')
         "

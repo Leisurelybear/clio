@@ -66,7 +66,7 @@ mypy --check-untyped-defs --show-error-codes
 | A-04 | 中 | 已修复 | UI 步骤检测与 texts 发现把自定义子目录截成 basename，`nested/deep` 等合法配置检测失败 | 已保留安全相对路径，并统一拒绝绝对/穿越路径 |
 | A-05 | 中 | 已修复 | 默认 provider 删除仅在前端隐藏按钮，后端允许直接 DELETE 绕过 | 后端对 `gemini/openai/deepseek` 返回 409 |
 | A-06 | 高 | 已修复 | 显式 `-p`/`-i` 指向不存在目录时静默回退 cwd，可能把产物写到错误位置 | 提前校验显式路径；错误返回 2，单文件命令仍允许文件 `-i` |
-| A-07 | 高 | 待验证 | wheel 可能未携带首次运行所需的 `config.example.yaml` 与默认模板 | 构建 wheel 实测；大改则进入优化 backlog |
+| A-07 | 高 | 已修复 | wheel 未携带首次运行所需的 `config.example.yaml` 与默认模板 | 新增 `share/clio` 资源布局、统一资源查找，并做 wheel 安装/首次生成实测 |
 | A-08 | 中 | 已修复 | 自定义 `-c /other/config.yaml` 且未给 `-p` 时，强制 cwd 为项目目录，忽略同目录 project.yaml | 改为仅在显式/有效目录时覆盖 project_dir |
 
 ## 5. 优化 backlog
@@ -75,7 +75,6 @@ mypy --check-untyped-defs --show-error-codes
 
 | ID | 优先级 | 项目 | 说明 |
 |---|---|---|---|
-| O-01 | P1 | 安装包资源布局 | 统一首次运行配置/模板的包内查找与 wheel 资源声明，并加入打包冒烟测试 |
 | O-02 | P2 | CLI 文档自动化 | 从 argparse 生成命令/参数清单或加入文档一致性测试，减少手写漂移 |
 | O-03 | P2 | 外部服务契约测试 | 为 Gemini/DeepSeek/DashScope 增加可选 live smoke suite，默认 CI 跳过 |
 
@@ -90,7 +89,8 @@ mypy --check-untyped-defs --show-error-codes
 | `c95ea69` | `fix(ui): detect nested artifact subdirs` | `test_file_service.py` + `test_project_service.py` 136 passed；Ruff 通过 |
 | `89cc29c` | `fix(config): protect built-in providers from deletion` | `test_routes_config.py` 47 passed；Ruff 通过 |
 | `be627a7` | `fix(cli): reject invalid explicit project paths` | `test_main.py` 19 passed；Ruff 通过 |
-| 待填 | `fix(cli): honor sibling project config` | `test_main.py` 20 passed；Ruff 通过 |
+| `0b241ba` | `fix(cli): honor sibling project config` | `test_main.py` 20 passed；Ruff 通过 |
+| 待填 | `fix(packaging): bundle first-run config and templates` | 138 related tests passed；wheel 安装及首次配置生成实测通过 |
 
 ## 7. 未实机验证项
 

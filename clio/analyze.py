@@ -55,6 +55,7 @@ def _read_trip_context(project_dir: str) -> str:
     1. <project_dir>/templates/trip_context.md（项目级）
     2. <default_package>/templates/trip_context.md（包默认）
     """
+    from clio.resources import find_resource
     from clio.utils import validate_within_root
 
     project_root = Path(project_dir).resolve()
@@ -72,8 +73,8 @@ def _read_trip_context(project_dir: str) -> str:
         if text:
             _trip_context_cache[key] = text
             return text
-    default_path = (Path(__file__).parent.parent / "templates" / "trip_context.md").resolve()
-    if default_path.is_file():
+    default_path = find_resource("templates/trip_context.md")
+    if default_path is not None:
         mtime = default_path.stat().st_mtime
         key = f"{project_dir}@default@{mtime}"
         if key in _trip_context_cache:

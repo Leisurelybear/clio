@@ -57,6 +57,17 @@ def test_voiceover_lineage_changes_with_template(cfg: AppConfig):
     )
 
 
+def test_missing_default_template_falls_back_to_bundled(cfg: AppConfig, tmp_path, monkeypatch):
+    from clio.tasks.scripts import _load_script_template
+
+    bundled = tmp_path / "bundled_vlog_template.md"
+    bundled.write_text("Bundled template", encoding="utf-8")
+    cfg.project_cfg.script.template_file = tmp_path / "templates" / "vlog_template.md"
+    monkeypatch.setattr("clio.tasks.scripts.find_resource", lambda _name: bundled)
+
+    assert _load_script_template(cfg) == "Bundled template"
+
+
 class TestRunGenerateScripts:
     @patch("clio.tasks.scripts.generate_voiceover")
     def test_creates_output_dir(self, mock_gen, tmp_path):
