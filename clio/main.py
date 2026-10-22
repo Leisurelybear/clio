@@ -123,7 +123,7 @@ def run_check(config_path: Path, project_dir: Path | None = None) -> int:
 
 
 def cmd_tokens(args):
-    config = load_config(args.config)
+    config = _prepare_config(Path(args.config), args)
     import json
 
     from clio.ai.token_usage import FileTokenUsageStore
@@ -282,6 +282,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     p_tokens = sub.add_parser("tokens", help="查看 token 使用统计")
+    _add_io_args(p_tokens)
     p_tokens.set_defaults(func=cmd_tokens)
 
     p_export = sub.add_parser("export", help="导出 plan 到剪辑软件草稿")

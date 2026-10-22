@@ -92,6 +92,24 @@ def test_whisper_check_subcommand(cli_runner, config_path):
     assert result == 0
 
 
+def test_tokens_uses_project_output(cli_runner, config_path, tmp_path, capsys):
+    project = tmp_path / "project"
+    project.mkdir()
+    project.joinpath("project.yaml").write_text("paths:\n  output_dir: project-output\n", encoding="utf-8")
+    project_output = project / "project-output"
+    project_output.mkdir()
+    project_output.joinpath(".token_usage.json").write_text(
+        '{"total": {"prompt_tokens": 7, "completion_tokens": 3, "total_tokens": 10}, '
+        '"by_model": {}, "by_task": {}, "history": []}',
+        encoding="utf-8",
+    )
+
+    result = cli_runner(["--config", str(config_path), "tokens", "-p", str(project)])
+
+    assert result == 0
+    assert '"total_tokens": 10' in capsys.readouterr().out
+
+
 @patch("clio.main.run_doctor")
 def test_doctor_subcommand(mock_run_doctor, cli_runner, config_path):
     mock_run_doctor.return_value = 0

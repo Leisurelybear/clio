@@ -60,7 +60,7 @@ mypy --check-untyped-defs --show-error-codes
 
 | ID | 严重度 | 状态 | 问题 | 处置 |
 |---|---|---|---|---|
-| A-01 | 高 | 已确认 | `tokens` 未加载项目配置，`-p` 也不可用，统计会落到错误的 output 目录 | 修复 CLI 参数与配置加载 |
+| A-01 | 高 | 已修复 | `tokens` 未加载项目配置，`-p` 也不可用，统计会落到错误的 output 目录 | `tokens` 接入统一 IO 参数与项目配置加载 |
 | A-02 | 中 | 已确认 | CLI `export` 把空 ffprobe 配置直接传入导出器，未自动发现 PATH 中的 ffprobe | 与 UI 一致使用 `resolve_binary` |
 | A-03 | 中 | 已确认 | reindex 只剥离 `_segNN`，遗漏 `_partNN`、`_ptNN`、`_chunkNN`，可能拆散同一源视频分组 | 复用统一分段后缀正则 |
 | A-04 | 中 | 已确认 | UI 步骤检测把自定义子目录截成 basename，`nested/deep` 等合法配置检测失败 | 保留安全相对路径并补穿越/绝对路径防御测试 |
@@ -82,7 +82,8 @@ mypy --check-untyped-defs --show-error-codes
 
 | Commit | 内容 | 验证 |
 |---|---|---|
-| 待填 | 本文档初始化 | 文档检查 |
+| `2d78fc7` | 初始化审计文档与功能矩阵 | 文档检查 |
+| 待填 | `fix(cli): read token stats from project output` | `test_main.py` 14 passed；Ruff 通过 |
 
 ## 7. 未实机验证项
 
