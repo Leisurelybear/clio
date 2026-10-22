@@ -18,7 +18,7 @@ import uuid
 import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from clio.utils import run_subprocess
 
@@ -26,6 +26,7 @@ RELEASE_BASE = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest"
 CHECKSUMS_URL = f"{RELEASE_BASE}/checksums.sha256"
 MAX_ARCHIVE_BYTES = 350 * 1024 * 1024
 MAX_CHECKSUM_BYTES = 1024 * 1024
+MAX_EXTRACTED_BINARY_BYTES = 512 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -80,11 +81,14 @@ def normalize_system(value: str | None = None) -> str:
     """Normalize platform aliases; unsupported systems never become Linux."""
     raw = str(value or "").strip().lower()
     if not raw:
-        if os.name == "nt":
+        detected = platform.system().strip().lower()
+        if detected == "windows":
             return "win32"
-        if platform.system() == "Darwin":
+        if detected == "darwin":
             return "darwin"
-        return "linux" if platform.system().lower() == "linux" else "unsupported"
+        if detected == "linux":
+            return "linux"
+        return "unsupported" if detected else ("win32" if os.name == "nt" else "unsupported")
     if raw in {"win32", "nt", "windows"}:
         return "win32"
     if raw in {"darwin", "mac", "macos", "osx"}:
@@ -139,36 +143,50 @@ def _download(
 ) -> None:
     if not url.lower().startswith("https://"):
         raise ValueError("ffmpeg downloads require HTTPS")
+    _check_cancel(cancel_event)
     request = urllib.request.Request(url, headers={"User-Agent": "clio-ffmpeg-installer"})
     dest.parent.mkdir(parents=True, exist_ok=True)
     total = 0
-    with urllib.request.urlopen(request, timeout=30) as response:
-        final_url = response.geturl()
-        if not str(final_url).lower().startswith("https://"):
-            raise ValueError("ffmpeg download redirected to a non-HTTPS URL")
-        expected = _content_length(response)
-        if expected is not None and expected > max_bytes:
-            raise ValueError(f"ffmpeg download is too large: {expected} bytes")
-        with dest.open("wb") as out:
-            while True:
-                _check_cancel(cancel_event)
-                chunk = response.read(256 * 1024)
-                if not chunk:
-                    break
-                total += len(chunk)
-                if total > max_bytes:
-                    raise ValueError(f"ffmpeg download exceeded {max_bytes} bytes")
-                out.write(chunk)
-                if expected:
-                    _emit(reporter, 15 + int(total / expected * 60), f"Downloading ({total // 1048576} MB)")
-    if total == 0:
-        raise ValueError("ffmpeg download was empty")
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            final_url = response.geturl()
+            if not str(final_url).lower().startswith("https://"):
+                raise ValueError("ffmpeg download redirected to a non-HTTPS URL")
+            expected = _content_length(response)
+            if expected is not None and expected > max_bytes:
+                raise ValueError(f"ffmpeg download is too large: {expected} bytes")
+            with dest.open("wb") as out:
+                while True:
+                    _check_cancel(cancel_event)
+                    chunk = response.read(256 * 1024)
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > max_bytes:
+                        raise ValueError(f"ffmpeg download exceeded {max_bytes} bytes")
+                    out.write(chunk)
+                    if expected:
+                        _emit(reporter, 15 + int(total / expected * 60), f"Downloading ({total // 1048576} MB)")
+                if expected is not None and total != expected:
+                    raise ValueError(f"ffmpeg download incomplete: expected {expected} bytes, got {total}")
+                if total == 0:
+                    raise ValueError("ffmpeg download was empty")
+    except BaseException:
+        dest.unlink(missing_ok=True)
+        raise
 
 
 def _safe_member_name(name: str) -> PurePosixPath:
     normalized = name.replace("\\", "/")
     path = PurePosixPath(normalized)
-    if not normalized or path.is_absolute() or ".." in path.parts:
+    windows_path = PureWindowsPath(normalized)
+    if (
+        not normalized
+        or path.is_absolute()
+        or windows_path.is_absolute()
+        or re.match(r"^[A-Za-z]:", normalized)
+        or ".." in path.parts
+    ):
         raise ValueError(f"unsafe archive path: {name!r}")
     return path
 
@@ -207,7 +225,12 @@ def _zip_entries(archive: zipfile.ZipFile) -> list[tuple[str, str | None]]:
     entries: list[tuple[str, str | None]] = []
     for info in archive.infolist():
         mode = (info.external_attr >> 16) & 0o170000
-        kind = "symlink" if mode == stat.S_IFLNK else None
+        if mode == stat.S_IFLNK:
+            kind = "symlink"
+        elif mode not in {0, stat.S_IFREG, stat.S_IFDIR}:
+            kind = f"special ({oct(mode)})"
+        else:
+            kind = None
         entries.append((info.filename, kind))
     return entries
 
@@ -215,23 +238,39 @@ def _zip_entries(archive: zipfile.ZipFile) -> list[tuple[str, str | None]]:
 def _tar_entries(archive: tarfile.TarFile) -> list[tuple[str, str | None]]:
     entries: list[tuple[str, str | None]] = []
     for member in archive.getmembers():
-        kind = None
-        if member.issym():
+        if member.isfile() or member.isdir():
+            kind = None
+        elif member.issym():
             kind = "symlink"
         elif member.islnk():
             kind = "hardlink"
-        elif member.isdev():
-            kind = "device"
+        elif member.ischr():
+            kind = "character device"
+        elif member.isblk():
+            kind = "block device"
+        elif member.isfifo():
+            kind = "fifo"
+        else:
+            kind = f"special type {member.type!r}"
         entries.append((member.name, kind))
     return entries
 
 
+def _check_extracted_size(name: str, size: int) -> None:
+    if size < 0 or size > MAX_EXTRACTED_BINARY_BYTES:
+        raise ValueError(f"archive binary is too large: {name!r} ({size} bytes)")
+
+
 def _copy_stream(src, out, cancel_event: threading.Event | None) -> None:
+    written = 0
     while True:
         _check_cancel(cancel_event)
         chunk = src.read(1024 * 1024)
         if not chunk:
             return
+        written += len(chunk)
+        if written > MAX_EXTRACTED_BINARY_BYTES:
+            raise ValueError(f"archive binary exceeded {MAX_EXTRACTED_BINARY_BYTES} bytes")
         out.write(chunk)
 
 
@@ -252,6 +291,7 @@ def extract_binaries(
             ffmpeg_name, ffprobe_name = _find_binaries([name for name, _ in entries], exe_name)
             for source_name, target in ((ffmpeg_name, exe_name), (ffprobe_name, "ffprobe" + Path(exe_name).suffix)):
                 _check_cancel(cancel_event)
+                _check_extracted_size(source_name, archive.getinfo(source_name).file_size)
                 with archive.open(source_name) as src, (dest_dir / target).open("wb") as out:
                     _copy_stream(src, out, cancel_event)
     else:
@@ -262,6 +302,7 @@ def extract_binaries(
             for source_name, target in ((ffmpeg_name, exe_name), (ffprobe_name, "ffprobe" + Path(exe_name).suffix)):
                 _check_cancel(cancel_event)
                 member = archive.getmember(source_name)
+                _check_extracted_size(source_name, member.size)
                 if not member.isfile():
                     raise ValueError(f"archive binary is not a regular file: {source_name!r}")
                 src = archive.extractfile(member)
@@ -360,6 +401,7 @@ def _promote(
         target_ffprobe: root / f".{target_ffprobe.name}.{token}.bak",
     }
     replaced: set[Path] = set()
+    preserve_backups = False
     try:
         _check_cancel(cancel_event)
         shutil.copy2(staged_ffmpeg, temp_ffmpeg)
@@ -368,25 +410,32 @@ def _promote(
         for target, backup in backups.items():
             if target.exists():
                 shutil.copy2(target, backup)
+        _check_cancel(cancel_event)
         os.replace(temp_ffmpeg, target_ffmpeg)
         replaced.add(target_ffmpeg)
+        _check_cancel(cancel_event)
         os.replace(temp_ffprobe, target_ffprobe)
         replaced.add(target_ffprobe)
         if verify is not None and not verify(target_ffmpeg, target_ffprobe):
             raise ValueError("installed FFmpeg binaries failed verification")
-    except Exception:
+        _check_cancel(cancel_event)
+    except BaseException:
         for target in replaced:
             backup = backups[target]
-            if backup.exists():
-                os.replace(backup, target)
-            else:
-                target.unlink(missing_ok=True)
+            try:
+                if backup.exists():
+                    os.replace(backup, target)
+                else:
+                    target.unlink(missing_ok=True)
+            except OSError:
+                preserve_backups = True
         raise
     finally:
         temp_ffmpeg.unlink(missing_ok=True)
         temp_ffprobe.unlink(missing_ok=True)
-        for backup in backups.values():
-            backup.unlink(missing_ok=True)
+        if not preserve_backups:
+            for backup in backups.values():
+                backup.unlink(missing_ok=True)
     return target_ffmpeg, target_ffprobe
 
 

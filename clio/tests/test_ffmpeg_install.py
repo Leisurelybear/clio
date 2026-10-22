@@ -17,7 +17,13 @@ import pytest
 from clio import ffmpeg_install as installer
 
 
-def _zip(path: Path, entries: dict[str, bytes], *, symlink: str | None = None) -> Path:
+def _zip(
+    path: Path,
+    entries: dict[str, bytes],
+    *,
+    symlink: str | None = None,
+    special: tuple[str, int] | None = None,
+) -> Path:
     with zipfile.ZipFile(path, "w") as archive:
         for name, content in entries.items():
             archive.writestr(name, content)
@@ -25,11 +31,25 @@ def _zip(path: Path, entries: dict[str, bytes], *, symlink: str | None = None) -
             info = zipfile.ZipInfo(symlink)
             info.external_attr = (stat.S_IFLNK | 0o777) << 16
             archive.writestr(info, b"target")
+        if special:
+            name, mode = special
+            info = zipfile.ZipInfo(name)
+            info.external_attr = mode << 16
+            archive.writestr(info, b"special")
     return path
 
 
-def _tar(path: Path, entries: dict[str, bytes], *, symlink: str | None = None) -> Path:
-    with tarfile.open(path, "w:gz") as archive:
+def _tar(
+    path: Path,
+    entries: dict[str, bytes],
+    *,
+    symlink: str | None = None,
+    mode: str = "w:gz",
+    hardlink: tuple[str, str] | None = None,
+    device: str | None = None,
+    device_type: bytes = tarfile.CHRTYPE,
+) -> Path:
+    with tarfile.open(path, mode) as archive:
         for name, content in entries.items():
             info = tarfile.TarInfo(name)
             info.size = len(content)
@@ -38,6 +58,16 @@ def _tar(path: Path, entries: dict[str, bytes], *, symlink: str | None = None) -
             info = tarfile.TarInfo(symlink)
             info.type = tarfile.SYMTYPE
             info.linkname = "/tmp/outside"
+            archive.addfile(info)
+        if hardlink:
+            name, target = hardlink
+            info = tarfile.TarInfo(name)
+            info.type = tarfile.LNKTYPE
+            info.linkname = target
+            archive.addfile(info)
+        if device:
+            info = tarfile.TarInfo(device)
+            info.type = device_type
             archive.addfile(info)
     return path
 
@@ -74,7 +104,10 @@ def test_parse_checksum_exact_match_only():
         installer.parse_checksum(f"{digest}  other.zip\n", "ffmpeg.zip")
 
 
-@pytest.mark.parametrize("name", ["../evil", "/absolute", "a/../../evil", ""])
+@pytest.mark.parametrize(
+    "name",
+    ["../evil", "/absolute", "a/../../evil", "", "C:/evil", "C:evil", r"\\server\share\evil"],
+)
 def test_archive_path_validation_rejects_escape(name):
     with pytest.raises(ValueError, match="unsafe archive path"):
         installer._safe_member_name(name)
@@ -117,6 +150,57 @@ def test_extract_finds_linux_tar_binaries(tmp_path):
         assert ffmpeg.stat().st_mode & stat.S_IXUSR
 
 
+def test_extract_reads_botbn_tar_xz_asset_format(tmp_path):
+    archive = _tar(
+        tmp_path / "ffmpeg.tar.xz",
+        {"ffmpeg-build/bin/ffmpeg": b"linux-ffmpeg", "ffmpeg-build/bin/ffprobe": b"linux-ffprobe"},
+        mode="w:xz",
+    )
+
+    ffmpeg, ffprobe = installer.extract_binaries(archive, tmp_path / "out", exe_name="ffmpeg")
+
+    assert ffmpeg.read_bytes() == b"linux-ffmpeg"
+    assert ffprobe.read_bytes() == b"linux-ffprobe"
+
+
+def test_extract_rejects_zip_symlink(tmp_path):
+    archive = _zip(
+        tmp_path / "ffmpeg.zip",
+        {"ffmpeg-build/bin/ffmpeg.exe": b"x", "ffmpeg-build/bin/ffprobe.exe": b"y"},
+        symlink="ffmpeg-build/bin/evil",
+    )
+    with pytest.raises(ValueError, match="unsafe archive entry type"):
+        installer.extract_binaries(archive, tmp_path / "out", exe_name="ffmpeg.exe")
+
+
+def test_extract_rejects_zip_special_files(tmp_path):
+    archive = _zip(
+        tmp_path / "ffmpeg.zip",
+        {"ffmpeg-build/bin/ffmpeg.exe": b"x", "ffmpeg-build/bin/ffprobe.exe": b"y"},
+        special=("ffmpeg-build/bin/evil-device", stat.S_IFCHR),
+    )
+    with pytest.raises(ValueError, match="unsafe archive entry type"):
+        installer.extract_binaries(archive, tmp_path / "out", exe_name="ffmpeg.exe")
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"hardlink": ("ffmpeg-build/bin/evil-hardlink", "ffmpeg-build/bin/ffmpeg")},
+        {"device": "ffmpeg-build/bin/evil-device"},
+        {"device": "ffmpeg-build/bin/evil-fifo", "device_type": tarfile.FIFOTYPE},
+    ],
+)
+def test_extract_rejects_tar_hardlinks_and_devices(tmp_path, kwargs):
+    archive = _tar(
+        tmp_path / "ffmpeg.tar.gz",
+        {"ffmpeg-build/bin/ffmpeg": b"x", "ffmpeg-build/bin/ffprobe": b"y"},
+        **kwargs,
+    )
+    with pytest.raises(ValueError, match="unsafe archive entry type"):
+        installer.extract_binaries(archive, tmp_path / "out", exe_name="ffmpeg")
+
+
 def test_extract_rejects_tar_symlink(tmp_path):
     archive = _tar(
         tmp_path / "ffmpeg.tar.gz",
@@ -134,6 +218,25 @@ def test_extract_rejects_duplicate_binaries(tmp_path):
         archive.writestr("two/bin/ffmpeg.exe", b"c")
     with pytest.raises(ValueError, match="exactly one bin/ffmpeg.exe"):
         installer.extract_binaries(tmp_path / "ffmpeg.zip", tmp_path / "out", exe_name="ffmpeg.exe")
+
+
+def test_extract_rejects_declared_oversize_binary(tmp_path, monkeypatch):
+    monkeypatch.setattr(installer, "MAX_EXTRACTED_BINARY_BYTES", 4)
+    archive = _zip(
+        tmp_path / "ffmpeg.zip",
+        {"build/bin/ffmpeg.exe": b"12345", "build/bin/ffprobe.exe": b"ok"},
+    )
+
+    with pytest.raises(ValueError, match="archive binary is too large"):
+        installer.extract_binaries(archive, tmp_path / "out", exe_name="ffmpeg.exe")
+
+    assert not (tmp_path / "out" / "ffmpeg.exe").exists()
+
+
+def test_copy_stream_caps_actual_extracted_bytes(monkeypatch):
+    monkeypatch.setattr(installer, "MAX_EXTRACTED_BINARY_BYTES", 4)
+    with pytest.raises(ValueError, match="archive binary exceeded"):
+        installer._copy_stream(io.BytesIO(b"12345"), io.BytesIO(), None)
 
 
 def test_sha256_and_extract_observe_cancellation(tmp_path):
@@ -224,11 +327,57 @@ def test_promote_cancellation_before_replace_keeps_old_binaries(tmp_path):
     assert target_ffprobe.read_bytes() == b"old-ffprobe"
 
 
+def test_promote_cancellation_between_replacements_rolls_back_first(tmp_path, monkeypatch):
+    root = tmp_path / "managed"
+    root.mkdir()
+    target_ffmpeg = root / "ffmpeg.exe"
+    target_ffprobe = root / "ffprobe.exe"
+    target_ffmpeg.write_bytes(b"old-ffmpeg")
+    target_ffprobe.write_bytes(b"old-ffprobe")
+    staged_dir = tmp_path / "staged"
+    staged_dir.mkdir()
+    staged_ffmpeg = staged_dir / "ffmpeg.exe"
+    staged_ffprobe = staged_dir / "ffprobe.exe"
+    staged_ffmpeg.write_bytes(b"new-ffmpeg")
+    staged_ffprobe.write_bytes(b"new-ffprobe")
+    cancel = threading.Event()
+    real_replace = installer.os.replace
+
+    def replace_then_cancel(source, destination):
+        real_replace(source, destination)
+        if Path(destination) == target_ffmpeg:
+            cancel.set()
+
+    monkeypatch.setattr(installer.os, "replace", replace_then_cancel)
+
+    with pytest.raises(InterruptedError):
+        installer._promote(staged_ffmpeg, staged_ffprobe, root, cancel_event=cancel)
+
+    assert target_ffmpeg.read_bytes() == b"old-ffmpeg"
+    assert target_ffprobe.read_bytes() == b"old-ffprobe"
+
+
 def test_download_requires_https():
     with pytest.raises(ValueError, match="HTTPS"):
         installer._download(
             "http://example.test/ffmpeg.zip", Path("unused"), max_bytes=1, reporter=None, cancel_event=None
         )
+
+
+def test_download_observes_cancellation_before_network(monkeypatch, tmp_path):
+    cancel = threading.Event()
+    cancel.set()
+    monkeypatch.setattr(
+        installer.urllib.request,
+        "urlopen",
+        lambda *args, **kwargs: pytest.fail("network must not be used after cancellation"),
+    )
+    dest = tmp_path / "file.bin"
+
+    with pytest.raises(InterruptedError):
+        installer._download("https://example.test/a", dest, max_bytes=100, reporter=None, cancel_event=cancel)
+
+    assert not dest.exists()
 
 
 class _Response:
@@ -260,6 +409,83 @@ def test_download_rejects_http_redirect_and_caps(monkeypatch, tmp_path):
     monkeypatch.setattr(installer.urllib.request, "urlopen", lambda request, timeout=30: _Response(b"x", length=101))
     with pytest.raises(ValueError, match="too large"):
         installer._download("https://example.test/a", tmp_path / "a", max_bytes=100, reporter=None, cancel_event=None)
+
+
+def test_download_accepts_https_redirect(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        installer.urllib.request,
+        "urlopen",
+        lambda request, timeout=30: _Response(b"abc", url="https://release-assets.example/file"),
+    )
+    dest = tmp_path / "file.bin"
+
+    installer._download("https://example.test/a", dest, max_bytes=100, reporter=None, cancel_event=None)
+
+    assert dest.read_bytes() == b"abc"
+
+
+def test_download_removes_partial_file_on_failure(monkeypatch, tmp_path):
+    class FailingResponse(_Response):
+        def __init__(self):
+            super().__init__(b"")
+            self.calls = 0
+
+        def read(self, size):
+            self.calls += 1
+            if self.calls == 1:
+                return b"partial"
+            raise OSError("connection dropped")
+
+    monkeypatch.setattr(installer.urllib.request, "urlopen", lambda request, timeout=30: FailingResponse())
+    dest = tmp_path / "file.bin"
+
+    with pytest.raises(OSError, match="connection dropped"):
+        installer._download("https://example.test/a", dest, max_bytes=100, reporter=None, cancel_event=None)
+
+    assert not dest.exists()
+
+
+def test_download_rejects_truncated_content_length(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        installer.urllib.request,
+        "urlopen",
+        lambda request, timeout=30: _Response(b"abc", length=10),
+    )
+    dest = tmp_path / "file.bin"
+
+    with pytest.raises(ValueError, match="incomplete"):
+        installer._download("https://example.test/a", dest, max_bytes=100, reporter=None, cancel_event=None)
+
+    assert not dest.exists()
+
+
+def test_download_caps_stream_without_content_length(monkeypatch, tmp_path):
+    class NoLengthResponse(_Response):
+        def __init__(self):
+            super().__init__(b"12345")
+            self.headers = {}
+
+    monkeypatch.setattr(
+        installer.urllib.request,
+        "urlopen",
+        lambda request, timeout=30: NoLengthResponse(),
+    )
+    dest = tmp_path / "file.bin"
+
+    with pytest.raises(ValueError, match="exceeded"):
+        installer._download("https://example.test/a", dest, max_bytes=4, reporter=None, cancel_event=None)
+
+    assert not dest.exists()
+
+
+def test_download_removes_empty_failed_file(monkeypatch, tmp_path):
+    monkeypatch.setattr(installer.urllib.request, "urlopen", lambda request, timeout=30: _Response(b""))
+    dest = tmp_path / "file.bin"
+
+    with pytest.raises(ValueError, match="empty"):
+        installer._download("https://example.test/a", dest, max_bytes=100, reporter=None, cancel_event=None)
+
+    assert not dest.exists()
 
 
 def test_download_writes_and_reports(monkeypatch, tmp_path):

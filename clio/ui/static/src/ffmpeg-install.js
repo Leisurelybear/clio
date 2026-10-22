@@ -175,7 +175,9 @@ export function openFfmpegInstallDialog(options = {}) {
 
   const updateTask = (task) => {
     if (!task || closed) return;
-    taskId = task.id || taskId;
+    const incomingId = task.id || taskId;
+    if (incomingId && terminalTaskId === incomingId) return;
+    taskId = incomingId || taskId;
     const pct = taskProgress(task);
     progressBox.style.display = 'block';
     progress.value = String(pct);
@@ -186,6 +188,10 @@ export function openFfmpegInstallDialog(options = {}) {
     cancelButton.style.display = active && task.cancellable ? '' : 'none';
     startButton.disabled = active;
     if (task.status === 'succeeded') {
+      terminalTaskId = task.id || taskId;
+      const stop = stopTask;
+      stopTask = null;
+      if (typeof stop === 'function') stop();
       startButton.disabled = false;
       startButton.textContent = '重新检测';
       cancelButton.style.display = 'none';
@@ -261,6 +267,7 @@ export function openFfmpegInstallDialog(options = {}) {
         try {
           const current = await apiFn('GET', FFMPEG_INSTALL_STATUS_URL);
           if (current?.task_id) {
+            updateTask({ ...current, id: current.task_id });
             attachTask(current.task_id);
             setStatus('已有安装任务正在运行。');
             return;

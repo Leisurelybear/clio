@@ -82,8 +82,8 @@ describe('ffmpeg install dialog', () => {
     await flush();
     expect(refreshDeps).toHaveBeenCalled();
     expect(addToast).toHaveBeenCalledWith('ffmpeg / ffprobe 安装完成', 'success');
-    dialog.close();
     expect(stopped).toBe(true);
+    dialog.close();
   });
 
   it('does not report success when the post-install probe still fails', async () => {
@@ -109,6 +109,30 @@ describe('ffmpeg install dialog', () => {
     dialog.close();
   });
 
+  it('handles duplicate terminal events only once', async () => {
+    let listener;
+    api.mockResolvedValueOnce({ status: 'idle', running: false, automatic: true, platform: 'win32' });
+    api.mockResolvedValueOnce({ ok: true, task_id: 'task-3' });
+    subscribeTask.mockImplementation((_id, callback) => {
+      listener = callback;
+      return () => {};
+    });
+    const refreshDeps = vi.fn(async () => ({ ok: true }));
+    const dialog = openFfmpegInstallDialog({ platform: 'win32', refreshDeps });
+    await dialog.ready;
+
+    document.querySelector('#ffi-start').click();
+    await flush();
+    const success = { task: { id: 'task-3', status: 'succeeded', progress_pct: 100 } };
+    listener(success);
+    listener(success);
+    await flush();
+
+    expect(refreshDeps).toHaveBeenCalledTimes(1);
+    expect(addToast).toHaveBeenCalledTimes(1);
+    dialog.close();
+  });
+
   it('applies an already-running task to the dialog immediately', async () => {
     api.mockResolvedValueOnce({
       status: 'running',
@@ -128,6 +152,36 @@ describe('ffmpeg install dialog', () => {
     expect(document.querySelector('#ffi-cancel').style.display).toBe('');
     expect(Number(document.querySelector('#ffi-progress').value)).toBe(42);
     expect(subscribe).toHaveBeenCalledWith('task-9', expect.any(Function));
+    dialog.close();
+  });
+
+  it('applies the active task when start returns 409', async () => {
+    api.mockResolvedValueOnce({ status: 'idle', running: false, automatic: true, platform: 'win32' });
+    const conflict = new Error('conflict');
+    conflict.status = 409;
+    api.mockRejectedValueOnce(conflict);
+    api.mockResolvedValueOnce({
+      status: 'running',
+      running: true,
+      task_id: 'task-10',
+      progress_pct: 55,
+      message: 'Downloading',
+      cancellable: true,
+      automatic: true,
+      platform: 'win32',
+    });
+    const subscribe = vi.fn(() => () => {});
+    const dialog = openFfmpegInstallDialog({ platform: 'win32', subscribe });
+    await dialog.ready;
+
+    document.querySelector('#ffi-start').click();
+    await flush();
+    await flush();
+
+    expect(document.querySelector('#ffi-start').disabled).toBe(true);
+    expect(document.querySelector('#ffi-cancel').style.display).toBe('');
+    expect(Number(document.querySelector('#ffi-progress').value)).toBe(55);
+    expect(subscribe).toHaveBeenCalledWith('task-10', expect.any(Function));
     dialog.close();
   });
 

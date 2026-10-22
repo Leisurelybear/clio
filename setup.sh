@@ -107,6 +107,10 @@ else
             ffmpeg_download_supported=0
             if command -v brew >/dev/null 2>&1; then
                 brew install ffmpeg || true
+                brew_prefix="$(brew --prefix 2>/dev/null || true)"
+                if [[ -n "$brew_prefix" && -d "$brew_prefix/bin" ]]; then
+                    export PATH="$brew_prefix/bin:$PATH"
+                fi
             else
                 echo "未找到 Homebrew，请先安装：https://brew.sh/" >&2
             fi
@@ -119,7 +123,9 @@ else
     if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
         if [[ "$ffmpeg_download_supported" -eq 1 ]]; then
             if .venv/bin/python -m clio.ffmpeg_install --mode download; then
-                export PATH="$HOME/.local/share/clio/ffmpeg:$PATH"
+                managed_dir="$(.venv/bin/python -c "from clio.ffmpeg_install import managed_install_root; print(managed_install_root())")" \
+                    || managed_dir="${CLIO_FFMPEG_DIR:-$HOME/.local/share/clio/ffmpeg}"
+                export PATH="$managed_dir:$PATH"
             else
                 echo "自动安装 ffmpeg 失败，请手动安装：https://ffmpeg.org/download.html" >&2
             fi
