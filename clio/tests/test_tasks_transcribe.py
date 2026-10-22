@@ -231,6 +231,40 @@ class TestRunTranscribeAll:
         run_transcribe_all(cfg, tracker)
         mock_transcribe.assert_called_once()
 
+    def test_natural_part_suffix_resolves_exact_original(self, cfg, tmp_path):
+        from clio.tasks._video_loader import save_selected_videos
+        from clio.tasks.transcribe import run_transcribe_all
+
+        output = tmp_path / "output"
+        compressed = output / "compressed"
+        compressed.mkdir(parents=True)
+        (compressed / "001_holiday_part01.mp4").touch()
+        inp = tmp_path / "input"
+        inp.mkdir()
+        original = inp / "holiday_part01.mov"
+        original.touch()
+        save_selected_videos(inp, [original])
+        cfg.project_dir = inp
+        cfg.paths.output_dir = output
+        cfg.transcripts_dir = output / "transcripts"
+        cfg.transcripts_dir.mkdir(parents=True)
+
+        with (
+            patch("clio.tasks.transcribe._extract_audio") as mock_extract,
+            patch("clio.tasks.transcribe.transcribe_audio") as mock_transcribe,
+            patch("clio.tasks.transcribe.resolve_binary", return_value="ffmpeg"),
+        ):
+            wav = tmp_path / "fake.wav"
+            wav.touch()
+            mock_extract.return_value = wav
+            mock_transcribe.return_value = []
+
+            run_transcribe_all(cfg, MagicMock())
+
+        mock_extract.assert_called_once()
+        assert mock_extract.call_args.args[0] == original
+        mock_transcribe.assert_called_once()
+
     @patch("clio.tasks.transcribe._extract_audio")
     @patch("clio.tasks.transcribe.transcribe_audio")
     def test_original_not_found(self, mock_transcribe, mock_extract, cfg, tmp_path):

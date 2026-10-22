@@ -65,6 +65,16 @@ def _extract_orig_stem(compressed_stem: str) -> str:
     return SEGMENT_SUFFIX_RE.sub("", orig_stem)
 
 
+def _find_original_video(compressed_stem: str, original_cache: dict[str, Path]) -> Path | None:
+    """Match the full source stem first so natural ``_partNN`` names stay intact."""
+    source_stem = compressed_stem.split("_", 1)[1] if "_" in compressed_stem else compressed_stem
+    exact = original_cache.get(source_stem.lower())
+    if exact is not None:
+        return exact
+    stripped = SEGMENT_SUFFIX_RE.sub("", source_stem)
+    return original_cache.get(stripped.lower()) if stripped != source_stem else None
+
+
 def _build_original_stem_map(project_dir: Path | None = None) -> dict[str, Path]:
     from clio.tasks._video_loader import load_selected_videos, stem_to_path_map
 
@@ -223,9 +233,9 @@ def run_transcribe_all(
     for i, compressed_video in enumerate(videos):
         compressed_stem = compressed_video.stem
         out_path = transcripts_dir / f"{compressed_stem}_transcript.json"
-        orig_stem = _extract_orig_stem(compressed_stem)
-        original_video = original_cache.get(orig_stem.lower())
+        original_video = _find_original_video(compressed_stem, original_cache)
         if original_video is None:
+            orig_stem = _extract_orig_stem(compressed_stem)
             print(f"  [跳过] {compressed_stem}: 未找到原始视频")
             state.mark(orig_stem, "transcribe", "skipped")
             if tracker:
