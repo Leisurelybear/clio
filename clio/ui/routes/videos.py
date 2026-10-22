@@ -826,6 +826,19 @@ def handle_put_videos_relink(handler: HandlerProtocol, qs: dict[str, Any], obj: 
             return handler._send_json({"ok": False, "error": f"找到多个同名文件 ({old_name})，请指定完整路径"}, 400)
         else:
             return handler._send_json({"ok": False, "error": f"未在项目视频列表中找到: {old_path}"}, 404)
+    new_key = str(resolved).lower()
+    for idx, video in enumerate(videos):
+        if idx == matched_idx:
+            continue
+        try:
+            existing_key = str(video.resolve()).lower()
+        except OSError:
+            existing_key = str(video).lower()
+        if existing_key == new_key:
+            return handler._send_json(
+                {"ok": False, "error": f"该视频已在项目视频列表中: {resolved}"},
+                409,
+            )
     videos[matched_idx] = resolved
     save_selected_videos(proj_dir, videos)
     _invalidate_videos_cache(proj_dir)

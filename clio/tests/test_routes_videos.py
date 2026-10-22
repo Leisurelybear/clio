@@ -904,6 +904,24 @@ class TestHandlePutVideosRelink:
         saved = mock_save.call_args.args[1]
         assert str(saved[0]) == str(new_file.resolve())
 
+    def test_relink_to_existing_project_video_returns_409(self, tmp_path, handler):
+        missing_file = tmp_path / "missing.MP4"
+        existing_file = tmp_path / "existing.MP4"
+        existing_file.write_text("dummy")
+        videos = [missing_file, existing_file]
+        with (
+            patch("clio.ui.routes.videos.load_selected_videos", return_value=videos),
+            patch("clio.ui.routes.videos.save_selected_videos") as mock_save,
+        ):
+            handle_put_videos_relink(
+                handler,
+                {},
+                {"old_path": str(missing_file), "new_path": str(existing_file)},
+            )
+        handler._send_json.assert_called_once()
+        assert handler._send_json.call_args.args[1] == 409
+        mock_save.assert_not_called()
+
 
 class TestCoverMap:
     def test_maps_image_stems(self, tmp_path: Path):
