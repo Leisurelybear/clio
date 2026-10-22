@@ -270,6 +270,25 @@ class TestRunCutAllOverwrite:
         assert clips == []
         mock_cut.assert_not_called()
 
+    def test_reports_skip_when_media_shorter_than_start(self, cfg):
+        _write_plan(cfg, seq=[{"index": "001", "title": "late", "use_timeline": "00:10-00:20"}])
+        (cfg.compressed_dir / "001_src.mp4").write_bytes(b"\x00")
+        tracker = MagicMock()
+
+        with (
+            patch("clio.tasks.cut.cut_one") as mock_cut,
+            patch("clio.tasks.cut.resolve_binary", return_value="ffmpeg"),
+            patch("clio.utils.resolve_binary", return_value="ffmpeg"),
+            patch("clio.utils.get_duration_sec", return_value=5.0),
+        ):
+            from clio.tasks.cut import run_cut_all
+
+            clips = run_cut_all(cfg, "day1", tracker=tracker, overwrite=True)
+
+        assert clips == []
+        mock_cut.assert_not_called()
+        tracker.next.assert_called_once_with(message="跳过第 1 段：时间范围超出媒体时长")
+
 
 class TestComputeSegmentOffset:
     def test_no_seg_suffix_returns_zero(self, cfg):

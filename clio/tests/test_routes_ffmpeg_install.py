@@ -150,6 +150,35 @@ def test_terminal_install_does_not_block_retry(tmp_path: Path, monkeypatch):
     manager.shutdown()
 
 
+def test_start_returns_409_when_submit_races_active_task(tmp_path: Path, monkeypatch):
+    manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"), recover_on_start=False)
+    entered = threading.Event()
+    release = threading.Event()
+
+    def fake_install(**kwargs):
+        entered.set()
+        release.wait(timeout=3)
+        return InstallResult(True, "download", "ffmpeg", "ffprobe", "ok")
+
+    monkeypatch.setattr("clio.ui.routes.deps.install_ffmpeg", fake_install)
+    monkeypatch.setattr("clio.ui.routes.deps._active_ffmpeg_task", lambda manager: None)
+    handler = _handler(manager)
+
+    handle_post_deps_ffmpeg_install(handler, {})
+    assert handler._send_json.call_args.args[0]["ok"] is True
+    assert entered.wait(timeout=2)
+
+    handler._send_json.reset_mock()
+    handle_post_deps_ffmpeg_install(handler, {})
+
+    payload, status = handler._send_json.call_args.args
+    assert status == 409
+    assert payload["ok"] is False
+
+    release.set()
+    manager.shutdown()
+
+
 def test_start_rejects_platform_without_verified_asset(tmp_path: Path, monkeypatch):
     manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"), recover_on_start=False)
     handler = _handler(manager)

@@ -105,4 +105,50 @@ describe('desktop notifications', () => {
     expect(await requestDesktopNotificationPermission()).toBe('granted');
     cleanup();
   });
+
+  it('returns false when the desktop bridge has no notify handler', async () => {
+    window.pywebview = { api: {} };
+    expect(await maybeDeliverDesktopNotification(
+      { id: 'n6', message: 'x' }, { enabled: true, hidden: true },
+    )).toBe(false);
+  });
+
+  it('returns false when the browser Notification API is unavailable', async () => {
+    delete globalThis.Notification;
+    expect(await maybeDeliverDesktopNotification(
+      { id: 'n7', message: 'x' }, { enabled: true, hidden: true },
+    )).toBe(false);
+  });
+
+  it('resolves every decided permission state without prompting', async () => {
+    window.pywebview = { api: {} };
+    expect(await requestDesktopNotificationPermission()).toBe('granted');
+    delete window.pywebview;
+
+    delete globalThis.Notification;
+    expect(await requestDesktopNotificationPermission()).toBe('unsupported');
+
+    globalThis.Notification = class { static permission = 'granted'; static requestPermission = vi.fn(); };
+    expect(await requestDesktopNotificationPermission()).toBe('granted');
+
+    globalThis.Notification = class { static permission = 'denied'; static requestPermission = vi.fn(); };
+    expect(await requestDesktopNotificationPermission()).toBe('denied');
+  });
+
+  it('ignores a missing root and unrelated settings changes', () => {
+    expect(typeof initDesktopNotificationBridge(null)).toBe('function');
+
+    const requestPermission = vi.fn().mockResolvedValue('granted');
+    globalThis.Notification = class { static permission = 'default'; static requestPermission = requestPermission; };
+    document.body.innerHTML =
+      '<input id="other" type="checkbox" data-path="other.setting" checked>'
+      + '<input id="unchecked" type="checkbox" data-path="ui.desktop_notifications">';
+    const cleanup = initDesktopNotificationBridge(document);
+
+    document.getElementById('other').dispatchEvent(new Event('change', { bubbles: true }));
+    document.getElementById('unchecked').dispatchEvent(new Event('change', { bubbles: true }));
+
+    expect(requestPermission).not.toHaveBeenCalled();
+    cleanup();
+  });
 });

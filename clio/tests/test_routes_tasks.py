@@ -217,9 +217,129 @@ def test_stream_honors_eventsource_last_event_id_on_reconnect(tmp_path):
     assert "id: 2" in output
 
 
+def test_stream_loads_task_snapshots_once_per_event_page(tmp_path, monkeypatch):
+    manager = _manager(tmp_path)
+    task = create_task(TaskKind.PIPELINE, "处理素材", task_id="task-1")
+    manager.store.create(task)
+    for index in range(3):
+        manager.store.append_event(
+            TaskEvent(
+                task_id=task.id,
+                type=TaskEventType.LOG,
+                created_at=f"2026-08-16T00:00:0{index + 1}.000Z",
+                message=f"log-{index}",
+            )
+        )
+    calls: list[list[str]] = []
+    original = manager.store.get_many
+
+    def tracked_get_many(task_ids):
+        ids = list(task_ids)
+        calls.append(ids)
+        return original(ids)
+
+    monkeypatch.setattr(manager.store, "get_many", tracked_get_many)
+    handler = _Handler(manager)
+    handler.wfile = _DisconnectOnFlush()
+
+    handle_get_tasks_stream(handler, {"after": ["0"]})
+
+    assert calls == [["task-1", "task-1", "task-1", "task-1"]]
+    output = handler.wfile.getvalue().decode("utf-8")
+    assert output.count('"task_id":"task-1"') == 4
+
+
 def test_cancel_unknown_task_returns_404(tmp_path):
     handler = _Handler(_manager(tmp_path))
 
     handle_post_task_cancel(handler, {}, {}, "missing")
+
+    assert handler.responses[-1][1] == 404
+
+
+def test_list_rejects_non_integer_and_out_of_range_filters(tmp_path):
+    handler = _Handler(_manager(tmp_path))
+
+    handle_get_tasks(handler, {"limit": ["not-a-number"]})
+    assert handler.responses[-1][1] == 400
+    assert "limit must be an integer" in handler.responses[-1][0]["error"]
+
+    handle_get_tasks(handler, {"offset": ["-1"]})
+    assert handler.responses[-1][1] == 400
+    assert "offset must be between" in handler.responses[-1][0]["error"]
+
+
+def test_list_accepts_scalar_status_and_ignores_blank_entries(tmp_path):
+    manager = _manager(tmp_path)
+    manager.store.create(create_task(TaskKind.PIPELINE, "一", task_id="first"))
+    handler = _Handler(manager)
+
+    handle_get_tasks(handler, {"status": "queued", "kind": ["pipeline,"]})
+
+    body, status = handler.responses[-1]
+    assert status == 200
+    assert [task["id"] for task in body["tasks"]] == ["first"]
+
+
+def test_list_rejects_unknown_visibility(tmp_path):
+    handler = _Handler(_manager(tmp_path))
+
+    handle_get_tasks(handler, {"visibility": ["hidden"]})
+
+    body, status = handler.responses[-1]
+    assert status == 400
+    assert "visibility must be" in body["error"]
+
+
+def test_detail_rejects_invalid_event_limit(tmp_path):
+    manager = _manager(tmp_path)
+    task = create_task(TaskKind.PIPELINE, "处理素材", task_id="task-1")
+    manager.store.create(task)
+    handler = _Handler(manager)
+
+    handle_get_task(handler, {"event_limit": ["0"]}, task.id)
+
+    body, status = handler.responses[-1]
+    assert status == 400
+    assert "event_limit must be between" in body["error"]
+
+
+def test_stream_rejects_invalid_cursor(tmp_path):
+    handler = _Handler(_manager(tmp_path))
+
+    handle_get_tasks_stream(handler, {"after": ["-5"]})
+
+    body, status = handler.responses[-1]
+    assert status == 400
+    assert "after must be between" in body["error"]
+
+
+def test_stream_ignores_non_integer_last_event_id(tmp_path):
+    manager = _manager(tmp_path)
+    manager.store.create(create_task(TaskKind.PIPELINE, "一", task_id="task-1"))
+    handler = _Handler(manager)
+    handler.headers = {"Last-Event-ID": "not-a-number"}
+    handler.wfile = _DisconnectOnFlush()
+
+    handle_get_tasks_stream(handler, {"after": ["0"]})
+
+    assert "id: 1" in handler.wfile.getvalue().decode("utf-8")
+
+
+def test_cancel_non_cancellable_task_returns_409(tmp_path):
+    manager = _manager(tmp_path)
+    task = create_task(TaskKind.PIPELINE, "处理素材", task_id="task-1", cancellable=False)
+    manager.store.create(task)
+    handler = _Handler(manager)
+
+    handle_post_task_cancel(handler, {}, {}, task.id)
+
+    assert handler.responses[-1][1] == 409
+
+
+def test_retry_unknown_task_returns_404(tmp_path):
+    handler = _Handler(_manager(tmp_path))
+
+    handle_post_task_retry(handler, {}, {}, "missing")
 
     assert handler.responses[-1][1] == 404

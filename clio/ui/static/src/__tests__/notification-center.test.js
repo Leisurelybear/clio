@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../api.js', () => ({ api: vi.fn() }));
+vi.mock('../sidebar.js', () => ({ selectTasks: vi.fn().mockResolvedValue(undefined) }));
+vi.mock('../task-center.js', () => ({ selectTask: vi.fn().mockResolvedValue(undefined) }));
 
 let state;
 let api;
@@ -17,6 +19,7 @@ describe('notification center', () => {
     ({ state } = await import('../state.js'));
     ({ api } = await import('../api.js'));
     api.mockReset();
+    vi.clearAllMocks();
     state.notifications = [];
     state.notificationUnread = 0;
     state.notificationLatestSeq = 0;
@@ -24,6 +27,7 @@ describe('notification center', () => {
       <button id="btn-notifications"><span class="notification-badge" hidden></span></button>
       <section id="notification-panel" hidden></section>`;
     globalThis.EventSource = FakeEventSource;
+    eventSource = null;
   });
 
   it('loads persistent notifications and exposes the unread badge', async () => {
@@ -345,5 +349,258 @@ describe('notification center', () => {
     document.getElementById('btn-notifications').click();
     await vi.waitFor(() => expect(document.querySelector('.notification-row')).toBeTruthy());
     expect(document.querySelector('.notification-read-one')).toBeNull();
+  });
+
+  it('marks every notification read from the panel action', async () => {
+    api.mockResolvedValue({
+      notifications: [{ id: 'n1', seq: 1, severity: 'warning', title: '提醒', message: 'm', read_at: null }],
+      unread_count: 1, latest_seq: 1, total_count: 1,
+    });
+    const { initNotificationCenter } = await import('../notification-center.js');
+    initNotificationCenter();
+    await vi.waitFor(() => expect(state.notificationUnread).toBe(1));
+    document.getElementById('btn-notifications').click();
+    await vi.waitFor(() => expect(document.querySelector('.notification-read-all')).toBeTruthy());
+    document.querySelector('[data-filter="unread"]').click();
+    await vi.waitFor(() => expect(state.notifications).toHaveLength(1));
+
+    api.mockResolvedValueOnce({ marked: 1, unread_count: 0, latest_seq: 2 });
+    document.querySelector('.notification-read-all').click();
+    await vi.waitFor(() => expect(state.notificationUnread).toBe(0));
+
+    expect(state.notifications).toHaveLength(0);
+  });
+
+  it('routes an opened notification to its action handler', async () => {
+    const { openNotification } = await import('../notification-center.js');
+    const seen = [];
+    window.addEventListener('clio:notification-action', event => seen.push(event.detail));
+    state.notifications = [{ id: 'a', seq: 3, data: { action_id: 'act-1' }, read_at: null }];
+    api.mockResolvedValue({ notification: { id: 'a', seq: 3, read_at: 'now' }, latest_seq: 4 });
+
+    await openNotification('a');
+    expect(seen[0].id).toBe('act-1');
+
+    await openNotification('missing');
+    expect(api).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes an opened notification to its task', async () => {
+    const sidebar = await import('../sidebar.js');
+    const tasks = await import('../task-center.js');
+    const { openNotification } = await import('../notification-center.js');
+    state.notifications = [{ id: 'b', seq: 2, task_id: 'task-9', read_at: null }];
+    state.currentEntity = 'tasks';
+    api.mockResolvedValue({ notification: { id: 'b', seq: 2, read_at: 'now' }, latest_seq: 3 });
+
+    await openNotification('b');
+
+    expect(sidebar.selectTasks).toHaveBeenCalled();
+    expect(tasks.selectTask).toHaveBeenCalledWith('task-9');
+  });
+
+  it('stops a task deep link when the tasks view cannot open', async () => {
+    const sidebar = await import('../sidebar.js');
+    const tasks = await import('../task-center.js');
+    const { openNotification } = await import('../notification-center.js');
+    state.notifications = [{ id: 'd', seq: 1, task_id: 'task-1', read_at: null }];
+    state.currentEntity = 'videos';
+    api.mockResolvedValue({ notification: { id: 'd', seq: 1, read_at: 'now' }, latest_seq: 2 });
+
+    await openNotification('d');
+
+    expect(sidebar.selectTasks).toHaveBeenCalled();
+    expect(tasks.selectTask).not.toHaveBeenCalled();
+  });
+
+  it('navigates to a notification link as a last resort', async () => {
+    const { openNotification } = await import('../notification-center.js');
+    state.notifications = [{ id: 'c', seq: 1, link: '#somewhere', read_at: null }];
+    api.mockResolvedValue({ notification: { id: 'c', seq: 1, read_at: 'now' }, latest_seq: 2 });
+
+    await expect(openNotification('c')).resolves.toBeUndefined();
+  });
+
+  it('reconnects the SSE stream after an error', async () => {
+    api.mockResolvedValue({ notifications: [], unread_count: 0, latest_seq: 0, total_count: 0 });
+    const { initNotificationCenter } = await import('../notification-center.js');
+    initNotificationCenter();
+    await vi.waitFor(() => expect(eventSource).toBeTruthy());
+    const first = eventSource;
+
+    vi.useFakeTimers();
+    try {
+      first.onerror();
+      await vi.advanceTimersByTimeAsync(3_100);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(eventSource).not.toBe(first);
+  });
+
+  it('keeps only warnings and errors in the attention filter', async () => {
+    api.mockResolvedValue({
+      notifications: [
+        { id: 'a', seq: 3, severity: 'error', title: 'E', message: 'm', read_at: null, created_at: 'not-a-date' },
+        { id: 'b', seq: 2, severity: 'info', title: 'I', message: 'm', read_at: null },
+      ],
+      unread_count: 2, latest_seq: 3, total_count: 2,
+    });
+    const { initNotificationCenter } = await import('../notification-center.js');
+    initNotificationCenter();
+    await vi.waitFor(() => expect(state.notifications).toHaveLength(2));
+    document.getElementById('btn-notifications').click();
+    await vi.waitFor(() => expect(document.querySelector('[data-filter="attention"]')).toBeTruthy());
+
+    document.querySelector('[data-filter="attention"]').click();
+    await vi.waitFor(() => expect(state.notifications).toHaveLength(1));
+
+    expect(state.notifications[0].severity).toBe('error');
+  });
+
+  it('streams individual notifications and ignores stale revisions', async () => {
+    sessionStorage.setItem('api_token', 'sekret');
+    api.mockResolvedValue({ notifications: [], unread_count: 0, latest_seq: 3, total_count: 0 });
+    const { initNotificationCenter } = await import('../notification-center.js');
+    initNotificationCenter();
+    await vi.waitFor(() => expect(eventSource).toBeTruthy());
+    expect(eventSource.url).toContain('token=sekret');
+
+    eventSource.onmessage({ data: JSON.stringify({ seq: 2, notification: { id: 'old', seq: 2, message: 'm' } }) });
+    expect(state.notifications).toHaveLength(0);
+
+    eventSource.onmessage({ data: JSON.stringify({ seq: 4, notification: { seq: 4 } }) });
+    expect(state.notifications).toHaveLength(0);
+
+    eventSource.onmessage({ data: JSON.stringify({
+      seq: 5,
+      notification: { id: 'new', seq: 5, severity: 'info', title: 'T', message: 'm', read_at: null },
+    }) });
+    expect(state.notifications.map(item => item.id)).toEqual(['new']);
+    expect(state.notificationUnread).toBe(1);
+  });
+
+  it('drops an upserted notification that no longer matches the filter', async () => {
+    api.mockResolvedValue({
+      notifications: [{ id: 'n1', seq: 1, severity: 'warning', title: 'W', message: 'm', read_at: null }],
+      unread_count: 1, latest_seq: 1, total_count: 1,
+    });
+    const { initNotificationCenter } = await import('../notification-center.js');
+    initNotificationCenter();
+    await vi.waitFor(() => expect(state.notificationUnread).toBe(1));
+    document.getElementById('btn-notifications').click();
+    await vi.waitFor(() => expect(document.querySelector('[data-filter="attention"]')).toBeTruthy());
+    document.querySelector('[data-filter="attention"]').click();
+    await vi.waitFor(() => expect(state.notifications).toHaveLength(1));
+
+    eventSource.onmessage({ data: JSON.stringify({
+      seq: 2,
+      notification: { id: 'n1', seq: 2, severity: 'info', title: 'W', message: 'm', read_at: null },
+    }) });
+
+    expect(state.notifications).toHaveLength(0);
+    expect(state.notificationUnread).toBe(0);
+  });
+
+  it('adjusts the unread count when an upsert changes read state', async () => {
+    api.mockResolvedValue({
+      notifications: [{ id: 'n1', seq: 1, severity: 'warning', title: 'W', message: 'm', read_at: null }],
+      unread_count: 1, latest_seq: 1, total_count: 1,
+    });
+    const { initNotificationCenter } = await import('../notification-center.js');
+    initNotificationCenter();
+    await vi.waitFor(() => expect(state.notificationUnread).toBe(1));
+
+    eventSource.onmessage({ data: JSON.stringify({
+      seq: 2,
+      notification: { id: 'n1', seq: 2, severity: 'warning', title: 'W', message: 'm', read_at: 'now' },
+    }) });
+
+    expect(state.notificationUnread).toBe(0);
+    expect(state.notifications[0].read_at).toBe('now');
+  });
+
+  it('hashes an over-long dedupe key', async () => {
+    api.mockResolvedValueOnce({
+      notification: { id: 'n9', seq: 6, severity: 'info', title: 'T', message: 'm', read_at: null },
+      unread_count: 1,
+    });
+    const { registerNotification } = await import('../notification-center.js');
+
+    await registerNotification({ message: 'm', dedupeKey: 'x'.repeat(400) });
+
+    const sent = api.mock.calls[0][2].dedupe_key;
+    expect(sent.length).toBeLessThan(320);
+    expect(sent).toContain(':');
+  });
+
+  it('builds a context link from the current selection and rejects empty messages', async () => {
+    state.currentEntity = 'videos';
+    state.currentVideo = 'v1';
+    state.currentDay = 'day1';
+    state.currentProjectName = 'Trip';
+    api.mockResolvedValueOnce({
+      notification: { id: 'n8', seq: 7, severity: 'info', title: 'T', message: 'm', read_at: null },
+      unread_count: 1,
+    });
+    const { registerNotification, markNotificationRead } = await import('../notification-center.js');
+
+    expect(await registerNotification({})).toBeNull();
+    await registerNotification({ message: 'm' });
+    const link = api.mock.calls[0][2].link;
+    expect(link).toContain('video=v1');
+    expect(link).toContain('entity=videos');
+    expect(link).toContain('day=day1');
+
+    await markNotificationRead('');
+    expect(api).toHaveBeenCalledTimes(1);
+  });
+
+  it('tolerates a snapshot without a revision', async () => {
+    api.mockResolvedValue({ notifications: [{ id: 'n1', seq: 1, severity: 'info', title: 'T', message: 'm', read_at: null }] });
+    const { loadNotifications } = await import('../notification-center.js');
+
+    await loadNotifications();
+
+    expect(state.notifications).toHaveLength(1);
+  });
+
+  it('opens a notification when its row is clicked', async () => {
+    api.mockResolvedValue({
+      notifications: [{
+        id: 'n1', seq: 1, severity: 'info', title: 'T', message: 'm', read_at: null, data: { action_id: 'a1' },
+      }],
+      unread_count: 1, latest_seq: 1, total_count: 1,
+    });
+    const { initNotificationCenter } = await import('../notification-center.js');
+    const seen = [];
+    window.addEventListener('clio:notification-action', event => seen.push(event.detail));
+    initNotificationCenter();
+    await vi.waitFor(() => expect(state.notificationUnread).toBe(1));
+    document.getElementById('btn-notifications').click();
+    await vi.waitFor(() => expect(document.querySelector('.notification-row')).toBeTruthy());
+
+    document.querySelector('.notification-row').click();
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+
+    expect(seen[0].id).toBe('a1');
+  });
+
+  it('initializes only once', async () => {
+    api.mockResolvedValue({ notifications: [], unread_count: 0, latest_seq: 0, total_count: 0 });
+    const { initNotificationCenter } = await import('../notification-center.js');
+
+    initNotificationCenter();
+    initNotificationCenter();
+
+    await vi.waitFor(() => expect(eventSource).toBeTruthy());
+  });
+
+  it('does nothing without the notification panel', async () => {
+    document.body.innerHTML = '';
+    const { initNotificationCenter } = await import('../notification-center.js');
+
+    expect(() => initNotificationCenter()).not.toThrow();
   });
 });

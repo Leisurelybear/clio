@@ -107,3 +107,17 @@ def test_unknown_clio_lang_uses_default_locale(monkeypatch):
 
 def test_catalog_path_prefers_the_backend_catalog():
     assert i18n.catalog_path("en") == find_resource("locales/en.json")
+
+
+def test_missing_catalog_falls_back_to_key(monkeypatch):
+    monkeypatch.setattr(i18n, "find_resource", lambda relative: None)
+
+    assert i18n.t("app.title", locale="en") == "app.title"
+
+
+def test_unreadable_catalog_is_ignored(tmp_path, monkeypatch):
+    broken = tmp_path / "en.json"
+    broken.write_text("{ not json", encoding="utf-8")
+    monkeypatch.setattr(i18n, "find_resource", lambda relative: broken)
+
+    assert i18n.t("app.title", locale="en") == "app.title"

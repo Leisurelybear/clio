@@ -56,6 +56,19 @@ def test_create_and_reopen_preserves_private_task_data(tmp_path):
     assert loaded.input_data["steps"] == ["compress", "analyze"]
 
 
+def test_get_many_deduplicates_ids_and_skips_missing_tasks(tmp_path):
+    store = TaskStore(tmp_path / "tasks.sqlite3")
+    first = create_task(TaskKind.PIPELINE, "一", task_id="first")
+    second = create_task(TaskKind.RERUN, "二", task_id="second")
+    store.create(first)
+    store.create(second)
+
+    loaded = store.get_many(["first", "second", "first", "missing"])
+
+    assert loaded == {"first": first, "second": second}
+    assert store.get_many([]) == {}
+
+
 def test_create_appends_created_event(tmp_path):
     store = TaskStore(tmp_path / "tasks.sqlite3")
     task = create_task(TaskKind.RERUN, "重新分析", task_id="task-1")

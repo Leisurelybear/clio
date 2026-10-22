@@ -596,6 +596,31 @@ class TestManagedRunIntegration:
         assert handler._send_json.call_args.args[1] == 409
         release.set()
 
+    def test_duplicate_managed_run_race_returns_409(self, tmp_path, monkeypatch):
+        from clio.task_center.manager import TaskManager
+        from clio.task_center.store import TaskStore
+
+        _allow_media_preflight(monkeypatch)
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+        entered = threading.Event()
+        release = threading.Event()
+
+        def worker(context):
+            entered.set()
+            release.wait(timeout=2)
+
+        monkeypatch.setattr("clio.ui.routes.run._run_pipeline_task", worker)
+        handler, _, _ = _managed_handler(tmp_path, manager)
+        handle_post_run_start(handler, {}, {"steps": ["compress"]})
+        assert entered.wait(timeout=2)
+
+        monkeypatch.setattr("clio.ui.routes.run._active_managed_run", lambda manager, project_id: None)
+        handler._send_json.reset_mock()
+        handle_post_run_start(handler, {}, {"steps": ["analyze"]})
+
+        assert handler._send_json.call_args.args[1] == 409
+        release.set()
+
     def test_managed_cancel_targets_current_project_task(self, tmp_path, monkeypatch):
         from clio.task_center.manager import TaskManager
         from clio.task_center.models import TaskStatus
@@ -868,6 +893,20 @@ class TestRunRerunTask:
         with pytest.raises(OSError, match="ffmpeg crashed"):
             _run_rerun_task(context)
 
+    def test_cancelled_marks_tracker_and_reraises(self, tmp_path, monkeypatch):
+        from clio.task_center.reporter import TaskCancelled
+
+        context, cfg = self._make_context(tmp_path, task="compress")
+        monkeypatch.setattr("clio.ui.routes.run.load_config", lambda *a, **k: copy.deepcopy(cfg))
+
+        def cancel(*a, **kw):
+            raise TaskCancelled("任务已取消")
+
+        monkeypatch.setattr("clio.ui.routes.run.run_compress_all", cancel)
+
+        with pytest.raises(TaskCancelled):
+            _run_rerun_task(context)
+
 
 class TestManagedRerunSubmit:
     """Cover the managed rerun submission path (L707-738)."""
@@ -971,6 +1010,53 @@ class TestManagedRerunSubmit:
             mock_patch("clio.ui.routes.run._resolve_found_original", return_value=original.resolve()),
             mock_patch("clio.vmeta.VideoMeta.read", return_value=None),
         ):
+            handle_post_rerun(handler, {}, {"video": "clip.mp4", "task": "analyze"})
+
+        assert handler._send_json.call_args.args[1] == 409
+        release.set()
+        manager.wait(first_task_id)
+
+    def test_managed_rerun_race_returns_409(self, tmp_path, monkeypatch):
+        from clio.task_center.manager import TaskManager
+        from clio.task_center.store import TaskStore
+
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+        entered = threading.Event()
+        release = threading.Event()
+
+        def blocking_worker(context):
+            entered.set()
+            release.wait(timeout=2)
+
+        monkeypatch.setattr("clio.ui.routes.run._run_rerun_task", blocking_worker)
+        handler, project_dir, _ = _managed_handler(tmp_path, manager)
+        original = project_dir / "clip.mp4"
+        original.write_bytes(b"fake")
+
+        cfg = SimpleNamespace(
+            paths=SimpleNamespace(output_dir=tmp_path / "out"),
+            analyze=SimpleNamespace(skip_existing=True),
+            plan=SimpleNamespace(use_transcripts=True),
+            compressed_dir=None,
+        )
+        (tmp_path / "out").mkdir(exist_ok=True)
+        handler._get_config.return_value = cfg
+
+        from unittest.mock import patch as mock_patch
+
+        with (
+            mock_patch(
+                "clio.ui.services.file_service._find_original_for_compressed", return_value=str(original.resolve())
+            ),
+            mock_patch("clio.ui.routes.run._resolve_found_original", return_value=original.resolve()),
+            mock_patch("clio.vmeta.VideoMeta.read", return_value=None),
+        ):
+            handle_post_rerun(handler, {}, {"video": "clip.mp4", "task": "analyze"})
+            first_task_id = handler._send_json.call_args.args[0]["task_id"]
+            assert entered.wait(timeout=2)
+            handler._send_json.reset_mock()
+
+            monkeypatch.setattr("clio.ui.routes.run._active_managed_run", lambda manager, project_id: None)
             handle_post_rerun(handler, {}, {"video": "clip.mp4", "task": "analyze"})
 
         assert handler._send_json.call_args.args[1] == 409

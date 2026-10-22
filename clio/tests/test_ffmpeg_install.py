@@ -11,6 +11,7 @@ import tarfile
 import threading
 import zipfile
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -89,6 +90,34 @@ def test_platform_aliases_share_one_normalizer(tmp_path):
     assert installer.normalize_system("freebsd") == "unsupported"
     assert installer.managed_binary("ffmpeg", tmp_path, system="windows").name == "ffmpeg.exe"
     assert installer.select_asset("windows", "amd64") is not None
+
+
+def test_normalize_system_detects_platform_when_blank(monkeypatch):
+    monkeypatch.setattr(installer.platform, "system", lambda: "Darwin")
+    assert installer.normalize_system("") == "darwin"
+
+    monkeypatch.setattr(installer.platform, "system", lambda: "Linux")
+    assert installer.normalize_system(None) == "linux"
+
+
+def test_tar_entries_classifies_special_member_types():
+    members = []
+    for name, member_type in [
+        ("block", tarfile.BLKTYPE),
+        ("fifo", tarfile.FIFOTYPE),
+        ("unknown", b"Z"),
+    ]:
+        info = tarfile.TarInfo(name)
+        info.type = member_type
+        members.append(info)
+    archive = MagicMock()
+    archive.getmembers.return_value = members
+
+    assert installer._tar_entries(archive) == [
+        ("block", "block device"),
+        ("fifo", "fifo"),
+        ("unknown", "special type b'Z'"),
+    ]
 
 
 def test_managed_root_env_override(monkeypatch, tmp_path):
@@ -622,6 +651,37 @@ def test_install_system_mode_does_not_fall_back_to_download(tmp_path, monkeypatc
     )
     assert result.ok is False
     assert result.method == "system"
+
+
+def test_promote_preserves_state_when_rollback_cleanup_fails(tmp_path, monkeypatch):
+    root = tmp_path / "managed"
+    staged_dir = tmp_path / "staged"
+    staged_dir.mkdir()
+    staged_ffmpeg = staged_dir / "ffmpeg.exe"
+    staged_ffprobe = staged_dir / "ffprobe.exe"
+    staged_ffmpeg.write_bytes(b"new-ffmpeg")
+    staged_ffprobe.write_bytes(b"new-ffprobe")
+    real_unlink = Path.unlink
+
+    def flaky_unlink(self, *args, **kwargs):
+        if self.name == "ffmpeg.exe":
+            raise OSError("locked by another process")
+        return real_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", flaky_unlink)
+
+    with pytest.raises(ValueError, match="failed verification"):
+        installer._promote(staged_ffmpeg, staged_ffprobe, root, verify=lambda _ffmpeg, _ffprobe: False)
+
+    assert (root / "ffmpeg.exe").exists()
+
+
+def test_install_unsupported_platform_returns_manual_guidance(tmp_path):
+    result = installer.install_ffmpeg(system="freebsd", machine="amd64", root=tmp_path / "m")
+
+    assert result.ok is False
+    assert result.method == "manual"
+    assert "not supported" in result.message
 
 
 def test_cli_reports_install_result(monkeypatch, capsys):

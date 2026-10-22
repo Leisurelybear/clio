@@ -14,7 +14,9 @@ from clio.utils import (
     popen_subprocess,
     run_ffmpeg,
     run_subprocess,
+    safe_basename,
     write_json_atomic,
+    write_secret_atomic,
     write_text_atomic,
 )
 
@@ -268,3 +270,35 @@ class TestRunFfmpeg:
 
         run_ffmpeg(["-i", "in.mp4", "out.mp4"], "ffmpeg", progress_callback=callback)
         assert callback.call_count >= 1
+
+
+class TestWriteSecretAtomic:
+    def test_refuses_to_overwrite_insecure_existing_file(self, tmp_path):
+        target = tmp_path / ".env"
+        target.write_text("OLD=1", encoding="utf-8")
+
+        with patch("clio.utils._secret_has_insecure_perms", return_value=True):
+            with pytest.raises(PermissionError):
+                write_secret_atomic(target, "NEW=2")
+
+        assert target.read_text(encoding="utf-8") == "OLD=1"
+
+    def test_writes_file_and_creates_parent_dirs(self, tmp_path):
+        target = tmp_path / "nested" / ".env"
+
+        write_secret_atomic(target, "KEY=value")
+
+        assert target.read_text(encoding="utf-8") == "KEY=value"
+
+
+class TestSafeBasename:
+    def test_rejects_dot_segment(self):
+        with pytest.raises(ValueError):
+            safe_basename("..")
+
+    def test_rejects_dot_inside_underscored_segments(self):
+        with pytest.raises(ValueError):
+            safe_basename("a .. b")
+
+    def test_sanitizes_regular_name(self):
+        assert safe_basename("my clip") == "my_clip"

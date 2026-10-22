@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from clio.plan_preview import build_preview_media, expected_clip_name
+from clio.plan_preview import _clip_is_current, _valid_clip, build_preview_media, expected_clip_name
 from clio.ui.routes.plan import handle_get_plan_preview_media
 from clio.ui.routes.videos import handle_get_video
 
@@ -264,3 +264,59 @@ def test_cut_video_route_rejects_traversal_and_nested_path(tmp_path: Path):
     handler.send_error.reset_mock()
     handle_get_video(handler, {"day": ["day1"], "file": ["nested/clip.mp4"], "source": ["cut"]})
     assert handler.send_error.call_args.args[0] == 403
+
+
+def test_sidecar_without_cut_info_falls_back_to_mtime(tmp_path: Path):
+    cuts_dir = tmp_path / "cuts" / "day1"
+    segment = {"index": "001", "title": "s", "use_timeline": "00:00-00:03"}
+    clip = _add_clip(cuts_dir, segment, 1, info=None)
+    clip.with_suffix(".json").write_text("{}", encoding="utf-8")
+
+    result = build_preview_media(_plan(segment), cuts_dir, day="day1")
+
+    assert result["segments"][0]["file"] == clip.name
+
+
+def test_mismatched_legacy_end_time_rejected_after_plan_change(tmp_path: Path):
+    cuts_dir = tmp_path / "cuts" / "day1"
+    segment = {"index": "001", "title": "s", "use_timeline": "00:00-00:03"}
+    clip = _add_clip(
+        cuts_dir,
+        segment,
+        1,
+        info={"seg_index": 1, "timeline": "00:00-00:03", "start_sec": 0, "end_sec": 99},
+    )
+    plan_mtime = clip.stat().st_mtime + 10
+
+    result = build_preview_media(_plan(segment), cuts_dir, day="day1", plan_mtime=plan_mtime)
+
+    assert result["segments"][0]["file"] is None
+
+
+def test_clip_is_current_returns_false_when_stat_fails(tmp_path: Path):
+    assert _clip_is_current(tmp_path / "missing.mp4", 123.0) is False
+
+
+def test_valid_clip_returns_none_when_stat_raises(tmp_path: Path, monkeypatch):
+    cuts_dir = tmp_path / "cuts" / "day1"
+    segment = {"index": "001", "title": "s", "use_timeline": "00:00-00:03"}
+    clip = _add_clip(
+        cuts_dir,
+        segment,
+        1,
+        info={"seg_index": 1, "timeline": "00:00-00:03", "start_sec": 0, "end_sec": 3},
+    )
+    real_stat = Path.stat
+    seen = {"count": 0}
+
+    def flaky_stat(self, *args, **kwargs):
+        if self.name == clip.name:
+            seen["count"] += 1
+            if seen["count"] >= 2:
+                raise OSError("stat failed")
+        return real_stat(self, *args, **kwargs)
+
+    monkeypatch.setattr("clio.plan_preview.validate_within_root", lambda path, root: path)
+    monkeypatch.setattr(Path, "stat", flaky_stat)
+
+    assert _valid_clip(cuts_dir, segment, 1) is None

@@ -155,6 +155,26 @@ def test_handler_failure_is_persisted(tmp_path):
     assert failed.error_message == "AI 请求失败"
 
 
+def test_worker_error_after_cancel_request_finishes_cancelled(tmp_path):
+    manager = _manager(tmp_path)
+    entered = threading.Event()
+
+    def handler(context):
+        entered.set()
+        context.cancel_event.wait(timeout=2)
+        raise RuntimeError("请求已中断")
+
+    manager.register(TaskKind.PIPELINE, handler, cancellable=True)
+    task = manager.submit(TaskKind.PIPELINE, "处理素材")
+    assert entered.wait(timeout=2)
+
+    cancelling = manager.request_cancel(task.id)
+    final = manager.wait(task.id)
+
+    assert cancelling.status is TaskStatus.CANCELLING
+    assert final.status is TaskStatus.CANCELLED
+
+
 def test_running_task_can_be_cancelled_cooperatively(tmp_path):
     manager = _manager(tmp_path)
     entered = threading.Event()

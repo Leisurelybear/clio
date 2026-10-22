@@ -24,6 +24,7 @@ from clio.ui.routes.notifications import (
     handle_get_notifications_stream,
     handle_post_notification,
     handle_post_notification_read,
+    handle_post_notification_unread,
     handle_post_notifications_read_all,
 )
 
@@ -370,3 +371,143 @@ def test_notification_snapshot_reports_filtered_total(tmp_path):
     assert unread == 3
     assert total == 2
     assert revision == 3
+
+
+def test_notification_unread_route_restores_unread_state(tmp_path):
+    manager = _manager(tmp_path)
+    handler = _Handler(manager)
+    handle_post_notification(handler, {}, {"severity": "info", "message": "待处理"})
+    notification_id = handler.responses[-1][0]["notification"]["id"]
+
+    handle_post_notification_read(handler, {}, {}, notification_id)
+    assert handler.responses[-1][0]["unread_count"] == 0
+
+    handle_post_notification_unread(handler, {}, {}, notification_id)
+    body, status = handler.responses[-1]
+    assert status == 200
+    assert body["notification"]["is_read"] is False
+    assert body["unread_count"] == 1
+
+    handle_post_notification_unread(handler, {}, {}, "missing")
+    assert handler.responses[-1][1] == 404
+
+
+def test_notification_rejects_non_string_dedupe_key(tmp_path):
+    handler = _Handler(_manager(tmp_path))
+
+    handle_post_notification(handler, {}, {"severity": "info", "message": "去重键类型错误", "dedupe_key": 123})
+
+    body, status = handler.responses[-1]
+    assert status == 400
+    assert "dedupe_key" in body["error"]
+
+
+def test_notification_query_validation_errors(tmp_path):
+    handler = _Handler(_manager(tmp_path))
+
+    handle_get_notifications(handler, {"limit": ["abc"]})
+    assert handler.responses[-1][1] == 400
+    assert "integer" in handler.responses[-1][0]["error"]
+
+    handle_get_notifications(handler, {"limit": ["0"]})
+    assert handler.responses[-1][1] == 400
+    assert "between" in handler.responses[-1][0]["error"]
+
+    handle_get_notifications(handler, {"unread": ["maybe"]})
+    assert handler.responses[-1][1] == 400
+    assert "unread" in handler.responses[-1][0]["error"]
+
+
+def test_notification_query_severity_parsing(tmp_path):
+    manager = _manager(tmp_path)
+    handler = _Handler(manager)
+    for index, severity in enumerate(
+        (NotificationSeverity.INFO, NotificationSeverity.WARNING, NotificationSeverity.ERROR)
+    ):
+        manager.store.create_notification(
+            Notification(
+                id=f"n-{index}",
+                severity=severity,
+                title="通知",
+                message=str(index),
+                created_at=utc_now_iso(),
+            )
+        )
+
+    handle_get_notifications(handler, {"severity": ["warning,error"], "limit": ["20"]})
+    body, status = handler.responses[-1]
+    assert status == 200
+    assert body["total_count"] == 2
+
+    handle_get_notifications(handler, {"severity": "info", "limit": ["20"]})
+    assert handler.responses[-1][0]["total_count"] == 1
+
+    handle_get_notifications(handler, {"severity": ["bogus"]})
+    assert handler.responses[-1][1] == 400
+    assert "invalid severity" in handler.responses[-1][0]["error"]
+
+
+def test_notification_stream_rejects_invalid_after(tmp_path):
+    handler = _Handler(_manager(tmp_path))
+
+    handle_get_notifications_stream(handler, {"after": ["nope"]})
+
+    assert handler.responses[-1][1] == 400
+    assert "integer" in handler.responses[-1][0]["error"]
+
+
+def test_notification_stream_ignores_invalid_last_event_id(tmp_path):
+    manager = _manager(tmp_path)
+    manager.store.create_notification(
+        Notification(
+            id="n-1",
+            severity=NotificationSeverity.INFO,
+            title="通知",
+            message="m",
+            created_at=utc_now_iso(),
+        )
+    )
+    handler = _Handler(manager)
+    handler.wfile = _DisconnectOnFlush()
+    handler.headers = {"Last-Event-ID": "not-a-number"}
+
+    handle_get_notifications_stream(handler, {})
+
+    assert "id: 1" in handler.wfile.getvalue().decode("utf-8")
+
+
+def test_notification_stream_emits_heartbeat(tmp_path, monkeypatch):
+    handler = _Handler(_manager(tmp_path))
+    ticks = iter([0.0, 100.0, 100.0])
+
+    monkeypatch.setattr("clio.ui.routes.notifications.time.monotonic", lambda: next(ticks))
+
+    def _stop(_seconds):
+        raise BrokenPipeError
+
+    monkeypatch.setattr("clio.ui.routes.notifications.time.sleep", _stop)
+
+    handle_get_notifications_stream(handler, {})
+
+    assert b": heartbeat" in handler.wfile.getvalue()
+
+
+def test_notification_post_validation_errors(tmp_path):
+    handler = _Handler(_manager(tmp_path))
+
+    cases = [
+        ({"severity": "bogus", "message": "x"}, "severity"),
+        ({"severity": "info"}, "message"),
+        ({"severity": "info", "message": "x", "title": "   "}, "title"),
+        ({"severity": "info", "message": "x", "dedupe_key": "d" * 301}, "dedupe_key"),
+        ({"severity": "info", "message": "x", "source_type": 5}, "source_type"),
+        ({"severity": "info", "message": "x", "source_id": 5}, "source_id"),
+        ({"severity": "info", "message": "x", "task_id": 5}, "task_id"),
+        ({"severity": "info", "message": "x", "data": []}, "data"),
+        ({"severity": "info", "message": "x", "task_id": "missing"}, "does not exist"),
+    ]
+    for payload, expected in cases:
+        handle_post_notification(handler, {}, payload)
+        body, status = handler.responses[-1]
+        assert status == 400, payload
+        assert expected in body["error"], payload

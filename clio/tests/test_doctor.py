@@ -23,7 +23,10 @@ from clio.doctor import (
     node_version_supported,
     parse_node_major,
     parse_node_version,
+    provider_key_missing,
+    run_doctor,
 )
+from clio.i18n import t
 
 
 def _config(
@@ -31,6 +34,7 @@ def _config(
     *,
     provider: ProviderConfig | None = None,
     whisper: ProjectWhisperConfig | None = None,
+    project_dir: Path | None = None,
 ) -> AppConfig:
     provider = provider or ProviderConfig(
         name="gemini",
@@ -39,8 +43,8 @@ def _config(
     )
     input_dir = tmp_path / "videos"
     output_dir = tmp_path / "output"
-    input_dir.mkdir()
-    output_dir.mkdir()
+    input_dir.mkdir(exist_ok=True)
+    output_dir.mkdir(exist_ok=True)
     return AppConfig(
         global_cfg=GlobalConfig(
             paths=GlobalPathsConfig(ffmpeg="", ffprobe=""),
@@ -51,6 +55,7 @@ def _config(
             ai=ProjectAIConfig(tasks={"video_analyze": TaskConfig(provider=provider.name, model="m")}),
             whisper=whisper or ProjectWhisperConfig(),
         ),
+        project_dir=project_dir,
     )
 
 
@@ -233,3 +238,103 @@ def test_collect_checks_accepts_cloud_asr_key_without_local_whisper(tmp_path: Pa
 
     asr_item = next(item for item in items if item.name.startswith("ASR:"))
     assert asr_item.status == "OK"
+
+
+def test_provider_key_detail_without_env_name() -> None:
+    provider = ProviderConfig(name="custom", type="openai", api_key="")
+
+    assert provider_key_missing(provider, {}) == t("doctor.provider.missing_env_name")
+
+
+def test_collect_checks_marks_disabled_asr_ok(tmp_path: Path) -> None:
+    config = _config(tmp_path, whisper=ProjectWhisperConfig(enabled=False))
+
+    items = collect_doctor_checks(
+        config,
+        discover_binary=lambda name: f"/usr/bin/{name}",
+        environ={},
+        node_version_getter=lambda: "v22.0.0",
+    )
+
+    asr_item = next(item for item in items if item.name == "ASR")
+    assert asr_item.status == "OK"
+    assert asr_item.detail == t("doctor.asr.disabled")
+
+
+def test_collect_checks_reports_project_video_states(tmp_path: Path, monkeypatch) -> None:
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+    present = project_dir / "a.mp4"
+    present.write_bytes(b"x")
+    offline = project_dir / "b.mp4"
+    config = _config(tmp_path, project_dir=project_dir)
+    row_name = t("doctor.item.project_videos")
+
+    monkeypatch.setattr("clio.tasks._video_loader.source_videos", lambda cfg: [])
+    items = collect_doctor_checks(
+        config, discover_binary=lambda name: "x", environ={}, node_version_getter=lambda: "v22.0.0"
+    )
+    empty = next(item for item in items if item.name == row_name)
+    assert empty.status == "WARN"
+    assert empty.detail == t("doctor.project.empty", {"path": project_dir})
+
+    monkeypatch.setattr("clio.tasks._video_loader.source_videos", lambda cfg: [present, offline])
+    items = collect_doctor_checks(
+        config, discover_binary=lambda name: "x", environ={}, node_version_getter=lambda: "v22.0.0"
+    )
+    partial = next(item for item in items if item.name == row_name)
+    assert partial.status == "WARN"
+    assert partial.detail == t("doctor.project.offline", {"path": project_dir, "count": 2, "offline": 1})
+
+    monkeypatch.setattr("clio.tasks._video_loader.source_videos", lambda cfg: [present])
+    items = collect_doctor_checks(
+        config, discover_binary=lambda name: "x", environ={}, node_version_getter=lambda: "v22.0.0"
+    )
+    ready = next(item for item in items if item.name == row_name)
+    assert ready.status == "OK"
+    assert ready.detail == t("doctor.project.ready", {"path": project_dir, "count": 1})
+
+
+def test_collect_checks_flags_unconfigured_referenced_provider(tmp_path: Path) -> None:
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    config = AppConfig(
+        global_cfg=GlobalConfig(paths=GlobalPathsConfig(ffmpeg="", ffprobe=""), ai=GlobalAIConfig(providers={})),
+        project_cfg=ProjectConfig(
+            paths=ProjectPathsConfig(output_dir=output_dir),
+            ai=ProjectAIConfig(tasks={"video_analyze": TaskConfig(provider="ghost", model="m")}),
+        ),
+    )
+
+    items = collect_doctor_checks(
+        config, discover_binary=lambda name: "x", environ={}, node_version_getter=lambda: "v22.0.0"
+    )
+
+    ghost = next(item for item in items if item.name == "AI provider: ghost")
+    assert ghost.status == "FAIL"
+    assert ghost.detail == t("doctor.provider.unconfigured")
+
+
+def test_run_doctor_passes_project_dir_and_reports_config_failure(tmp_path: Path, monkeypatch) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("proxy:\n  enabled: false\n", encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    def fake_load_config(path, project_dir=None):
+        captured["project_dir"] = project_dir
+        return _config(tmp_path)
+
+    monkeypatch.setattr("clio.doctor.load_config", fake_load_config)
+    monkeypatch.setattr("clio.doctor.collect_doctor_checks", lambda config: [])
+    monkeypatch.setattr("clio.doctor._print_doctor_items", lambda items: None)
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+
+    assert run_doctor(config_path, project_dir) == 0
+    assert captured["project_dir"] == project_dir
+
+    def boom(*args, **kwargs):
+        raise ValueError("bad config")
+
+    monkeypatch.setattr("clio.doctor.load_config", boom)
+    assert run_doctor(config_path, None) == 1

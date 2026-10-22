@@ -330,3 +330,189 @@ def test_full_run_failure_returns_nonzero(mock_run_full, cli_runner, config_path
 
     assert result == 1
     mock_run_full.assert_called_once()
+
+
+def test_check_reports_missing_binaries(cli_runner, config_path, tmp_path, capsys, monkeypatch):
+    project = tmp_path / "proj"
+    project.mkdir()
+    monkeypatch.setattr("clio.main.discover_ffmpeg_bin", lambda name: None)
+
+    result = cli_runner(["--config", str(config_path), "check", "-p", str(project)])
+
+    out = capsys.readouterr().out
+    assert "[FAIL] ffmpeg" in out
+    assert "[FAIL] ffprobe" in out
+    assert result == 1
+
+
+def test_check_reports_project_video_states(cli_runner, config_path, tmp_path, capsys, monkeypatch):
+    project = tmp_path / "proj"
+    project.mkdir()
+    present = project / "a.mp4"
+    present.write_bytes(b"x")
+    monkeypatch.setattr("clio.main.discover_ffmpeg_bin", lambda name: f"/usr/bin/{name}")
+
+    monkeypatch.setattr("clio.tasks._video_loader.source_videos", lambda cfg: [present, project / "gone.mp4"])
+    result = cli_runner(["--config", str(config_path), "check", "-p", str(project)])
+    assert result == 0
+    assert "[WARN]" in capsys.readouterr().out
+
+    monkeypatch.setattr("clio.tasks._video_loader.source_videos", lambda cfg: [present])
+    cli_runner(["--config", str(config_path), "check", "-p", str(project)])
+    assert "[OK]" in capsys.readouterr().out
+
+
+def test_run_check_without_project_prints_usage(tmp_path, capsys, monkeypatch):
+    from clio.i18n import t
+    from clio.main import run_check
+
+    config = MagicMock()
+    config.paths.ffmpeg = ""
+    config.paths.ffprobe = ""
+    config.project_dir = None
+    config.ai.tasks = {}
+    config.ai.providers = {}
+    config.proxy.enabled = False
+    config.proxy.url = ""
+    monkeypatch.setattr("clio.main.load_config", lambda *a, **k: config)
+    monkeypatch.setattr("clio.main.discover_ffmpeg_bin", lambda name: f"/usr/bin/{name}")
+
+    result = run_check(tmp_path / "config.yaml")
+
+    out = capsys.readouterr().out
+    assert t("cli.check.usage") in out
+    assert result == 0
+
+
+def test_check_flags_provider_with_placeholder_key(cli_runner, tmp_path, capsys, monkeypatch):
+    from clio.i18n import t
+
+    config = tmp_path / "config.yaml"
+    config.write_text(MINIMAL_CONFIG.replace("test-gemini-key", "your_api_key_here"), encoding="utf-8")
+    monkeypatch.setattr("clio.main.discover_ffmpeg_bin", lambda name: f"/usr/bin/{name}")
+
+    result = cli_runner(["--config", str(config), "check"])
+
+    out = capsys.readouterr().out
+    assert t("cli.check.no_env_name") in out
+    assert "[FAIL]" in out
+    assert result == 1
+
+
+def test_refine_fix_requires_single_file(cli_runner, config_path, capsys):
+    result = cli_runner(["--config", str(config_path), "refine", "--target", "texts", "--fix", "typo"])
+
+    assert result == 1
+    assert "文件" in capsys.readouterr().err
+
+
+def test_refine_reports_missing_file_error(cli_runner, config_path, capsys, monkeypatch):
+    def boom(*args, **kwargs):
+        raise FileNotFoundError("missing.json")
+
+    monkeypatch.setattr("clio.pipeline.run_refine_texts", boom)
+
+    result = cli_runner(["--config", str(config_path), "refine", "--target", "texts"])
+
+    assert result == 1
+    assert "missing.json" in capsys.readouterr().err
+
+
+def test_refine_reports_value_error(cli_runner, config_path, capsys, monkeypatch):
+    def boom(*args, **kwargs):
+        raise ValueError("bad plan")
+
+    monkeypatch.setattr("clio.pipeline.run_refine_texts", boom)
+
+    result = cli_runner(["--config", str(config_path), "refine", "--target", "texts"])
+
+    assert result == 1
+    assert "bad plan" in capsys.readouterr().err
+
+
+def test_cut_blocked_by_readiness(cli_runner, config_path, tmp_path, capsys, monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr("clio.tasks.reindex.auto_reindex_if_needed", lambda cfg: None)
+    monkeypatch.setattr(
+        "clio.plan_readiness.check_plan_export_readiness", lambda *a, **k: SimpleNamespace(errors=[], warnings=[])
+    )
+    monkeypatch.setattr(
+        "clio.plan_readiness.readiness_block_payload", lambda ready, force=False: {"error": "readiness blocked"}
+    )
+    plans_dir = tmp_path / "output" / "plans"
+    plans_dir.mkdir(parents=True)
+    (plans_dir / "day1_plan.json").write_text(json.dumps({"sequence": []}), encoding="utf-8")
+
+    result = cli_runner(["--config", str(config_path), "cut", "--day", "day1"])
+
+    assert result == 1
+    assert "readiness blocked" in capsys.readouterr().err
+
+
+def test_export_blocked_by_readiness(cli_runner, config_path, tmp_path, capsys, monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        "clio.plan_readiness.check_plan_export_readiness", lambda *a, **k: SimpleNamespace(errors=[], warnings=[])
+    )
+    monkeypatch.setattr(
+        "clio.plan_readiness.readiness_block_payload", lambda ready, force=False: {"error": "readiness blocked"}
+    )
+    plans_dir = tmp_path / "output" / "plans"
+    plans_dir.mkdir(parents=True)
+    (plans_dir / "day1_plan.json").write_text(json.dumps({"sequence": []}), encoding="utf-8")
+
+    result = cli_runner(["--config", str(config_path), "export", "--day", "day1"])
+
+    assert result == 1
+    assert "readiness blocked" in capsys.readouterr().err
+
+
+def test_cut_missing_plan_returns_error(cli_runner, config_path, capsys, monkeypatch):
+    monkeypatch.setattr("clio.tasks.reindex.auto_reindex_if_needed", lambda cfg: None)
+
+    result = cli_runner(["--config", str(config_path), "cut", "--day", "day1"])
+
+    assert result == 1
+    assert "不存在" in capsys.readouterr().err
+
+
+def test_export_missing_plan_returns_error(cli_runner, config_path, capsys):
+    result = cli_runner(["--config", str(config_path), "export", "--day", "day1"])
+
+    assert result == 1
+    assert "不存在" in capsys.readouterr().err
+
+
+def test_migrate_config_reports_results(cli_runner, config_path, tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr("clio.ui.services.file_service._migrate_project_configs", lambda root: (2, ["bad"]))
+
+    result = cli_runner(["--config", str(config_path), "migrate-config", "--projects-root", str(tmp_path)])
+
+    assert result == 1
+    assert "bad" in capsys.readouterr().out
+
+
+def test_migrate_reports_results(cli_runner, config_path, capsys, monkeypatch):
+    monkeypatch.setattr("clio.tasks.migrate.run_migrate", lambda config_path, from_path: (1, ["oops"]))
+
+    result = cli_runner(["--config", str(config_path), "migrate"])
+
+    assert result == 1
+    assert "oops" in capsys.readouterr().out
+
+
+def test_serve_dispatches_to_ui_server(cli_runner, config_path, monkeypatch):
+    calls: dict = {}
+
+    def fake_run(config, **kwargs):
+        calls.update(kwargs)
+        return 0
+
+    monkeypatch.setattr("clio.ui.run", fake_run)
+
+    result = cli_runner(["--config", str(config_path), "serve", "--no-browser"])
+
+    assert result == 0
+    assert calls["open_browser"] is False

@@ -127,4 +127,70 @@ describe('loadPlanPreviewMedia', () => {
     api.mockRejectedValueOnce(new Error('offline'));
     await expect(loadPlanPreviewMedia('day1')).resolves.toBeNull();
   });
+
+  it('returns null without a day label', async () => {
+    await expect(loadPlanPreviewMedia('')).resolves.toBeNull();
+    expect(api).not.toHaveBeenCalled();
+  });
+});
+
+describe('resolvePlanMedia edge cases', () => {
+  it('returns null for a missing segment or unmatched video', () => {
+    expect(resolvePlanMedia(timeline, 99, { videos, localSec: 0 })).toBeNull();
+    expect(resolvePlanMedia(timeline, 0, { videos: [], localSec: 0 })).toBeNull();
+    expect(resolvePlanMedia(null, 0)).toBeNull();
+  });
+
+  it('honours an array of blocked cut indices', () => {
+    const media = resolvePlanMedia(timeline, 0, {
+      previewMedia: cutPayload(),
+      videos,
+      source: 'compressed',
+      localSec: 1,
+      blockedCuts: [0],
+    });
+    expect(media.mode).toBe('source');
+  });
+
+  it('accepts a clip without a source index and rejects a mismatched end', () => {
+    const noSource = cutPayload({ source: undefined });
+    expect(resolvePlanMedia(timeline, 0, { previewMedia: noSource, videos, localSec: 1 }).mode).toBe('cut');
+
+    const badEnd = cutPayload({ end_sec: 999 });
+    expect(resolvePlanMedia(timeline, 0, { previewMedia: badEnd, videos, localSec: 1 }).mode).toBe('source');
+
+    const wrongIndex = cutPayload({ source: { video_index: '999' } });
+    expect(resolvePlanMedia(timeline, 0, { previewMedia: wrongIndex, videos, localSec: 1 }).mode).toBe('source');
+  });
+
+  it('clamps non-finite local time and tolerates empty inputs', () => {
+    expect(localSecForPlayer(null, { mode: 'cut' }, 5)).toBe(0);
+    expect(previewMediaKey(null)).toBe('');
+    const cut = resolvePlanMedia(timeline, 0, {
+      previewMedia: cutPayload(),
+      videos,
+      localSec: Number.NaN,
+    });
+    expect(cut.seekSec).toBe(0);
+  });
+
+  it('skips URL building when buildUrl is false and omits the project', () => {
+    const cut = resolvePlanMedia(timeline, 0, {
+      previewMedia: cutPayload(),
+      videos,
+      buildUrl: false,
+      localSec: 1,
+    });
+    expect(cut.url).toBe('');
+    expect(cut.projectName).toBeNull();
+
+    const source = resolvePlanMedia(timeline, 1, {
+      previewMedia: cutPayload(),
+      videos,
+      buildUrl: false,
+      source: 'original',
+      localSec: 1,
+    });
+    expect(source.url).toBe('');
+  });
 });
