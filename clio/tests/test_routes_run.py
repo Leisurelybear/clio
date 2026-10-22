@@ -417,6 +417,25 @@ class TestHandlePostRerun:
         handler._send_json.assert_called_once()
         assert handler._send_json.call_args[0][1] == 400
 
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {"video": 123, "task": "transcribe"},
+            {"video": "clip.mp4", "task": 1},
+            {"video": "clip.mp4", "task": "transcribe", "source": "sideways"},
+            {"video": "clip.mp4", "task": "transcribe", "abspath": 123},
+            {"video": "clip.mp4", "task": "transcribe", "index": 1},
+        ],
+    )
+    def test_non_string_or_invalid_fields_return_400(self, payload, tmp_path: Path, _handler):
+        handler = _handler
+        handler._resolve_project_dir.return_value = tmp_path
+
+        handle_post_rerun(handler, {}, payload)
+
+        handler._send_json.assert_called_once()
+        assert handler._send_json.call_args[0][1] == 400
+
     def test_transcribe_valid_task(self, tmp_path: Path, _handler, monkeypatch):
         """transcribe 应作为有效 task 被接受"""
         handler = _handler

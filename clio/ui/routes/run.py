@@ -444,8 +444,12 @@ def handle_post_rerun(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -
         config_path = None
     proj_out = _project_output_dir(proj_dir)
 
-    video_basename = (obj.get("video") or "").strip()
-    task = (obj.get("task") or "").strip()
+    video_value = obj.get("video")
+    task_value = obj.get("task")
+    if not isinstance(video_value, str) or not isinstance(task_value, str):
+        return handler._send_json({"ok": False, "error": "invalid video filename"}, 400)
+    video_basename = video_value.strip()
+    task = task_value.strip()
     if not video_basename or not _is_safe_video_reference(video_basename):
         return handler._send_json({"ok": False, "error": "invalid video filename"}, 400)
     if task not in ("compress", "analyze", "texts", "voiceover", "transcribe", "all"):
@@ -464,7 +468,15 @@ def handle_post_rerun(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -
 
     # Resolve original video path (supports external paths via .vmeta / videos.json)
     source_view = obj.get("source", "compressed")
-    abspath_raw = (obj.get("abspath") or "").strip()
+    if source_view not in ("compressed", "original"):
+        return handler._send_json({"ok": False, "error": "source must be compressed or original"}, 400)
+    index_value = obj.get("index")
+    if index_value is not None and not isinstance(index_value, str):
+        return handler._send_json({"ok": False, "error": "index must be a string"}, 400)
+    abspath_value = obj.get("abspath")
+    if abspath_value is not None and not isinstance(abspath_value, str):
+        return handler._send_json({"ok": False, "error": "abspath must be a string"}, 400)
+    abspath_raw = (abspath_value or "").strip()
     original_video: Path | None = None
 
     if abspath_raw:
@@ -521,7 +533,7 @@ def handle_post_rerun(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -
                 return handler._send_json({"ok": False, "error": f"no matching original video for {stem}"}, 404)
 
     # Resolve texts JSON path (for voiceover rerun)
-    raw_index = obj.get("index") or ""
+    raw_index = (index_value or "").strip()
     index_prefix = (
         re.sub(r"[^a-zA-Z0-9_-]", "", raw_index) if raw_index else (stem.split("_", 1)[0] if "_" in stem else stem)
     )
