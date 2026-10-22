@@ -61,4 +61,14 @@ describe('mergeSelectedVideos', () => {
     expect(r.added).toBe(0);
     expect(r.already).toBe(1);
   });
+
+  it('treats Windows paths as case-insensitive and keeps the first spelling', () => {
+    const r = mergeSelectedVideos(
+      ['D:/Footage/GL010695.MP4'],
+      ['d:\\footage\\gl010695.mp4', 'D:/Footage/Other.MP4'],
+    );
+    expect(r.added).toBe(1);
+    expect(r.already).toBe(1);
+    expect(r.merged).toEqual(['D:/Footage/GL010695.MP4', 'D:/Footage/Other.MP4']);
+  });
 });

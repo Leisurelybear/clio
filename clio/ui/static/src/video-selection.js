@@ -52,18 +52,28 @@ export function findSelectedVideoIndex(videos = [], { file, absPath } = {}) {
  * @returns {{ merged: string[], added: number, already: number }}
  */
 export function mergeSelectedVideos(existing = [], candidates = []) {
-  const set = new Set((existing || []).map(p => String(p).replace(/\\/g, '/')));
+  const set = new Set();
+  const merged = [];
+  for (const raw of existing || []) {
+    const p = String(raw).replace(/\\/g, '/');
+    const key = normPath(p);
+    if (!key || set.has(key)) continue;
+    set.add(key);
+    merged.push(p);
+  }
   let added = 0;
   let already = 0;
   for (const raw of candidates || []) {
     const p = String(raw).replace(/\\/g, '/');
-    if (!p) continue;
-    if (set.has(p)) {
+    const key = normPath(p);
+    if (!key) continue;
+    if (set.has(key)) {
       already++;
     } else {
-      set.add(p);
+      set.add(key);
+      merged.push(p);
       added++;
     }
   }
-  return { merged: [...set], added, already };
+  return { merged, added, already };
 }
