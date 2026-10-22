@@ -2,6 +2,22 @@
 
 ## 2026-10-22
 
+Optimized Task Center SSE delivery and closed the endpoint-level lifecycle coverage gap.
+
+- perf(task-center): batch task snapshots for each SSE event page, removing repeated SQLite reads
+  for progress/log bursts from the same task
+- test(task-center): exercise late subscription, `Last-Event-ID` replay, terminal-event races,
+  multi-tab cancellation, and restart recovery through a real localhost HTTP server
+- fix(ffmpeg): use branch-local archive stream names so the installer remains type-clean after
+  the cross-platform size checks
+- test(coverage): audit UT coverage for the 2026-10-21/22 features, add route/executor/lifecycle
+  tests, and remove the dead `TaskStore.notification_events()` store method
+- docs: record the SSE delivery contract, missing-task behavior, and verification scope
+
+Local verification: `2391 passed, 12 skipped` (Python 3.11.9, 83.95% line coverage), `679`
+Vitest tests across `62` files (42.99% statements), Ruff clean, and mypy clean across the
+39-file configured scope.
+
 Completed R-031b cut-clip-first plan preview. Rendered clips under the standard day directory now
 play on the composite timeline without changing the clock or waveform, with source fallback for
 missing, stale, or unreadable cuts.

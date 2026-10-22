@@ -11,11 +11,46 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
 - R-043 Frontend module decomposition and remaining legacy mypy debt
 - R-032e Optional ffmpeg bundling and signed desktop installer
 - R-025 Multi-language / i18n for UI and CLI user-facing copy (large)
-- Follow-up: add endpoint-level HTTP/SSE lifecycle coverage (restart retry, late subscription,
-  reconnect/replay, multi-tab cancel, terminal-event races)
 - Release gate: run the Python 3.11/3.12 CI matrix for the 2026-10-21/22 batches after an approved push
 
 Detailed sections and historical delivery notes remain below.
+
+### Task Center SSE batching and lifecycle coverage
+
+**Status:** Complete locally (2026-10-22). No frontend contract change.
+
+- [x] Add `TaskStore.get_many()` with ID deduplication and chunked reads for large ID sets
+- [x] Load one task snapshot per SSE event page instead of one SQLite read per event
+- [x] Cover late subscription, `Last-Event-ID` reconnect/replay, and terminal-event gaps over real HTTP
+- [x] Cover multi-tab cancel idempotency and restart recovery followed by endpoint retry
+- [x] Keep missing-task snapshots and existing event ordering compatible with the frontend
+
+Summary: `docs/analysis/2026-10-22-task-center-sse-lifecycle-summary.md`
+
+**Verification:** full pytest `2391 passed, 12 skipped` (83.95% line coverage); Vitest `679 passed`
+across `62` files (42.99% statements); Ruff clean; mypy clean across the configured 39-file scope.
+
+### UT coverage audit and hardening
+
+**Status:** Complete locally (2026-10-22). Test-and-dead-code only; no public contract change.
+
+- [x] Exercise the 2026-10-21/22 features end to end (Task Center SSE, notifications, ffmpeg
+  installer, plan preview media, cut executor)
+- [x] Add route/executor/lifecycle tests for uncovered validation, readiness, and concurrency paths
+- [x] Remove the dead `TaskStore.notification_events()` method
+- [x] Fix stale frontend test state (module-level SSE cursor stride in `task-center-actions`)
+- [x] Record before/after metrics and known remaining gaps
+
+Summary: `docs/analysis/2026-10-22-coverage-audit.md`. Large legacy modules
+(`editor-plan.js`, `viewer.js`, `main.js`, `runner.js`) remain the dominant uncovered surface and
+stay tracked under R-043.
+
+### FFmpeg installer mypy cleanup
+
+**Status:** Complete locally (2026-10-22). Type-only change; install behavior is unchanged.
+
+- [x] Use branch-local stream variables for zip and tar extraction
+- [x] Restore a clean mypy gate after the verified installer changes
 
 ### R-028b/c verified ffmpeg installer
 
