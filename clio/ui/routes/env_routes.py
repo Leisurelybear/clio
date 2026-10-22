@@ -47,6 +47,8 @@ def handle_put_env(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> N
     if not env_path:
         return handler._send_json({"ok": False, "error": "config_path not available"}, 500)
     content = obj.get("content", "")
+    if not isinstance(content, str):
+        return handler._send_json({"ok": False, "error": "content must be a string"}, 400)
     previous_content = env_path.read_text(encoding="utf-8") if env_path.is_file() else ""
     env_path.parent.mkdir(parents=True, exist_ok=True)
     try:

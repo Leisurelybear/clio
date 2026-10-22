@@ -53,6 +53,18 @@ class TestHandleGetEnv:
 
 
 class TestHandlePutEnv:
+    def test_non_string_content_returns_400(self, tmp_path: Path):
+        handler = MagicMock()
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text("key: val\n", encoding="utf-8")
+        handler.config_path = cfg
+        handler._send_json = MagicMock()
+
+        handle_put_env(handler, {}, {"content": 123})
+
+        handler._send_json.assert_called_once_with({"ok": False, "error": "content must be a string"}, 400)
+        assert not (tmp_path / ".env").exists()
+
     def test_invalidates_cache_after_save(self, tmp_path: Path):
         handler = MagicMock()
         cfg = tmp_path / "config.yaml"
