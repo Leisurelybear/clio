@@ -202,7 +202,7 @@ mypy --check-untyped-defs --show-error-codes
 | Ruff format check | 通过（236 files） |
 | mypy subset | 通过（39 source files） |
 | CLI 冒烟 | `check` 与 `doctor` 正常退出，输出符合文档 |
-| GitHub Actions | 待本次代码推送后确认完整 CI 矩阵 |
-| 工作区 | 所有修复均已本地提交；审计更新后推送 |
+| GitHub Actions | CI `39722012677` 全部成功；Linux/macOS/Windows、Python 3.11/3.12、Vitest、安装与质量检查均通过；桌面 PyInstaller 任务按条件跳过 |
+| 工作区 | 所有修复与审计记录均已提交并推送；最终文档提交后保持干净 |
 
 真实 Gemini/DeepSeek/阿里云调用、真实剪映导入、pywebview 窗口交互和真实长视频处理仍属于实机验证范围；对应风险已列入第 7 节。
