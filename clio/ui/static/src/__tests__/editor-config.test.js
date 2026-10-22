@@ -1,6 +1,7 @@
-import { beforeEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { api } from '../api.js';
-import { _attachProviderListHandlers, _renderConfigGlobal, _renderPromptManagement, _renderTagInput, _renderProviderList, _renderTaskBinding, mergeTaskBindings, providerEnvName } from '../editor-config.js';
+import { state } from '../state.js';
+import { _attachProviderListHandlers, _renderConfigGlobal, _renderPromptManagement, _renderTagInput, _renderProviderList, _renderTaskBinding, mergeTaskBindings, providerEnvName, renderConfig } from '../editor-config.js';
 
 vi.mock('../api.js', async () => {
   const actual = await vi.importActual('../api.js');
@@ -634,5 +635,40 @@ describe('_renderPromptManagement', () => {
   it('renders empty state without prompts', () => {
     const html = _renderPromptManagement({ prompts: [] });
     expect(html).toContain('config-empty-state');
+  });
+});
+
+describe('renderConfig global tab', () => {
+  function renderGlobalTab(global) {
+    document.body.innerHTML = '<div id="tab-config"></div><span id="status"></span>';
+    state.configRaw = { _config_source: 'split', paths: { output_dir: 'out' } };
+    state.configProject = {};
+    state.configGlobal = global;
+    state.configTab = 'global';
+    state._needsConfigInit = false;
+    state.currentEntity = 'config';
+    api.mockResolvedValue({ ok: false });
+    renderConfig();
+    return document.getElementById('tab-config');
+  }
+
+  afterEach(() => {
+    document.body.replaceChildren();
+    state.currentEntity = null;
+  });
+
+  it('renders the ui card even when the config has no ui block', () => {
+    const pane = renderGlobalTab({ paths: { output_dir: 'out' } });
+
+    expect(pane.querySelector('[data-section-key="global.ui"]')).not.toBeNull();
+    expect(pane.querySelector('[data-path="ui.language"]')).not.toBeNull();
+    expect(state.configGlobal.ui).toEqual({ language: 'zh-CN', desktop_notifications: false });
+  });
+
+  it('keeps a stored ui block untouched', () => {
+    const pane = renderGlobalTab({ ui: { language: 'en', desktop_notifications: true } });
+
+    expect(pane.querySelector('[data-section-key="global.ui"]')).not.toBeNull();
+    expect(state.configGlobal.ui).toEqual({ language: 'en', desktop_notifications: true });
   });
 });

@@ -94,6 +94,7 @@ Each row is one commit; focused tests must pass before the next row starts.
 | 10 | test(i18n) | Remaining-string inventory + parity guards (Python + Vitest) |
 | 11 | docs | README language switch, AGENTS.md conventions, ROADMAP/CHANGELOG |
 | 12 | feat(ui) | Header language switcher next to the theme toggle |
+| 13 | fix(ui) | Always render the global `ui` card (`ensureGlobalUiDefaults`) |
 
 ## Progress Log
 
@@ -119,6 +120,7 @@ Each row is one commit; focused tests must pass before the next row starts.
 | 2026-10-23 | 10 inventory guards (pytest + Vitest) | Done |
 | 2026-10-23 | 11 docs (README/README.en, AGENTS.md 4.12, ROADMAP, CHANGELOG, CLIO_LANG) | Done |
 | 2026-10-23 | 12 header language switcher | Done |
+| 2026-10-23 | 13 settings `ui` card always renders | Done |
 
 ## Remaining-String Baseline (2026-10-22)
 
@@ -190,6 +192,20 @@ generate `.txt` / `.md` artifacts whose headings now resolve through the catalog
 existing projects keep the same files, while an English UI now produces English headings. Nothing
 parses those headings, so the change is safe. Reverting to a fixed artifact format is a one-commit
 change if mixed-language output is unwanted.
+
+## Follow-up: language switch entry point (2026-10-23)
+
+Shipping the switch inside the Settings card was not enough: users could not find it, and for many
+configs the card was missing altogether. Two root causes, two commits:
+
+- `renderConfig()` renders a global section only when the data has it
+  (`if (key in globalData)`). A `config.yaml` written before `ui.language` existed has no `ui:`
+  block at all, so the whole card - including 界面语言 - never appeared.
+  `ensureGlobalUiDefaults()` now fills the block in before rendering, so the card always shows and
+  the next save writes it to `config.yaml`.
+- The header button (`#btn-lang`, `ui/static/src/language-switcher.js`) next to the theme toggle is
+  the quick entry point. It applies the switch immediately and persists it; a rejected write only
+  warns, because the live switch must not depend on `config.yaml` being writable.
 
 ## Verification
 

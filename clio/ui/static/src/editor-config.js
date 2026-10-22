@@ -20,6 +20,7 @@ import {
 } from './logs-history.js';
 import { transcriptionModelManagementNotice } from './transcription-status.js';
 import { hasKey, onLocaleChange, t } from './i18n.js';
+import { ensureGlobalUiDefaults } from './language-switcher.js';
 // Dynamic import avoids static cycle: editor.js → editor-config.js → editor.js (A-006)
 
 const DEFAULT_PROVIDERS = ['gemini', 'openai', 'deepseek'];
@@ -1430,7 +1431,8 @@ export function renderConfig() {
     const projectData = state.configProject || {};
     contentHtml = `<div class="config-form">${_renderConfigProject(projectData, state.configGlobal, descs)}</div>`;
   } else if (active === 'global') {
-    const globalData = state.configGlobal || {};
+    state.configGlobal = ensureGlobalUiDefaults(state.configGlobal || {});
+    const globalData = state.configGlobal;
     contentHtml = _renderEnvEditor()
       + `<div class="config-form">${_renderConfigGlobal(globalData, descs)}</div>`;
   } else if (active === 'prompts') {

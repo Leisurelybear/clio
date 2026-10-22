@@ -232,6 +232,10 @@ Provider management is a frontend-only experience - no new backend APIs needed:
   shipped locales, applies the switch immediately, and persists through `PUT /api/config/global`.
   It never sends unsaved settings edits: while the config form is dirty it reads the on-disk
   global config instead, and a failed write only warns (the live switch stays).
+- `ensureGlobalUiDefaults()` (same module) is the only supported way to materialize the `ui` block.
+  `renderConfig()` skips sections that are absent from the data, and configs written before
+  `ui.language` existed have no `ui:` section, so the settings card disappeared. Call it before
+  rendering the global tab; never render that tab from a raw config object.
 
 ## 5. User Preferences
 
