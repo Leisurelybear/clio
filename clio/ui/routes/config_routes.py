@@ -207,7 +207,7 @@ _GLOBAL_SECTIONS = {"proxy", "server", "naming"}
 _PROJECT_SECTIONS = {"analyze", "script", "plan", "export", "preview"}
 _SPLIT_GLOBAL: dict[str, set[str]] = {
     "paths": {"ffmpeg", "ffprobe", "logs_dir"},
-    "ai": {"providers", "debug_print_prompt", "provider_ttl_min"},
+    "ai": {"providers", "default_tasks", "debug_print_prompt", "provider_ttl_min"},
     "compress": {"codec", "fps", "remove_audio", "crf"},
     "whisper": {"cache_dir", "hf_endpoint"},
 }

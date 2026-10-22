@@ -6,13 +6,14 @@ import re
 
 from clio.config.descriptions import CONFIG_DESCRIPTIONS
 from clio.config.models import (
-    AIConfig,
     AnalyzeConfig,
     CompressConfig,
+    GlobalAIConfig,
     NamingConfig,
     PathsConfig,
     PlanConfig,
     PreviewSubtitlesConfig,
+    ProjectAIConfig,
     ProviderConfig,
     ProxyConfig,
     ScriptConfig,
@@ -29,7 +30,8 @@ _EXTRA_DESCRIPTION_KEYS = {"paths.project_dir", "whisper.engine"}
 _CONFIG_DC_MAP: list[tuple[str, type]] = [
     ("paths", PathsConfig),
     ("proxy", ProxyConfig),
-    ("ai", AIConfig),
+    ("ai", GlobalAIConfig),
+    ("ai", ProjectAIConfig),
     ("compress", CompressConfig),
     ("analyze", AnalyzeConfig),
     ("naming", NamingConfig),

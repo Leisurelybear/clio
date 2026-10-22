@@ -74,6 +74,7 @@ python main.py serve --host 0.0.0.0     # 暴露到局域网（注意安全）
 - 编辑**全局 config.yaml**（全局 tab）：保存后需重启服务生效。
 - 编辑**项目 project.yaml**（项目 tab）：保存后立即生效。
 - 编辑**项目专属 project.yaml**（通过 `?project=X` 切换）：保存后立即生效，下次流水线运行自动加载新配置。
+- **AI 默认任务绑定**在全局 tab 配置（`ai.default_tasks`），对所有项目生效；项目 tab 只写入被单独覆盖的任务，并显示“继承全局 / 项目覆盖”标记。
 校验失败（如 provider 拼写错误）时弹出错误红字，不写文件。
 
 Provider registry also has focused backend endpoints for integrations and future UI refactors:
@@ -273,7 +274,8 @@ CLI 对齐：`python main.py cut|export ... --force` 仅忽略 **warning**，**e
 | `texts` tab 一直说"没有 JSON" | 视频列表里该行 `texts` 状态是 `·` 灰色；说明 `output/texts*` 下没匹配文件 |
 | 保存后 clip 看到旧内容 | 按浏览器 `Ctrl+Shift+R` 强刷；服务器 `/api/videos` 走的是缓存头 `no-store`，但浏览器可能缓了 JSON |
 | 设置 tab 显示"配置数据不可用" | 当前项目没有 `project.yaml` 且全局 `config.yaml` 读取失败；检查 config.yaml 是否存在并格式正确 |
-| 切换项目后 AI 行为没变 | 检查项目目录下是否有 `project.yaml`；没有则使用全局 config.yaml 的 AI 配置 |
+| 切换项目后 AI 行为没变 | 检查项目 `ai.tasks` 是否覆盖了全局 `ai.default_tasks`；删除对应覆盖即可恢复继承 |
+| 新项目提示缺少 AI Key | 先确认任务的 Provider/模型已绑定；若提示“任务尚未绑定”，在全局 tab 的“AI 默认任务绑定”中配置一次 |
 
 ## Prompt Management
 

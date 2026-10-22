@@ -136,9 +136,12 @@ Provider management is a frontend-only experience - no new backend APIs needed:
 - `editor-config.js` renders:
   - Config sections as collapsible cards with section labels (Global/Project tabs)
   - Provider list (Global tab): add/edit/delete, tag input for model names
-  - Task binding (Project tab): dropdowns filtered by capability (`gemini` -> video tasks)
+  - Default task binding (Global tab): `ai.default_tasks`, inherited by every project
+  - Task binding (Project tab): per-task overrides of global defaults; dropdowns filtered by capability (`gemini` -> video tasks)
   - Collapse state remembered per session (`_collapsedCards` Map)
-- Task binding mutations write to `project.yaml` via existing `PUT /api/config/project`
+- Global default bindings write to `config.yaml` via `PUT /api/config/global`; project overrides write to `project.yaml` via `PUT /api/config/project`
+- Runtime merges `ai.default_tasks` with project `ai.tasks` (project wins per task); `refine_text` follows the effective `video_analyze` binding unless explicitly overridden
+- `/api/deps/keys` reports `unbound_tasks` separately from `missing` provider keys so new projects do not falsely ask for an API key
 - Default providers (`gemini`, `openai`, `deepseek`) cannot be deleted
 - Video tasks (`video_analyze`) only show gemini-type providers in dropdown
 

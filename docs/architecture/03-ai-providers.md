@@ -30,8 +30,9 @@
 
 `get_task_provider(config, task)` / `get_video_provider(config, task)`:
 
-1. Resolve `config.ai.tasks[task]` → provider name + model (missing task falls back to
-   `video_analyze`'s binding for `refine_text` via config defaults).
+1. Resolve the merged `config.ai.tasks[task]` view → provider name + model. The merge applies
+   project `ai.tasks` over global `ai.default_tasks`; missing `refine_text` follows the effective
+   `video_analyze` binding unless explicitly configured.
 2. Look up `config.ai.providers[name]`; `get_video_provider` additionally rejects non-video
    providers (`provider_supports_video`) so a text-bound clip analysis fails fast.
 3. `_build_provider` constructs (or reuses from `_provider_cache`) the provider instance. The

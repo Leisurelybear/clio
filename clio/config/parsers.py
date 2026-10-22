@@ -50,12 +50,9 @@ def _parse_tasks(raw: dict) -> dict[str, TaskConfig]:
     tasks: dict[str, TaskConfig] = {}
     for name, cfg in (raw or {}).items():
         tasks[name] = TaskConfig(
-            provider=cfg["provider"],
-            model=cfg["model"],
+            provider=cfg.get("provider", ""),
+            model=cfg.get("model", ""),
         )
-    if "refine_text" not in tasks and "video_analyze" in tasks:
-        src = tasks["video_analyze"]
-        tasks["refine_text"] = TaskConfig(provider=src.provider, model=src.model)
     return tasks
 
 

@@ -19,9 +19,9 @@
 |---|---|
 | `api.js` | `api(method, url, body)` fetch wrapper — auto `project`/`project_dir` query params, Bearer token, 401 auth modal, JSON error body, SVG icon<defs> library |
 | `state.js` | Global mutable `state` (current project, videos, plans, deps, config tab, task filters) |
-| `main.js` | Bootstrap (`DOMContentLoaded`), global `window.*` bindings for inline handlers, runtime-warning banner, session restore |
+| `main.js` | Bootstrap (`DOMContentLoaded`), global `window.*` bindings for inline handlers, runtime-warning banner, startup loading state, session restore |
 | `layout.js` / `theme.js` / `toast.js` / `utils.js` | Shell, dark/light theme, toast queue, DOM/format helpers |
-| `sidebar*.js` | Sidebar: `sidebar-data.js` (project/video/list/plans loads, relink, selection), `sidebar-video-filter.js` (stage chips + search), `sidebar-video-manage.js`, `sidebar-batch-relink.js`, `sidebar-relink.js`, `sidebar-rerun.js` |
+| `sidebar*.js` | Sidebar: `sidebar-data.js` (project/video/list/plans loads, loading/error states, relink, selection), `sidebar-video-filter.js` (stage chips + search), `sidebar-video-manage.js`, `sidebar-batch-relink.js`, `sidebar-relink.js`, `sidebar-rerun.js` |
 | `viewer.js` / `waveform.js` / `video-fade.js` | `setupPlayer`, `loadWaveformForCurrentVideo`, plan-waveform composition, crossfade between sources |
 | `editor-*.js` | `editor.js` (tab controller + save), `editor-texts.js`, `editor-voiceover.js`, `editor-refine.js`, `editor-save.js` (dirty-tab guard, save target resolution) |
 | `editor-config.js` | **Config editor** (R-017 R-036 R-042): global/project tabs, model/registry provider cards, task bindings, prompt management, logs/tokens panes |
@@ -67,11 +67,14 @@ renderPlan(plan)                 [editor-plan.js]
 
 ## 5. Config Editor (R-017 provider registry)
 
-- Three panes: **Global** (providers + models + `.env` keys), **Project** (task bindings,
-  pipeline/whisper/naming per project), and **Prompts** (read/edit builtin prompt templates).
+- Three panes: **Global** (providers + models + `.env` keys + `ai.default_tasks`), **Project**
+  (per-task overrides of global bindings, pipeline/whisper/naming), and **Prompts**
+  (read/edit builtin prompt templates).
 - Provider cards allow add/edit/delete, model tag inputs, capability tags (`gemini` ⇒ video
   tasks only); default providers are undeletable. Local edits are remembered per session in a
   `_collapsedCards` Map before `PUT /api/config/global|project`.
+- Project task cards show inherited-global vs project-override state and can reset an override;
+  `refine_text` follows the effective `video_analyze` binding by default.
 - Env keys are edited through `PUT /api/env` (never leaked into `config.yaml`).
 
 ## 6. Run Panel

@@ -3,6 +3,11 @@ import { state } from './state.js';
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '']);
 const WARNING_STATE_KEY = 'clio.runtime-warning-state.v1';
+const TASK_LABELS = {
+  video_analyze: '视频分析',
+  voiceover: '口播文案',
+  vlog_plan: '剪辑规划',
+};
 
 function isLocalHost(hostname) {
   return LOCAL_HOSTS.has(String(hostname || '').toLowerCase());
@@ -42,7 +47,7 @@ function warningOccurrences(warnings) {
 /**
  * Build runtime banner warnings (config / host / orphaned cut backups).
  * @param {{ config?: object, hostname?: string, hasToken?: boolean, orphanedCutBackups?: Array,
- *           ffmpegDeps?: object|null, missingKeys?: Array }} opts
+ *           ffmpegDeps?: object|null, missingKeys?: Array, unboundTasks?: Array }} opts
  */
 function buildRuntimeWarnings({
   config = {},
@@ -51,6 +56,7 @@ function buildRuntimeWarnings({
   orphanedCutBackups = null,
   ffmpegDeps = null,
   missingKeys = null,
+  unboundTasks = null,
 } = {}) {
   const warnings = [];
   const debugPrintPrompt = Boolean(config?.ai?.debug_print_prompt);
@@ -59,6 +65,19 @@ function buildRuntimeWarnings({
       id: 'debug-prompt',
       level: 'warning',
       text: 'ai.debug_print_prompt=true：AI 调用会把完整 prompt 写入日志/控制台，可能包含行程上下文或临时指令。',
+    });
+  }
+
+  if (Array.isArray(unboundTasks) && unboundTasks.length > 0) {
+    const names = unboundTasks
+      .map((name) => TASK_LABELS[name] || name)
+      .filter(Boolean)
+      .join('、');
+    warnings.push({
+      id: 'ai-tasks-unbound',
+      level: 'danger',
+      text: `AI 任务尚未绑定 Provider/模型（${names}）。请在“全局 → AI 默认任务绑定”中选择 Provider/模型（项目内仍可覆盖），再配置对应的 API Key。`,
+      action: { id: 'go-settings-tasks', label: '去全局绑定' },
     });
   }
 
@@ -165,6 +184,7 @@ function updateRuntimeWarnings(config, opts = {}) {
     orphanedCutBackups: opts.orphanedCutBackups,
     ffmpegDeps: opts.ffmpegDeps ?? null,
     missingKeys: opts.missingKeys ?? null,
+    unboundTasks: opts.unboundTasks ?? null,
   });
   const occurrences = warningOccurrences(warnings);
   warnings.forEach((warning) => {

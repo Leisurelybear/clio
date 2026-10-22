@@ -23,6 +23,22 @@ Detailed sections and historical delivery notes remain below.
 
 ## Recently completed (2026-10-22)
 
+### Global AI task defaults + video loading feedback
+
+**Status:** Complete locally; not pushed.
+
+**Goal:** Let one global Provider/model mapping serve every project, report missing bindings
+separately from missing keys, and keep the sidebar responsive while project/video data loads.
+
+- [x] Add global `ai.default_tasks`; merge project `ai.tasks` overrides at runtime
+- [x] Keep `refine_text` following the effective `video_analyze` binding unless overridden
+- [x] Add Global/Project task-binding UI with inherited/override badges and reset action
+- [x] Return `unbound_tasks` from `/api/deps/keys` and distinguish it from missing API keys
+- [x] Show a startup spinner, video-list skeleton, elapsed wait time, and retry state
+- [x] Auto-upgrade incomplete task entries in existing config files
+
+**Verification:** `2079 passed, 12 skipped`; `547` Vitest tests across `54` files; Ruff and mypy clean.
+
 ### R-027e Historical session logs
 
 **Status:** Complete locally; not pushed. Backend and frontend suites pass.
@@ -267,6 +283,7 @@ Suggested priority: F-1 → F-2/F-3 → B-1 → B-2/B-3/B-4.
       non-bool int, else returns None; `app.py` reads `lock.get("port")` defensively
 - [x] `/api/deps/keys` falls back to globally declared providers when no project/tasks
       exist, so the B-1 missing-key banner still guides first-run setup
+      (superseded 2026-10-22: unbound tasks are now reported separately from missing keys)
 - [x] macOS release verifies README-desktop.md is staged (parity with Windows check)
 
 ### R-039 Desktop single-instance + web coexistence prompt

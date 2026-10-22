@@ -222,20 +222,24 @@ def _upgrade_config_file(yaml_path: Path, *, section_map: dict[str, type]) -> No
                 added.append(f"ai.providers.{pname}.{fd.name}")
                 changed = True
 
-    tasks = raw.get("ai", {}).get("tasks", {})
-    if isinstance(tasks, dict):
-        for tname, tcfg in tasks.items():
-            if not isinstance(tcfg, dict):
+    ai_raw = raw.get("ai", {})
+    if isinstance(ai_raw, dict):
+        for task_section in ("tasks", "default_tasks"):
+            tasks = ai_raw.get(task_section, {})
+            if not isinstance(tasks, dict):
                 continue
-            for fd in TaskConfig.__dataclass_fields__.values():
-                if fd.name in tcfg:
+            for tname, tcfg in tasks.items():
+                if not isinstance(tcfg, dict):
                     continue
-                val = _resolve_field_default(fd)
-                if val is _MISSING:
-                    continue
-                tcfg[fd.name] = val
-                added.append(f"ai.tasks.{tname}.{fd.name}")
-                changed = True
+                for fd in TaskConfig.__dataclass_fields__.values():
+                    if fd.name in tcfg:
+                        continue
+                    val = _resolve_field_default(fd)
+                    if val is _MISSING:
+                        continue
+                    tcfg[fd.name] = val
+                    added.append(f"ai.{task_section}.{tname}.{fd.name}")
+                    changed = True
 
     if not changed:
         return
@@ -346,7 +350,7 @@ _SPLIT_PROJECT_KEYS: dict[str, set[str]] = {
 # Split-section keys belonging to global
 _SPLIT_GLOBAL_KEYS: dict[str, set[str]] = {
     "paths": {"ffmpeg", "ffprobe", "logs_dir"},
-    "ai": {"providers", "debug_print_prompt", "provider_ttl_min"},
+    "ai": {"providers", "default_tasks", "debug_print_prompt", "provider_ttl_min"},
     "compress": {"codec", "fps", "remove_audio", "crf"},
     "whisper": {"cache_dir", "hf_endpoint"},
 }
@@ -542,6 +546,7 @@ def load_global_config(config_path: str | Path = "config.yaml") -> GlobalConfig:
     ai_raw = raw.get("ai", {})
     ai_cfg = GlobalAIConfig(
         providers=_parse_providers(ai_raw.get("providers")),
+        default_tasks=_parse_tasks(ai_raw.get("default_tasks")),
         debug_print_prompt=ai_raw.get("debug_print_prompt", False),
         provider_ttl_min=ai_raw.get("provider_ttl_min", 60),
     )

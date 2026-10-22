@@ -16,7 +16,8 @@ paths:
   # 请在 Web UI 中打开项目 → "视频管理" → 内嵌文件浏览器勾选。
   output_dir: "./output"
 
-# AI 任务定义（provider 必须在全局 config.yaml 中声明）
+# AI 任务覆盖（可选；provider 必须在全局 config.yaml 中声明）
+# 未在此覆盖的任务会沿用 config.yaml 的 ai.default_tasks。
 ai:
   context: ""               # 项目特定的额外上下文（追加到 trip_context.md 之后）
   # context_file: ./templates/trip_context.md

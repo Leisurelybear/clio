@@ -31,8 +31,8 @@ Layer ownership (which file owns which section):
 
 **Global-only** (`config.yaml`): `proxy`, `server` (token + Task-Center retention →
 `ServerConfig.__post_init__` validates non-negative ints), `naming`, `paths` (ffmpeg/ffprobe/
-logs_dir), `ai.providers`, `ai.debug_print_prompt`/`provider_ttl_min`, `compress` (codec/fps/
-crf/remove_audio), `whisper.cache_dir`/`hf_endpoint`.
+logs_dir), `ai.providers`, `ai.default_tasks`, `ai.debug_print_prompt`/`provider_ttl_min`,
+`compress` (codec/fps/crf/remove_audio), `whisper.cache_dir`/`hf_endpoint`.
 
 **Project-only** (`project.yaml`): `paths.output_dir`, `ai.tasks`/`ai.context`
 (+ legacy `context_file`, root-confinement-checked), `compress.target_size_mb`/`max_width`,
@@ -51,6 +51,9 @@ Unknown-section tolerance: `_filter_global_only` keeps unknown global sections c
 - Property group 1 — **split sections** (lazily built `Combined*` views, cached): `paths`,
   `ai`, `compress`, `whisper` with per-field overrides to the correct layer and project-default
   fallbacks when `project_cfg` is None.
+- `CombinedAIConfig.tasks` merges global `ai.default_tasks` with project `ai.tasks`; project
+  entries win per task. `refine_text` follows the effective `video_analyze` binding unless it is
+  explicitly bound at the same layer.
 - Property group 2 — **project-only** (`analyze`, `script`, `plan`, `export`, `preview`): returns
   the project value or a lazily-created per-instance default `_default_project_cfg` (never the
   module-level `_EMPTY_PROJECT` singleton — P2-P10). Each has a setter that materializes

@@ -2,6 +2,22 @@
 
 ## 2026-10-22
 
+Completed global AI task defaults and loading feedback for the project/video sidebar. Existing
+projects keep their per-task overrides, while new projects inherit one global mapping and no
+longer receive a misleading missing-API-key warning before Provider/model selection.
+
+- feat(config): add `ai.default_tasks`, merge project `ai.tasks` over it, and make `refine_text`
+  follow the effective `video_analyze` binding unless explicitly overridden
+- feat(ui): add Global/Project task-binding cards with inherited/override badges and reset action
+- fix(ui): report `unbound_tasks` separately from missing provider keys and link the warning to
+  Global task binding
+- feat(ui): show a startup spinner, video-list skeleton, elapsed wait time, and retry state
+- fix(config): auto-upgrade incomplete `tasks`/`default_tasks` entries without failing the load
+- docs: document global defaults, project overrides, dependency semantics, and the loading contract
+
+Local verification: `2079 passed, 12 skipped` (Python 3.10.6), `547` Vitest tests across `54`
+files, Ruff check/format clean, and mypy clean across the 39-file configured scope.
+
 Completed R-027e historical session-log browsing. The Web UI can now open an hourly file from
 `logs/` without leaving the app, while the live session remains available from its retained offset.
 

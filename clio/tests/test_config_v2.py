@@ -271,6 +271,41 @@ class TestCombinedWrappers:
         assert c.tasks == {}
         assert c.context == ""
 
+    def test_global_default_tasks_apply_to_project_without_overrides(self):
+        g = GlobalAIConfig(
+            default_tasks={
+                "video_analyze": TaskConfig(provider="gemini", model="gemini-2.5-flash"),
+                "voiceover": TaskConfig(provider="deepseek", model="deepseek-chat"),
+            },
+        )
+        c = CombinedAIConfig(g, ProjectAIConfig(tasks={}))
+        assert c.tasks["video_analyze"].model == "gemini-2.5-flash"
+        assert c.tasks["voiceover"].provider == "deepseek"
+        assert c.tasks["refine_text"] == c.tasks["video_analyze"]
+
+    def test_project_task_overrides_global_default(self):
+        g = GlobalAIConfig(
+            default_tasks={
+                "video_analyze": TaskConfig(provider="gemini", model="gemini-2.5-flash"),
+                "voiceover": TaskConfig(provider="deepseek", model="deepseek-chat"),
+            },
+        )
+        p = ProjectAIConfig(tasks={"voiceover": TaskConfig(provider="deepseek", model="deepseek-reasoner")})
+        c = CombinedAIConfig(g, p)
+        assert c.tasks["video_analyze"].model == "gemini-2.5-flash"
+        assert c.tasks["voiceover"].model == "deepseek-reasoner"
+
+    def test_refine_text_follows_project_video_override(self):
+        g = GlobalAIConfig(
+            default_tasks={
+                "video_analyze": TaskConfig(provider="gemini", model="gemini-2.5-flash"),
+                "refine_text": TaskConfig(provider="deepseek", model="deepseek-chat"),
+            },
+        )
+        p = ProjectAIConfig(tasks={"video_analyze": TaskConfig(provider="gemini", model="gemini-3-flash")})
+        c = CombinedAIConfig(g, p)
+        assert c.tasks["refine_text"] == c.tasks["video_analyze"]
+
     def test_combined_compress_global_takes_fps_project_takes_target(self):
         g = GlobalCompressConfig(fps=30, codec="libx264", remove_audio=True, crf=23)
         p = ProjectCompressConfig(target_size_mb=10, max_width=1280)
@@ -368,6 +403,56 @@ class TestCombinedWrappers:
         assert cfg.server.api_token == "abc"
 
 
+class TestGlobalDefaultTasks:
+    def test_loads_global_default_tasks_from_config_yaml(self, tmp_path: Path):
+        cfg_path = tmp_path / "config.yaml"
+        cfg_path.write_text(
+            yaml.dump(
+                {
+                    "ai": {
+                        "providers": {
+                            "gemini": {"type": "gemini", "api_key": "g"},
+                            "deepseek": {
+                                "type": "openai",
+                                "api_key": "d",
+                                "base_url": "https://api.deepseek.com/v1",
+                            },
+                        },
+                        "default_tasks": {
+                            "video_analyze": {"provider": "gemini", "model": "gemini-2.5-flash"},
+                            "voiceover": {"provider": "deepseek", "model": "deepseek-chat"},
+                        },
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        cfg = load_config(cfg_path, project_dir=tmp_path)
+        assert cfg.ai.tasks["video_analyze"].provider == "gemini"
+        assert cfg.ai.tasks["voiceover"].model == "deepseek-chat"
+        assert cfg.ai.tasks["refine_text"] == cfg.ai.tasks["video_analyze"]
+
+    def test_upgrades_missing_default_task_fields(self, tmp_path: Path):
+        cfg_path = tmp_path / "config.yaml"
+        cfg_path.write_text(
+            yaml.dump(
+                {
+                    "ai": {
+                        "providers": {"gemini": {"type": "gemini", "api_key": "g"}},
+                        "default_tasks": {"video_analyze": {"provider": "gemini"}},
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        cfg = load_config(cfg_path, project_dir=tmp_path)
+        assert cfg.ai.tasks["video_analyze"].model == ""
+        upgraded = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+        assert upgraded["ai"]["default_tasks"]["video_analyze"]["model"] == ""
+
+
 class TestProhibitedFields:
     def test_deprecated_split_field_rejected(self):
         err = _validate_no_foreign_fields({"compress": {"split_max_min": 15}}, "project")
@@ -393,6 +478,21 @@ class TestProhibitedFields:
         err = _validate_no_foreign_fields({"compress": {"fps": 30}}, "project")
         assert err is not None
         assert "compress.fps" in err
+
+    def test_global_default_tasks_rejected_in_project(self):
+        err = _validate_no_foreign_fields(
+            {"ai": {"default_tasks": {"voiceover": {"provider": "deepseek", "model": "deepseek-chat"}}}},
+            "project",
+        )
+        assert err is not None
+        assert "ai.default_tasks" in err
+
+    def test_global_default_tasks_allowed_in_global(self):
+        err = _validate_no_foreign_fields(
+            {"ai": {"default_tasks": {"voiceover": {"provider": "deepseek", "model": "deepseek-chat"}}}},
+            "global",
+        )
+        assert err is None
 
     def test_project_field_in_project_split_section_passes(self):
         err = _validate_no_foreign_fields({"compress": {"target_size_mb": 10}}, "project")

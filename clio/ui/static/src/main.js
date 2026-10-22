@@ -45,11 +45,13 @@ window.addToast = addToast;
 
 let _orphanedCutBackups = [];
 let _missingKeys = null;
+let _unboundTasks = [];
 
 async function refreshRuntimeWarningsBanner() {
   try {
     const r = await api('GET', '/api/deps/keys');
     _missingKeys = Array.isArray(r.missing) ? r.missing : [];
+    _unboundTasks = Array.isArray(r.unbound_tasks) ? r.unbound_tasks : [];
   } catch { /* keep the last successful probe during a transient outage */ }
   try {
     const r = await api('GET', '/api/cut/orphaned-backups');
@@ -59,6 +61,7 @@ async function refreshRuntimeWarningsBanner() {
     orphanedCutBackups: _orphanedCutBackups,
     ffmpegDeps: state.deps,
     missingKeys: _missingKeys,
+    unboundTasks: _unboundTasks,
     onAction: handleRuntimeWarningAction,
   });
 }
@@ -82,6 +85,17 @@ async function handleRuntimeWarningAction(actionId) {
     clearDirty();
     const { renderConfig } = await import('./editor-config.js');
     renderConfig();
+    return;
+  }
+  if (actionId === 'go-settings-tasks') {
+    await selectConfig();
+    state.configTab = 'global';
+    clearDirty();
+    const { renderConfig } = await import('./editor-config.js');
+    renderConfig();
+    requestAnimationFrame(() => {
+      document.querySelector('[data-section-key="global.task-binding"]')?.scrollIntoView({ block: 'start' });
+    });
     return;
   }
   if (actionId !== 'restore-cut-backups') return;

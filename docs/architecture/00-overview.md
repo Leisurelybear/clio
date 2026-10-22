@@ -98,9 +98,11 @@ dispatch to both tasks (for background work) and domain modules (for reads/previ
 ## 5. Configuration Split
 
 - **`config.yaml`** (global, repo-level): proxy, server (token/retention), naming, paths (ffmpeg,
-  ffprobe, logs), ai (providers, ttl), compress (codec/fps/crf/audio), whisper (cache/hf endpoint).
+  ffprobe, logs), ai (providers, default task bindings, ttl), compress (codec/fps/crf/audio),
+  whisper (cache/hf endpoint).
 - **`project.yaml`** (per `project_dir`): paths.output_dir, ai.tasks/context, compress size,
-  analyze, script, plan, export, preview, whisper (enabled/model/language/device/engine).
+  analyze, script, plan, export, preview, whisper (enabled/model/language/device/engine). Project
+  task entries override the corresponding `ai.default_tasks` bindings individually.
 - **`.env`** (gitignored): API keys only — `GEMINI_API_KEY`, `DEEPSEEK_API_KEY`, `DASHSCOPE_API_KEY`, …
 - **`config.example.yaml` / `docs/project.example.yaml`**: committed examples, no secrets/paths.
 - Loading auto-upgrades schemas (V1→V2 split) and auto-generates a missing `config.yaml` from the

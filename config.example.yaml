@@ -49,6 +49,19 @@ server:
 #     - 通义千问：https://dashscope.aliyuncs.com/compatible-mode/v1
 #     - Kimi：https://api.moonshot.cn/v1
 ai:
+  # 全局默认 AI 任务绑定。没有在项目 project.yaml 中单独覆盖的任务会沿用这里。
+  # 新项目创建后无需再次选择 Provider/模型。项目内仍可逐项覆盖。
+  default_tasks:
+    video_analyze:
+      provider: gemini
+      model: gemini-2.5-flash
+    voiceover:
+      provider: deepseek
+      model: deepseek-chat
+    vlog_plan:
+      provider: deepseek
+      model: deepseek-chat
+
   # 已缓存的 AI 提供商过期间隔（分钟），超时后自动关闭重建。
   # 长时间运行的 UI 服务建议设 60-120，避免旧 HTTP session 泄漏。
   # 设为 0 表示永不过期。

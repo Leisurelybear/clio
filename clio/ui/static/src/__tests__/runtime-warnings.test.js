@@ -109,6 +109,22 @@ describe('buildRuntimeWarnings', () => {
     expect(w.text).toMatch(/gemini/);
   });
 
+  it('warns with binding action when AI tasks are unbound', () => {
+    const warnings = buildRuntimeWarnings({
+      config: {},
+      hostname: '127.0.0.1',
+      hasToken: true,
+      unboundTasks: ['video_analyze', 'voiceover'],
+    });
+    const w = warnings.find((x) => x.id === 'ai-tasks-unbound');
+    expect(w).toBeTruthy();
+    expect(w.level).toBe('danger');
+    expect(w.action?.id).toBe('go-settings-tasks');
+    expect(w.text).toContain('视频分析');
+    expect(w.text).toContain('口播文案');
+    expect(w.text).not.toContain('API 密钥');
+  });
+
   it('does not warn when missingKeys is empty', () => {
     const warnings = buildRuntimeWarnings({
       config: {},

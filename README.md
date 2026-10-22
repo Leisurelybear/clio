@@ -136,12 +136,12 @@ DEEPSEEK_API_KEY=你的_DeepSeek_API_Key
 
 配置已拆分为两层：
 
-- **`config.yaml`**（全局）：AI 厂商、API 密钥、代理、编解码参数等跨项目通用设置
-- **`project.yaml`**（项目）：任务定义、AI 上下文、压缩尺寸、whisper 语言等项目级个性化
+- **`config.yaml`**（全局）：AI 厂商、默认任务绑定、代理、编解码参数等跨项目通用设置
+- **`project.yaml`**（项目）：AI 上下文、任务覆盖、压缩尺寸、whisper 语言等项目级个性化
 
 ```bash
 cp config.example.yaml config.yaml
-# 全局配置：编辑 proxy、ai.providers 等
+# 全局配置：编辑 ai.providers、ai.default_tasks 等
 # 项目配置：在项目目录放置 project.yaml（参考 docs/project.example.yaml）
 ```
 
@@ -169,7 +169,7 @@ python main.py serve
 | 📋 剪辑规划 | **DeepSeek** / OpenAI | 纯文本 | 编排片段顺序 |
 | 🔧 AI 审阅 | 同上（可独立配置） | 纯文本 | 用 trip 上下文修正输出 |
 
-每个任务可独立指定厂家和模型（`project.yaml` 的 `ai.tasks`），支持 **OpenAI 兼容接口**（通义千问 / Kimi 等）。Provider 可通过 `capabilities` 声明 `video` / `text` 能力；视频分析任务会自动过滤并校验必须使用支持 `video` 的 Provider。OpenAI 兼容厂家可设置 `timeout_sec`，用于慢速网关或本地模型。
+全局默认任务绑定写在 `config.yaml` 的 `ai.default_tasks`，新项目无需重复选择 Provider/模型。单个项目可在 `project.yaml` 的 `ai.tasks` 中覆盖任意任务；未覆盖的任务自动继承全局默认值。`refine_text` 默认跟随当前项目生效的 `video_analyze` 绑定，也可显式覆盖。支持 **OpenAI 兼容接口**（通义千问 / Kimi 等）。Provider 可通过 `capabilities` 声明 `video` / `text` 能力；视频分析任务会自动过滤并校验必须使用支持 `video` 的 Provider。OpenAI 兼容厂家可设置 `timeout_sec`，用于慢速网关或本地模型。
 
 📌 **trip 上下文自动注入**：行程背景、避免误判提示（如 "不要把戴高乐机场 RER 误认为曼谷"）统一写在 `templates/trip_context.md`，每次 AI 调用前自动插入。—
 

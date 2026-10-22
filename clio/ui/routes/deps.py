@@ -5,11 +5,18 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING, Any
 
+from clio.ai.base import TaskName
 from clio.doctor import provider_key_missing
 from clio.utils import probe_ffmpeg_deps
 
 if TYPE_CHECKING:
     from clio.ui.handler_protocol import HandlerProtocol
+
+_REQUIRED_TASKS = (
+    TaskName.VIDEO_ANALYZE.value,
+    TaskName.VOICEOVER.value,
+    TaskName.VLOG_PLAN.value,
+)
 
 
 def handle_get_deps_ffmpeg(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
@@ -23,17 +30,19 @@ def handle_get_deps_ffmpeg(handler: HandlerProtocol, qs: dict[str, Any]) -> None
 
 
 def handle_get_deps_keys(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
-    """GET /api/deps/keys — report providers referenced by tasks that lack a resolved API key.
+    """GET /api/deps/keys — report unbound tasks and referenced providers without a key.
 
     Never leaks key values; only presence + env var name are returned.
     """
     proj_dir = handler._resolve_project_dir(qs)
     cfg = handler._get_config(proj_dir)
-    referenced = sorted({task.provider for task in cfg.ai.tasks.values()})
-    if not referenced:
-        # No project/tasks yet (first launch): still surface globally declared
-        # providers so the "missing key" banner guides first-run setup (R-040 B-1).
-        referenced = sorted(cfg.ai.providers)
+    tasks = cfg.ai.tasks
+    unbound_tasks = [
+        name
+        for name in _REQUIRED_TASKS
+        if not getattr(tasks.get(name), "provider", "") or not getattr(tasks.get(name), "model", "")
+    ]
+    referenced = sorted({task.provider for task in tasks.values() if getattr(task, "provider", "")})
     missing: list[dict[str, str]] = []
     for name in referenced:
         provider = cfg.ai.providers.get(name)
@@ -55,4 +64,4 @@ def handle_get_deps_keys(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
                     "detail": detail,
                 }
             )
-    handler._send_json({"ok": True, "missing": missing})
+    handler._send_json({"ok": True, "missing": missing, "unbound_tasks": unbound_tasks})

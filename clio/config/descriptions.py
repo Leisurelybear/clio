@@ -13,6 +13,7 @@ CONFIG_DESCRIPTIONS: dict[str, str] = {
     # ai
     "ai.context": "项目特定背景信息，每次 AI 调用前自动注入到提示词前面",
     "ai.providers": "AI 厂商配置列表，每个厂商可独立设置 API 密钥、地址等",
+    "ai.default_tasks": "全局默认 AI 任务绑定；没有单独配置的项目会自动沿用",
     "ai.tasks": "AI 任务配置，每个步骤可指定使用哪个厂商和模型",
     # ai.providers.*
     "ai.providers.{name}.type": "AI 厂商类型：gemini（多模态视频理解）或 openai（纯文本兼容接口）",

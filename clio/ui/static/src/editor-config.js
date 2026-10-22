@@ -387,10 +387,22 @@ function _renderConfigGlobal(globalData, descs) {
     }
   }
   const aiCfg = globalData.ai || {};
-  const { providers, ...otherAiFields } = aiCfg;
+  const { providers, default_tasks, ...otherAiFields } = aiCfg;
   if (Object.keys(otherAiFields).length > 0) {
     html += _renderSectionCard('ai', otherAiFields, descs, true);
   }
+  html += `<div class="config-card" data-section-key="global.task-binding">
+    <div class="config-card-header" tabindex="0" role="button">
+      <span class="config-card-arrow">▶</span>
+      <span class="config-card-title">AI 默认任务绑定</span>
+    </div>
+    <div class="config-card-body">${_renderTaskBinding(
+      default_tasks || {},
+      providers || {},
+      descs || {},
+      { scope: 'global' },
+    )}</div>
+  </div>`;
   html += `<div class="config-card" data-section-key="global.providers">
     <div class="config-card-header" tabindex="0" role="button">
       <span class="config-card-arrow">▶</span>
@@ -423,6 +435,7 @@ function _renderConfigProject(projectData, globalData, descs) {
       tasks || {},
       globalData?.ai?.providers || {},
       descs || {},
+      { scope: 'project', defaults: globalData?.ai?.default_tasks || {} },
     )}</div>
   </div>`;
   return html;
@@ -569,10 +582,29 @@ const TASK_DESCRIPTIONS = {
   refine_text: '对已有文案进行润色和修正（默认跟随视频分析）',
 };
 
-export function _renderTaskBinding(tasks, providersObj, descs) {
+export function mergeTaskBindings(defaults = {}, overrides = {}) {
+  const merged = { ...defaults, ...overrides };
+  if (overrides.video_analyze && !overrides.refine_text) {
+    merged.refine_text = overrides.video_analyze;
+  } else if (merged.video_analyze && !merged.refine_text) {
+    merged.refine_text = merged.video_analyze;
+  }
+  return merged;
+}
+
+export function _renderTaskBinding(tasks, providersObj, descs, opts = {}) {
+  const scope = opts.scope || 'project';
+  const defaults = opts.defaults || {};
+  const overrides = tasks || {};
+  const merged = scope === 'project' ? mergeTaskBindings(defaults, overrides) : overrides;
   const providerKeys = Object.keys(providersObj || {});
   let html = '<fieldset class="config-fieldset"><legend>AI 任务绑定</legend>';
-  html += '<p class="hint" style="margin:0 0 8px;line-height:1.6">为流水线的每个步骤指定使用的 AI Provider 和模型。<br>视频分析（video_analyze）<strong>必须</strong>使用 type=Gemini 的 Provider（支持多模态）；其他任务可以使用任意 Provider。<br>勾选"跟随视频分析"表示该任务复用 video_analyze 的配置；取消勾选后可独立选择。</p>';
+  if (scope === 'global') {
+    html += '<p class="hint" style="margin:0 0 8px;line-height:1.6">这里的绑定会作为所有项目的默认值。项目内可单独覆盖某个任务。</p>';
+  } else {
+    html += '<p class="hint" style="margin:0 0 8px;line-height:1.6">未单独覆盖的任务会沿用全局默认绑定。修改后只影响当前项目。</p>';
+  }
+  html += '<p class="hint" style="margin:0 0 8px;line-height:1.6">视频分析（video_analyze）<strong>必须</strong>使用 type=Gemini 的 Provider（支持多模态）；其他任务可以使用任意 Provider。<br>勾选"跟随视频分析"表示该任务复用 video_analyze 的配置；取消勾选后可独立选择。</p>';
 
   if (providerKeys.length === 0) {
     html += '<div class="config-empty-state"><p class="muted">还没有注册任何 AI 模型</p><p class="hint">请先在"全局"标签页中添加 Provider。</p><p><a href="#" id="goto-global-providers">去添加 →</a></p></div>';
@@ -583,13 +615,27 @@ export function _renderTaskBinding(tasks, providersObj, descs) {
   for (const taskKey of ['video_analyze', 'voiceover', 'vlog_plan', 'refine_text']) {
     const label = TASK_LABELS[taskKey];
     const desc = TASK_DESCRIPTIONS[taskKey];
-    const taskCfg = tasks[taskKey];
     const isRefine = taskKey === 'refine_text';
-    const isFollowing = isRefine && !taskCfg;
+    const hasOverride = Boolean(tasks && tasks[taskKey]);
+    const inheritedRefine = scope === 'project'
+      && isRefine
+      && !hasOverride
+      && !overrides.video_analyze
+      && Boolean(defaults.refine_text);
+    const taskCfg = inheritedRefine ? defaults.refine_text : merged[taskKey];
+    const isFollowing = isRefine && !inheritedRefine && !hasOverride;
+    const inherited = scope === 'project' && !hasOverride && Boolean(defaults[taskKey]);
 
     html += '<div class="task-binding-card">';
     html += '<div class="task-binding-header">';
     html += `<span class="task-binding-name">${escapeHtml(label)}${_renderTooltip('ai.tasks.' + taskKey, desc)}</span>`;
+    if (inherited) html += '<span class="task-binding-scope inherited">继承全局</span>';
+    else if (hasOverride && scope === 'project') {
+      html += '<span class="task-binding-scope override">项目覆盖</span>';
+      if (defaults[taskKey]) {
+        html += `<button type="button" class="task-binding-reset" data-task="${taskKey}">恢复全局默认</button>`;
+      }
+    }
     html += '</div>';
 
     if (isRefine) {
@@ -602,7 +648,7 @@ export function _renderTaskBinding(tasks, providersObj, descs) {
     }
 
     if (isFollowing) {
-      const vaCfg = tasks.video_analyze || {};
+      const vaCfg = merged.video_analyze || {};
       html += '<div class="task-binding-row">';
       html += `<span class="muted">继承自 video_analyze: ${escapeHtml(vaCfg.provider || '(未配置)')} / ${escapeHtml(vaCfg.model || '(未配置)')}</span>`;
       html += '</div>';
@@ -1019,10 +1065,16 @@ export function _attachProviderListHandlers(pane, providersObj) {
   pane.querySelectorAll('.btn-provider-delete').forEach(btn => {
     btn.onclick = async () => {
       const name = btn.dataset.provider;
-      const tasks = state.configProject?.ai?.tasks || {};
-      const refs = Object.entries(tasks)
-        .filter(([_, t]) => t.provider === name)
-        .map(([k]) => k);
+      const projectTasks = state.configProject?.ai?.tasks || {};
+      const defaultTasks = state.configGlobal?.ai?.default_tasks || {};
+      const refs = [
+        ...Object.entries(projectTasks)
+          .filter(([_, t]) => t.provider === name)
+          .map(([k]) => `项目:${k}`),
+        ...Object.entries(defaultTasks)
+          .filter(([_, t]) => t.provider === name)
+          .map(([k]) => `全局默认:${k}`),
+      ];
       if (refs.length > 0) {
         if (!confirm(`以下任务正在使用 "${name}"：${refs.join('、')}。确定删除？删除后这些任务将无法运行。`)) return;
       } else {
@@ -1080,14 +1132,17 @@ export function _attachProviderListHandlers(pane, providersObj) {
   });
 }
 
-function _attachTaskBindingHandlers(pane, projectCfg) {
+function _attachTaskBindingHandlers(pane, cfg, opts = {}) {
+  if (!pane) return;
   const reRender = () => renderConfig();
+  const tasksField = opts.tasksField || 'tasks';
+  const taskBase = `ai.${tasksField}`;
 
   pane.querySelectorAll('.task-provider-select').forEach(sel => {
     sel.onchange = () => {
       const taskKey = sel.dataset.task;
-      setDeep(projectCfg, `ai.tasks.${taskKey}.provider`, sel.value);
-      setDeep(projectCfg, `ai.tasks.${taskKey}.model`, '');
+      setDeep(cfg, `${taskBase}.${taskKey}.provider`, sel.value);
+      setDeep(cfg, `${taskBase}.${taskKey}.model`, '');
       markDirty();
       reRender();
     };
@@ -1096,22 +1151,29 @@ function _attachTaskBindingHandlers(pane, projectCfg) {
   pane.querySelectorAll('.task-model-select').forEach(sel => {
     sel.onchange = () => {
       const taskKey = sel.dataset.task;
-      setDeep(projectCfg, `ai.tasks.${taskKey}.model`, sel.value);
+      setDeep(cfg, `${taskBase}.${taskKey}.model`, sel.value);
       markDirty();
     };
   });
 
   pane.querySelectorAll('.refine-follow-check').forEach(cb => {
     cb.onchange = () => {
+      if (!cfg.ai) cfg.ai = {};
+      if (!cfg.ai[tasksField]) cfg.ai[tasksField] = {};
       if (cb.checked) {
-        if (projectCfg.ai?.tasks?.refine_text) {
-          delete projectCfg.ai.tasks.refine_text;
-        }
+        delete cfg.ai[tasksField].refine_text;
       } else {
-        if (!projectCfg.ai) projectCfg.ai = {};
-        if (!projectCfg.ai.tasks) projectCfg.ai.tasks = {};
-        projectCfg.ai.tasks.refine_text = { provider: '', model: '' };
+        cfg.ai[tasksField].refine_text = { provider: '', model: '' };
       }
+      markDirty();
+      reRender();
+    };
+  });
+
+  pane.querySelectorAll('.task-binding-reset').forEach(btn => {
+    btn.onclick = () => {
+      const taskKey = btn.dataset.task;
+      if (cfg.ai?.[tasksField]) delete cfg.ai[tasksField][taskKey];
       markDirty();
       reRender();
     };
@@ -1386,10 +1448,14 @@ export function renderConfig() {
     _attachConfigForm(pane, state.configGlobal || {}, descs);
     _attachEnvEditor();
     _attachProviderListHandlers(pane, state.configGlobal?.ai?.providers || {});
+    _attachTaskBindingHandlers(pane, state.configGlobal, { tasksField: 'default_tasks' });
   } else if (active === 'project') {
     _attachConfigForm(pane, state.configProject || {}, descs);
     _attachContextTemplate(pane);
-    _attachTaskBindingHandlers(pane, state.configProject);
+    _attachTaskBindingHandlers(pane, state.configProject, {
+      tasksField: 'tasks',
+      defaults: state.configGlobal?.ai?.default_tasks || {},
+    });
   } else if (active === 'prompts') {
     _loadPromptManagement();
   }

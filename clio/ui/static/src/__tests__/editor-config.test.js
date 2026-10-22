@@ -1,6 +1,6 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { api } from '../api.js';
-import { _attachProviderListHandlers, _renderPromptManagement, _renderTagInput, _renderProviderList, _renderTaskBinding } from '../editor-config.js';
+import { _attachProviderListHandlers, _renderPromptManagement, _renderTagInput, _renderProviderList, _renderTaskBinding, mergeTaskBindings } from '../editor-config.js';
 
 vi.mock('../api.js', async () => {
   const actual = await vi.importActual('../api.js');
@@ -497,6 +497,42 @@ describe('_renderTaskBinding', () => {
     expect(html).toContain('&lt;script&gt;p&lt;/script&gt;');
     expect(html).toContain('&lt;script&gt;m&lt;/script&gt;');
     expect(html).not.toContain('<script>p</script>');
+  });
+
+  it('renders inherited global defaults in project scope', () => {
+    const defaults = { video_analyze: { provider: 'gemini', model: 'gemini-2.5-flash' } };
+    const html = _renderTaskBinding({}, { gemini: GEMINI_PROVIDER }, {}, { scope: 'project', defaults });
+    expect(html).toContain('继承全局');
+    expect(html).toContain('gemini-2.5-flash');
+  });
+
+  it('marks project overrides and offers reset to global default', () => {
+    const defaults = { voiceover: { provider: 'deepseek', model: 'deepseek-reasoner' } };
+    const overrides = { voiceover: { provider: 'deepseek', model: 'deepseek-chat' } };
+    const html = _renderTaskBinding(overrides, { deepseek: OPENAI_PROVIDER }, {}, { scope: 'project', defaults });
+    expect(html).toContain('项目覆盖');
+    expect(html).toContain('task-binding-reset');
+    expect(html).toContain('deepseek-chat');
+  });
+});
+
+describe('mergeTaskBindings', () => {
+  it('project overrides win while global defaults fill gaps', () => {
+    const merged = mergeTaskBindings(
+      { video_analyze: { provider: 'gemini', model: 'gemini-2.5-flash' }, voiceover: { provider: 'deepseek', model: 'deepseek-chat' } },
+      { voiceover: { provider: 'deepseek', model: 'deepseek-reasoner' } },
+    );
+    expect(merged.video_analyze.model).toBe('gemini-2.5-flash');
+    expect(merged.voiceover.model).toBe('deepseek-reasoner');
+    expect(merged.refine_text).toEqual(merged.video_analyze);
+  });
+
+  it('project video override drives refine_text follow', () => {
+    const merged = mergeTaskBindings(
+      { video_analyze: { provider: 'gemini', model: 'gemini-2.5-flash' }, refine_text: { provider: 'deepseek', model: 'deepseek-chat' } },
+      { video_analyze: { provider: 'gemini', model: 'gemini-3-flash' } },
+    );
+    expect(merged.refine_text).toEqual(merged.video_analyze);
   });
 });
 

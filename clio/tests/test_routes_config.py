@@ -763,6 +763,43 @@ class TestHandlePutConfigGlobal:
         assert data["proxy"]["enabled"] is True
         assert data["proxy"]["url"] == "socks5://localhost:1080"
 
+    def test_writes_global_default_tasks(self, tmp_path: Path):
+        handler = MagicMock()
+        cfg = tmp_path / "config.yaml"
+        providers = {
+            "gemini": {"type": "gemini", "api_key_env": "GEMINI_API_KEY", "models": ["gemini-2.5-flash"]},
+            "deepseek": {
+                "type": "openai",
+                "api_key_env": "DEEPSEEK_API_KEY",
+                "base_url": "https://api.deepseek.com/v1",
+                "models": ["deepseek-chat"],
+            },
+        }
+        cfg.write_text(yaml.dump({"ai": {"providers": providers}}), encoding="utf-8")
+        handler.config_path = cfg
+        handler.__class__._config_cache = MagicMock()
+        handler._send_json = MagicMock()
+
+        handle_put_config_global(
+            handler,
+            {},
+            {
+                "ai": {
+                    "providers": providers,
+                    "default_tasks": {
+                        "video_analyze": {"provider": "gemini", "model": "gemini-2.5-flash"},
+                        "voiceover": {"provider": "deepseek", "model": "deepseek-chat"},
+                    },
+                }
+            },
+        )
+
+        args = handler._send_json.call_args
+        assert args[0][0]["ok"] is True, args
+        saved = yaml.safe_load(cfg.read_text(encoding="utf-8"))
+        assert saved["ai"]["default_tasks"]["video_analyze"]["provider"] == "gemini"
+        assert saved["ai"]["default_tasks"]["voiceover"]["model"] == "deepseek-chat"
+
     def test_strips_masked_api_key_on_write(self, tmp_path: Path):
         """UI round-trip: GET masks keys as ********; PUT must not persist that mask (R-033b)."""
         handler = MagicMock()

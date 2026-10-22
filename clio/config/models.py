@@ -35,8 +35,8 @@ class ProviderConfig:
 
 @dataclass
 class TaskConfig:
-    provider: str
-    model: str
+    provider: str = ""
+    model: str = ""
 
 
 @dataclass
@@ -141,6 +141,7 @@ class GlobalPathsConfig:
 @dataclass
 class GlobalAIConfig:
     providers: dict[str, ProviderConfig] = field(default_factory=dict)
+    default_tasks: dict[str, TaskConfig] = field(default_factory=dict)
     debug_print_prompt: bool = False
     provider_ttl_min: int = 60
 
@@ -274,7 +275,15 @@ class CombinedAIConfig:
 
     @property
     def tasks(self) -> dict[str, TaskConfig]:
-        return self._project.tasks if self._project else {}
+        defaults = self._global.default_tasks
+        overrides = self._project.tasks if self._project else {}
+        tasks = {**defaults, **overrides}
+        # refine_text follows video_analyze unless the project explicitly binds it.
+        if "video_analyze" in overrides and "refine_text" not in overrides:
+            tasks["refine_text"] = overrides["video_analyze"]
+        elif "video_analyze" in tasks and "refine_text" not in tasks:
+            tasks["refine_text"] = tasks["video_analyze"]
+        return tasks
 
     @property
     def context(self) -> str:

@@ -120,8 +120,8 @@ class TestHandleGetDepsKeys:
         payload = h._send_json.call_args[0][0]
         assert any(m["provider"] == "nope" for m in payload["missing"])
 
-    def test_falls_back_to_global_providers_when_no_tasks(self, tmp_path: Path, monkeypatch):
-        """B-1 first-launch: with no project/tasks, surface globally declared providers."""
+    def test_reports_unbound_tasks_instead_of_missing_keys_when_no_tasks(self, tmp_path: Path, monkeypatch):
+        """New projects without bindings should ask for a model, not an API key."""
         h = _handler(tmp_path)
         monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
         monkeypatch.delenv("GEMINI_API_KEY", raising=False)
@@ -134,5 +134,25 @@ class TestHandleGetDepsKeys:
         )
         handle_get_deps_keys(h, {})
         payload = h._send_json.call_args[0][0]
-        names = {m["provider"] for m in payload["missing"]}
-        assert names == {"deepseek", "gemini"}
+        assert payload["missing"] == []
+        assert payload["unbound_tasks"] == ["video_analyze", "voiceover", "vlog_plan"]
+
+    def test_bound_tasks_do_not_report_unbound(self, tmp_path: Path, monkeypatch):
+        h = _handler(tmp_path)
+        monkeypatch.setenv("GEMINI_API_KEY", "g")
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "d")
+        h._get_config.return_value = _cfg(
+            providers={
+                "deepseek": SimpleNamespace(api_key="", api_key_env="DEEPSEEK_API_KEY"),
+                "gemini": SimpleNamespace(api_key="", api_key_env="GEMINI_API_KEY"),
+            },
+            tasks={
+                "video_analyze": SimpleNamespace(provider="gemini", model="gemini-2.5-flash"),
+                "voiceover": SimpleNamespace(provider="deepseek", model="deepseek-chat"),
+                "vlog_plan": SimpleNamespace(provider="deepseek", model="deepseek-chat"),
+            },
+        )
+        handle_get_deps_keys(h, {})
+        payload = h._send_json.call_args[0][0]
+        assert payload["unbound_tasks"] == []
+        assert payload["missing"] == []

@@ -181,7 +181,7 @@ def _validate_config(config: AppConfig) -> None:
 
 
 def validate_global_config(config: GlobalConfig) -> None:
-    """Validate global-layer config only (no project tasks). Numeric floors match _validate_config (>= 0)."""
+    """Validate global-layer config and default task bindings."""
     if config.proxy.enabled and not config.proxy.url:
         raise ValueError("proxy.enabled=true 但 proxy.url 为空。请填写 proxy.url，或把 proxy.enabled 改成 false。")
     _require_min("ai.provider_ttl_min", config.ai.provider_ttl_min, 0)
@@ -198,3 +198,14 @@ def validate_global_config(config: GlobalConfig) -> None:
         _require_positive(f"ai.providers.{provider_name}.timeout_sec", provider_cfg.timeout_sec)
         if provider_cfg.type == "gemini":
             _require_positive(f"ai.providers.{provider_name}.poll_interval_sec", provider_cfg.poll_interval_sec)
+    provider_names = set(config.ai.providers)
+    for task_name, task_cfg in config.ai.default_tasks.items():
+        if task_cfg.provider not in provider_names:
+            available = ", ".join(sorted(provider_names)) or "<无>"
+            raise ValueError(
+                f"ai.default_tasks.{task_name}.provider = '{task_cfg.provider}' 不存在。"
+                f"已配置的 provider: {available}。"
+            )
+        provider_cfg = config.ai.providers[task_cfg.provider]
+        _require_video_provider_compatible(task_name, task_cfg.provider, provider_cfg.type)
+        _warn_unknown_model(task_name, task_cfg.provider, task_cfg.model, provider_cfg.models)
