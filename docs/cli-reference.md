@@ -7,9 +7,31 @@
 | Parameter | Scope | Description |
 |-----------|-------|-------------|
 | `-c, --config <file>` | All | Config file path (default `config.yaml`) |
-| `-i, --input <path>` | Most subcommands | Media folder / single json / json directory (overrides config.yaml) |
+| `-p, --project <dir>` | Most subcommands | Project directory containing `project.yaml` (preferred) |
 | `-o, --output <path>` | Most subcommands | Output directory (default `output/<media folder name>`) |
-| `--force` | All | Ignore existing output, force regeneration (overrides `analyze.skip_existing`) |
+| `--force` | Most subcommands | Ignore existing output / optional readiness warnings; accepted before or after the subcommand |
+| `-i, --input <path>` | Compatibility | Legacy input path for single-file commands, `refine`, and `compare-models`; hidden from `--help` |
+
+## Command Overview
+
+| Command | Purpose |
+|---|---|
+| `compress` | Compress source videos without invoking AI |
+| `analyze` | Compress when needed, then analyze video content |
+| `scripts` | Generate voiceover scripts from analysis JSON |
+| `plan` | Generate one-day or multi-day editing plans |
+| `run` | Run the full analyze → scripts → plan → label pipeline |
+| `cut` | Cut plan segments with ffmpeg |
+| `export` | Export a plan to an editor draft |
+| `refine` | Review or target-fix existing texts/scripts |
+| `transcribe` | Generate Whisper transcripts |
+| `check` / `doctor` | Quick readiness check / full environment diagnosis |
+| `label` | Burn index labels into compressed videos |
+| `verify` / `reindex` | Validate or rebuild media sidecars |
+| `tokens` | Show project token usage as JSON |
+| `compare-models` | Analyze one video with several providers/models |
+| `migrate` / `migrate-config` | Migrate legacy projects / fill missing provider fields |
+| `serve` / `desktop` | Start the local web UI / desktop window |
 
 ---
 
@@ -20,10 +42,23 @@ No network requests are made.
 
 ```bash
 python main.py check
-python main.py check -i "E:/Videos/云南"     # Also verify the specified media directory
+python main.py check -p "E:/Videos/云南"     # Also verify the specified project directory
 ```
 
-Outputs `[OK] xxx` or `[FAIL] xxx`, plus how many video files were found.
+Outputs `[OK] xxx`, `[WARN] xxx`, or `[FAIL] xxx`, plus how many video files were found.
+
+---
+
+## `doctor` — Full Environment Diagnosis
+
+Checks the virtual environment, Python version, ffmpeg/ffprobe, config files, provider keys, task bindings, disk paths, and common runtime risks. Unlike `check`, it includes diagnostic guidance for failures.
+
+```bash
+python main.py doctor
+python main.py doctor -p "E:/Videos/云南"
+```
+
+Exit code is `0` when no blocking problem is found, otherwise non-zero.
 
 ---
 
@@ -36,7 +71,7 @@ Compresses each original to one file under `compressed/` as `<index>_<original s
 Physical `_segNN` split is removed; long-clip AI coverage uses analyze windows (`analyze.window_max_min`).
 
 ```bash
-python main.py compress -i "E:/Videos/云南"
+python main.py compress -p "E:/Videos/云南"
 
 # Process only a single video file
 python main.py compress -i "E:/Videos/云南/GL010683.mp4"
@@ -63,7 +98,7 @@ via `analyze.max_analyze_duration_min` applies only to those legacy segments (`0
 default for fresh configs).
 
 ```bash
-python main.py analyze -i "E:/Videos/云南"
+python main.py analyze -p "E:/Videos/云南"
 python main.py analyze --force         # Force re-analysis (overrides skip_existing)
 
 # Analyze a single video
@@ -132,7 +167,7 @@ Rebuild `.vmeta` (compressed→original mapping) and `.vindex` (original→compr
 
 ```bash
 python main.py reindex
-python main.py reindex -i "E:/Videos/Franch3"
+python main.py reindex -p "E:/Videos/Franch3"
 ```
 
 The UI automatically reindexes when opening a project for the first time.
@@ -211,7 +246,7 @@ python main.py export --day day1 --out-dir "E:/drafts/day1" --force
 Runs `analyze` → `scripts` → `plan` → `label` sequentially; any step can be re-run independently.
 
 ```bash
-python main.py run -i "E:/Videos/云南" --day day1
+python main.py run -p "E:/Videos/云南" --day day1
 ```
 
 ---
@@ -225,6 +260,9 @@ AI automatically reviews and corrects errors (misidentified locations, naming in
 ```bash
 # Default: review all files in texts/ and scripts/
 python main.py refine
+
+# Select the project explicitly
+python main.py refine -p "E:/Videos/云南" --target texts
 
 # Review only texts/
 python main.py refine --target texts
@@ -271,6 +309,38 @@ python main.py refine -i output/Franch/scripts/001_机场轻轨清晨_voiceover.
 
 ---
 
+## `compare-models` — Compare Video Models
+
+Analyze the same video with several provider/model pairs and write a comparison report. Useful for evaluating model quality or cost before changing a project binding.
+
+```bash
+python main.py compare-models -i "output/compressed/001_GL010685.mp4" \
+  --models gemini:gemini-2.5-flash gemini:gemini-2.5-flash-lite
+```
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `-i, --input` | required | Video file to analyze |
+| `--models` | required | One or more `provider:model` values; comma-separated values also work |
+| `--out-dir` | `output/model_compare/` | Comparison report directory |
+| `--context / -C` | — | Temporary trip context appended for this run only |
+
+---
+
+## `migrate` / `migrate-config` — Project Migration
+
+`migrate` upgrades legacy projects to the `project_dir + videos.json` layout. `migrate-config` scans existing `project.yaml` files and fills missing provider fields.
+
+```bash
+# Migrate one legacy project, or scan the project registry when --from is omitted
+python main.py migrate --from "E:/Videos/旧项目"
+
+# Scan a projects root for project.yaml files
+python main.py migrate-config --projects-root "E:/Videos"
+```
+
+---
+
 ## Transcription — `transcribe` / `whisper`
 
 Use faster-whisper for offline speech recognition (ASR) on videos, generating timestamped text transcripts. First run `whisper install` to install dependencies, then run `transcribe`.
@@ -308,8 +378,26 @@ python main.py serve --no-browser       # Don't auto-open browser (for remote ma
 | `--host` | `127.0.0.1` | Listen address; change to `0.0.0.0` to expose to LAN (be mindful of security) |
 | `--port` | `8765` | Port |
 | `--no-browser` | — | If set, does not auto-open browser |
+| `--token` | `server.api_token` | API token override; non-localhost hosts auto-generate one when empty |
 
 Page after startup: left project/video sidebar, center video player (Range requests), right editor (texts / voiceover / plan / config / run / logs). Plan tab uses a collapsed sequence list (expand a row to edit); insert picks from existing project videos; `use_timeline` is edited as text or via the **选区** dual-handle source-video modal. Plan preview bar is a **global scrub timeline** (Σ `use_timeline`) with progress fill + composite clock; waveform is **stitched multi-source peaks** on that axis (R-031a/a2). Media is still source-video seek hop (cut/concat media is roadmap R-031b). `Ctrl+S` saves. Details: `clio/ui/README.md`.
+
+### Desktop Window
+
+```bash
+python main.py desktop
+```
+
+Starts the same local UI inside a pywebview window with native file/folder dialogs, single-instance focus behavior, and close confirmation while tasks are active. Use the global `-c` option to point at a different config file.
+
+### Token Usage
+
+```bash
+python main.py tokens
+python main.py tokens -p "E:/Videos/云南"
+```
+
+Prints the selected project's AI token/cost statistics as JSON.
 
 ### External Trigger
 
@@ -408,7 +496,7 @@ Auto deep-merged on top of the global configuration at load time:
 - Uncovered fields inherit from the global `config.yaml`
 - `ai.context_file` relative paths are resolved relative to the project directory first
 - UI settings tab reads/writes the current project's `project.yaml` via `?project=X`
-- CLI currently overrides directory via `--input`; `--project` support to follow
+- CLI selects the project directory with `-p/--project`; `-i/--input` remains for single-file and compatibility uses
 
 ### Voiceover Template
 
