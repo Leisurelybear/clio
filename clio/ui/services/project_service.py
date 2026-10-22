@@ -337,7 +337,7 @@ def _list_projects(
                 ),
                 "legacy": yaml_has_input,
                 "needs_videos": not has_videos_json,
-                "version": version if has_videos_json and not yaml_has_input else version,
+                "version": version,
             }
         )
 
