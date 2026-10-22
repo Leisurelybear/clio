@@ -8,6 +8,7 @@ from pathlib import Path
 
 from clio._constants import VIDEO_EXTS
 from clio.config import AppConfig
+from clio.identity import SEGMENT_SUFFIX_RE
 from clio.utils import get_duration_sec, resolve_binary
 from clio.vmeta import SegmentEntry, VideoIndex, VideoMeta
 
@@ -43,8 +44,6 @@ def auto_reindex_if_needed(config: AppConfig, ffprobe: str | None = None) -> boo
     if not compressed_dir.is_dir():
         return False
 
-    import re as _re
-
     t_scan = _time.perf_counter()
     # 找所有带数字前缀的压缩视频
     groups: dict[str, list[Path]] = {}
@@ -56,8 +55,7 @@ def auto_reindex_if_needed(config: AppConfig, ffprobe: str | None = None) -> boo
         prefix, stem_part = p.stem.split("_", 1)
         if not prefix.isdigit():
             continue
-        m = _re.match(r"^(.+)_seg\d+$", stem_part)
-        orig_stem = m.group(1) if m else stem_part
+        orig_stem = SEGMENT_SUFFIX_RE.sub("", stem_part)
         groups.setdefault(orig_stem, []).append(p)
 
     # 检查哪些没有 .vindex
@@ -114,10 +112,7 @@ def run_reindex(config: AppConfig, ffprobe: str | None = None) -> int:
         prefix, stem_part = p.stem.split("_", 1)
         if not prefix.isdigit():
             continue
-        import re
-
-        m = re.match(r"^(.+)_seg\d+$", stem_part)
-        orig_stem = m.group(1) if m else stem_part
+        orig_stem = SEGMENT_SUFFIX_RE.sub("", stem_part)
         groups[orig_stem].append(p)
 
     written_index = 0

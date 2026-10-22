@@ -122,6 +122,35 @@ class TestRunReindex:
         assert (compressed_dir / "GL010683.vindex").exists()
         assert (compressed_dir / "GL010695.vindex").exists()
 
+    @pytest.mark.parametrize("suffix", ["_seg01", "_part02", "_pt03", "_chunk04"])
+    def test_groups_all_legacy_split_suffixes(
+        self,
+        config: AppConfig,
+        compressed_dir: Path,
+        input_dir: Path,
+        suffix: str,
+    ) -> None:
+        for prefix in ("001", "002"):
+            (compressed_dir / f"{prefix}_GL010683{suffix}.mp4").write_text("fake")
+        (input_dir / "GL010683.mp4").write_text("fake")
+
+        with (
+            patch("clio.tasks.reindex.VideoMeta.read", return_value=None),
+            patch("clio.tasks.reindex.VideoMeta.build") as mock_build,
+            patch("clio.tasks.reindex.get_duration_sec", return_value=60.0),
+            patch("clio.tasks.reindex.resolve_binary", return_value="ffprobe"),
+        ):
+            mock_meta = MagicMock()
+            mock_meta.target_duration_sec = 30.0
+            mock_meta.split_info = None
+            mock_build.return_value = mock_meta
+
+            result = run_reindex(config)
+
+        assert result == 1
+        assert mock_build.call_count == 2
+        assert VideoIndex.read("GL010683", compressed_dir) is not None
+
     def test_fallback_to_find_original(self, config: AppConfig, compressed_dir: Path, input_dir: Path) -> None:
         (compressed_dir / "001_GL010683.mp4").write_text("fake")
         (input_dir / "GL010683.mp4").write_text("fake")
