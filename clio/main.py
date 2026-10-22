@@ -152,7 +152,7 @@ def run_check(config_path: Path, project_dir: Path | None = None) -> int:
     if not project_dir or not project_dir.is_dir():
         print()
         print(t("cli.check.usage"))
-        example_path = "G:\\vlog-projects\\巴黎行" if os.name == "nt" else "/path/to/project"
+        example_path = t("cli.check.example_path") if os.name == "nt" else "/path/to/project"
         print(t("cli.check.example", {"path": example_path}))
     print(t("cli.done_exit_code", {"code": 0 if ok else 1}))
     return 0 if ok else 1

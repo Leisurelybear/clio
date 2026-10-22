@@ -719,8 +719,15 @@ def _run_install(
                         {
                             "status": "downloading",
                             "progress_pct": 0,
-                            "message": f"下载模型 {model_name}: {filename} ({int(now - start)}s, "
-                            f"{_format_bytes(downloaded)} 已下载)",
+                            "message": t(
+                                "api.whisper_download_model_elapsed",
+                                {
+                                    "model": model_name,
+                                    "file": filename,
+                                    "elapsed": int(now - start),
+                                    "size": _format_bytes(downloaded),
+                                },
+                            ),
                         },
                     )
 
