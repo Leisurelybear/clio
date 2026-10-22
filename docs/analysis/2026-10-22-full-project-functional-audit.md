@@ -110,15 +110,15 @@ mypy --check-untyped-defs --show-error-codes
 |---|---|---|---|
 | O-02 | P2 | CLI 文档自动化 | 从 argparse 生成命令/参数清单或加入文档一致性测试，减少手写漂移 |
 | O-03 | P2 | 外部服务契约测试 | 为 Gemini/DeepSeek/DashScope 增加可选 live smoke suite，默认 CI 跳过 |
-| O-04 | P2 | 任务锁生命周期 | `TaskManager._task_locks` 不清理已完成任务的锁，长期运行会随历史任务数量增长 |
-| O-05 | P3 | 桌面关闭确认 | `fetch_active_tasks` 只检查前 50 条，极端历史量下可能漏掉活跃任务 |
-| O-06 | P1 | Provider 非 ASCII 名称 | 后端接受中文等非 ASCII provider 名，但前端对纯非 ASCII 名称统一生成 `CUSTOM_PROVIDER_API_KEY`，多个 provider 会共用/覆盖 key；需产品决策是拒绝名称还是生成稳定编码 |
-| O-07 | P2 | Gemini 文件轮询韧性 | `_wait_for_file` 每轮只有单次 `files.get()`，长任务遇到一次瞬时网络错误即失败；可为瞬时错误增加有界重试 |
-| O-08 | P3 | Trip context 缓存淘汰 | `_trip_context_cache` 以 project+mtime 为 key，修改文件后旧 key 不会淘汰，长期切换项目会缓慢增长 |
+| O-04 | P2 | 任务锁生命周期（已完成：`e541c20`） | worker 退出后仅对终态任务释放 `_task_locks`，活跃/排队任务保留 |
+| O-05 | P3 | 桌面关闭确认（已完成：`c68eec5`） | 探测请求改为服务端按 queued/running/cancelling 过滤，并把上限提升到 200 |
+| O-06 | P1 | Provider 非 ASCII 名称（已完成：`2175318`） | 非 ASCII 名称追加基于 Unicode 码点的稳定 FNV-1a 短哈希，避免环境变量冲突；ASCII 命名保持兼容 |
+| O-07 | P2 | Gemini 文件轮询韧性（已完成：`df60d50`） | 单次轮询遇到瞬时错误时在总截止时间内有界退避重试，保留取消与超时语义 |
+| O-08 | P3 | Trip context 缓存淘汰（已完成：`5dc29e2`） | 每个项目只保留当前一个缓存条目，覆盖 mtime、default 与 empty 状态 |
 | O-09 | P3 | CLI 文档同步（已完成：`9332b5d`） | 已将 `-p/--project` 设为首选入口，补充命令总览、`doctor`、`desktop`、`tokens`、`migrate`、`migrate-config`、`compare-models` 和 `serve --token` |
-| O-10 | P3 | 测试基线漂移（已完成：`a423ee8`） | `README*` 与 `ROADMAP.md` 已回填 `2171 passed / 12 skipped`、`561` Vitest |
+| O-10 | P3 | 测试基线漂移（已完成：`a423ee8`、`c2451f4`） | `README*` 与 `ROADMAP.md` 已回填最新 `2182 passed / 12 skipped`、`562` Vitest |
 | O-11 | P3 | 配置示例字段清单（已完成：`34b0d1d`） | `config.example.yaml` 头部全局 `ai` 字段补上 `default_tasks` |
-| O-12 | P3 | 死条件清理 | `_list_projects` 的 `version` 条件表达式两个分支相同，可在后续纯重构中简化 |
+| O-12 | P3 | 死条件清理（已完成：`0d9ddbc`） | `_list_projects` 已直接返回 `version`，移除两个分支相同的条件表达式 |
 
 ## 6. 修复与提交记录
 
@@ -171,6 +171,13 @@ mypy --check-untyped-defs --show-error-codes
 | `e1bcb1a` | `fix(config): tolerate malformed registry during migration` | `test_config_v2.py` 44 passed |
 | `a423ee8` | `docs: refresh test suite baselines` | 文档检查 |
 | `e901150` | `test(env): make custom key removal test POSIX-safe` | Linux/macOS/Windows × Python 3.11/3.12 CI 全部通过 |
+| `0d9ddbc` | `refactor(projects): remove redundant version expression` | `test_project_service.py` 71 passed；Ruff 通过 |
+| `2175318` | `fix(ui): make provider API key env names collision-safe` | Vitest 62 passed；Ruff 通过 |
+| `e541c20` | `fix(tasks): release terminal task locks` | `test_task_center_manager.py` 22 passed；并发测试重复 10 次通过 |
+| `c68eec5` | `fix(desktop): query only active tasks on close` | `test_desktop_app.py` 31 passed；Ruff 通过 |
+| `df60d50` | `fix(gemini): retry transient file polling failures` | `test_ai_gemini.py` 36 passed；mypy/Ruff 通过 |
+| `5dc29e2` | `fix(analyze): evict stale trip context cache entries` | `test_analyze_funcs.py` 34 passed；Ruff 通过 |
+| `c2451f4` | `docs: refresh test suite baselines` | 文档检查 |
 
 ## 7. 未实机验证项
 
@@ -188,14 +195,14 @@ mypy --check-untyped-defs --show-error-codes
 
 | 项目 | 结果 |
 |---|---|
-| pytest | `2171 passed, 12 skipped`（2183 collected，68.37s） |
-| 后端覆盖率 | `81.68%`（branch coverage，16022 statements） |
-| Vitest | `561 passed`，`54` 个测试文件 |
+| pytest | `2182 passed, 12 skipped`（2194 collected，73.41s） |
+| 后端覆盖率 | `81.67%`（branch coverage，16065 statements） |
+| Vitest | `562 passed`，`54` 个测试文件 |
 | Ruff check | 通过 |
 | Ruff format check | 通过（236 files） |
 | mypy subset | 通过（39 source files） |
 | CLI 冒烟 | `check` 与 `doctor` 正常退出，输出符合文档 |
-| GitHub Actions | CI `39718605407` 全部成功；Linux/macOS/Windows、Python 3.11/3.12、Vitest、打包与质量检查均通过 |
-| 工作区 | 所有修复均已提交并推送；最终文档提交后保持干净 |
+| GitHub Actions | 待本次代码推送后确认完整 CI 矩阵 |
+| 工作区 | 所有修复均已本地提交；审计更新后推送 |
 
 真实 Gemini/DeepSeek/阿里云调用、真实剪映导入、pywebview 窗口交互和真实长视频处理仍属于实机验证范围；对应风险已列入第 7 节。
