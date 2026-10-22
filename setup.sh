@@ -91,28 +91,35 @@ else
     case "$(uname -s)" in
         Linux)
             if command -v apt-get >/dev/null 2>&1; then
-                sudo apt-get update -qq && sudo apt-get install -y ffmpeg
+                sudo apt-get update -qq && sudo apt-get install -y ffmpeg || true
             elif command -v dnf >/dev/null 2>&1; then
-                sudo dnf install -y ffmpeg
+                sudo dnf install -y ffmpeg || true
             elif command -v pacman >/dev/null 2>&1; then
-                sudo pacman -S --noconfirm ffmpeg
+                sudo pacman -S --noconfirm ffmpeg || true
             elif command -v zypper >/dev/null 2>&1; then
-                sudo zypper install -y ffmpeg
+                sudo zypper install -y ffmpeg || true
             else
-                echo "无法自动安装 ffmpeg，请手动安装：https://ffmpeg.org/download.html" >&2
+                echo "未找到系统包管理器，尝试下载经过校验的静态构建..."
             fi
             ;;
         Darwin)
             if command -v brew >/dev/null 2>&1; then
                 brew install ffmpeg
             else
-                echo "请先安装 Homebrew，然后运行：brew install ffmpeg" >&2
+                echo "未找到 Homebrew，请先安装：https://brew.sh/" >&2
             fi
             ;;
         *)
             echo "当前系统未适配自动安装 ffmpeg，请手动安装：https://ffmpeg.org/download.html" >&2
             ;;
     esac
+    if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
+        if .venv/bin/python -m clio.ffmpeg_install --mode download; then
+            export PATH="$HOME/.local/share/clio/ffmpeg:$PATH"
+        else
+            echo "自动安装 ffmpeg 失败，请手动安装：https://ffmpeg.org/download.html" >&2
+        fi
+    fi
 fi
 
 echo "[4/5] 准备本地配置文件..."

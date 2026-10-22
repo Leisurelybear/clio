@@ -274,3 +274,13 @@ def test_install_system_mode_does_not_fall_back_to_download(tmp_path, monkeypatc
     )
     assert result.ok is False
     assert result.method == "system"
+
+
+def test_cli_reports_install_result(monkeypatch, capsys):
+    monkeypatch.setattr(
+        installer,
+        "install_ffmpeg",
+        lambda **kwargs: installer.InstallResult(True, "download", "/tmp/ffmpeg", "/tmp/ffprobe", "installed"),
+    )
+    assert installer.main(["--mode", "download"]) == 0
+    assert "installed" in capsys.readouterr().out

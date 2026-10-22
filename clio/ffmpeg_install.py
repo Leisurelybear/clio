@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import os
 import platform
@@ -403,3 +404,20 @@ def install_ffmpeg(
         return InstallResult(False, "cancelled", message="ffmpeg installation cancelled")
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         return InstallResult(False, "download", message=str(exc))
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Install FFmpeg into the Clio managed directory")
+    parser.add_argument("--mode", choices=("auto", "system", "download"), default="auto")
+    parser.add_argument("--allow-system", action="store_true", help="Try user-accessible package managers first")
+    args = parser.parse_args(argv)
+    result = install_ffmpeg(mode=args.mode, allow_system=args.allow_system)
+    print(result.message)
+    if result.ok:
+        print(result.ffmpeg)
+        return 0
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

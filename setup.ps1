@@ -216,9 +216,15 @@ if (-not $ffmpeg) {
         Write-Host "[3/4] 未检测到 ffmpeg，尝试通过 winget 安装..."
         winget install --id Gyan.FFmpeg -e --accept-package-agreements --accept-source-agreements 2>$null
         if ($LASTEXITCODE -ne 0) {
-            Write-Host "     winget 安装失败，请手动下载安装:" -ForegroundColor Yellow
-            Write-Host "     https://ffmpeg.org/download.html#build-windows" -ForegroundColor Cyan
-            Write-Host "     下载后请将 bin 目录加入 PATH 环境变量，或设置 FFMPEG_HOME" -ForegroundColor DarkYellow
+            Write-Host "     winget 安装失败，尝试下载经过校验的静态构建..." -ForegroundColor Yellow
+            & ".venv\Scripts\python.exe" -m clio.ffmpeg_install --mode download
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "     自动安装失败，请手动下载安装:" -ForegroundColor Yellow
+                Write-Host "     https://ffmpeg.org/download.html#build-windows" -ForegroundColor Cyan
+                Write-Host "     下载后请将 bin 目录加入 PATH 环境变量，或设置 FFMPEG_HOME" -ForegroundColor DarkYellow
+            } else {
+                $env:PATH = "$env:LOCALAPPDATA\clio\ffmpeg;$env:PATH"
+            }
         }
     }
 } else {
