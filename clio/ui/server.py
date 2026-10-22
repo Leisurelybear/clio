@@ -511,6 +511,8 @@ def make_handler(
                 ct = "text/css; charset=utf-8"
             elif target.suffix == ".html":
                 ct = "text/html; charset=utf-8"
+            elif target.suffix == ".json":
+                ct = "application/json; charset=utf-8"
             self._send_bytes(target.read_bytes(), ct)
 
         def _get_config(self, project_input: Path | None = None) -> AppConfig:

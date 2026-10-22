@@ -334,6 +334,16 @@ class TestSendStatic:
         data = target.read_bytes()
         mock_send.assert_called_once_with(data, "text/css; charset=utf-8")
 
+    def test_serves_json_with_correct_type(self, handler_cls):
+        handler = _build_handler(handler_cls)
+        target = STATIC_DIR / "locales" / "en.json"
+        if not target.is_file():
+            pytest.skip("locale catalog not found")
+        with patch.object(handler, "_send_bytes") as mock_send:
+            handler._send_static("locales/en.json")
+        data = target.read_bytes()
+        mock_send.assert_called_once_with(data, "application/json; charset=utf-8")
+
 
 # ===========================================================================
 # _get_state

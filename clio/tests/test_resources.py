@@ -25,3 +25,5 @@ def test_repo_resources_are_discoverable():
     assert find_resource("config.example.yaml") is not None
     assert find_resource("templates/vlog_template.md") is not None
     assert find_resource("templates/trip_context.md") is not None
+    assert find_resource("ui/static/locales/zh-CN.json") is not None
+    assert find_resource("ui/static/locales/en.json") is not None

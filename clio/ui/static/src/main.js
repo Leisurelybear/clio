@@ -36,6 +36,7 @@ import { stripQueryParams } from './url-params.js';
 import { initNotificationCenter, registerNotification } from './notification-center.js';
 import { startTaskStream, loadTasks } from './task-center.js';
 import { openFfmpegInstallDialog } from './ffmpeg-install.js';
+import { initI18n, readStoredLocale } from './i18n.js';
 
 // Expose functions referenced by inline onclick handlers in HTML
 window.switchToOriginalThenCompress = switchToOriginalThenCompress;
@@ -159,6 +160,7 @@ function showFfmpegHelp() {
 }
 
 async function init() {
+  await initI18n(readStoredLocale());
   showVideoListLoading('正在加载项目…');
   initLayout();
   initTheme();
@@ -595,6 +597,7 @@ async function init() {
       state.currentProjectName = urlProject;
     }
     await loadConfig();
+    await initI18n(state.config?.ui?.language || readStoredLocale());
     await loadFfmpegDeps();
     await refreshRuntimeWarningsBanner();
     await loadProject();
