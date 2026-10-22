@@ -84,4 +84,28 @@ describe('matchBatchRelink', () => {
     expect(r.matched[0].new_path).toBe('F:/new/GL.MP4');
     expect(r.unmatched).toHaveLength(1);
   });
+
+  it('prefers an exact indexed filename over its stripped stem', () => {
+    const r = matchBatchRelink(
+      [{ file: '001_GL.MP4', abs_path: 'D:/old/001_GL.MP4' }],
+      [
+        { path: 'F:/new/GL.MP4', name: 'GL.MP4' },
+        { path: 'F:/new/001_GL.MP4', name: '001_GL.MP4' },
+      ],
+    );
+    expect(r.ambiguous).toEqual([]);
+    expect(r.matched[0].new_path).toBe('F:/new/001_GL.MP4');
+  });
+
+  it('uses the original abs_path filename before a display-index prefix', () => {
+    const r = matchBatchRelink(
+      [{ file: '001_GL.MP4', abs_path: 'D:/old/other.mov' }],
+      [
+        { path: 'F:/new/001_GL.MP4', name: '001_GL.MP4' },
+        { path: 'F:/new/other.mov', name: 'other.mov' },
+      ],
+    );
+    expect(r.ambiguous).toEqual([]);
+    expect(r.matched[0].new_path).toBe('F:/new/other.mov');
+  });
 });
