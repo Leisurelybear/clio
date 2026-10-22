@@ -330,3 +330,9 @@ class TestMatchesSelected:
         p = tmp_path / "001_foo.json"
         p.write_text("{}", encoding="utf-8")
         assert _matches_selected_stem(p, {"001_foo"}) is True
+
+    def test_legacy_segment_suffixes_match_original_stem(self, tmp_path: Path):
+        for suffix in ("seg01", "part02", "pt03", "chunk04"):
+            p = tmp_path / f"001_GL010683_{suffix}.mp4"
+            p.write_bytes(b"")
+            assert _matches_selected_stem(p, {"gl010683"}) is True

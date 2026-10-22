@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 import threading
 from pathlib import Path
 from typing import Any
@@ -12,7 +11,7 @@ from typing import Any
 from clio.ai.token_usage import FileTokenUsageStore
 from clio.analyze import plan_daily_vlog
 from clio.config import AppConfig
-from clio.identity import legacy_segment_offset_sec, load_identity
+from clio.identity import SEGMENT_SUFFIX_RE, legacy_segment_offset_sec, load_identity
 from clio.log import timed
 from clio.processing_state import ProcessingState
 from clio.progress import ProgressTracker
@@ -264,7 +263,7 @@ def run_plan_vlog(
                     stem = data.get("source_stem", "")
                     if "_" in stem:
                         stem = stem.split("_", 1)[1]
-                    stem = re.sub(r"_seg\d+$", "", stem)
+                    stem = SEGMENT_SUFFIX_RE.sub("", stem)
                 if stem:
                     transcripts_map[stem.lower()] = data
             except (json.JSONDecodeError, KeyError):

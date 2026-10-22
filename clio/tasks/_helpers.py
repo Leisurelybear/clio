@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from clio.config import AppConfig
-from clio.identity import MediaIdentity
+from clio.identity import SEGMENT_SUFFIX_RE, MediaIdentity
 from clio.log import format_duration
 from clio.utils import (
     format_index,
@@ -37,7 +37,6 @@ class ClipRecord:
 
 
 _INDEX_PREFIX_RE = re.compile(r"^\d+_(.+)$")
-_SEGMENT_SUFFIX_RE = re.compile(r"^(.+?)_seg\d+$")
 _ARTIFACT_SUFFIXES = ("_voiceover", "_transcript", "_labeled")
 
 
@@ -61,9 +60,9 @@ def _stem_variants(stem: str, *, include_segment_base: bool = False) -> set[str]
         variants.add(m.group(1))
     if include_segment_base:
         for value in list(variants):
-            m = _SEGMENT_SUFFIX_RE.match(value)
-            if m:
-                variants.add(m.group(1))
+            stripped = SEGMENT_SUFFIX_RE.sub("", value)
+            if stripped != value:
+                variants.add(stripped)
     return variants
 
 

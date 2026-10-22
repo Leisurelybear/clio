@@ -14,7 +14,7 @@ from typing import Any
 
 from clio.asr.readiness import check_asr_ready
 from clio.config import AppConfig
-from clio.identity import _identity_to_dict, resolve_identity
+from clio.identity import SEGMENT_SUFFIX_RE, _identity_to_dict, resolve_identity
 from clio.log import format_duration
 from clio.processing_state import ProcessingState
 from clio.progress import ProgressTracker
@@ -62,12 +62,7 @@ def _extract_orig_stem(compressed_stem: str) -> str:
         _, orig_stem = compressed_stem.split("_", 1)
     else:
         orig_stem = compressed_stem
-    return re.sub(r"_seg\d+$", "", orig_stem)
-    if "_" in compressed_stem:
-        _, orig_stem = compressed_stem.split("_", 1)
-    else:
-        orig_stem = compressed_stem
-    return re.sub(r"_seg\d+$", "", orig_stem)
+    return SEGMENT_SUFFIX_RE.sub("", orig_stem)
 
 
 def _build_original_stem_map(project_dir: Path | None = None) -> dict[str, Path]:

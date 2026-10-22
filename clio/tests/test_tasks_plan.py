@@ -185,6 +185,29 @@ class TestPlanSourceInputs:
         assert result is not None
         assert result["source_inputs"] == [{"index": "001", "source_stem": "A"}]
 
+    def test_legacy_part_transcript_matches_original_stem(self, cfg: AppConfig):
+        from clio.tasks.plan import run_plan_vlog
+
+        _write_text(cfg, "001_A.json", "GL010683", 1)
+        cfg.global_cfg.whisper.enabled = True
+        cfg.project_cfg.plan.use_transcripts = True
+        transcript_dir = cfg.transcripts_dir
+        transcript_dir.mkdir(parents=True)
+        (transcript_dir / "001_GL010683_part02_transcript.json").write_text(
+            json.dumps({"source_stem": "001_GL010683_part02", "segments": []}),
+            encoding="utf-8",
+        )
+        captured = {}
+
+        def _fake(clips, config, day_label="day1", **kwargs):
+            captured["transcripts"] = kwargs.get("transcripts_map")
+            return _fake_plan_payload(clips)
+
+        with patch("clio.tasks.plan.plan_daily_vlog", side_effect=_fake):
+            run_plan_vlog(cfg, day_label="day1", overwrite=True)
+
+        assert "gl010683" in captured["transcripts"]
+
     def test_ai_supplied_source_inputs_are_overwritten(self, cfg: AppConfig):
         from clio.tasks.plan import run_plan_vlog
 

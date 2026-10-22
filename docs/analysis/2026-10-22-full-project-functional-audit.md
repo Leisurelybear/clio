@@ -68,6 +68,7 @@ mypy --check-untyped-defs --show-error-codes
 | A-06 | 高 | 已修复 | 显式 `-p`/`-i` 指向不存在目录时静默回退 cwd，可能把产物写到错误位置 | 提前校验显式路径；错误返回 2，单文件命令仍允许文件 `-i` |
 | A-07 | 高 | 已修复 | wheel 未携带首次运行所需的 `config.example.yaml` 与默认模板 | 新增 `share/clio` 资源布局、统一资源查找，并做 wheel 安装/首次生成实测 |
 | A-08 | 中 | 已修复 | 自定义 `-c /other/config.yaml` 且未给 `-p` 时，强制 cwd 为项目目录，忽略同目录 project.yaml | 改为仅在显式/有效目录时覆盖 project_dir |
+| A-09 | 中 | 已修复 | 选片、转录、规划仍只剥离 `_segNN`，其他 legacy 分段会错配或丢失转录 | 任务层统一复用 `SEGMENT_SUFFIX_RE`，移除重复死代码 |
 
 ## 5. 优化 backlog
 
@@ -90,7 +91,8 @@ mypy --check-untyped-defs --show-error-codes
 | `89cc29c` | `fix(config): protect built-in providers from deletion` | `test_routes_config.py` 47 passed；Ruff 通过 |
 | `be627a7` | `fix(cli): reject invalid explicit project paths` | `test_main.py` 19 passed；Ruff 通过 |
 | `0b241ba` | `fix(cli): honor sibling project config` | `test_main.py` 20 passed；Ruff 通过 |
-| 待填 | `fix(packaging): bundle first-run config and templates` | 138 related tests passed；wheel 安装及首次配置生成实测通过 |
+| `37bcd3e` | `fix(packaging): bundle first-run config and templates` | 138 related tests passed；wheel 安装及首次配置生成实测通过 |
+| 待填 | `fix(tasks): strip all legacy split suffixes` | 65 related tests passed；Ruff 通过 |
 
 ## 7. 未实机验证项
 

@@ -66,6 +66,12 @@ class TestTmpSafety:
 
         assert _cleanup_stale_audio_tmp(tmp_path / "nope") == 0
 
+    @pytest.mark.parametrize("suffix", ["seg01", "part02", "pt03", "chunk04"])
+    def test_extract_orig_stem_strips_all_legacy_suffixes(self, suffix):
+        from clio.tasks.transcribe import _extract_orig_stem
+
+        assert _extract_orig_stem(f"001_GL010683_{suffix}") == "GL010683"
+
     def test_extract_rejects_insufficient_space(self, tmp_path):
         from types import SimpleNamespace
 
