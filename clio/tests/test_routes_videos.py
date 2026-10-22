@@ -825,6 +825,10 @@ class TestHandlePutVideosRelink:
         handle_put_videos_relink(handler, {}, {})
         handler._send_json.assert_called_once_with({"ok": False, "error": "需要提供 old_path 和 new_path"}, 400)
 
+    def test_non_string_paths_return_400(self, handler):
+        handle_put_videos_relink(handler, {}, {"old_path": 1, "new_path": None})
+        handler._send_json.assert_called_once_with({"ok": False, "error": "需要提供 old_path 和 new_path"}, 400)
+
     def test_new_path_not_exist(self, handler):
         handle_put_videos_relink(handler, {}, {"old_path": "/old/v.mp4", "new_path": "/new/v.mp4"})
         resp = handler._send_json.call_args.args[0]

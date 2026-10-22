@@ -789,17 +789,24 @@ def handle_put_videos_relink(handler: HandlerProtocol, qs: dict[str, Any], obj: 
     proj_dir = handler._resolve_project_dir(qs)
     old_path = obj.get("old_path")
     new_path = obj.get("new_path")
+    if not isinstance(old_path, str) or not isinstance(new_path, str):
+        return handler._send_json({"ok": False, "error": "需要提供 old_path 和 new_path"}, 400)
+    old_path = old_path.strip()
+    new_path = new_path.strip()
     if not old_path or not new_path:
         return handler._send_json({"ok": False, "error": "需要提供 old_path 和 new_path"}, 400)
     new = Path(new_path).expanduser()
     try:
         resolved = new.resolve()
-    except OSError:
+    except (OSError, ValueError):
         return handler._send_json({"ok": False, "error": f"无法解析新路径: {new_path}"}, 400)
     if not resolved.is_file() or resolved.suffix.lower() not in VIDEO_EXTS:
         return handler._send_json({"ok": False, "error": f"新路径不是有效的视频文件: {new_path}"}, 400)
     videos = load_selected_videos(proj_dir)
-    old_str = str(Path(old_path).expanduser().resolve())
+    try:
+        old_str = str(Path(old_path).expanduser().resolve())
+    except (OSError, ValueError):
+        old_str = old_path
     matched_idx = None
     for idx, v in enumerate(videos):
         try:
