@@ -2,8 +2,12 @@ import { state } from './state.js';
 import { api } from './api.js';
 import { escapeHtml } from './utils.js';
 import { initDesktopNotificationBridge } from './desktop-notify.js';
+import { onLocaleChange, t } from './i18n.js';
 
-const SEVERITY_LABELS = { info: '信息', success: '完成', warning: '警告', error: '错误' };
+const SEVERITIES = ['info', 'success', 'warning', 'error'];
+function severityLabel(severity) {
+  return SEVERITIES.includes(severity) ? t(`notifications.severity.${severity}`) : '';
+}
 const PAGE_SIZE = 100;
 const _seenNotificationIds = new Set();
 let _stream = null;
@@ -121,7 +125,9 @@ function _render() {
   const panel = document.getElementById('notification-panel');
   const button = document.getElementById('btn-notifications');
   if (button) {
-    button.setAttribute('aria-label', state.notificationUnread ? `通知中心，有 ${state.notificationUnread} 条未读` : '通知中心');
+    button.setAttribute('aria-label', state.notificationUnread
+      ? t('notifications.unread_count', { count: state.notificationUnread })
+      : t('notifications.title'));
     button.setAttribute('aria-expanded', panel && !panel.hidden ? 'true' : 'false');
     button.classList.toggle('has-unread', state.notificationUnread > 0);
     const badge = button.querySelector('.notification-badge');
@@ -133,18 +139,18 @@ function _render() {
   if (!panel || panel.hidden) return;
   const rows = state.notifications.map(_row).join('');
   const footer = _loadingMore
-    ? '<p class="notification-loading">加载中…</p>'
+    ? `<p class="notification-loading">${escapeHtml(t('notifications.loading'))}</p>`
     : _hasMore
-      ? '<button type="button" class="notification-load-more">加载更多</button>'
+      ? `<button type="button" class="notification-load-more">${escapeHtml(t('notifications.load_more'))}</button>`
       : '';
-  panel.innerHTML = `<div class="notification-panel-head"><strong>通知中心</strong>
-    <button type="button" class="btn-link notification-read-all" ${state.notificationUnread ? '' : 'disabled'}>全部已读</button></div>
+  panel.innerHTML = `<div class="notification-panel-head"><strong>${escapeHtml(t('notifications.title'))}</strong>
+    <button type="button" class="btn-link notification-read-all" ${state.notificationUnread ? '' : 'disabled'}>${escapeHtml(t('notifications.mark_all_read'))}</button></div>
     <div class="notification-filters" role="tablist">
-      <button type="button" data-filter="all" aria-selected="${_filter === 'all'}" class="${_filter === 'all' ? 'active' : ''}">全部</button>
-      <button type="button" data-filter="unread" aria-selected="${_filter === 'unread'}" class="${_filter === 'unread' ? 'active' : ''}">未读</button>
-      <button type="button" data-filter="attention" aria-selected="${_filter === 'attention'}" class="${_filter === 'attention' ? 'active' : ''}">警告/错误</button>
+      <button type="button" data-filter="all" aria-selected="${_filter === 'all'}" class="${_filter === 'all' ? 'active' : ''}">${escapeHtml(t('notifications.filter.all'))}</button>
+      <button type="button" data-filter="unread" aria-selected="${_filter === 'unread'}" class="${_filter === 'unread' ? 'active' : ''}">${escapeHtml(t('notifications.filter.unread'))}</button>
+      <button type="button" data-filter="attention" aria-selected="${_filter === 'attention'}" class="${_filter === 'attention' ? 'active' : ''}">${escapeHtml(t('notifications.filter.attention'))}</button>
     </div>
-    <div class="notification-list">${_loading ? '<p class="notification-loading">加载中…</p>' : rows || '<p class="notification-empty">暂无通知</p>'}</div>${footer}`;
+    <div class="notification-list">${_loading ? `<p class="notification-loading">${escapeHtml(t('notifications.loading'))}</p>` : rows || `<p class="notification-empty">${escapeHtml(t('notifications.empty'))}</p>`}</div>${footer}`;
   panel.querySelector('.notification-read-all')?.addEventListener('click', markAllRead);
   panel.querySelector('.notification-load-more')?.addEventListener('click', () => {
     void loadNotifications({ append: true });
@@ -175,11 +181,11 @@ function _row(notification) {
   const project = notification.project_name ? ` · ${notification.project_name}` : '';
   const readBtn = notification.read_at
     ? ''
-    : `<button type="button" class="notification-read-one" data-read-id="${escapeHtml(notification.id)}" title="标记已读" aria-label="标记已读">✓</button>`;
+    : `<button type="button" class="notification-read-one" data-read-id="${escapeHtml(notification.id)}" title="${escapeHtml(t('notifications.mark_read'))}" aria-label="${escapeHtml(t('notifications.mark_read'))}">✓</button>`;
   return `<div class="notification-row notification-${escapeHtml(severity)}${unread}" data-notification-id="${escapeHtml(notification.id)}">
     <span class="notification-row-icon" aria-hidden="true">${severity === 'success' ? '✓' : severity === 'error' ? '!' : severity === 'warning' ? '!' : 'i'}</span>
-    <span class="notification-row-copy"><strong>${escapeHtml(notification.title || SEVERITY_LABELS[severity] || '通知')}</strong>
-      <span>${escapeHtml(notification.message || '')}</span><small>${escapeHtml(SEVERITY_LABELS[severity] || severity)}${escapeHtml(project)} · ${escapeHtml(_time(notification.created_at))}</small></span>
+    <span class="notification-row-copy"><strong>${escapeHtml(notification.title || severityLabel(severity) || t('notifications.default_title'))}</strong>
+      <span>${escapeHtml(notification.message || '')}</span><small>${escapeHtml(severityLabel(severity) || severity)}${escapeHtml(project)} · ${escapeHtml(_time(notification.created_at))}</small></span>
     ${readBtn}</div>`;
 }
 
@@ -262,7 +268,7 @@ function _contextLink(overrides = {}) {
 export async function registerNotification({
   message,
   severity = 'info',
-  title = '通知',
+  title = null,
   sourceType = 'ui',
   sourceId = null,
   taskId = null,
@@ -273,6 +279,7 @@ export async function registerNotification({
   projectDir = null,
 } = {}) {
   if (!message) return null;
+  const resolvedTitle = title || t('notifications.default_title');
   const effectiveProjectName = projectName ?? state.currentProjectName;
   const effectiveProjectDir = projectDir ?? state.currentProjectDir;
   const isUiMessage = sourceType === 'ui' || sourceType === 'ui_toast' || sourceType === 'ui_status';
@@ -281,7 +288,7 @@ export async function registerNotification({
     ? `ui:${severity}:${scope}:${String(message).slice(0, 180)}:${Math.floor(Date.now() / 5_000)}`
     : null);
   const payload = {
-    message: String(message).slice(0, 4_000), severity, title: String(title).slice(0, 200), source_type: sourceType,
+    message: String(message).slice(0, 4_000), severity, title: String(resolvedTitle).slice(0, 200), source_type: sourceType,
     source_id: sourceId || _notificationId(), task_id: taskId,
     link: link || _contextLink({ projectName: effectiveProjectName, projectDir: effectiveProjectDir }),
     dedupe_key: _dedupeKey(effectiveDedupeKey), data,
@@ -374,7 +381,8 @@ export function initNotificationCenter() {
   });
   window.addEventListener('clio:notification-created', _render);
   initDesktopNotificationBridge();
+  onLocaleChange(() => _render());
   void loadNotifications().finally(_startStream);
 }
 
-export { SEVERITY_LABELS, _contextLink };
+export { severityLabel, _contextLink };

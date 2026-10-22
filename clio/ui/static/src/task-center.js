@@ -2,15 +2,10 @@ import { state } from './state.js';
 import { $, escapeHtml, setStatus } from './utils.js';
 import { api } from './api.js';
 import { addToast } from './toast.js';
+import { onLocaleChange, t } from './i18n.js';
 
-const STATUS_LABELS = {
-  queued: '排队中', running: '运行中', succeeded: '已完成', failed: '失败',
-  cancelling: '取消中', cancelled: '已取消', interrupted: '已中断',
-};
-const KIND_LABELS = {
-  pipeline: '流水线', rerun: '重跑', cut_export: '裁剪导出',
-  export: '剪映草稿导出', whisper_install: 'Whisper 安装', ffmpeg_install: 'FFmpeg 安装', waveform: '波形生成',
-};
+const STATUS_KEYS = ['queued', 'running', 'succeeded', 'failed', 'cancelling', 'cancelled', 'interrupted'];
+const KIND_KEYS = ['pipeline', 'rerun', 'cut_export', 'export', 'whisper_install', 'ffmpeg_install', 'waveform'];
 const ACTIVE = new Set(['queued', 'running', 'cancelling']);
 const TERMINAL = new Set(['succeeded', 'failed', 'cancelled', 'interrupted']);
 let _stream = null;
@@ -19,8 +14,12 @@ let _detailRequest = 0;
 const _eventListeners = new Set();
 const _taskEventSeq = new Map();
 
-export function statusLabel(status) { return STATUS_LABELS[status] || status || '未知'; }
-export function kindLabel(kind) { return KIND_LABELS[kind] || kind || '任务'; }
+export function statusLabel(status) {
+  return STATUS_KEYS.includes(status) ? t(`task.status.${status}`) : (status || t('task.unknown'));
+}
+export function kindLabel(kind) {
+  return KIND_KEYS.includes(kind) ? t(`task.kind.${kind}`) : (kind || t('task.fallback_kind'));
+}
 export function statusGroup(status) {
   if (ACTIVE.has(status)) return 'active';
   if (status === 'failed' || status === 'interrupted') return 'failed';
@@ -59,7 +58,7 @@ export function filterTasks(tasks, filters = state.taskFilters) {
   return (tasks || []).filter(task => {
     if (filters.status !== 'all' && statusGroup(task.status) !== filters.status) return false;
     if (filters.kind !== 'all' && task.kind !== filters.kind) return false;
-    if (filters.project !== 'all' && (task.project_name || task.project_id || '未命名') !== filters.project) return false;
+    if (filters.project !== 'all' && (task.project_name || task.project_id || t('task.unnamed')) !== filters.project) return false;
     return true;
   });
 }
@@ -80,7 +79,7 @@ function _taskRow(task) {
   const selected = task.id === state.selectedTaskId ? ' selected' : '';
   const status = task.status || 'unknown';
   const pct = Number.isFinite(task.progress_pct) ? `${Math.round(task.progress_pct)}%` : '';
-  const project = task.project_name || task.project_id || '全局';
+  const project = task.project_name || task.project_id || t('task.global');
   return `<button type="button" class="task-row${selected}" data-task-id="${escapeHtml(task.id)}">
     <span class="task-row-main"><strong>${escapeHtml(task.title || kindLabel(task.kind))}</strong>
       <span class="task-row-meta">${escapeHtml(kindLabel(task.kind))} · ${escapeHtml(project)}</span></span>
@@ -90,41 +89,41 @@ function _taskRow(task) {
 }
 
 function _detailHtml(detail) {
-  if (!detail) return '<p class="muted task-empty-detail">选择一个任务查看详情</p>';
+  if (!detail) return `<p class="muted task-empty-detail">${t('task.empty_detail')}</p>`;
   const task = detail.task || detail;
   const events = detail.events || [];
   const canCancel = task.cancellable && ACTIVE.has(task.status) && !task.cancel_requested;
   const canRetry = isTaskRetryable(task);
   const retryBlocked = task.input_summary?.retryable === false && TERMINAL.has(task.status);
   const retryNote = retryBlocked
-    ? `<p class="muted">${escapeHtml(task.input_summary.retry_blocked_reason || '此任务包含临时运行输入，无法安全重试。')}</p>`
+    ? `<p class="muted">${escapeHtml(task.input_summary.retry_blocked_reason || t('task.retry_blocked'))}</p>`
     : '';
-  const error = task.error_message ? `<div class="task-error"><strong>错误：</strong>${escapeHtml(task.error_message)}</div>` : '';
+  const error = task.error_message ? `<div class="task-error"><strong>${escapeHtml(t('task.error_label'))}</strong>${escapeHtml(task.error_message)}</div>` : '';
   const timeline = events.length
     ? events.slice().reverse().map(event => `<li class="task-event task-event-${escapeHtml(event.level || 'info')}">
       <time>${escapeHtml(_time(event.created_at))}</time><span>${escapeHtml(event.message || event.type || '')}</span></li>`).join('')
-    : '<li class="muted">暂无事件</li>';
+    : `<li class="muted">${t('task.no_events')}</li>`;
   return `<div class="task-detail-head"><div><h3>${escapeHtml(task.title || kindLabel(task.kind))}</h3>
-    <div class="task-detail-sub">${escapeHtml(kindLabel(task.kind))} · ${escapeHtml(task.project_name || task.project_id || '全局')} · ${escapeHtml(statusLabel(task.status))}</div></div>
-    <div class="task-detail-actions">${canCancel ? '<button class="btn-secondary task-cancel">取消</button>' : ''}${canRetry ? '<button class="btn-primary task-retry">重试</button>' : ''}</div></div>
+    <div class="task-detail-sub">${escapeHtml(kindLabel(task.kind))} · ${escapeHtml(task.project_name || task.project_id || t('task.global'))} · ${escapeHtml(statusLabel(task.status))}</div></div>
+    <div class="task-detail-actions">${canCancel ? `<button class="btn-secondary task-cancel">${t('common.cancel')}</button>` : ''}${canRetry ? `<button class="btn-primary task-retry">${t('common.retry')}</button>` : ''}</div></div>
     ${_progress(task)}<div class="task-phase">${escapeHtml(task.phase || task.message || '')}</div>${error}${retryNote}
-    <dl class="task-meta-grid"><dt>创建</dt><dd>${escapeHtml(_time(task.created_at))}</dd><dt>开始</dt><dd>${escapeHtml(_time(task.started_at))}</dd><dt>结束</dt><dd>${escapeHtml(_time(task.finished_at))}</dd><dt>任务 ID</dt><dd class="mono">${escapeHtml(task.id)}</dd></dl>
-    <h4>执行事件</h4><ol class="task-events">${timeline}</ol>`;
+    <dl class="task-meta-grid"><dt>${t('task.created')}</dt><dd>${escapeHtml(_time(task.created_at))}</dd><dt>${t('task.started')}</dt><dd>${escapeHtml(_time(task.started_at))}</dd><dt>${t('task.finished')}</dt><dd>${escapeHtml(_time(task.finished_at))}</dd><dt>${t('task.id_label')}</dt><dd class="mono">${escapeHtml(task.id)}</dd></dl>
+    <h4>${t('task.events')}</h4><ol class="task-events">${timeline}</ol>`;
 }
 
 function _render() {
   const pane = $('tab-tasks');
   if (!pane) return;
   const filtered = filterTasks(state.tasks);
-  const projects = [...new Set(state.tasks.map(task => task.project_name || task.project_id || '未命名'))].sort();
+  const projects = [...new Set(state.tasks.map(task => task.project_name || task.project_id || t('task.unnamed')))].sort();
   const activeCount = state.tasks.filter(task => ACTIVE.has(task.status)).length;
-  const projectOptions = ['<option value="all">所有项目</option>', ...projects.map(project => `<option value="${escapeHtml(project)}" ${state.taskFilters.project === project ? 'selected' : ''}>${escapeHtml(project)}</option>`)].join('');
-  const kindOptions = ['<option value="all">所有类型</option>', ...Object.entries(KIND_LABELS).map(([key, label]) => `<option value="${key}" ${state.taskFilters.kind === key ? 'selected' : ''}>${label}</option>`)].join('');
-  pane.innerHTML = `<div class="task-center-toolbar"><div class="task-center-title">任务中心 ${activeCount ? `<span class="task-count-badge">${activeCount}</span>` : ''}</div>
-    <select class="task-filter-status"><option value="all">全部状态</option><option value="active">进行中</option><option value="failed">失败/中断</option><option value="done">已完成</option></select>
+  const projectOptions = [`<option value="all">${t('task.filter.all_projects')}</option>`, ...projects.map(project => `<option value="${escapeHtml(project)}" ${state.taskFilters.project === project ? 'selected' : ''}>${escapeHtml(project)}</option>`)].join('');
+  const kindOptions = [`<option value="all">${t('task.filter.all_kinds')}</option>`, ...KIND_KEYS.map(key => `<option value="${key}" ${state.taskFilters.kind === key ? 'selected' : ''}>${escapeHtml(kindLabel(key))}</option>`)].join('');
+  pane.innerHTML = `<div class="task-center-toolbar"><div class="task-center-title">${t('task.center_title')} ${activeCount ? `<span class="task-count-badge">${activeCount}</span>` : ''}</div>
+    <select class="task-filter-status"><option value="all">${t('task.filter.status_all')}</option><option value="active">${t('task.filter.status_active')}</option><option value="failed">${t('task.filter.status_failed')}</option><option value="done">${t('task.filter.status_done')}</option></select>
     <select class="task-filter-kind">${kindOptions}</select><select class="task-filter-project">${projectOptions}</select>
-    <button type="button" class="btn-secondary task-refresh">刷新</button></div>
-    <div class="task-center-layout"><div class="task-list">${filtered.length ? filtered.map(_taskRow).join('') : '<p class="muted task-empty">暂无任务</p>'}</div><section class="task-detail">${_detailHtml(state.taskDetail)}</section></div>`;
+    <button type="button" class="btn-secondary task-refresh">${t('common.refresh')}</button></div>
+    <div class="task-center-layout"><div class="task-list">${filtered.length ? filtered.map(_taskRow).join('') : `<p class="muted task-empty">${t('task.empty')}</p>`}</div><section class="task-detail">${_detailHtml(state.taskDetail)}</section></div>`;
   pane.querySelector('.task-filter-status').value = state.taskFilters.status;
   pane.querySelector('.task-filter-status').onchange = event => { state.taskFilters.status = event.target.value; _render(); };
   pane.querySelector('.task-filter-kind').onchange = event => { state.taskFilters.kind = event.target.value; _render(); };
@@ -155,7 +154,7 @@ export async function loadTasks() {
     _updateNavBadge();
     _render();
   } catch (error) {
-    setStatus(`任务加载失败: ${error.message}`, 'err');
+    setStatus(t('task.load_failed', { detail: error.message }), 'err');
   }
 }
 
@@ -169,7 +168,7 @@ export async function selectTask(taskId) {
     if (request !== _detailRequest) return;
     state.taskDetail = result;
     _render();
-  } catch (error) { setStatus(`任务详情加载失败: ${error.message}`, 'err'); }
+  } catch (error) { setStatus(t('task.detail_load_failed', { detail: error.message }), 'err'); }
 }
 
 /** Fetch one task snapshot for consumers that may subscribe after a fast task finished. */
@@ -192,10 +191,13 @@ async function mutateTask(action) {
       const events = action === 'retry' ? [] : (state.taskDetail?.events || []);
       state.taskDetail = { task: result.task, events };
     }
-    addToast(action === 'cancel' ? '已发送取消请求' : '已创建重试任务', 'success');
+    addToast(action === 'cancel' ? t('task.cancel_requested') : t('task.retry_created'), 'success');
     await loadTasks();
     await selectTask(targetId);
-  } catch (error) { addToast(`${action === 'cancel' ? '取消' : '重试'}失败: ${error.message}`, 'error', 6000); }
+  } catch (error) {
+    const actionLabel = action === 'cancel' ? t('common.cancel') : t('common.retry');
+    addToast(t('task.action_failed', { action: actionLabel, detail: error.message }), 'error', 6000);
+  }
 }
 
 export function startTaskStream() {
@@ -305,4 +307,8 @@ export function renderTasks() {
   if (!state.tasks.length) loadTasks();
 }
 
-export { STATUS_LABELS, KIND_LABELS };
+onLocaleChange(() => {
+  if (state.currentEntity === 'tasks') _render();
+});
+
+export { STATUS_KEYS, KIND_KEYS };

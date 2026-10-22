@@ -1,5 +1,6 @@
 import { escapeHtml } from './utils.js';
 import { registerNotification } from './notification-center.js';
+import { t } from './i18n.js';
 
 const MAX_VISIBLE = 3;
 const DEFAULT_DURATIONS = {
@@ -37,7 +38,7 @@ function addToast(message, type = 'info', duration, options = {}) {
     notificationPromise = registerNotification({
       message,
       severity: notificationSeverity,
-      title: options.title || '通知',
+      title: options.title || t('notifications.default_title'),
       sourceType: options.sourceType || 'ui_toast',
       sourceId: options.sourceId,
       taskId: options.taskId,
@@ -58,7 +59,7 @@ function addToast(message, type = 'info', duration, options = {}) {
   toast.innerHTML = `
     <span class="toast-icon">${icons[type] || 'i'}</span>
     <span class="toast-message">${escapeHtml(message)}</span>
-    <button class="toast-close" type="button" aria-label="关闭">&times;</button>
+    <button class="toast-close" type="button" aria-label="${escapeHtml(t('common.close'))}">&times;</button>
   `;
 
   toast.querySelector('.toast-close').onclick = () => removeToast(toast);

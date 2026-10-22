@@ -1,13 +1,14 @@
 import { registerNotification } from './notification-center.js';
 import { state } from './state.js';
+import { hasKey, onLocaleChange, t } from './i18n.js';
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '']);
 const WARNING_STATE_KEY = 'clio.runtime-warning-state.v1';
-const TASK_LABELS = {
-  video_analyze: '视频分析',
-  voiceover: '口播文案',
-  vlog_plan: '剪辑规划',
-};
+
+function taskLabel(name) {
+  const key = `settings.task.label.${name}`;
+  return hasKey(key) ? t(key) : name;
+}
 
 function isLocalHost(hostname) {
   return LOCAL_HOSTS.has(String(hostname || '').toLowerCase());
@@ -64,30 +65,30 @@ function buildRuntimeWarnings({
     warnings.push({
       id: 'debug-prompt',
       level: 'warning',
-      text: 'ai.debug_print_prompt=true：AI 调用会把完整 prompt 写入日志/控制台，可能包含行程上下文或临时指令。',
+      text: t('runtime.warn.debug_prompt'),
     });
   }
 
   if (Array.isArray(unboundTasks) && unboundTasks.length > 0) {
     const names = unboundTasks
-      .map((name) => TASK_LABELS[name] || name)
+      .map((name) => taskLabel(name))
       .filter(Boolean)
-      .join('、');
+      .join(t('runtime.list_separator'));
     warnings.push({
       id: 'ai-tasks-unbound',
       level: 'danger',
-      text: `AI 任务尚未绑定 Provider/模型（${names}）。请在“全局 → AI 默认任务绑定”中选择 Provider/模型（项目内仍可覆盖），再配置对应的 API Key。`,
-      action: { id: 'go-settings-tasks', label: '去全局绑定' },
+      text: t('runtime.warn.ai_tasks_unbound', { names }),
+      action: { id: 'go-settings-tasks', label: t('runtime.action.go_global_binding') },
     });
   }
 
   if (Array.isArray(missingKeys) && missingKeys.length > 0) {
-    const names = missingKeys.map((k) => k.provider || '').filter(Boolean).join('、');
+    const names = missingKeys.map((k) => k.provider || '').filter(Boolean).join(t('runtime.list_separator'));
     warnings.push({
       id: 'deps-keys-missing',
       level: 'danger',
-      text: `AI 任务缺少 API 密钥（${names}）。请在设置 → Provider 中配置密钥，否则 AI 任务会失败。`,
-      action: { id: 'go-settings-keys', label: '去设置' },
+      text: t('runtime.warn.deps_keys_missing', { names }),
+      action: { id: 'go-settings-keys', label: t('runtime.action.go_settings') },
     });
   }
 
@@ -96,13 +97,13 @@ function buildRuntimeWarnings({
       warnings.push({
         id: 'lan-host',
         level: 'warning',
-        text: `当前通过 ${hostname} 访问 UI，服务可能暴露在局域网内。`,
+        text: t('runtime.warn.lan_host', { hostname }),
       });
     } else {
       warnings.push({
         id: 'lan-no-token',
         level: 'danger',
-        text: `当前通过 ${hostname} 访问 UI，且浏览器没有 API token。建议启用 token 后再在局域网访问。`,
+        text: t('runtime.warn.lan_no_token', { hostname }),
       });
     }
   }
@@ -113,15 +114,15 @@ function buildRuntimeWarnings({
       .slice(0, 3)
       .map((o) => o.name || o.target || '')
       .filter(Boolean)
-      .join('、');
-    const more = orphans.length > 3 ? ` 等 ${orphans.length} 个` : '';
+      .join(t('runtime.list_separator'));
+    const more = orphans.length > 3 ? ` ${t('runtime.warn.orphan_more', { count: orphans.length })}` : '';
     warnings.push({
       id: 'cut-orphaned-bak',
       level: 'warning',
-      text:
-        `检测到未完成的裁剪覆盖备份（*.clio_bak）${sample ? `：${sample}${more}` : `（${orphans.length} 个）`}。` +
-        '中断的重剪可能留下旧文件备份；可一键恢复为覆盖前的视频。',
-      action: { id: 'restore-cut-backups', label: '恢复旧文件' },
+      text: sample
+        ? t('runtime.warn.cut_orphaned_bak_sample', { sample: `${sample}${more}` })
+        : t('runtime.warn.cut_orphaned_bak_count', { count: orphans.length }),
+      action: { id: 'restore-cut-backups', label: t('runtime.action.restore_backups') },
     });
   }
 
@@ -129,18 +130,19 @@ function buildRuntimeWarnings({
     warnings.push({
       id: 'ffmpeg-missing',
       level: 'warning',
-      text:
-        ffmpegDeps.detail ||
-        '未找到 ffmpeg/ffprobe。压缩 / 裁剪 / 转录抽音 / 波形等功能不可用。请安装 ffmpeg 或配置 paths.ffmpeg。',
-      action: { id: 'show-ffmpeg-help', label: '如何安装' },
+      text: ffmpegDeps.detail || t('runtime.warn.ffmpeg_missing'),
+      action: { id: 'show-ffmpeg-help', label: t('runtime.action.how_to_install') },
     });
   }
 
   return warnings;
 }
 
+let _lastRender = null;
+
 function renderRuntimeWarnings(container, warnings, handlers = {}) {
   if (!container) return;
+  _lastRender = { container, warnings, handlers };
   container.replaceChildren();
   container.hidden = warnings.length === 0;
   for (const warning of warnings) {
@@ -157,7 +159,7 @@ function renderRuntimeWarnings(container, warnings, handlers = {}) {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'runtime-warning-action';
-      btn.textContent = warning.action.label || '处理';
+      btn.textContent = warning.action.label || t('runtime.action.default');
       btn.dataset.actionId = warning.action.id;
       btn.addEventListener('click', (e) => {
         e.preventDefault();
@@ -192,7 +194,7 @@ function updateRuntimeWarnings(config, opts = {}) {
     registerNotification({
       message: warning.text,
       severity: warning.level === 'danger' ? 'error' : 'warning',
-      title: '运行环境提醒',
+      title: t('runtime.warn.title'),
       sourceType: 'runtime_warning',
       sourceId: `${warning.id}:${occurrence}`,
       dedupeKey: `runtime-warning:${warningScope()}:${warning.id}:${occurrence}:${warning.text}`,
@@ -204,5 +206,11 @@ function updateRuntimeWarnings(config, opts = {}) {
   });
   renderRuntimeWarnings(container, warnings, { onAction: opts.onAction });
 }
+
+onLocaleChange(() => {
+  if (_lastRender?.container) {
+    renderRuntimeWarnings(_lastRender.container, _lastRender.warnings, _lastRender.handlers);
+  }
+});
 
 export { buildRuntimeWarnings, renderRuntimeWarnings, updateRuntimeWarnings, warningOccurrences };
