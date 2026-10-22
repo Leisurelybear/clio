@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from clio.asr.base import ProviderCapabilities, TranscriptionProvider
+from clio.i18n import t
 
 _PROVIDERS: dict[str, Any] = {}
 
@@ -21,9 +22,9 @@ def list_providers() -> list[ProviderCapabilities]:
 
 def build_provider(engine_id: str, config) -> TranscriptionProvider:
     if not engine_id:
-        raise RuntimeError("ASR engine 未配置，请在 whisper.engine 中指定")
+        raise RuntimeError(t("asr.factory.engine_not_configured"))
     cls = _PROVIDERS.get(engine_id)
     if cls is None:
-        available = ", ".join(sorted(_PROVIDERS)) or "无"
-        raise RuntimeError(f"未知的 ASR engine: {engine_id}，当前可用: {available}")
+        available = ", ".join(sorted(_PROVIDERS)) or t("asr.factory.none")
+        raise RuntimeError(t("asr.factory.unknown_engine", {"engine": engine_id, "available": available}))
     return cls(config)

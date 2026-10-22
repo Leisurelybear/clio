@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TypedDict
 
 from clio import session_log as _session_log
+from clio.i18n import t
 from clio.schema import ARTIFACT_SCHEMA_VERSION
 
 
@@ -72,7 +73,7 @@ class ProgressTracker:
             if tmp is not None:
                 tmp.unlink(missing_ok=True)
             if not self._write_failed:
-                print(f"[进度] 无法写入 {self._path}: {e}")
+                print(t("progress.write_failed", {"path": self._path, "detail": e}))
                 self._write_failed = True
 
     def update(
@@ -129,13 +130,15 @@ class ProgressTracker:
         _session_log.write(line)
 
     def done(self, message: str = "") -> None:
-        self.update(phase="done", current=0, total=0, message=message or "完成", status="done")
-        self.log("✓ " + (message or "完成"))
+        self.update(phase="done", current=0, total=0, message=message or t("progress.done"), status="done")
+        self.log("✓ " + (message or t("progress.done")))
 
     def error(self, message: str) -> None:
         self.update(status="error", message=message)
         self.log("✗ " + message)
 
     def cancelled(self, message: str = "") -> None:
-        self.update(phase="cancelled", current=0, total=0, message=message or "已取消", status="cancelled")
-        self.log("⏹ " + (message or "已取消"))
+        self.update(
+            phase="cancelled", current=0, total=0, message=message or t("progress.cancelled"), status="cancelled"
+        )
+        self.log("⏹ " + (message or t("progress.cancelled")))

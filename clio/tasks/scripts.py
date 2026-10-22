@@ -13,6 +13,7 @@ from typing import Any
 from clio.ai.token_usage import FileTokenUsageStore
 from clio.analyze import generate_voiceover
 from clio.config import AppConfig
+from clio.i18n import t
 from clio.log import timed
 from clio.processing_state import ProcessingState
 from clio.progress import ProgressTracker
@@ -106,8 +107,8 @@ def _process_one_script(
             if existing.get("_lineage") == current:
                 state.mark(orig_stem, "voiceover", "skipped")
                 if tracker:
-                    tracker.next(message=f"跳过 {json_file.stem}")
-                    tracker.log(f"跳过 {json_file.stem}（已存在）")
+                    tracker.next(message=t("task.scripts.skip_next", {"name": json_file.stem}))
+                    tracker.log(t("task.scripts.skip_exists_log", {"name": json_file.stem}))
                 return False
             if existing.get("_lineage") is None:
                 # Legacy cache without lineage: accept it (best effort) by
@@ -116,13 +117,13 @@ def _process_one_script(
                 write_json_atomic(out, existing)
                 state.mark(orig_stem, "voiceover", "skipped")
                 if tracker:
-                    tracker.next(message=f"跳过 {json_file.stem}")
-                    tracker.log(f"跳过 {json_file.stem}（已存在）")
+                    tracker.next(message=t("task.scripts.skip_next", {"name": json_file.stem}))
+                    tracker.log(t("task.scripts.skip_exists_log", {"name": json_file.stem}))
                 return False
             # Mismatched provider/prompt: regenerate below.
 
     if tracker:
-        tracker.next(message=f"生成口播 {json_file.stem}")
+        tracker.next(message=t("task.scripts.next", {"name": json_file.stem}))
     script = generate_voiceover(
         data,
         template,
@@ -139,13 +140,15 @@ def _process_one_script(
     write_json_atomic(out, script)
     state.mark(orig_stem, "voiceover", "done")
     if tracker:
-        tracker.log(f"口播 {orig_stem} ✓")
+        tracker.log(t("task.scripts.done_log", {"name": orig_stem}))
 
     md_out = config.scripts_dir / f"{json_file.stem}_voiceover.md"
     md_content = (
-        f"# {script.get('title', json_file.stem)} 口播\n\n"
-        f"{script.get('voiceover', '')}\n\n"
-        f"**剪辑建议**: {script.get('edit_tip', '')}\n"
+        t("md.script_header", {"title": script.get("title", json_file.stem)})
+        + "\n\n"
+        + f"{script.get('voiceover', '')}\n\n"
+        + t("md.edit_tip", {"tip": script.get("edit_tip", "")})
+        + "\n"
     )
     write_text_atomic(md_out, md_content)
     print(f"  -> {md_out.name}")
@@ -179,20 +182,23 @@ def run_generate_scripts(
         return
     if tracker:
         tracker.update(
-            phase="voiceover", total=len(input_files), current=0, message=f"生成口播文案（{len(input_files)} 条）..."
+            phase="voiceover",
+            total=len(input_files),
+            current=0,
+            message=t("task.scripts.phase_title", {"count": len(input_files)}),
         )
 
     max_workers = config.analyze.max_workers
     failures = 0
-    with timed(f"run_generate_scripts（{len(input_files)} 个，workers={max_workers}）"):
+    with timed(t("task.scripts.timed_label", {"count": len(input_files), "workers": max_workers})):
         if max_workers <= 1:
             sequential_error_count = 0
             for json_file in input_files:
                 if cancel_event and cancel_event.is_set():
-                    print("[取消] voiceover 步骤被用户终止")
+                    print(t("task.scripts.cancelled"))
                     break
                 json_file = Path(json_file)
-                print(f"  [口播] {json_file.stem}")
+                print(t("task.scripts.start", {"name": json_file.stem}))
                 t0 = time.monotonic()
                 try:
                     result = _process_one_script(
@@ -208,19 +214,19 @@ def run_generate_scripts(
                         task_prompts,
                     )
                 except Exception as e:
-                    print(f"  [错误] {json_file.stem}: {e}")
+                    print(t("task.scripts.error", {"name": json_file.stem, "detail": e}))
                     sequential_error_count += 1
                     continue
                 elapsed = time.monotonic() - t0
                 if isinstance(result, str) and result == "cancelled":
                     break
                 if isinstance(result, str):
-                    print(f"  [错误] {json_file.stem}: {result}")
+                    print(t("task.scripts.error", {"name": json_file.stem, "detail": result}))
                     sequential_error_count += 1
                 elif result is True:
                     print(f"  ✓ {elapsed:.1f}s")
             if sequential_error_count:
-                print(f"  [警告] {sequential_error_count} 个 voiceover 生成失败")
+                print(t("task.scripts.error_summary", {"count": sequential_error_count}))
             failures = sequential_error_count
         else:
             parallel_error_count: list[int] = [0]
@@ -228,7 +234,7 @@ def run_generate_scripts(
                 futures = {}
                 for json_file in input_files:
                     if cancel_event and cancel_event.is_set():
-                        print("[取消] 取消剩余 voiceover 任务提交")
+                        print(t("task.scripts.cancel_submit"))
                         break
                     json_file = Path(json_file)
                     f = pool.submit(
@@ -251,23 +257,23 @@ def run_generate_scripts(
                     try:
                         result = future.result()
                         if isinstance(result, str) and result == "cancelled":
-                            print("[取消] voiceover 被用户取消")
+                            print(t("task.scripts.cancel_parallel"))
                             break
                         if isinstance(result, str):
-                            print(f"  [错误] {json_file.stem}: {result}")
+                            print(t("task.scripts.error", {"name": json_file.stem, "detail": result}))
                             parallel_error_count[0] += 1
                     except Exception as e:
-                        print(f"  [错误] {json_file.stem}: {e}")
+                        print(t("task.scripts.error", {"name": json_file.stem, "detail": e}))
                         parallel_error_count[0] += 1
 
                 if cancel_event and cancel_event.is_set():
-                    print("[取消] 取消未完成 voiceover 任务")
+                    print(t("task.scripts.cancel_pending"))
                     for f in futures:
                         if not f.done():
                             f.cancel()
 
             if parallel_error_count[0]:
-                print(f"  [警告] {parallel_error_count[0]} 个 voiceover 生成失败")
+                print(t("task.scripts.error_summary", {"count": parallel_error_count[0]}))
             failures = parallel_error_count[0]
     if failures:
-        raise RuntimeError(f"口播文案未完整生成（{failures} 个失败）")
+        raise RuntimeError(t("task.scripts.incomplete", {"count": failures}))

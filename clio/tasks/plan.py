@@ -11,6 +11,7 @@ from typing import Any
 from clio.ai.token_usage import FileTokenUsageStore
 from clio.analyze import plan_daily_vlog
 from clio.config import AppConfig
+from clio.i18n import t
 from clio.identity import SEGMENT_SUFFIX_RE, legacy_segment_offset_sec, load_identity
 from clio.log import timed
 from clio.processing_state import ProcessingState
@@ -26,9 +27,9 @@ def _read_analysis_json(path: Path) -> tuple[dict[str, Any] | None, str | None]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError, UnicodeError):
-        return None, "JSON 无法读取"
+        return None, t("task.plan.json_unreadable")
     if not isinstance(data, dict):
-        return None, "JSON 顶层不是对象"
+        return None, t("task.plan.json_not_object")
     return data, None
 
 
@@ -36,14 +37,14 @@ def _report_skipped_inputs(skipped: list[tuple[str, str]]) -> None:
     if not skipped:
         return
     preview = ", ".join(f"{name} ({reason})" for name, reason in skipped[:5])
-    suffix = f" 等 {len(skipped)} 个文件" if len(skipped) > 5 else ""
-    print(f"[警告] 已跳过 {len(skipped)} 个不可用的分析文件: {preview}{suffix}")
+    suffix = t("task.plan.skipped_more", {"count": len(skipped)}) if len(skipped) > 5 else ""
+    print(t("task.plan.skipped_files", {"count": len(skipped), "preview": preview, "suffix": suffix}))
 
 
 def _unusable_inputs_error(skipped: list[tuple[str, str]]) -> RuntimeError:
     names = ", ".join(name for name, _ in skipped[:5])
-    suffix = " 等" if len(skipped) > 5 else ""
-    return RuntimeError(f"无法生成规划：分析文件均不可用（{names}{suffix}）")
+    suffix = t("task.plan.unusable_more") if len(skipped) > 5 else ""
+    return RuntimeError(t("task.plan.unusable_inputs", {"names": names, "suffix": suffix}))
 
 
 def _analysis_day_label(data: dict) -> str:
@@ -169,7 +170,7 @@ def run_plan_vlog(
 
     selected = _selected_stems(files) if files is not None else None
     if selected is not None:
-        print(f"[规划] 按选片过滤素材（{len(selected)} 个 stem）")
+        print(t("task.plan.filter_selected", {"count": len(selected)}))
 
     out_json = config.plans_dir / f"{safe_day}_plan.json"
     out_md = config.plans_dir / f"{safe_day}_plan.md"
@@ -178,7 +179,7 @@ def run_plan_vlog(
     skipped_inputs: list[tuple[str, str]] = []
     for json_file in sorted(config.texts_dir.glob("*.json")):
         if cancel_event and cancel_event.is_set():
-            print("[取消] plan 步骤被用户终止")
+            print(t("task.plan.cancelled"))
             return
         if selected is not None and not _matches_selected_artifact(json_file, selected):
             continue
@@ -194,8 +195,8 @@ def run_plan_vlog(
         try:
             idx = int(raw_idx)
         except (ValueError, TypeError):
-            print(f"  [跳过] 无效 index '{raw_idx}' 在 {json_file.name}")
-            skipped_inputs.append((json_file.name, "index 无效"))
+            print(t("task.plan.invalid_index", {"index": raw_idx, "name": json_file.name}))
+            skipped_inputs.append((json_file.name, t("task.plan.index_invalid_reason")))
             continue
         identity = load_identity(data)
         if identity is not None:
@@ -225,7 +226,7 @@ def run_plan_vlog(
     if not clips:
         if skipped_inputs:
             raise _unusable_inputs_error(skipped_inputs)
-        print("[规划] 无可用素材（选片过滤后为空或尚未 analyze）")
+        print(t("task.plan.no_usable_media"))
         return None
 
     # files= means a selection-scoped plan; never short-circuit with a prior full plan (I1).
@@ -233,20 +234,20 @@ def run_plan_vlog(
         try:
             existing = json.loads(out_json.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
-            print(f"  [重新规划] {day_label} (已有规划文件损坏)")
+            print(t("task.plan.replan_corrupt", {"day": day_label}))
         else:
             stored = existing.get("_lineage")
             current = _plan_lineage_fingerprint(config, clips, task_prompts, context_override)
             if stored == current:
-                print(f"[跳过] {day_label} 计划 (已存在)")
+                print(t("task.plan.skip_existing", {"day": day_label}))
                 return existing
-            print(f"  [重新规划] {day_label} (缓存血缘变化)")
+            print(t("task.plan.replan_lineage", {"day": day_label}))
             if stored is None:
                 # Legacy cache without lineage: accept it (best effort) by stamping
                 # a fresh marker so only genuinely-new inputs invalidate it.
                 existing["_lineage"] = current
                 write_json_atomic(out_json, existing)
-                print(f"[跳过] {day_label} 计划 (已存在)")
+                print(t("task.plan.skip_existing", {"day": day_label}))
                 return existing
             # Mismatched/newer lineage: recompute below.
 
@@ -269,13 +270,13 @@ def run_plan_vlog(
             except (json.JSONDecodeError, KeyError):
                 continue
     if config.plan.use_transcripts and not transcripts_map:
-        print("[警告] use_transcripts=true 但未找到任何 transcript 数据，规划将不使用语音信息")
-        print("       请先运行 transcript 步骤，或设置 use_transcripts: false 消除此警告")
+        print(t("task.plan.transcripts_missing"))
+        print(t("task.plan.transcripts_missing_hint"))
 
     if tracker:
-        tracker.update(phase="plan", total=1, current=0, message=f"生成 {day_label} 规划...")
-    with timed(f"run_plan_vlog {day_label}（{len(clips)} 条）"):
-        print(f"[规划] {day_label}，共 {len(clips)} 条素材")
+        tracker.update(phase="plan", total=1, current=0, message=t("task.plan.progress_message", {"day": day_label}))
+    with timed(t("task.plan.timed_label", {"day": day_label, "count": len(clips)})):
+        print(t("task.plan.material_count", {"day": day_label, "count": len(clips)}))
         plan = plan_daily_vlog(
             clips,
             config,
@@ -297,41 +298,41 @@ def run_plan_vlog(
     plan["_lineage"] = _plan_lineage_fingerprint(config, clips, task_prompts, context_override)
     write_json_atomic(out_json, plan)
     if tracker:
-        tracker.log(f"规划 {day_label} ✓")
+        tracker.log(t("task.plan.log_done", {"day": day_label}))
 
     lines = [
         f"# {plan.get('day_title', day_label)}",
         "",
-        f"**主题**: {plan.get('theme', '')}",
-        f"**预估总时长**: {plan.get('total_estimated_sec', '')} 秒",
+        t("plan.md_theme", {"theme": plan.get("theme", "")}),
+        t("plan.md_estimated", {"seconds": plan.get("total_estimated_sec", "")}),
         "",
     ]
     source_inputs = plan.get("source_inputs") or []
     if source_inputs:
-        lines.append("## 规划素材")
+        lines.append(t("plan.md_source_section"))
         lines.append("")
         for entry in source_inputs:
             idx = entry.get("index", "?")
             stem = entry.get("source_stem", "")
             lines.append(f"- `{idx}` {stem}")
         lines.append("")
-    lines.append("## 推荐剪辑顺序")
+    lines.append(t("plan.md_sequence_section"))
     for item in plan.get("sequence", []):
         lines.extend(
             [
                 f"### {item.get('index', '?')} {item.get('title', '')}",
-                f"- **理由**: {item.get('reason', '')}",
-                f"- **使用片段**: {item.get('use_timeline', '')}",
-                f"- **口播方向**: {item.get('voiceover_hint', '')}",
+                t("plan.md_reason", {"reason": item.get("reason", "")}),
+                t("plan.md_timeline", {"timeline": item.get("use_timeline", "")}),
+                t("plan.md_voiceover", {"hint": item.get("voiceover_hint", "")}),
                 "",
             ]
         )
     lines.extend(
         [
-            "## 开场建议",
+            t("plan.md_opening_section"),
             plan.get("opening_tip", ""),
             "",
-            "## 结尾建议",
+            t("plan.md_ending_section"),
             plan.get("ending_tip", ""),
         ]
     )
@@ -359,13 +360,13 @@ def run_plan_all_days(
         if skipped_inputs:
             _report_skipped_inputs(skipped_inputs)
             raise _unusable_inputs_error(skipped_inputs)
-        print("没有可用的分析结果，请先运行 analyze")
+        print(t("task.plan.no_analysis"))
         return None
 
     summary: dict[str, Any] = {"days": []}
     for day_label in labels:
         if cancel_event and cancel_event.is_set():
-            print("[取消] all-days plan 被用户终止")
+            print(t("task.plan.all_days_cancelled"))
             break
         plan = run_plan_vlog(
             config,

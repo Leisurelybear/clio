@@ -3,6 +3,8 @@ from __future__ import annotations
 import threading
 import time
 
+from clio.i18n import t
+
 
 class RateLimiter:
     """每分钟固定次数限流器，线程安全。"""
@@ -27,7 +29,7 @@ class RateLimiter:
             if now < self._next_at:
                 wait = self._next_at - now
                 if not self._logged:
-                    print(f"  [限流] 等待 {wait:.1f}s（每 {self._interval:.1f}s 一次）")
+                    print(t("ratelimit.wait", {"wait": f"{wait:.1f}", "interval": f"{self._interval:.1f}"}))
                     self._logged = True
                 self._next_at += self._interval
             else:
@@ -48,7 +50,7 @@ class RateLimiter:
             if now < self._next_at:
                 wait = self._next_at - now
                 if not self._logged:
-                    print(f"  [限流] 等待 {wait:.1f}s（每 {self._interval:.1f}s 一次）")
+                    print(t("ratelimit.wait", {"wait": f"{wait:.1f}", "interval": f"{self._interval:.1f}"}))
                     self._logged = True
                 self._next_at += self._interval
             else:

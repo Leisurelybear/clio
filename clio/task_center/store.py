@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+from clio.i18n import t
 from clio.task_center.models import (
     TERMINAL_TASK_STATUSES,
     UTC_TZ,
@@ -682,15 +683,15 @@ class TaskStore:
                 TaskStatus.INTERRUPTED.value: NotificationSeverity.WARNING,
             }[target_status]
             label = {
-                TaskStatus.SUCCEEDED.value: "已完成",
-                TaskStatus.FAILED.value: "失败",
-                TaskStatus.CANCELLED.value: "已取消",
-                TaskStatus.INTERRUPTED.value: "已中断",
+                TaskStatus.SUCCEEDED.value: t("task.status.succeeded"),
+                TaskStatus.FAILED.value: t("task.status.failed"),
+                TaskStatus.CANCELLED.value: t("task.status.cancelled"),
+                TaskStatus.INTERRUPTED.value: t("task.status.interrupted"),
             }[target_status]
         elif event.level is TaskEventLevel.WARNING:
-            severity, label = NotificationSeverity.WARNING, "需要注意"
+            severity, label = NotificationSeverity.WARNING, t("taskcenter.notify.warning")
         elif event.level is TaskEventLevel.ERROR:
-            severity, label = NotificationSeverity.ERROR, "发生错误"
+            severity, label = NotificationSeverity.ERROR, t("taskcenter.notify.error")
         else:
             return None
         row = connection.execute(
@@ -698,8 +699,9 @@ class TaskStore:
         ).fetchone()
         if row is None:
             return None
-        label_text = f"：{label}"
-        title = f"{str(row[0] or '任务').strip()[: 200 - len(label_text)] or '任务'}{label_text}"
+        fallback_title = t("taskcenter.notify.fallback_title")
+        label_text = t("taskcenter.notify.separator") + label
+        title = f"{str(row[0] or fallback_title).strip()[: 200 - len(label_text)] or fallback_title}{label_text}"
         message = str(event.message or label).strip()[:4000] or label
         link_params = ["entity=tasks", "task_id=" + quote(event.task_id, safe="")]
         if row[1]:

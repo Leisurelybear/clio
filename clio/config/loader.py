@@ -39,6 +39,7 @@ from clio.config.parsers import (
     _parse_tasks,
 )
 from clio.config.validators import _filter_dc, _validate_config, validate_global_config
+from clio.i18n import t
 from clio.resources import find_resource
 
 
@@ -47,10 +48,10 @@ def _resolve_engine(raw: dict) -> str:
     engine = whisper_raw.get("engine", "local")
     if engine == "cloud":
         cloud_provider = whisper_raw.get("cloud_provider", "") or "local"
-        print(f"[config] whisper.engine=cloud 已弃用，已迁移为 engine={cloud_provider}")
+        print(t("config.whisper_engine_cloud_deprecated", {"engine": cloud_provider}))
         return cloud_provider
     if "cloud_provider" in whisper_raw:
-        print("[config] whisper.cloud_provider 已弃用，请直接配置 whisper.engine")
+        print(t("config.whisper_cloud_provider_deprecated"))
     return engine
 
 
@@ -82,7 +83,7 @@ _MISSING = object()
 
 def _path(value: str | None, base: Path | None = None) -> Path:
     if not value:
-        raise ValueError("路径不能为空")
+        raise ValueError(t("config.path_empty"))
     path = Path(value)
     if base and not path.is_absolute():
         return (base / path).resolve()
@@ -127,7 +128,7 @@ def _ensure_global_config(config_file: Path) -> None:
     try:
         config_file.parent.mkdir(parents=True, exist_ok=True)
         config_file.write_text(example.read_text(encoding="utf-8"), encoding="utf-8")
-        print(f"[config] 未找到 {config_file.name}，已从示例生成默认配置: {config_file}")
+        print(t("config.generated_from_example", {"name": config_file.name, "path": config_file}))
     except OSError:
         return
 

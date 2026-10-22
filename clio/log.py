@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TextIO
 
 from clio import session_log
+from clio.i18n import t
 from clio.privacy import redact_sensitive
 
 _LOGGER_NAME = "clio"
@@ -56,7 +57,7 @@ class _HourlyFileHandler(logging.Handler):
         try:
             self._current_file = open(log_path, "a", encoding="utf-8")
         except OSError as e:
-            self._emergency(f"[clio] 日志写入失败: {e}（已停用文件日志）")
+            self._emergency(t("log.write_failed_disabled", {"detail": e}))
             self._failed = True
             return
         try:
@@ -93,7 +94,7 @@ class _HourlyFileHandler(logging.Handler):
         if self._over_quota():
             if not self._quota_warned:
                 self._quota_warned = True
-                self._emergency(f"[clio] 日志文件达到 {format_size(_MAX_LOG_BYTES)} 限额，本小时文件写入已暂停")
+                self._emergency(t("log.quota_paused", {"size": format_size(_MAX_LOG_BYTES)}))
             return
         try:
             self._rotate(datetime.fromtimestamp(record.created))
@@ -109,9 +110,7 @@ class _HourlyFileHandler(logging.Handler):
             self.handleError(record)
             if self._failure_count >= _MAX_CONSECUTIVE_FAILURES:
                 self._failed = True
-                self._emergency(
-                    f"[clio] 日志文件连续 {_MAX_CONSECUTIVE_FAILURES} 次写入失败，已停用文件日志（磁盘已满或只读？）"
-                )
+                self._emergency(t("log.consecutive_failures", {"count": _MAX_CONSECUTIVE_FAILURES}))
 
     def handleError(self, record: logging.LogRecord) -> None:
         """只写受保护的原始 stderr，避免经 TeeWriter 回灌 logger 形成递归。"""
@@ -119,7 +118,7 @@ class _HourlyFileHandler(logging.Handler):
         if stream is None:
             return
         try:
-            stream.write("[clio] 日志写入失败，请检查磁盘空间与目录权限\n")
+            stream.write(t("log.write_failed_check_disk") + "\n")
             traceback.print_exc(file=stream)
             stream.flush()
         except Exception:
@@ -229,7 +228,7 @@ def setup_logging(logs_dir: Path, level: int = logging.INFO) -> logging.Logger:
             stream = _protected_stderr()
             if stream is not None:
                 try:
-                    stream.write(f"[clio] 无法创建日志文件: {e}\n")
+                    stream.write(t("log.create_failed", {"detail": e}) + "\n")
                 except Exception:
                     pass
 
@@ -325,12 +324,12 @@ class timed:
 
     def __enter__(self) -> timed:
         self._t0 = time.monotonic()
-        print(f"[{self._label}] 起始 {datetime.now().strftime('%H:%M:%S')}")
+        print(t("log.timed.start", {"label": self._label, "time": datetime.now().strftime("%H:%M:%S")}))
         return self
 
     def __exit__(self, *exc) -> None:
         elapsed = time.monotonic() - self._t0
-        print(f"[{self._label}] 完成 用时 {format_duration(elapsed)}")
+        print(t("log.timed.done", {"label": self._label, "duration": format_duration(elapsed)}))
 
     @property
     def elapsed(self) -> float:

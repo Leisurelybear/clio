@@ -9,6 +9,7 @@ from typing import Any
 
 from clio._constants import VIDEO_EXTS
 from clio.cut import parse_time_range
+from clio.i18n import t
 from clio.identity import load_identity
 from clio.plan_model import Plan, PlanIssue
 from clio.utils import format_index
@@ -81,7 +82,7 @@ def check_plan_export_readiness(
     result = ReadinessResult()
     if not plan.sequence:
         result.errors.append(
-            PlanIssue(level="error", code="sequence_empty", message="规划 sequence 为空，无法导出/裁剪")
+            PlanIssue(level="error", code="sequence_empty", message=t("plan.readiness.sequence_empty"))
         )
         return result
 
@@ -90,9 +91,17 @@ def check_plan_export_readiness(
     except (TypeError, ValueError):
         tes = 180
     if tes < 30:
-        result.warnings.append(PlanIssue(level="warning", code="duration_short", message=f"预估总时长过短（{tes} 秒）"))
+        result.warnings.append(
+            PlanIssue(
+                level="warning", code="duration_short", message=t("plan.readiness.duration_short", {"seconds": tes})
+            )
+        )
     if tes > 1800:
-        result.warnings.append(PlanIssue(level="warning", code="duration_long", message=f"预估总时长过长（{tes} 秒）"))
+        result.warnings.append(
+            PlanIssue(
+                level="warning", code="duration_long", message=t("plan.readiness.duration_long", {"seconds": tes})
+            )
+        )
 
     # Distinguish "not scanned" (None) from "scanned and found nothing" (empty
     # set). An empty discovery means every referenced index is missing media; a
@@ -114,14 +123,19 @@ def check_plan_export_readiness(
         idx = (seg.index or "").strip()
         if not idx:
             result.errors.append(
-                PlanIssue(level="error", code="index_empty", message=f"第 {i + 1} 段缺少 index", segment_index=i)
+                PlanIssue(
+                    level="error",
+                    code="index_empty",
+                    message=t("plan.readiness.index_empty", {"index": i + 1}),
+                    segment_index=i,
+                )
             )
         elif known is not None and not index_in_set(idx, known, index_width=index_width):
             result.errors.append(
                 PlanIssue(
                     level="error",
                     code="index_missing",
-                    message=f"第 {i + 1} 段视频 [{idx}] 在项目中不存在",
+                    message=t("plan.readiness.index_missing", {"index": i + 1, "media": idx}),
                     segment_index=i,
                 )
             )
@@ -130,7 +144,7 @@ def check_plan_export_readiness(
                 PlanIssue(
                     level="warning",
                     code="video_offline",
-                    message=f"第 {i + 1} 段视频 [{idx}] 当前离线",
+                    message=t("plan.readiness.video_offline", {"index": i + 1, "media": idx}),
                     segment_index=i,
                 )
             )
@@ -141,7 +155,7 @@ def check_plan_export_readiness(
                 PlanIssue(
                     level="warning",
                     code="timeline_empty",
-                    message=f"第 {i + 1} 段未填写 use_timeline",
+                    message=t("plan.readiness.timeline_empty", {"index": i + 1}),
                     segment_index=i,
                 )
             )
@@ -153,18 +167,28 @@ def check_plan_export_readiness(
                     PlanIssue(
                         level="error",
                         code="timeline_invalid",
-                        message=f"第 {i + 1} 段时间轴无效: {e}",
+                        message=t("plan.readiness.timeline_invalid", {"index": i + 1, "detail": e}),
                         segment_index=i,
                     )
                 )
 
         if not (seg.title or "").strip():
             result.warnings.append(
-                PlanIssue(level="warning", code="title_empty", message=f"第 {i + 1} 段标题为空", segment_index=i)
+                PlanIssue(
+                    level="warning",
+                    code="title_empty",
+                    message=t("plan.readiness.title_empty", {"index": i + 1}),
+                    segment_index=i,
+                )
             )
         if not (seg.reason or "").strip():
             result.warnings.append(
-                PlanIssue(level="warning", code="reason_empty", message=f"第 {i + 1} 段理由为空", segment_index=i)
+                PlanIssue(
+                    level="warning",
+                    code="reason_empty",
+                    message=t("plan.readiness.reason_empty", {"index": i + 1}),
+                    segment_index=i,
+                )
             )
 
     return result
@@ -276,7 +300,7 @@ def readiness_block_payload(result: ReadinessResult, *, force: bool) -> dict[str
     if result.warnings and not force:
         return {
             "ok": False,
-            "error": "规划存在警告，确认后请传 force: true",
+            "error": t("plan.readiness.needs_force"),
             "issues": result.to_dict(),
             "needs_force": True,
         }

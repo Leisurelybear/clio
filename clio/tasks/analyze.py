@@ -21,6 +21,7 @@ from clio.analyze_windows import (
     slice_window_video,
 )
 from clio.config import AppConfig
+from clio.i18n import t
 from clio.identity import (
     SEGMENT_SUFFIX_RE,
     _identity_to_dict,
@@ -98,7 +99,7 @@ def _effective_analysis_context(config: AppConfig, original: Path, context_overr
     except Exception as exc:
         # Context enrichment is optional; a malformed sidecar must not prevent
         # the base video analysis or cache check from running.
-        print(f"  [警告] GPMF context 注入失败，继续使用基础 context: {exc}")
+        print(t("task.analyze.gpmf_context_failed", {"exc": exc}))
         return context_override
 
 
@@ -166,7 +167,7 @@ def _analyze_with_optional_windows(
             )
         except Exception as exc:
             if cancel_event is not None and cancel_event.is_set():
-                raise InterruptedError("分析被用户取消") from exc
+                raise InterruptedError(t("task.analyze.cancelled")) from exc
             raise
 
     if is_legacy_split_path(compressed):
@@ -189,7 +190,7 @@ def _analyze_with_optional_windows(
     try:
         for w in windows:
             if cancel_event is not None and cancel_event.is_set():
-                raise InterruptedError("分析被用户取消")
+                raise InterruptedError(t("task.analyze.cancelled"))
             slice_path = slice_window_video(
                 source=compressed,
                 window=w,
@@ -269,22 +270,22 @@ def _process_video_item(
                     analysis["_lineage"] = _analysis_lineage_fingerprint(config, task_prompts, effective_context)
                     write_json_atomic(candidate, analysis)
                     if tracker:
-                        tracker.log(f"✓ {candidate.name} 血缘未记录，已标记当前版本")
+                        tracker.log(t("task.analyze.lineage_stamped", {"name": candidate.name}))
                 else:
-                    print(f"  [覆盖] 提示词/模型已变更，将重新分析 {candidate.name}")
+                    print(t("task.analyze.overwrite_prompt_changed", {"name": candidate.name}))
                     stale_candidates.append(candidate)
             else:
-                print(f"  [覆盖] {candidate.name} 的 source_file 不匹配，将重新分析")
+                print(t("task.analyze.overwrite_source_mismatch", {"name": candidate.name}))
                 stale_candidates.append(candidate)
         except (json.JSONDecodeError, OSError):
             pass
     if json_path:
         text_path = json_path.with_suffix(".txt")
         if tracker:
-            tracker.next(message=f"跳过 {compressed.name}...")
-            tracker.log(f"跳过 {compressed.name}（已分析）")
+            tracker.next(message=t("task.analyze.skip_message", {"name": compressed.name}))
+            tracker.log(t("task.analyze.skip_log_analyzed", {"name": compressed.name}))
         state.mark(original.stem, "analyze", "skipped")
-        print(f"[跳过分析] {compressed.name} (已存在: {json_path.name})")
+        print(t("task.analyze.skip_exists", {"name": compressed.name, "json": json_path.name}))
         identity = (
             resolve_identity(compressed, idx_str, project_dir=config.project_dir)
             if analysis is None
@@ -302,30 +303,40 @@ def _process_video_item(
         )
 
     if duration_sec <= 0 and not is_legacy_split_path(compressed):
-        print(f"  [跳过] {compressed.name} 无法读取时长，跳过分析")
+        print(t("task.analyze.skip_no_duration", {"name": compressed.name}))
         if tracker:
-            tracker.next(message=f"跳过 {compressed.name}（无时长）")
-            tracker.log(f"跳过 {compressed.name}（无法读取时长）")
+            tracker.next(message=t("task.analyze.skip_message_no_duration", {"name": compressed.name}))
+            tracker.log(t("task.analyze.skip_log_no_duration", {"name": compressed.name}))
         state.mark(original.stem, "analyze", "skipped")
         return None
 
     # Whole-clip quota guard applies before both single-call and windowed analysis.
     max_min = config.analyze.max_analyze_duration_min
     if max_min > 0 and duration_sec > max_min * 60:
-        print(f"  [跳过] {compressed.name} 时长 {format_duration(duration_sec)} 超过限制 {max_min} 分钟")
+        print(
+            t(
+                "task.analyze.skip_too_long",
+                {"name": compressed.name, "duration": format_duration(duration_sec), "max": max_min},
+            )
+        )
         if tracker:
-            tracker.next(message=f"跳过 {compressed.name}（超长）")
-            tracker.log(f"跳过 {compressed.name}（超长 {format_duration(duration_sec)}）")
+            tracker.next(message=t("task.analyze.skip_message_too_long", {"name": compressed.name}))
+            tracker.log(
+                t(
+                    "task.analyze.skip_log_too_long",
+                    {"name": compressed.name, "duration": format_duration(duration_sec)},
+                )
+            )
         state.mark(original.stem, "analyze", "skipped")
         return None
 
     # Check cancel_event before starting analysis
     if cancel_event and cancel_event.is_set():
-        print(f"  [取消] 分析 {compressed.name} 被取消")
+        print(t("task.analyze.cancel_item", {"name": compressed.name}))
         state.mark(original.stem, "analyze", "cancelled")
         return None
 
-    print(f"  [{compressed.name}] 分析中...")
+    print(t("task.analyze.analyzing", {"name": compressed.name}))
     t0 = time.monotonic()
     try:
         analysis = _analyze_with_optional_windows(
@@ -340,20 +351,25 @@ def _process_video_item(
     except InterruptedError:
         if cancel_event is not None:
             cancel_event.set()
-        print(f"  [取消] 分析 {compressed.name} 被取消")
+        print(t("task.analyze.cancel_item", {"name": compressed.name}))
         state.mark(original.stem, "analyze", "cancelled")
         if tracker:
-            tracker.next(message=f"取消 {compressed.name}")
-            tracker.log(f"分析 {compressed.name} 被用户取消")
+            tracker.next(message=t("task.analyze.cancel_message", {"name": compressed.name}))
+            tracker.log(t("task.analyze.cancel_log", {"name": compressed.name}))
         return None
     except Exception as e:
         elapsed_total = time.monotonic() - t0
-        print(f"  [错误] 分析 {compressed.name} 失败: {e}（耗时 {format_duration(elapsed_total)}）")
+        print(
+            t(
+                "task.analyze.error_item",
+                {"name": compressed.name, "detail": e, "elapsed": format_duration(elapsed_total)},
+            )
+        )
         state.mark(original.stem, "analyze", "error")
         error_count[0] += 1
         if tracker:
-            tracker.next(message=f"失败 {compressed.name}")
-            tracker.log(f"分析 {compressed.name} 失败: {e}")
+            tracker.next(message=t("task.analyze.fail_message", {"name": compressed.name}))
+            tracker.log(t("task.analyze.fail_log", {"name": compressed.name, "detail": e}))
         return None
 
     analysis["index"] = idx_val
@@ -383,8 +399,8 @@ def _process_video_item(
 
     state.mark(original.stem, "analyze", "done")
     if tracker:
-        tracker.next(message=f"完成 {compressed.name}")
-        tracker.log(f"分析 {original.stem} ✓")
+        tracker.next(message=t("task.analyze.done_message", {"name": compressed.name}))
+        tracker.log(t("task.analyze.done_log", {"name": original.stem}))
     print(f"  -> {final_text.name}")
     return ClipRecord(
         index=idx_val,
@@ -433,7 +449,7 @@ def run_analyze_all(
         if vindex is not None:
             comp_paths = vindex.compressed_paths(config.compressed_dir)
             if not comp_paths:
-                print(f"[错误] .vindex 存在但压缩文件缺失: {single_file.name}，请重新压缩")
+                print(t("task.analyze.vindex_missing_compressed", {"name": single_file.name}))
                 return []
             for comp in comp_paths:
                 idx_str = comp.stem.split("_", 1)[0]
@@ -444,7 +460,7 @@ def run_analyze_all(
                 p for p in _list_compressed(config.compressed_dir) if single_file.stem.lower() in p.stem.lower()
             ]
             if not candidates:
-                print(f"[错误] 未找到 {single_file.name} 对应的压缩文件，请先运行压缩步骤")
+                print(t("task.analyze.compressed_missing", {"name": single_file.name}))
                 return []
             for comp in candidates:
                 idx_str = comp.stem.split("_", 1)[0]
@@ -457,7 +473,7 @@ def run_analyze_all(
                 continue
             orig_path = _resolve_original(p.stem, stem_cache, config.project_dir)
             if orig_path is None:
-                print(f"[警告] 找不到 {p.name} 对应的原始视频，跳过")
+                print(t("task.analyze.original_missing", {"name": p.name}))
                 continue
             idx_str = parts[0]
             items.append((p, orig_path, idx_str))
@@ -469,14 +485,14 @@ def run_analyze_all(
         ]
 
     if not items:
-        print(f"[错误] 压缩目录为空或无法匹配: {config.compressed_dir}，请先运行压缩步骤")
+        print(t("task.analyze.compressed_dir_empty", {"path": config.compressed_dir}))
         return []
 
     total = len(items)
-    print(f"待分析视频: {total} 个（压缩目录: {config.compressed_dir}）")
+    print(t("task.analyze.pending", {"total": total, "path": config.compressed_dir}))
     state = ProcessingState(config.paths.output_dir)
 
-    with timed(f"run_analyze_all（{total} 个）"):
+    with timed(t("task.analyze.phase_title", {"count": total})):
         error_count: list[int] = [0]
         max_workers = config.analyze.max_workers
 
@@ -486,7 +502,7 @@ def run_analyze_all(
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             # Check cancel_event before submitting any tasks
             if cancel_event and cancel_event.is_set():
-                print("[取消] 分析步骤被用户终止")
+                print(t("task.analyze.cancelled_step"))
                 return records
 
             # Submit a bounded number of futures (avoid queueing all at once)
@@ -495,14 +511,14 @@ def run_analyze_all(
                 batch = items[i : i + batch_size]
                 # Check cancel_event before each batch submission
                 if cancel_event and cancel_event.is_set():
-                    print("[取消] 取消剩余任务提交")
+                    print(t("task.analyze.cancel_remaining"))
                     break
 
                 batch_futures: list[Future] = []
                 for compressed, original, idx_str in batch:
                     # Check cancel_event before each submission
                     if cancel_event and cancel_event.is_set():
-                        print("[取消] 取消剩余任务提交")
+                        print(t("task.analyze.cancel_remaining"))
                         break
 
                     f = pool.submit(
@@ -529,12 +545,12 @@ def run_analyze_all(
                         if result is not None:
                             records.append(result)
                     except Exception as e:
-                        print(f"  [错误] 任务执行失败: {e}")
+                        print(t("task.analyze.task_failed", {"detail": e}))
                         error_count[0] += 1
 
                 # Cancel remaining pending futures if cancelled mid-batch
                 if cancel_event and cancel_event.is_set():
-                    print("[取消] 取消未开始任务")
+                    print(t("task.analyze.cancel_pending"))
                     for f in batch_futures:
                         if not f.done():
                             f.cancel()
@@ -544,10 +560,10 @@ def run_analyze_all(
     existing = _clip_records_from_csv(config.summary_csv)
     to_write = _merge_summary_records(existing, records)
     _write_csv(config.summary_csv, to_write, config)
-    print(f"\nCSV 已保存: {config.summary_csv}")
+    print(t("task.analyze.csv_saved", {"path": config.summary_csv}))
 
     completed = len(records)
     failed = error_count[0]
     if failed > 0:
-        raise RuntimeError(f"AI 分析未完整完成（{completed} 个成功，{failed} 个失败），请检查 API Key 和网络连接")
+        raise RuntimeError(t("task.analyze.incomplete", {"completed": completed, "failed": failed}))
     return records

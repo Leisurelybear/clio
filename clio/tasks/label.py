@@ -103,7 +103,7 @@ def run_label_videos(
             current=0,
             message=t("task.label.phase_title", {"count": len(json_files)}),
         )
-    with timed(f"run_label_videos（{len(json_files)} 个）"):
+    with timed(t("task.label.timed_label", {"count": len(json_files)})):
         completed = 0
         elapsed_total = 0.0
         for i, json_file in enumerate(json_files, start=1):

@@ -13,6 +13,7 @@ from pathlib import Path
 
 from clio.config.models import CANVAS_PRESETS
 from clio.cut import parse_time_range
+from clio.i18n import t
 from clio.identity import legacy_segment_offset_sec, load_identity
 from clio.plan_readiness import expand_index_keys
 from clio.utils import get_duration_sec, write_text_atomic
@@ -57,35 +58,42 @@ def _build_index_to_source(texts_dir: Path, *, index_width: int = 3) -> dict[str
     """
     mapping: dict[str, str] = {}
     if not texts_dir.is_dir():
-        logger.debug("texts_dir 不存在: %s", texts_dir)
+        logger.debug(t("export.debug_texts_dir_missing", {"path": texts_dir}))
         return mapping
     for p in sorted(texts_dir.glob("*.json")):
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError) as e:
-            logger.debug("读取失败 %s: %s", p, e)
+            logger.debug(t("export.debug_read_failed", {"path": p, "error": e}))
             continue
         raw_idx = data.get("index")
         if raw_idx is None:
-            logger.debug("跳过(无index): %s", p.name)
+            logger.debug(t("export.debug_skip_no_index", {"name": p.name}))
             continue
 
         # Prefer media_identity.original_stem for v2, fall back to source_file for v1
         identity = load_identity(data)
         if identity is not None:
             stem = identity.original_stem
-            logger.debug("文件=%s, index=%r, media_identity.original_stem=%r", p.name, raw_idx, stem)
+            logger.debug(t("export.debug_file_identity", {"name": p.name, "index": repr(raw_idx), "stem": repr(stem)}))
         else:
             source = data.get("source_file", "")
-            logger.debug("文件=%s, index=%r, source_file=%r", p.name, raw_idx, source)
+            logger.debug(
+                t("export.debug_file_source", {"name": p.name, "index": repr(raw_idx), "source": repr(source)})
+            )
             if not source:
-                logger.debug("跳过: 缺少 source_file 且无 media_identity")
+                logger.debug(t("export.debug_skip_no_source"))
                 continue
             stem = Path(source).stem
 
         for key in expand_index_keys(raw_idx, index_width=index_width):
             mapping[key] = stem
-        logger.debug("映射: %s -> %s", sorted(expand_index_keys(raw_idx, index_width=index_width)), stem)
+        logger.debug(
+            t(
+                "export.debug_mapping",
+                {"keys": sorted(expand_index_keys(raw_idx, index_width=index_width)), "stem": stem},
+            )
+        )
     return mapping
 
 
@@ -122,7 +130,7 @@ def _resolve_video(
     Returns (absolute_path, duration_us) or None if not found.
     """
     if ffprobe is None:
-        print("  [跳过] ffprobe 未配置，无法读取视频时长")
+        print(t("export.skip_ffprobe_missing"))
         return None
     # Case-insensitive stem match
     target_lower = source_stem.lower()
@@ -173,7 +181,7 @@ def _build_materials(
                 # Fallback: try matching by {index}_ prefix (works for compressed files)
                 resolved = _resolve_video_by_prefix(idx, source_videos, ffprobe, index_width=index_width)
             if resolved is None:
-                print(f"  [跳过] 视频素材 [{idx}] 未找到，跳过相关片段")
+                print(t("export.skip_material_missing", {"index": idx}))
                 continue
             vid_path, duration_us = resolved
             mat_id = str(uuid.uuid4())
@@ -252,13 +260,13 @@ def _build_tracks(
             start_sec, end_sec = parse_time_range(timeline_str)
         except (ValueError, TypeError):
             skipped_count += 1
-            print(f"  [跳过] 片段 [{idx}] 时间格式无效: {timeline_str}")
+            print(t("export.skip_invalid_timeline", {"index": idx, "timeline": timeline_str}))
             continue
 
         duration_us = _to_microseconds(end_sec - start_sec)
         if duration_us <= 0:
             skipped_count += 1
-            print(f"  [跳过] 片段 [{idx}] 时长为 0: {timeline_str}")
+            print(t("export.skip_zero_duration", {"index": idx, "timeline": timeline_str}))
             continue
 
         offset = index_to_offset.get(idx, 0.0)
@@ -315,7 +323,7 @@ def _build_tracks(
         )
 
     if skipped_count:
-        print(f"  [导出] {skipped_count} 个片段因素材缺失或时间格式错误被跳过")
+        print(t("export.skipped_summary", {"count": skipped_count}))
 
     return tracks
 
@@ -344,12 +352,12 @@ def export_plan_to_jianying(
     Returns path to the output draft directory.
     """
     if not plan_path.is_file():
-        raise FileNotFoundError(f"plan 文件不存在: {plan_path}")
+        raise FileNotFoundError(t("export.plan_missing", {"path": plan_path}))
 
     plan_data = json.loads(plan_path.read_text(encoding="utf-8"))
     sequence = plan_data.get("sequence", [])
     if not sequence:
-        print(f"  [警告] plan 文件为空序列: {plan_path}")
+        print(t("export.plan_empty_sequence", {"path": plan_path}))
 
     index_to_source = _build_index_to_source(texts_dir, index_width=index_width) if texts_dir else {}
     index_to_offset = _build_index_to_offset(texts_dir, index_width=index_width) if texts_dir else {}
@@ -363,26 +371,20 @@ def export_plan_to_jianying(
 
         videos = list(load_selected_videos(project_dir))
         if not videos:
-            print(
-                f"  [警告] 项目 videos.json 为空或不存在: {project_dir / 'videos.json'}。"
-                f" 请先在 UI「添加视频」或运行 python main.py migrate"
-            )
+            print(t("export.project_videos_empty", {"path": project_dir / "videos.json"}))
     else:
         from clio.utils import find_videos
 
         videos = list(find_videos(legacy_media, recursive=True)) if legacy_media else []
         if not videos:
-            print("  [警告] 未找到源视频（未设置 project_dir 且 media 扫描为空）")
+            print(t("export.no_source_videos"))
     materials, index_to_material_id, seq_text_ids = _build_materials(
         plan_data, videos, ffprobe, index_to_source, index_width=index_width
     )
     tracks = _build_tracks(plan_data, index_to_material_id, seq_text_ids, index_to_offset)
 
     if sequence and not materials["videos"]:
-        raise RuntimeError(
-            f"[导出失败] plan 有 {len(sequence)} 个片段，但没有任何视频素材可解析"
-            "（压缩文件缺失或 videos.json 未匹配），已阻止生成空草稿"
-        )
+        raise RuntimeError(t("export.no_usable_materials", {"count": len(sequence)}))
 
     total_duration_us = 0
     for track in tracks:
@@ -409,8 +411,17 @@ def export_plan_to_jianying(
     output_dir.mkdir(parents=True, exist_ok=True)
     draft_path = output_dir / "draft_content.json"
     write_text_atomic(draft_path, json.dumps(draft, indent=2, ensure_ascii=False))
-    print(f"  [导出] JianYing 草稿已生成: {output_dir}")
+    print(t("export.draft_generated", {"path": output_dir}))
     total_sec = total_duration_us / 1_000_000
-    print(f"  [导出] 共 {len(sequence)} 个片段，{len(materials['videos'])} 个视频素材，{total_sec:.1f} 秒")
+    print(
+        t(
+            "export.draft_summary",
+            {
+                "segments": len(sequence),
+                "videos": len(materials["videos"]),
+                "seconds": f"{total_sec:.1f}",
+            },
+        )
+    )
 
     return output_dir

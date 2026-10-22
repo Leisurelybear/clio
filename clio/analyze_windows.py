@@ -16,6 +16,7 @@ from math import ceil
 from pathlib import Path
 from typing import Any
 
+from clio.i18n import t
 from clio.utils import get_duration_sec
 
 MAX_ANALYZE_WINDOWS = 1000
@@ -49,8 +50,10 @@ def build_analyze_windows(
     window_count = 1 + ceil((duration_sec - window_max) / step)
     if window_count > MAX_ANALYZE_WINDOWS:
         raise ValueError(
-            f"分析窗数量过多（{window_count} 个，最多 {MAX_ANALYZE_WINDOWS} 个），"
-            "请增大 window_max_min 或减小 window_overlap_sec"
+            t(
+                "analyze.too_many_windows",
+                {"count": window_count, "max": MAX_ANALYZE_WINDOWS},
+            )
         )
     windows: list[AnalyzeWindow] = []
     start = 0.0
@@ -348,7 +351,7 @@ def slice_window_video(
     ]
     _run(reencode_args)
     if not _has_output():
-        raise RuntimeError(f"分析窗切片失败或为空: {out.name}")
+        raise RuntimeError(t("analyze.window_slice_empty", {"name": out.name}))
     if out.stat().st_size > max_bytes:
         out.unlink(missing_ok=True)
         shrink_args = [
@@ -372,15 +375,17 @@ def slice_window_video(
         ]
         _run(shrink_args)
         if not _has_output():
-            raise RuntimeError(f"分析窗切片失败或为空: {out.name}")
+            raise RuntimeError(t("analyze.window_slice_empty", {"name": out.name}))
         if out.stat().st_size > max_bytes:
             raise RuntimeError(
-                f"分析窗切片仍超过 200MB（{out.stat().st_size / 1024 / 1024:.0f} MB），"
-                f"请降低 compress 体积或缩短 window_max_min"
+                t(
+                    "analyze.window_slice_too_large",
+                    {"size": f"{out.stat().st_size / 1024 / 1024:.0f}"},
+                )
             )
     if not _valid_output(check_duration=True):
         out.unlink(missing_ok=True)
-        raise RuntimeError(f"分析窗切片时长不准确: {out.name}")
+        raise RuntimeError(t("analyze.window_slice_duration", {"name": out.name}))
     return out
 
 

@@ -4,6 +4,7 @@ import math
 import threading
 from pathlib import Path
 
+from clio.i18n import t
 from clio.log import format_duration, timed
 from clio.utils import run_ffmpeg
 
@@ -12,11 +13,11 @@ def parse_time_range(range_str: str) -> tuple[float, float]:
     """将 '00:00-00:20' 格式解析为 (start_sec, end_sec)。"""
     parts = range_str.split("-", 1)
     if len(parts) != 2:
-        raise ValueError(f"无法解析时间范围: {range_str}")
+        raise ValueError(t("cut.parse.range_format", {"range": range_str}))
     start = _to_seconds(parts[0].strip())
     end = _to_seconds(parts[1].strip())
     if end <= start:
-        raise ValueError(f"end ({parts[1].strip()}) 必须大于 start ({parts[0].strip()})")
+        raise ValueError(t("cut.parse.end_before_start", {"end": parts[1].strip(), "start": parts[0].strip()}))
     return start, end
 
 
@@ -27,22 +28,22 @@ def _to_seconds(s: str) -> float:
         return 0.0
     chunks = s.split(":")
     if len(chunks) > 3:
-        raise ValueError(f"无法解析时间字符串 '{s}': 分量过多")
+        raise ValueError(t("cut.parse.too_many_parts", {"value": s}))
     try:
         values = [float(chunk) for chunk in chunks]
     except ValueError as e:
-        raise ValueError(f"无法解析时间字符串 '{s}': {e}") from e
+        raise ValueError(t("cut.parse.invalid_number", {"value": s, "detail": e})) from e
     if any(not math.isfinite(value) or value < 0 for value in values):
-        raise ValueError(f"无法解析时间字符串 '{s}': 时间必须是非负有限数")
+        raise ValueError(t("cut.parse.negative", {"value": s}))
     if len(values) == 3:
         hours, minutes, seconds = values
         if minutes >= 60 or seconds >= 60:
-            raise ValueError(f"无法解析时间字符串 '{s}': 分钟和秒必须小于 60")
+            raise ValueError(t("cut.parse.minute_second_range", {"value": s}))
         return hours * 3600 + minutes * 60 + seconds
     if len(values) == 2:
         minutes, seconds = values
         if seconds >= 60:
-            raise ValueError(f"无法解析时间字符串 '{s}': 秒必须小于 60")
+            raise ValueError(t("cut.parse.second_range", {"value": s}))
         return minutes * 60 + seconds
     return values[0]
 
@@ -60,8 +61,11 @@ def cut_one(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     duration_sec = end_sec - start_sec
     if duration_sec <= 0:
-        raise ValueError(f"无效裁剪范围: {start_sec}s >= {end_sec}s")
-    label = f"裁剪 {video_path.name} ({format_duration(start_sec)}-{format_duration(end_sec)})"
+        raise ValueError(t("cut.invalid_range", {"start": start_sec, "end": end_sec}))
+    label = t(
+        "cut.timed_label",
+        {"name": video_path.name, "start": format_duration(start_sec), "end": format_duration(end_sec)},
+    )
 
     args = [
         "-ss",

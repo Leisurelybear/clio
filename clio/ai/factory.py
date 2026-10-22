@@ -9,6 +9,7 @@ from clio.ai.base import TaskName, TextAIProvider, VideoAIProvider, provider_sup
 from clio.ai.gemini import GeminiProvider
 from clio.ai.openai_compat import OpenAICompatProvider
 from clio.config import AppConfig, TaskConfig
+from clio.i18n import t
 
 _PROVIDER_TYPES: dict[str, type[Any]] = {
     "gemini": GeminiProvider,
@@ -31,7 +32,7 @@ _provider_cache_lock = threading.Lock()
 def _build_provider(config: AppConfig, provider_name: str) -> TextAIProvider:
     provider_cfg = config.ai.providers.get(provider_name)
     if not provider_cfg:
-        raise ValueError(f"未定义的 AI 厂家: {provider_name}")
+        raise ValueError(t("ai.provider_undefined", {"name": provider_name}))
     cache_key = (
         provider_name,
         provider_cfg.api_key,
@@ -63,7 +64,9 @@ def _build_provider(config: AppConfig, provider_name: str) -> TextAIProvider:
 
     cls = _PROVIDER_TYPES.get(provider_cfg.type)
     if not cls:
-        raise ValueError(f"不支持的厂家类型 '{provider_cfg.type}'，可选: {', '.join(_PROVIDER_TYPES)}")
+        raise ValueError(
+            t("ai.provider_type_unsupported", {"type": provider_cfg.type, "available": ", ".join(_PROVIDER_TYPES)})
+        )
     provider = cls(provider_cfg, config.proxy)
     with _provider_cache_lock:
         existing = _provider_cache.get(cache_key)
@@ -90,7 +93,7 @@ def get_task_config(config: AppConfig, task: TaskName | str) -> TaskConfig:
     task_name = task.value if isinstance(task, TaskName) else task
     task_cfg = config.ai.tasks.get(task_name)
     if not task_cfg:
-        raise ValueError(f"未配置 AI 任务: {task_name}")
+        raise ValueError(t("ai.task_not_configured", {"task": task_name}))
     return task_cfg
 
 
@@ -104,11 +107,8 @@ def get_video_provider(config: AppConfig, task: TaskName | str) -> tuple[VideoAI
     task_cfg = get_task_config(config, task)
     provider_cfg = config.ai.providers.get(task_cfg.provider)
     if provider_cfg is not None and not provider_supports_video(provider_cfg):
-        raise ValueError(
-            f"任务 '{task}' 需要视频分析能力，但厂家 '{task_cfg.provider}' 不支持视频。"
-            f"请在 config.yaml 中为 '{task_cfg.provider}' 配置 capabilities: [video] 或使用 gemini 厂家。"
-        )
+        raise ValueError(t("ai.task_requires_video", {"task": task, "provider": task_cfg.provider}))
     provider, model = get_task_provider(config, task)
     if not isinstance(provider, VideoAIProvider):
-        raise ValueError(f"任务 '{task}' 使用的厂家不支持视频分析")
+        raise ValueError(t("ai.task_provider_no_video", {"task": task}))
     return provider, model

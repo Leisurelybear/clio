@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from clio.config import load_config
+from clio.i18n import t
 from clio.transcribe import (
     PROJECT_ROOT,
     _clear_model_cache,
@@ -26,14 +27,10 @@ except ImportError:
 
 
 def run_whisper_install(config_path: str | Path = "config.yaml") -> int:
-    print("正在安装 faster-whisper...")
+    print(t("whisper.installing"))
 
     if getattr(sys, "frozen", False):
-        print(
-            "  [错误] 打包版（clio.exe）不内置 Whisper 依赖，无法在此安装。\n"
-            "         请使用源码版：进入项目目录运行 `python main.py whisper install`，\n"
-            "         或将 faster-whisper 安装到外部 Python 后手动下载模型缓存。"
-        )
+        print(t("whisper.frozen_error"))
         return 1
 
     cfg = load_config(config_path)
@@ -41,20 +38,20 @@ def run_whisper_install(config_path: str | Path = "config.yaml") -> int:
 
     if cfg.whisper.hf_endpoint:
         os.environ["HF_ENDPOINT"] = cfg.whisper.hf_endpoint
-        print(f"HF_ENDPOINT 已设置为: {cfg.whisper.hf_endpoint}")
+        print(t("whisper.hf_endpoint_set", {"endpoint": cfg.whisper.hf_endpoint}))
     else:
-        print("HF_ENDPOINT: 使用 HuggingFace 官方默认地址")
+        print(t("whisper.hf_endpoint_default"))
         if cfg.proxy.enabled and isinstance(cfg.proxy.url, str) and cfg.proxy.url.strip():
             os.environ["HTTP_PROXY"] = cfg.proxy.url
             os.environ["HTTPS_PROXY"] = cfg.proxy.url
 
     req = PROJECT_ROOT / "requirements-whisper.txt"
     if not req.is_file():
-        print(f"未找到依赖文件: {req}")
+        print(t("whisper.requirements_missing", {"path": req}))
         return 1
     pip_mirror = pip_mirror_for_config(cfg)
     if pip_mirror:
-        print(f"检测到国内 HF 镜像，pip 使用国内源: {pip_mirror}")
+        print(t("whisper.pip_mirror", {"mirror": pip_mirror}))
     install_base = [sys.executable, "-m", "pip", "install"]
     if pip_mirror:
         install_base += ["-i", pip_mirror]
@@ -64,9 +61,9 @@ def run_whisper_install(config_path: str | Path = "config.yaml") -> int:
         text=True,
     )
     if result.returncode != 0:
-        print("安装失败:", result.stderr)
+        print(t("whisper.install_failed"), result.stderr)
         return 1
-    print("faster-whisper 安装完成")
+    print(t("whisper.install_done"))
     # Reload the module binding so this same process can import the new install.
     _reload_whisper_import()
 
@@ -84,44 +81,44 @@ def run_whisper_install(config_path: str | Path = "config.yaml") -> int:
     # even for CPU-only inference on Windows. Install unconditionally.
     cublas_pkgs = ["nvidia-cublas-cu12"]
     if cuda_avail:
-        print("检测到 NVIDIA GPU，安装 CUDA 运行时加速...")
+        print(t("whisper.cuda_detected"))
         cublas_pkgs.append("nvidia-cudnn-cu12")
     elif is_windows:
-        print("Windows 上 CTranslate2 需要 cuBLAS DLL（即使 CPU 模式），正在安装...")
+        print(t("whisper.cublas_windows"))
     else:
-        print("CUDA: 不可用（使用 CPU）")
+        print(t("whisper.cuda_unavailable"))
     if cublas_pkgs:
         import shutil
 
         cuda_size_mb = 2800
         tmp_free = shutil.disk_usage(tempfile.gettempdir()).free // (1024 * 1024)
         if tmp_free < cuda_size_mb:
-            print(f"  [跳过] 磁盘空间不足（临时目录剩余 {tmp_free} MB，需要 ~{cuda_size_mb} MB）")
+            print(t("whisper.skip_low_disk", {"free": tmp_free, "need": cuda_size_mb}))
             if cuda_avail:
-                print("  [提示] 如需 CUDA 加速，请手动执行: pip install nvidia-cublas-cu12 nvidia-cudnn-cu12")
+                print(t("whisper.hint_manual_cuda"))
         else:
             r = run_subprocess(
                 [*install_base, *cublas_pkgs, "-q"],
             )
             if r.returncode == 0:
-                print(f"  {'/'.join(cublas_pkgs)} 安装完成")
+                print(t("whisper.cublas_installed", {"packages": "/".join(cublas_pkgs)}))
             else:
-                print(f"  [警告] {'/'.join(cublas_pkgs)} 安装失败（返回码 {r.returncode}）")
+                print(t("whisper.cublas_install_failed", {"packages": "/".join(cublas_pkgs), "code": r.returncode}))
 
     model_name = cfg.whisper.model_size
     cache_dir = _resolve_cache_dir(cfg)
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     if _model_in_cache(cache_dir, model_name):
-        print(f"模型 '{model_name}' 已在缓存中，跳过下载")
+        print(t("whisper.model_cached", {"model": model_name}))
         return _verify_install(cfg)
 
     repo_id = f"Systran/faster-whisper-{model_name}"
-    print(f"正在预下载模型 '{model_name}' 到 {cache_dir}...")
-    print(f"  模型仓库: {repo_id}")
-    print("  模型大小约 1~2 GB，下载时间取决于网络速度")
+    print(t("whisper.predownloading", {"model": model_name, "cache_dir": cache_dir}))
+    print(t("whisper.repo", {"repo": repo_id}))
+    print(t("whisper.model_size_hint"))
     if _snapshot_download is None:
-        print("  [错误] huggingface_hub 未安装，无法下载模型")
+        print(t("whisper.hf_hub_missing"))
         return 1
 
     try:
@@ -133,30 +130,30 @@ def run_whisper_install(config_path: str | Path = "config.yaml") -> int:
             ignore_patterns=["*.h5", "*.ot", "*.pt"],
         )
     except Exception as e:
-        print(f"  [错误] 下载失败: {e}")
-        print("  [提示] 检查 hf_endpoint 配置或网络连接")
+        print(t("whisper.download_failed", {"error": e}))
+        print(t("whisper.hint_check_network"))
         return 1
 
-    print(f"模型 '{model_name}' 已就绪")
+    print(t("whisper.model_ready", {"model": model_name}))
     return _verify_install(cfg)
 
 
 def _verify_install(cfg: Any) -> int:
     """Smoke-test the install: confirm cuBLAS is loadable and the model loads."""
-    print("验证安装（加载模型以确认依赖完整）...")
+    print(t("whisper.verify_install"))
     if not check_cublas():
-        print("  [错误] cuBLAS 仍未就绪，转录将失败。请手动执行:")
+        print(t("whisper.cublas_not_ready"))
         print("         pip install nvidia-cublas-cu12")
         return 1
     try:
         _get_model(cfg)
     except Exception as e:
-        print(f"  [错误] 模型加载验证失败: {e}")
-        print("  [提示] faster-whisper 或 cuBLAS 可能未正确安装，请重试 python main.py whisper install")
+        print(t("whisper.model_verify_failed", {"error": e}))
+        print(t("whisper.hint_retry_install"))
         return 1
     finally:
         _clear_model_cache()
-    print("验证通过 ✔ 转录功能已就绪")
+    print(t("whisper.verify_ok"))
     return 0
 
 
@@ -167,7 +164,7 @@ def _model_in_cache(cache_dir: Path, model_name: str) -> bool:
         return True
     model_file_size = _find_model_file_size(cache_dir)
     if model_file_size:
-        print(f"  缓存不完整（最大模型文件 {model_file_size // 1024 // 1024} MB），重新下载")
+        print(t("whisper.cache_incomplete", {"mb": model_file_size // 1024 // 1024}))
     return False
 
 
@@ -177,13 +174,13 @@ def _find_model_file_size(dir_path: Path) -> int:
 
 
 def run_whisper_check(config_path: str | Path = "config.yaml") -> int:
-    print("=== Whisper 环境检测 ===")
+    print(t("whisper.check_title"))
     try:
         import faster_whisper
 
-        print(f"faster-whisper: {faster_whisper.__version__}  ✔")
+        print(t("whisper.version_ok", {"version": faster_whisper.__version__}))
     except ImportError:
-        print("faster-whisper: 未安装  ✘（请执行 python main.py whisper install）")
+        print(t("whisper.not_installed"))
         return 1
 
     try:
@@ -192,16 +189,16 @@ def run_whisper_check(config_path: str | Path = "config.yaml") -> int:
         cuda_avail = get_cuda_device_count() > 0
     except (ImportError, OSError):
         cuda_avail = False
-    print(f"CUDA: {'可用 ✔' if cuda_avail else '不可用（使用 CPU）'}")
+    print(t("whisper.cuda_available") if cuda_avail else t("whisper.cuda_unavailable"))
 
     cfg = load_config(config_path)
     cache_dir = _resolve_cache_dir(cfg)
     if cache_dir.is_dir():
         models = [d.name for d in cache_dir.iterdir() if d.is_dir()]
         if models:
-            print(f"已缓存模型: {', '.join(models)}")
+            print(t("whisper.cached_models", {"models": ", ".join(models)}))
         else:
-            print("模型缓存: 空（尚无缓存模型）")
+            print(t("whisper.no_cached_models"))
     ep = cfg.whisper.hf_endpoint
-    print(f"HF_ENDPOINT: {ep or 'HuggingFace 官方默认地址'}")
+    print(f"HF_ENDPOINT: {ep or t('whisper.hf_endpoint_official')}")
     return 0

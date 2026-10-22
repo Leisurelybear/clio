@@ -162,25 +162,25 @@ def _format_highlight(highlight: object) -> str:
 
 def _write_text_file(path: Path, analysis: dict, source: Path, compressed: Path) -> None:
     lines = [
-        f"# {analysis.get('title', '未命名')}",
+        t("md.title", {"title": analysis.get("title", t("md.untitled"))}),
         "",
-        f"**源文件**: {source.name}",
-        f"**压缩文件**: {compressed.name}",
+        t("md.source_file", {"name": source.name}),
+        t("md.compressed_file", {"name": compressed.name}),
         "",
-        "## 简介",
+        t("md.summary_section"),
         analysis.get("summary", ""),
         "",
-        f"**地点**: {analysis.get('location', '未知')}",
-        f"**氛围**: {analysis.get('mood', '')}",
-        f"**建议使用**: {analysis.get('suggested_use', '')}",
+        t("md.location", {"value": analysis.get("location", t("md.unknown"))}),
+        t("md.mood", {"value": analysis.get("mood", "")}),
+        t("md.suggested_use", {"value": analysis.get("suggested_use", "")}),
         "",
-        "## 时间轴",
+        t("md.timeline_section"),
     ]
     for item in analysis.get("timeline", []):
         lines.append(f"- [{item.get('start', '?')} - {item.get('end', '?')}] {item.get('description', '')}")
         if item.get("transcript"):
-            lines.append(f"  - 同期声: {item.get('transcript')}")
-    lines.extend(["", "## 亮点"])
+            lines.append(t("md.transcript_line", {"text": item.get("transcript")}))
+    lines.extend(["", t("md.highlights_section")])
     for h in analysis.get("highlights", []):
         lines.append(f"- {_format_highlight(h)}")
 
@@ -191,28 +191,28 @@ def _rewrite_text_file(path: Path, analysis: dict) -> None:
     """根据已存在的 analysis 重写 .txt（不需要源文件/压缩文件路径）。"""
     source_name = analysis.get("source_file", "?")
     lines = [
-        f"# {analysis.get('title', '未命名')}",
+        t("md.title", {"title": analysis.get("title", t("md.untitled"))}),
         "",
-        f"**源文件**: {source_name}",
+        t("md.source_file", {"name": source_name}),
         "",
-        "## 简介",
+        t("md.summary_section"),
         analysis.get("summary", ""),
         "",
-        f"**地点**: {analysis.get('location', '未知')}",
-        f"**氛围**: {analysis.get('mood', '')}",
-        f"**建议使用**: {analysis.get('suggested_use', '')}",
+        t("md.location", {"value": analysis.get("location", t("md.unknown"))}),
+        t("md.mood", {"value": analysis.get("mood", "")}),
+        t("md.suggested_use", {"value": analysis.get("suggested_use", "")}),
         "",
-        "## 时间轴",
+        t("md.timeline_section"),
     ]
     for item in analysis.get("timeline", []):
         lines.append(f"- [{item.get('start', '?')} - {item.get('end', '?')}] {item.get('description', '')}")
         if item.get("transcript"):
-            lines.append(f"  - 同期声: {item.get('transcript')}")
-    lines.extend(["", "## 亮点"])
+            lines.append(t("md.transcript_line", {"text": item.get("transcript")}))
+    lines.extend(["", t("md.highlights_section")])
     for h in analysis.get("highlights", []):
         lines.append(f"- {_format_highlight(h)}")
     if analysis.get("_changelog"):
-        lines.extend(["", "## 本次 refine 改动"])
+        lines.extend(["", t("md.changelog_section")])
         for item in analysis["_changelog"]:
             lines.append(f"- {item}")
     write_text_atomic(path, "\n".join(lines))
@@ -220,12 +220,14 @@ def _rewrite_text_file(path: Path, analysis: dict) -> None:
 
 def _rewrite_script_md(path: Path, script: dict) -> None:
     md = (
-        f"# {script.get('title', path.stem)} 口播\n\n"
-        f"{script.get('voiceover', '')}\n\n"
-        f"**剪辑建议**: {script.get('edit_tip', '')}\n"
+        t("md.script_header", {"title": script.get("title", path.stem)})
+        + "\n\n"
+        + f"{script.get('voiceover', '')}\n\n"
+        + t("md.edit_tip", {"tip": script.get("edit_tip", "")})
+        + "\n"
     )
     if script.get("_changelog"):
-        md += "\n## 本次 refine 改动\n"
+        md += "\n" + t("md.changelog_section") + "\n"
         for item in script["_changelog"]:
             md += f"- {item}\n"
     write_text_atomic(path, md)

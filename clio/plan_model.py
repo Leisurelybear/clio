@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from clio.cut import parse_time_range
+from clio.i18n import t
 
 _SEGMENT_KNOWN = frozenset({"index", "title", "reason", "use_timeline", "voiceover_hint", "subtitle"})
 _PLAN_KNOWN = frozenset(
@@ -155,7 +156,7 @@ class Plan:
                     PlanIssue(
                         level="error",
                         code="index_empty",
-                        message=f"第 {i + 1} 段缺少视频 index",
+                        message=t("plan.validate.index_empty", {"index": i + 1}),
                         segment_index=i,
                     )
                 )
@@ -168,7 +169,7 @@ class Plan:
                         PlanIssue(
                             level="error",
                             code="timeline_invalid",
-                            message=f"第 {i + 1} 段时间轴无效: {e}",
+                            message=t("plan.validate.timeline_invalid", {"index": i + 1, "detail": e}),
                             segment_index=i,
                         )
                     )

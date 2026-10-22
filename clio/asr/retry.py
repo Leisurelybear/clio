@@ -11,15 +11,17 @@ from math import isfinite
 
 import httpx
 
+from clio.i18n import t
+
 RETRYABLE_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504})
 
 
 def _status_message(status_code: int) -> str:
     if status_code == 429:
-        return "请求过于频繁"
+        return t("asr.retry.too_many_requests")
     if status_code >= 500:
-        return "服务暂时不可用"
-    return "请求被拒绝"
+        return t("asr.retry.service_unavailable")
+    return t("asr.retry.request_rejected")
 
 
 def _retry_after_seconds(
@@ -65,13 +67,13 @@ def request_with_retry(
 
     def check_cancelled() -> None:
         if cancel_event is not None and cancel_event.is_set():
-            raise RuntimeError(f"{label}已取消")
+            raise RuntimeError(t("asr.retry.cancelled", {"label": label}))
 
     def wait_before_retry(seconds: float) -> None:
         if cancel_event is None:
             sleep(seconds)
         elif cancel_event.wait(seconds):
-            raise RuntimeError(f"{label}已取消")
+            raise RuntimeError(t("asr.retry.cancelled", {"label": label}))
 
     last_status: int | None = None
     for attempt in range(attempts):
@@ -86,11 +88,13 @@ def request_with_retry(
             last_status = status
             if status not in RETRYABLE_STATUS_CODES or attempt == attempts - 1:
                 reason = _status_message(status)
-                raise RuntimeError(f"{label}失败（HTTP {status}，{reason}），请稍后重试") from exc
+                raise RuntimeError(
+                    t("asr.retry.http_failed", {"label": label, "status": status, "reason": reason})
+                ) from exc
             retry_after = _retry_after_seconds(exc.response)
         except httpx.RequestError:
             if attempt == attempts - 1:
-                raise RuntimeError(f"{label}失败：网络连接不稳定，请检查网络后重试") from None
+                raise RuntimeError(t("asr.retry.network_failed", {"label": label})) from None
 
         delay = min(base_delay * (2**attempt), max_delay)
         if retry_after is not None:
@@ -101,5 +105,5 @@ def request_with_retry(
 
     if last_status is not None:
         reason = _status_message(last_status)
-        raise RuntimeError(f"{label}失败（HTTP {last_status}，{reason}），请稍后重试")
-    raise RuntimeError(f"{label}失败：网络连接不稳定，请检查网络后重试")
+        raise RuntimeError(t("asr.retry.http_failed", {"label": label, "status": last_status, "reason": reason}))
+    raise RuntimeError(t("asr.retry.network_failed", {"label": label}))

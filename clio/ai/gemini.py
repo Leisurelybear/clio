@@ -12,6 +12,7 @@ from google.genai import types
 
 from clio.ai.base import AIResponse, TokenUsage
 from clio.config import ProviderConfig, ProxyConfig
+from clio.i18n import t
 from clio.ratelimit import make_rate_limiter
 from clio.utils import mask_if_looks_like_key, with_retry
 
@@ -28,12 +29,8 @@ class GeminiProvider:
 
     def __init__(self, cfg: ProviderConfig, proxy: ProxyConfig):
         if not cfg.api_key:
-            env_name = mask_if_looks_like_key(cfg.api_key_env) or "<未设置>"
-            raise ValueError(
-                f"Provider '{cfg.name}' 缺少 API Key。\n"
-                f"  请在 .env 中设置环境变量 {env_name}=你的key\n"
-                f"  （api_key_env 填环境变量名，不要把密钥写进 config.yaml）"
-            )
+            env_name = mask_if_looks_like_key(cfg.api_key_env) or t("ai.env_not_set")
+            raise ValueError(t("ai.gemini_missing_key", {"provider": cfg.name, "env": env_name}))
         http_options_kwargs: dict = {"timeout": max(1, int(float(cfg.timeout_sec) * 1000))}
         if proxy.enabled and proxy.url:
             http_options_kwargs["client_args"] = {"transport": httpx.HTTPTransport(proxy=proxy.url)}
@@ -81,7 +78,7 @@ class GeminiProvider:
             except BaseException as e:
                 if self._is_retryable(e):
                     raise
-                raise RuntimeError(f"Gemini API 不可重试错误: {e}") from e
+                raise RuntimeError(t("ai.gemini_non_retryable", {"error": e})) from e
 
         return with_retry(
             _wrapped,
@@ -103,9 +100,9 @@ class GeminiProvider:
     ):
         for attempt in range(self._retry_attempts):
             if cancel_event is not None and cancel_event.is_set():
-                raise RuntimeError("视频处理被用户取消")
+                raise RuntimeError(t("ai.video_cancelled"))
             if time.monotonic() > deadline:
-                raise TimeoutError(f"视频处理超时（{timeout}s）: {name}")
+                raise TimeoutError(t("ai.video_timeout", {"timeout": timeout, "name": name}))
 
             try:
                 return self._client.files.get(name=name)
@@ -115,16 +112,23 @@ class GeminiProvider:
 
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    raise TimeoutError(f"视频处理超时（{timeout}s）: {name}") from exc
+                    raise TimeoutError(t("ai.video_timeout", {"timeout": timeout, "name": name})) from exc
                 delay = min(2.0 * (2**attempt), remaining)
                 print(
-                    f"  [重试] Gemini 文件状态查询失败 "
-                    f"({type(exc).__name__}: {str(exc)[:80]})，"
-                    f"{delay:.1f}s 后重试 ({attempt + 2}/{self._retry_attempts})"
+                    t(
+                        "ai.gemini_retry_status",
+                        {
+                            "error_type": type(exc).__name__,
+                            "detail": str(exc)[:80],
+                            "delay": f"{delay:.1f}",
+                            "attempt": attempt + 2,
+                            "total": self._retry_attempts,
+                        },
+                    )
                 )
                 if cancel_event is not None:
                     if cancel_event.wait(delay):
-                        raise RuntimeError("视频处理被用户取消") from exc
+                        raise RuntimeError(t("ai.video_cancelled")) from exc
                 else:
                     time.sleep(delay)
 
@@ -141,13 +145,13 @@ class GeminiProvider:
         while uploaded.state == types.FileState.PROCESSING:
             # Check for cancellation
             if cancel_event and cancel_event.is_set():
-                raise RuntimeError("视频处理被用户取消")
+                raise RuntimeError(t("ai.video_cancelled"))
             if time.monotonic() > deadline:
-                raise TimeoutError(f"视频处理超时（{timeout}s）: {uploaded.name}")
+                raise TimeoutError(t("ai.video_timeout", {"timeout": timeout, "name": uploaded.name}))
             waited = int(time.monotonic() - (deadline - timeout))
             if on_progress:
-                on_progress(f"等待 Gemini 处理（{waited}s）...")
-            print(f"  视频处理中...（{waited}s）")
+                on_progress(t("ai.waiting_gemini_progress", {"waited": waited}))
+            print(t("ai.video_processing_console", {"waited": waited}))
             time.sleep(self._poll_interval)
             uploaded = self._get_file_with_retry(
                 uploaded.name,
@@ -156,7 +160,7 @@ class GeminiProvider:
                 cancel_event=cancel_event,
             )
         if uploaded.state == types.FileState.FAILED:
-            raise RuntimeError(f"视频处理失败: {uploaded.name}")
+            raise RuntimeError(t("ai.video_processing_failed", {"name": uploaded.name}))
         return uploaded
 
     def close(self) -> None:
@@ -208,18 +212,18 @@ class GeminiProvider:
         uploaded = None
         try:
             if progress_callback:
-                progress_callback("上传视频到 Gemini...")
+                progress_callback(t("ai.progress_uploading"))
             self._maybe_wait()
             # Check cancellation before upload
             if cancel_event and cancel_event.is_set():
-                raise RuntimeError("视频分析被用户取消")
+                raise RuntimeError(t("ai.video_analysis_cancelled"))
 
             # 用 BytesIO 避免 google-genai 2.8.0 的 bug：
             # 非 ASCII 文件名会作为 HTTP header 值发送，导致
             # UnicodeEncodeError: 'ascii' codec can't encode character
             p = Path(video_path)
             if p.stat().st_size > 200 * 1024 * 1024:
-                raise ValueError(f"文件过大 ({p.stat().st_size / 1024 / 1024:.0f} MB)，请先压缩")
+                raise ValueError(t("ai.file_too_large", {"size": f"{p.stat().st_size / 1024 / 1024:.0f}"}))
             mime_type, _ = mimetypes.guess_type(str(p))
             with open(video_path, "rb") as f:
                 uploaded = self._client.files.upload(
@@ -227,12 +231,12 @@ class GeminiProvider:
                     config=types.UploadFileConfig(mime_type=mime_type or "video/mp4"),
                 )
             if progress_callback:
-                progress_callback("等待 Gemini 处理...")
+                progress_callback(t("ai.progress_waiting"))
             # Pass cancel_event to _wait_for_file
             uploaded = self._wait_for_file(uploaded, on_progress=progress_callback, cancel_event=cancel_event)
 
             if progress_callback:
-                progress_callback("AI 分析中...")
+                progress_callback(t("ai.progress_analyzing"))
 
             def _do() -> AIResponse:
                 self._maybe_wait()
@@ -246,7 +250,7 @@ class GeminiProvider:
                     )
                 return AIResponse(text=response.text or "", token_usage=self._extract_usage(response))
 
-            return self._call_with_retry(_do, f"视频 {model}", model)
+            return self._call_with_retry(_do, t("ai.retry_what_video", {"model": model}), model)
         finally:
             if uploaded is not None and uploaded.name is not None:
                 try:

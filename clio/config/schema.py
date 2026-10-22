@@ -14,25 +14,11 @@ from typing import Any
 
 from clio.config.loader import _GLOBAL_SECTION_DC_MAP, _PROJECT_SECTION_DC_MAP
 from clio.config.models import PreviewConfig, PreviewSubtitlesConfig
+from clio.i18n import t
 
 BASIC = "basic"
 ADVANCED = "advanced"
 HIDDEN = "hidden"
-
-_SECTION_LABELS: dict[str, str] = {
-    "proxy": "代理",
-    "server": "服务",
-    "naming": "编号命名",
-    "ui": "界面",
-    "paths": "路径",
-    "compress": "压缩",
-    "whisper": "Whisper 语音识别",
-    "ai": "AI 配置",
-    "analyze": "AI 分析",
-    "script": "口播脚本",
-    "plan": "剪辑规划",
-    "export": "导出设置",
-}
 
 # Explicit UI overrides keyed by <section>.<field>.
 # Anything not listed here gets type-based inference and the advanced group.
@@ -136,7 +122,7 @@ def build_config_schema() -> dict[str, list[dict[str, Any]]]:
             out.append(
                 {
                     "key": key,
-                    "label": _SECTION_LABELS.get(key, key),
+                    "label": t(f"settings.section.{key}", fallback=key),
                     "custom_ui": is_subtitles,
                     "fields": field_list,
                 }

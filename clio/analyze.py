@@ -12,6 +12,7 @@ from clio.ai.base import AIResponse, TaskName
 from clio.ai.factory import get_task_provider, get_video_provider
 from clio.config import AppConfig
 from clio.cut import parse_time_range
+from clio.i18n import t
 from clio.log import format_size, timed
 from clio.prompt_overrides import format_prompt_template, resolve_prompt_template
 from clio.prompts import (
@@ -139,7 +140,7 @@ def _validate_analysis(data: dict, source: str) -> dict:
     required = {"title", "summary", "timeline"}
     missing = required - data.keys()
     if missing:
-        print(f"  [警告] {source}: AI 返回缺少字段 {missing}，使用默认值")
+        print(t("analyze.warn_missing_field", {"source": source, "missing": missing}))
     data.setdefault("title", Path(source).stem)
     data.setdefault("summary", "")
     data.setdefault("timeline", [])
@@ -160,12 +161,22 @@ def _validate_analysis(data: dict, source: str) -> dict:
     ):
         value, ok = _coerce_str(data[key], default)
         if not ok:
-            print(f"  [警告] {source}: 字段 {key} 类型非法（{type(data[key]).__name__}），重置为默认值")
+            print(
+                t(
+                    "analyze.warn_invalid_field_type",
+                    {"source": source, "key": key, "type_name": type(data[key]).__name__},
+                )
+            )
         data[key] = value
     for key in ("timeline", "highlights"):
         value, ok = _coerce_list(data[key])
         if not ok:
-            print(f"  [警告] {source}: 字段 {key} 类型非法（{type(data[key]).__name__}），重置为空列表")
+            print(
+                t(
+                    "analyze.warn_invalid_field_type_empty_list",
+                    {"source": source, "key": key, "type_name": type(data[key]).__name__},
+                )
+            )
         data[key] = value
     # Downstream prompt construction expects mapping-shaped timeline entries.
     # Keep valid entries and discard malformed model output before it can crash.
@@ -173,7 +184,7 @@ def _validate_analysis(data: dict, source: str) -> dict:
     data["highlights"] = [item for item in data["highlights"] if isinstance(item, (dict, str))]
     value, ok = _coerce_number(data["_confidence"], 0.0)
     if not ok:
-        print(f"  [警告] {source}: 字段 _confidence 类型非法，重置为 0.0")
+        print(t("analyze.warn_confidence_invalid", {"source": source}))
     data["_confidence"] = min(1.0, max(0.0, value))
     return data
 
@@ -184,7 +195,7 @@ def _validate_voiceover(data: dict, source: str) -> dict:
     required = {"voiceover", "title"}
     missing = required - data.keys()
     if missing:
-        print(f"  [警告] {source}: AI 返回缺少字段 {missing}，使用默认值")
+        print(t("analyze.warn_missing_field", {"source": source, "missing": missing}))
     data.setdefault("title", Path(source).stem)
     data.setdefault("voiceover", "")
     data.setdefault("duration_hint_sec", 20)
@@ -194,15 +205,15 @@ def _validate_voiceover(data: dict, source: str) -> dict:
     for key, default in (("title", Path(source).stem), ("voiceover", ""), ("edit_tip", "")):
         value, ok = _coerce_str(data[key], default)
         if not ok:
-            print(f"  [警告] {source}: 字段 {key} 类型非法，重置为默认值")
+            print(t("analyze.warn_invalid_field", {"source": source, "key": key}))
         data[key] = value
     value, ok = _coerce_number(data["duration_hint_sec"], 20)
     if not ok:
-        print(f"  [警告] {source}: 字段 duration_hint_sec 类型非法，重置为 20")
+        print(t("analyze.warn_duration_hint_invalid", {"source": source}))
     data["duration_hint_sec"] = max(0.0, value)
     value, ok = _coerce_number(data["_confidence"], 0.0)
     if not ok:
-        print(f"  [警告] {source}: 字段 _confidence 类型非法，重置为 0.0")
+        print(t("analyze.warn_confidence_invalid", {"source": source}))
     data["_confidence"] = min(1.0, max(0.0, value))
     return data
 
@@ -213,7 +224,7 @@ def _validate_plan(data: dict, source: str) -> dict:
     required = {"day_title", "sequence"}
     missing = required - data.keys()
     if missing:
-        print(f"  [警告] {source}: AI 返回缺少字段 {missing}，使用默认值")
+        print(t("analyze.warn_missing_field", {"source": source, "missing": missing}))
     data.setdefault("day_title", source)
     data.setdefault("theme", "")
     data.setdefault("total_estimated_sec", 180)
@@ -225,19 +236,19 @@ def _validate_plan(data: dict, source: str) -> dict:
     for key, default in (("day_title", source), ("theme", ""), ("opening_tip", ""), ("ending_tip", "")):
         value, ok = _coerce_str(data[key], default)
         if not ok:
-            print(f"  [警告] {source}: 字段 {key} 类型非法，重置为默认值")
+            print(t("analyze.warn_invalid_field", {"source": source, "key": key}))
         data[key] = value
     sequence, ok = _coerce_list(data["sequence"])
     if not ok:
-        print(f"  [警告] {source}: 字段 sequence 类型非法，重置为空列表")
+        print(t("analyze.warn_sequence_invalid", {"source": source}))
     data["sequence"] = [s for s in sequence if isinstance(s, dict)]
     value, ok = _coerce_number(data["total_estimated_sec"], 180)
     if not ok:
-        print(f"  [警告] {source}: 字段 total_estimated_sec 类型非法，重置为 180")
+        print(t("analyze.warn_total_estimated_invalid", {"source": source}))
     data["total_estimated_sec"] = max(0.0, value)
     value, ok = _coerce_number(data["_confidence"], 0.0)
     if not ok:
-        print(f"  [警告] {source}: 字段 _confidence 类型非法，重置为 0.0")
+        print(t("analyze.warn_confidence_invalid", {"source": source}))
     data["_confidence"] = min(1.0, max(0.0, value))
     return data
 
@@ -269,11 +280,11 @@ def _merge_refinement_result(original: dict, candidate: Any, *, required_field: 
             if _refinement_value_compatible(original[key], value):
                 merged[key] = copy.deepcopy(value)
             else:
-                print(f"  [警告] refine: 忽略类型不兼容字段 {key}")
+                print(t("analyze.warn_refine_incompatible_field", {"key": key}))
         else:
             unknown.append(str(key))
     if unknown:
-        print(f"  [警告] refine: 忽略未声明字段 {', '.join(sorted(unknown))}")
+        print(t("analyze.warn_refine_unknown_fields", {"fields": ", ".join(sorted(unknown))}))
     return merged
 
 
@@ -305,7 +316,7 @@ def _call_ai(
 ) -> str:
     # Check cancel_event before starting AI call
     if cancel_event and cancel_event.is_set():
-        raise RuntimeError(f"{label} 被用户取消")
+        raise RuntimeError(t("analyze.cancelled_by_user", {"label": label}))
 
     if debug_print:
         print("=" * 60)
@@ -317,12 +328,9 @@ def _call_ai(
     print(f"  AI: {provider_id}/{model}（prompt {format_size(prompt_bytes)}）")
     with timed(f"{label} {provider_id}/{model}"):
         resp = fn()
-    print(f"  响应: {format_size(len(resp.text.encode('utf-8')))}")
+    print(t("analyze.response_size", {"size": format_size(len(resp.text.encode("utf-8")))}))
     if getattr(resp, "finish_reason", None) in ("length", "max_tokens"):
-        print(
-            f"  [警告] 模型输出被截断 (finish_reason={resp.finish_reason})，"
-            "JSON 可能不完整；可在 config.yaml 提高该 provider 的 max_tokens 后重试"
-        )
+        print(t("analyze.truncated_output", {"reason": resp.finish_reason}))
     if token_store and resp.token_usage:
         token_store.record(task_name or label, model, resp.token_usage)
     return resp.text
@@ -468,9 +476,9 @@ def _validate_plan_ranges(result: dict, clips: list[dict], max_clips: int, targe
         valid.append(segment)
 
     if dropped:
-        print(f"  [规划] 已过滤 {dropped} 个超出素材 timeline 的 segment")
+        print(t("analyze.plan_dropped_timeline", {"count": dropped}))
     if max_clips > 0 and len(valid) > max_clips:
-        print(f"  [规划] sequence 超过 max_clips={max_clips}，已保留前 {max_clips} 段")
+        print(t("analyze.plan_max_clips", {"max": max_clips}))
         valid = valid[:max_clips]
 
     total = 0.0
@@ -482,7 +490,12 @@ def _validate_plan_ranges(result: dict, clips: list[dict], max_clips: int, targe
         total += max(0.0, end - start)
     if total > 0:
         if target_duration_sec > 0 and abs(total - target_duration_sec) > max(10.0, target_duration_sec * 0.25):
-            print(f"  [规划] 实际片段总时长 {total:.1f}s 与目标 {target_duration_sec:.1f}s 偏差较大，已按实际值记录")
+            print(
+                t(
+                    "analyze.plan_duration_deviation",
+                    {"total": f"{total:.1f}", "target": f"{target_duration_sec:.1f}"},
+                )
+            )
         result["total_estimated_sec"] = round(total, 2)
     result["sequence"] = valid
     return result
@@ -501,7 +514,7 @@ def analyze_video(
     base = resolve_prompt_template("video_analyze", ANALYZE_PROMPT, config, task_prompts=task_prompts)
     prompt = _wrap_with_context(base, config, context_override=context_override)
     text = _call_ai(
-        "AI 视频分析",
+        t("analyze.label.video_analysis"),
         provider.provider_id,
         model,
         prompt,
@@ -519,7 +532,7 @@ def analyze_video(
     )
     # Check cancel_event after AI call but before validation
     if cancel_event and cancel_event.is_set():
-        raise RuntimeError("分析被用户取消")
+        raise RuntimeError(t("analyze.cancelled"))
 
     return _validate_analysis(extract_json(text), video_path)
 
@@ -534,7 +547,7 @@ def generate_voiceover(
     task_prompts: dict[str, str] | None = None,
 ) -> dict:
     if cancel_event and cancel_event.is_set():
-        raise RuntimeError("voiceover 被用户取消")
+        raise RuntimeError(t("analyze.voiceover_cancelled"))
 
     provider, model = get_task_provider(config, TaskName.VOICEOVER)
 
@@ -569,7 +582,7 @@ def generate_voiceover(
     )
     prompt = _wrap_with_context(base, config, context_override=context_override)
     text = _call_ai(
-        "AI 口播",
+        t("analyze.label.voiceover"),
         provider.provider_id,
         model,
         prompt,
@@ -636,7 +649,7 @@ def plan_daily_vlog(
             base += format_prompt_template("transcript_context", transcript_template, transcripts_json=transcript_json)
     prompt = _wrap_with_context(f"日 vlog 标签: {day_label}\n\n{base}", config, context_override=context_override)
     text = _call_ai(
-        "AI vlog 剪辑规划",
+        t("analyze.label.vlog_plan"),
         provider.provider_id,
         model,
         prompt,
@@ -671,7 +684,7 @@ def plan_daily_vlog(
         result["sequence"] = filtered
         if len(result["sequence"]) < original_count:
             dropped = original_count - len(result["sequence"])
-            print(f"[规划] 已过滤 {dropped} 个引用无效 index 的 segment")
+            print(t("analyze.plan_dropped_invalid_index", {"count": dropped}))
 
     result = _validate_plan_ranges(
         result,
@@ -680,9 +693,7 @@ def plan_daily_vlog(
         target_duration_sec=float(getattr(config.plan, "target_duration_sec", 0) or 0),
     )
     if not result.get("sequence"):
-        raise RuntimeError(
-            f"AI 规划结果没有可用片段（原始 {raw_sequence_count} 段），请重试或检查模型输出；本次未写入规划文件"
-        )
+        raise RuntimeError(t("analyze.plan_no_usable_clips", {"count": raw_sequence_count}))
 
     return result
 
@@ -711,7 +722,7 @@ def refine_text(
             fix_instruction=fix.strip(),
             existing_json=json.dumps(analysis, ensure_ascii=False, indent=None),
         )
-        label = "AI refine (定向)"
+        label = t("analyze.label.refine_text_targeted")
     else:
         refine_template = resolve_prompt_template("refine_text", REFINE_TEXT_PROMPT, config, task_prompts=task_prompts)
         base = format_prompt_template(
@@ -719,7 +730,7 @@ def refine_text(
             refine_template,
             existing_json=json.dumps(analysis, ensure_ascii=False, indent=None),
         )
-        label = "AI refine 素材"
+        label = t("analyze.label.refine_text")
     prompt = _wrap_with_context(base, config, context_override=context_override)
     text = _call_ai(
         label,
@@ -733,7 +744,7 @@ def refine_text(
     )
     result = extract_json(text)
     if not isinstance(result, dict):
-        print("  [警告] refine_text: AI 返回结构异常，使用原始数据")
+        print(t("analyze.refine_text_bad_structure"))
         return analysis
     return _merge_refinement_result(analysis, result)
 
@@ -767,7 +778,7 @@ def refine_script(
             analysis_json=analysis_json,
             existing_json=existing_json,
         )
-        label = "AI refine 脚本 (定向)"
+        label = t("analyze.label.refine_script_targeted")
     else:
         refine_template = resolve_prompt_template(
             "refine_script", REFINE_SCRIPT_PROMPT, config, task_prompts=task_prompts
@@ -778,7 +789,7 @@ def refine_script(
             analysis_json=analysis_json,
             existing_json=existing_json,
         )
-        label = "AI refine 脚本"
+        label = t("analyze.label.refine_script")
     prompt = _wrap_with_context(base, config, context_override=context_override)
     text = _call_ai(
         label,
@@ -792,6 +803,6 @@ def refine_script(
     )
     result = extract_json(text)
     if not isinstance(result, dict):
-        print("  [警告] refine_script: AI 返回结构异常，使用原始数据")
+        print(t("analyze.refine_script_bad_structure"))
         return script
     return _merge_refinement_result(script, result, required_field="voiceover")

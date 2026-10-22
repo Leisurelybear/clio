@@ -8,6 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from clio.config import AppConfig
+from clio.i18n import t
 
 
 def check_whisper() -> bool:
@@ -203,36 +204,33 @@ def _get_model(config: AppConfig):
                             is_last = ct == compute_types[-1]
                             err_str = str(e)
                             if device == "cuda" and is_last:
-                                print(f"  [警告] CUDA 加载失败 ({err_str})，回退到 CPU")
+                                print(t("transcribe.warn_cuda_load_failed", {"error": err_str}))
                                 device = "cpu"
                                 break
                             if device != "cuda" and is_last:
-                                print(f"  [错误] 模型加载失败: {err_str}")
-                                print("  [提示] 请执行 `python main.py whisper install` 预下载模型到本地缓存")
-                                ep = config.whisper.hf_endpoint or "未设置（使用官方地址）"
-                                print(f"  [提示] 国内用户需在设置中配置 hf_endpoint（当前: {ep}）")
+                                print(t("transcribe.error_model_load_failed", {"error": err_str}))
+                                print(t("transcribe.hint_prefetch_model"))
+                                ep = config.whisper.hf_endpoint or t("transcribe.hf_endpoint_unset")
+                                print(t("transcribe.hint_configure_hf_endpoint", {"endpoint": ep}))
                                 if (
                                     "tls" in err_str.lower()
                                     or "handshake" in err_str.lower()
                                     or "eof" in err_str.lower()
                                     or "connect" in err_str.lower()
                                 ):
-                                    print("  [提示] 可能是网络/代理问题导致模型下载失败，建议：")
-                                    print("         1. 在配置中设置 hf_endpoint: https://hf-mirror.com")
-                                    print("         2. 或执行 `python main.py whisper install` 手动下载")
+                                    print(t("transcribe.hint_network_proxy"))
+                                    print(t("transcribe.hint_set_hf_endpoint"))
+                                    print(t("transcribe.hint_manual_download"))
                                 if "cublas" in err_str.lower() or "library" in err_str.lower():
-                                    print("  [提示] 可能是 CUDA 库缺失，建议：")
-                                    print("         1. 在配置中设置 whisper.device: cpu（跳过 CUDA）")
-                                    print(
-                                        "         2. 或安装 CUDA 运行时: pip install nvidia-cublas-cu12"
-                                        " nvidia-cudnn-cu12"
-                                    )
+                                    print(t("transcribe.hint_cuda_libs"))
+                                    print(t("transcribe.hint_set_cpu"))
+                                    print(t("transcribe.hint_install_cuda"))
                                 raise
-                            print(f"  [警告] {device} {ct} 加载失败 ({e})，尝试下一个 compute type")
+                            print(t("transcribe.warn_compute_type_failed", {"device": device, "ct": ct, "error": e}))
                             continue
                         except Exception as e:
                             if device == "cuda":
-                                print(f"  [警告] CUDA 加载异常 ({e})，回退到 CPU")
+                                print(t("transcribe.warn_cuda_exception", {"error": e}))
                                 device = "cpu"
                                 break
                             raise
@@ -258,7 +256,12 @@ def transcribe_audio(
     lang = config.whisper.language
     supported = getattr(provider.capabilities, "supported_languages", ["*"])
     if lang not in supported and "*" not in supported:
-        raise RuntimeError(f"ASR 引擎 {engine_id} 不支持语言 {lang}，当前支持: {', '.join(supported)}")
+        raise RuntimeError(
+            t(
+                "transcribe.unsupported_language",
+                {"engine": engine_id, "language": lang, "supported": ", ".join(supported)},
+            )
+        )
     if progress_callback:
         progress_callback(0)
     segments = provider.transcribe(audio_path, lang, progress_callback, cancel_event)
@@ -293,10 +296,12 @@ def _transcribe_local_whisper(
         result = []
         for seg in segments_iter:
             if cancel_event is not None and cancel_event.is_set():
-                raise RuntimeError("本地 ASR 转录已取消")
+                raise RuntimeError(t("transcribe.local_cancelled"))
             pct = int(seg.end / total_duration * 100) if total_duration > 0 else 0
             if pct >= last_pct + 5:
-                print(f"  [whisper] 转录进度: {seg.end:.1f}s / {total_duration:.0f}s ({pct}%)")
+                end_s = f"{seg.end:.1f}"
+                total_s = f"{total_duration:.0f}"
+                print(t("transcribe.progress", {"end": end_s, "total": total_s, "pct": pct}))
                 if progress_callback:
                     progress_callback(pct)
                 last_pct = pct
@@ -320,7 +325,7 @@ def _transcribe_local_whisper(
         err = str(e)
         if not ("cublas" in err.lower() or "cuda" in err.lower() or "library" in err.lower()):
             raise
-        print(f"  [警告] CUDA 模型加载/推理失败 ({e})，回退到 CPU 重试")
+        print(t("transcribe.warn_cuda_retry_cpu", {"error": e}))
         _clear_model_cache()
         _orig_device = config.whisper.device
         try:
@@ -331,8 +336,8 @@ def _transcribe_local_whisper(
         try:
             return _transcribe_once()
         except (RuntimeError, OSError):
-            print("  [错误] CPU 回退也失败，可能是 cuBLAS 库缺失")
-            print("  [提示] 请在配置中设置 whisper.device: cpu，或安装 CUDA 运行时:")
+            print(t("transcribe.error_cpu_fallback_failed"))
+            print(t("transcribe.hint_set_device_cpu"))
             print("         pip install nvidia-cublas-cu12 nvidia-cudnn-cu12")
             raise
         finally:

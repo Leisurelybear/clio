@@ -1,6 +1,7 @@
 import logging
 
 from clio.config.models import CANVAS_PRESETS, AppConfig, GlobalConfig
+from clio.i18n import t
 
 logger = logging.getLogger("clio.config")
 
@@ -55,16 +56,16 @@ def _require_supported_provider_type(provider_name: str, provider_type: str) -> 
     if provider_type not in _SUPPORTED_PROVIDER_TYPES:
         available = ", ".join(sorted(_SUPPORTED_PROVIDER_TYPES))
         raise ValueError(
-            f"ai.providers.{provider_name}.type = '{provider_type}' 不受支持。可选 provider type: {available}。"
+            t(
+                "config.provider_type_unsupported",
+                {"provider": provider_name, "type": provider_type, "available": available},
+            )
         )
 
 
 def _require_video_provider_compatible(task_name: str, provider_name: str, provider_type: str) -> None:
     if task_name == "video_analyze" and provider_type != "gemini":
-        raise ValueError(
-            "ai.tasks.video_analyze.provider 必须绑定 gemini 类型 provider."
-            f"'{provider_name}' 当前类型为 '{provider_type}'。"
-        )
+        raise ValueError(t("config.video_task_needs_gemini", {"provider": provider_name, "type": provider_type}))
 
 
 def _warn_unknown_model(task_name: str, provider_name: str, task_model: str, provider_models: list[str]) -> None:
@@ -78,12 +79,15 @@ def _warn_unknown_model(task_name: str, provider_name: str, task_model: str, pro
     if provider_models and task_model not in provider_models:
         available = ", ".join(provider_models)
         logger.warning(
-            "ai.tasks.%s.model = '%s' 不在 ai.providers.%s.models 中: %s。"
-            "如该模型可用，请把模型名加入 provider 的 models 列表。",
-            task_name,
-            task_model,
-            provider_name,
-            available,
+            t(
+                "config.unknown_model_warning",
+                {
+                    "task": task_name,
+                    "model": task_model,
+                    "provider": provider_name,
+                    "available": available,
+                },
+            )
         )
 
 
@@ -96,17 +100,17 @@ def _require_relative_subdir(field_name: str, value: str) -> None:
     from pathlib import PurePosixPath
 
     if not isinstance(value, str) or not value:
-        raise ValueError(f"{field_name} 必须是相对子目录名，不能为空")
+        raise ValueError(t("config.subdir_empty", {"field": field_name}))
     if value.startswith(("~", "/", "\\")) or ":" in value[:2]:
-        raise ValueError(f"{field_name} 必须是相对子目录名，不能是绝对路径: {value!r}")
+        raise ValueError(t("config.subdir_absolute", {"field": field_name, "value": repr(value)}))
     parts = PurePosixPath(value.replace("\\", "/")).parts
     if any(p in ("..", ".") for p in parts) or value == ".":
-        raise ValueError(f"{field_name} 不能包含 .. 或 . 路径段: {value!r}")
+        raise ValueError(t("config.subdir_dot_segment", {"field": field_name, "value": repr(value)}))
 
 
 def _validate_config(config: AppConfig) -> None:
     if config.proxy.enabled and not config.proxy.url:
-        raise ValueError("proxy.enabled=true 但 proxy.url 为空。请填写 proxy.url，或把 proxy.enabled 改成 false。")
+        raise ValueError(t("config.proxy_url_missing"))
     for field_name, value in (
         ("analyze.compressed_subdir", config.analyze.compressed_subdir),
         ("analyze.texts_subdir", config.analyze.texts_subdir),
@@ -121,9 +125,13 @@ def _validate_config(config: AppConfig) -> None:
     _require_min("analyze.window_overlap_sec", config.analyze.window_overlap_sec, 0)
     if config.analyze.window_overlap_sec >= config.analyze.window_max_min * 60:
         raise ValueError(
-            f"analyze.window_overlap_sec 必须小于 window_max_min×60，"
-            f"当前 overlap={config.analyze.window_overlap_sec}，"
-            f"window_max_min={config.analyze.window_max_min}"
+            t(
+                "config.window_overlap_too_large",
+                {
+                    "overlap": config.analyze.window_overlap_sec,
+                    "window_max_min": config.analyze.window_max_min,
+                },
+            )
         )
     _require_min("compress.target_size_mb", config.compress.target_size_mb, 0.01)
     _require_min("compress.max_width", config.compress.max_width, 1)
@@ -139,7 +147,7 @@ def _validate_config(config: AppConfig) -> None:
         available = ", ".join(CANVAS_PRESETS)
         raise ValueError(f"export.canvas_ratio must be one of {available}, got: {config.export.canvas_ratio}")
     if config.export.output_subdir != "export":
-        raise NotImplementedError("export.output_subdir 当前未实现，请保持默认值 'export' 或留空")
+        raise NotImplementedError(t("config.export_output_subdir_unimplemented"))
     _require_choice("preview.subtitles.mode", config.preview.subtitles.mode, ("auto", "multi", "scroll"))
     _require_min("preview.subtitles.max_lines", config.preview.subtitles.max_lines, 1)
     _require_min("preview.subtitles.max_len_per_line", config.preview.subtitles.max_len_per_line, 1)
@@ -170,9 +178,12 @@ def _validate_config(config: AppConfig) -> None:
 
     for task_name, task_cfg in config.ai.tasks.items():
         if task_cfg.provider not in provider_names:
-            available = ", ".join(sorted(provider_names)) or "<无>"
+            available = ", ".join(sorted(provider_names)) or t("config.available_none")
             raise ValueError(
-                f"ai.tasks.{task_name}.provider = '{task_cfg.provider}' 不存在。已配置的 provider: {available}。"
+                t(
+                    "config.task_provider_missing",
+                    {"task": task_name, "provider": task_cfg.provider, "available": available},
+                )
             )
 
         provider_cfg = config.ai.providers[task_cfg.provider]
@@ -183,7 +194,7 @@ def _validate_config(config: AppConfig) -> None:
 def validate_global_config(config: GlobalConfig) -> None:
     """Validate global-layer config and default task bindings."""
     if config.proxy.enabled and not config.proxy.url:
-        raise ValueError("proxy.enabled=true 但 proxy.url 为空。请填写 proxy.url，或把 proxy.enabled 改成 false。")
+        raise ValueError(t("config.proxy_url_missing"))
     _require_choice("ui.language", config.ui.language, ("zh-CN", "en"))
     _require_min("ai.provider_ttl_min", config.ai.provider_ttl_min, 0)
     _require_min("naming.index_width", config.naming.index_width, 1)
@@ -202,10 +213,12 @@ def validate_global_config(config: GlobalConfig) -> None:
     provider_names = set(config.ai.providers)
     for task_name, task_cfg in config.ai.default_tasks.items():
         if task_cfg.provider not in provider_names:
-            available = ", ".join(sorted(provider_names)) or "<无>"
+            available = ", ".join(sorted(provider_names)) or t("config.available_none")
             raise ValueError(
-                f"ai.default_tasks.{task_name}.provider = '{task_cfg.provider}' 不存在。"
-                f"已配置的 provider: {available}。"
+                t(
+                    "config.default_task_provider_missing",
+                    {"task": task_name, "provider": task_cfg.provider, "available": available},
+                )
             )
         provider_cfg = config.ai.providers[task_cfg.provider]
         _require_video_provider_compatible(task_name, task_cfg.provider, provider_cfg.type)

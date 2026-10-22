@@ -6,13 +6,14 @@ from pathlib import Path
 
 from clio.asr.base import ProviderCapabilities, TranscriptSegment
 from clio.asr.factory import register_provider
+from clio.i18n import t
 
 
 @register_provider
 class LocalWhisperProvider:
     capabilities = ProviderCapabilities(
         id="local",
-        display_name="本地 faster-whisper",
+        display_name=t("asr.local.display_name"),
         supports_local_file=True,
     )
 
@@ -24,10 +25,7 @@ class LocalWhisperProvider:
 
         if check_whisper():
             return None
-        return (
-            "本地 faster-whisper 不可用。请执行 `python main.py whisper install`，"
-            "并检查 CUDA/cuBLAS；打包版请改用云端 ASR。"
-        )
+        return t("asr.local.unavailable")
 
     def transcribe(
         self,

@@ -14,6 +14,7 @@ from typing import Any
 
 from clio.asr.readiness import check_asr_ready
 from clio.config import AppConfig
+from clio.i18n import t
 from clio.identity import SEGMENT_SUFFIX_RE, _identity_to_dict, resolve_identity
 from clio.log import format_duration
 from clio.processing_state import ProcessingState
@@ -116,7 +117,9 @@ def _extract_audio(
         except OSError:
             free_bytes = -1
         if free_bytes >= 0 and free_bytes < need_bytes:
-            print(f"  [提取音频] 临时盘空间不足：需要约 {need_bytes / 1e6:.0f}MB，当前剩余 {free_bytes / 1e6:.0f}MB")
+            need_mb = f"{need_bytes / 1e6:.0f}"
+            free_mb = f"{free_bytes / 1e6:.0f}"
+            print(t("task.transcribe.extract_no_space", {"need": need_mb, "free": free_mb}))
             return None
     tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False, dir=str(tmp_dir))
     tmp.close()
@@ -144,7 +147,7 @@ def _extract_audio(
             if cancel_event and cancel_event.is_set():
                 proc.terminate()
                 proc.wait()
-                print("  [提取音频] 被用户取消")
+                print(t("task.transcribe.extract_cancelled"))
                 tmp_path.unlink(missing_ok=True)
                 return None
             m = time_pat.search(line)
@@ -154,11 +157,13 @@ def _extract_audio(
                 if progress_callback and pct >= 0:
                     progress_callback(pct)
                 if pct >= last_log_pct + 5:
-                    print(f"  [提取音频] {sec:.0f}s / {total_duration:.0f}s ({pct}%)")
+                    sec_s = f"{sec:.0f}"
+                    total_s = f"{total_duration:.0f}"
+                    print(t("task.transcribe.extract_progress_line", {"sec": sec_s, "total": total_s, "pct": pct}))
                     last_log_pct = pct
         proc.wait()
         if proc.returncode != 0:
-            print(f"  [ffmpeg] 提取失败 (code {proc.returncode})")
+            print(t("task.transcribe.extract_failed", {"code": proc.returncode}))
             tmp_path.unlink(missing_ok=True)
             return None
         if progress_callback:
@@ -188,15 +193,15 @@ def run_transcribe_all(
     **kwargs: Any,
 ) -> int:
     if not config.whisper.enabled:
-        print("Whisper 转录未启用（whisper.enabled=false），跳过")
+        print(t("task.transcribe.disabled"))
         if tracker:
-            tracker.log("Whisper 转录未启用，跳过")
-            tracker.update(phase="transcribe", current=0, total=0, message="Whisper 未启用，跳过")
+            tracker.log(t("task.transcribe.disabled_log"))
+            tracker.update(phase="transcribe", current=0, total=0, message=t("task.transcribe.disabled_message"))
         return 0
     readiness = check_asr_ready(config)
     if not readiness.ready:
-        msg = f"{readiness.display_name} 不可用：{readiness.error}"
-        print(f"警告：{msg}")
+        msg = t("task.transcribe.not_ready", {"engine": readiness.display_name, "error": readiness.error})
+        print(t("task.transcribe.warning", {"message": msg}))
         if tracker:
             tracker.error(msg)
         return 1
@@ -206,10 +211,12 @@ def run_transcribe_all(
 
     compressed_dir = config.paths.output_dir / config.analyze.compressed_subdir
     if not compressed_dir.is_dir():
-        print(f"压缩目录不存在: {compressed_dir}，请先运行压缩步骤")
+        print(t("task.transcribe.compressed_missing", {"path": compressed_dir}))
         if tracker:
-            tracker.log(f"压缩目录不存在: {compressed_dir}")
-            tracker.update(phase="transcribe", current=0, total=0, message="压缩目录不存在，跳过")
+            tracker.log(t("task.transcribe.compressed_missing_log", {"path": compressed_dir}))
+            tracker.update(
+                phase="transcribe", current=0, total=0, message=t("task.transcribe.compressed_missing_message")
+            )
         return 0
     videos = find_videos(compressed_dir)
     if files is not None:
@@ -217,11 +224,11 @@ def run_transcribe_all(
         videos = [v for v in videos if _matches_selected_stem(v, selected)]
     total = len(videos)
     if total == 0:
-        print("没有找到需要转录的视频")
+        print(t("task.transcribe.no_videos"))
         return 0
 
     if tracker:
-        tracker.update(phase="transcribe", total=total, current=0, message="Whisper 语音转录...")
+        tracker.update(phase="transcribe", total=total, current=0, message=t("task.transcribe.phase_title"))
     state = ProcessingState(config.paths.output_dir)
     original_cache = _build_original_stem_map(config.project_dir)
     error_count = 0
@@ -236,11 +243,11 @@ def run_transcribe_all(
         original_video = _find_original_video(compressed_stem, original_cache)
         if original_video is None:
             orig_stem = _extract_orig_stem(compressed_stem)
-            print(f"  [跳过] {compressed_stem}: 未找到原始视频")
+            print(t("task.transcribe.skip_no_original", {"name": compressed_stem}))
             state.mark(orig_stem, "transcribe", "skipped")
             if tracker:
-                tracker.next(message=f"跳过 {compressed_stem}")
-                tracker.log(f"跳过 {compressed_stem}（无原始文件）")
+                tracker.next(message=t("task.transcribe.skip_next", {"name": compressed_stem}))
+                tracker.log(t("task.transcribe.skip_no_original_log", {"name": compressed_stem}))
             continue
 
         orig_stem = original_video.stem
@@ -250,27 +257,33 @@ def run_transcribe_all(
             try:
                 existing = json.loads(out_path.read_text(encoding="utf-8"))
             except (json.JSONDecodeError, OSError):
-                print(f"  [重新转录] {compressed_stem} (已有文件损坏)")
+                print(t("task.transcribe.retranscribe_corrupt", {"name": compressed_stem}))
             else:
                 existing_engine = existing.get("engine", "local")
                 if existing_engine != current_engine:
                     print(
-                        f"  [重新转录] {compressed_stem} (已有转录 engine={existing_engine}, 当前配置 {current_engine})"
+                        t(
+                            "task.transcribe.retranscribe_engine",
+                            {"name": compressed_stem, "existing": existing_engine, "current": current_engine},
+                        )
                     )
                     if tracker:
                         tracker.log(
-                            f"{compressed_stem}: engine 已从 {existing_engine} 切换到 {current_engine}，重新转录"
+                            t(
+                                "task.transcribe.engine_switched",
+                                {"name": compressed_stem, "existing": existing_engine, "current": current_engine},
+                            )
                         )
                 else:
-                    print(f"[跳过] {compressed_stem} (已有转录, engine={current_engine})")
+                    print(t("task.transcribe.skip_exists", {"name": compressed_stem, "engine": current_engine}))
                     state.mark(orig_stem, "transcribe", "skipped")
                     if tracker:
-                        tracker.next(message=f"跳过 {compressed_stem}")
-                        tracker.log(f"跳过 {compressed_stem}（已转录）")
+                        tracker.next(message=t("task.transcribe.skip_next", {"name": compressed_stem}))
+                        tracker.log(t("task.transcribe.skip_exists_log", {"name": compressed_stem}))
                     continue
 
         if cancel_event and cancel_event.is_set():
-            print("  [取消] 转录阶段被终止")
+            print(t("task.transcribe.cancelled"))
             break
         ffmpeg = resolve_binary(config.paths.ffmpeg, "ffmpeg")
         ffprobe = resolve_binary(config.paths.ffprobe, "ffprobe")
@@ -281,11 +294,17 @@ def run_transcribe_all(
 
         def _on_extract_progress(pct: int) -> None:
             if tracker:
-                tracker.update(phase="transcribe", message=f"{compressed_stem}: 提取音频 ({pct}%)")
+                tracker.update(
+                    phase="transcribe",
+                    message=t("task.transcribe.extract_progress", {"name": compressed_stem, "pct": pct}),
+                )
 
         def _on_transcribe_progress(pct: int) -> None:
             if tracker:
-                tracker.update(phase="transcribe", message=f"{compressed_stem}: Whisper 转录 ({pct}%)")
+                tracker.update(
+                    phase="transcribe",
+                    message=t("task.transcribe.whisper_progress", {"name": compressed_stem, "pct": pct}),
+                )
 
         wav_path = _extract_audio(
             audio_source,
@@ -297,24 +316,27 @@ def run_transcribe_all(
         )
         if wav_path is None:
             if cancel_event and cancel_event.is_set():
-                print(f"  [取消] {compressed_stem}: 音频提取被用户中断")
+                print(t("task.transcribe.cancel_extract", {"name": compressed_stem}))
                 state.mark(orig_stem, "transcribe", "cancelled")
                 if tracker:
-                    tracker.next(message=f"取消 {compressed_stem}")
-                    tracker.log(f"取消 {compressed_stem}")
+                    tracker.next(message=t("task.transcribe.cancel", {"name": compressed_stem}))
+                    tracker.log(t("task.transcribe.cancel", {"name": compressed_stem}))
                 break
-            print(f"  [跳过] {compressed_stem}: 音频提取失败（可能无音轨）")
+            print(t("task.transcribe.skip_no_audio", {"name": compressed_stem}))
             state.mark(orig_stem, "transcribe", "skipped")
             if tracker:
-                tracker.next(message=f"跳过 {compressed_stem} (no audio)")
-                tracker.log(f"跳过 {compressed_stem}（无音轨）")
+                tracker.next(message=t("task.transcribe.skip_no_audio_next", {"name": compressed_stem}))
+                tracker.log(t("task.transcribe.skip_no_audio_log", {"name": compressed_stem}))
             continue
 
         try:
             if tracker:
-                engine_label = current_engine if current_engine != "local" else "本地 Whisper"
-                tracker.update(phase="transcribe", message=f"{compressed_stem}: {engine_label} 转录中...")
-                tracker.log(f"{compressed_stem}: {engine_label} 转录中...")
+                engine_label = current_engine if current_engine != "local" else t("task.transcribe.engine_local_label")
+                tracker.update(
+                    phase="transcribe",
+                    message=t("task.transcribe.transcribing", {"name": compressed_stem, "engine": engine_label}),
+                )
+                tracker.log(t("task.transcribe.transcribing", {"name": compressed_stem, "engine": engine_label}))
             segments = transcribe_audio(
                 wav_path, config, progress_callback=_on_transcribe_progress, cancel_event=cancel_event
             )
@@ -334,36 +356,48 @@ def run_transcribe_all(
             write_json_atomic(out_path, transcript)
             enriched = enrich_matching_analysis_files(config, transcript)
             if enriched:
-                print(f"  [对齐] 已更新 {enriched} 个分析 timeline 的语音片段")
+                print(t("task.transcribe.aligned", {"count": enriched}))
             state.mark(orig_stem, "transcribe", "done")
-            seg_info = f"{len(segments)} 段" if segments else "无有效内容"
+            seg_info = (
+                t("task.transcribe.seg_count", {"count": len(segments)}) if segments else t("task.transcribe.seg_none")
+            )
             elapsed = time.time() - start_time
             pace = elapsed / (i + 1)
             eta = pace * (total - i - 1)
             eta_str = format_duration(eta)
             pace_str = format_duration(pace)
-            line = f"  [转录 {i + 1}/{total}] {compressed_stem}（{seg_info}，平均 {pace_str}，剩余 ~{eta_str}）"
+            line = t(
+                "task.transcribe.line",
+                {
+                    "i": i + 1,
+                    "total": total,
+                    "name": compressed_stem,
+                    "info": seg_info,
+                    "pace": pace_str,
+                    "eta": eta_str,
+                },
+            )
             print(line)
         except KeyboardInterrupt:
             raise
         except Exception as e:
             err_msg = str(e)
-            print(f"  [错误] {compressed_stem}: {err_msg}")
+            print(t("task.transcribe.error", {"name": compressed_stem, "detail": err_msg}))
             state.mark(orig_stem, "transcribe", "error")
             if tracker:
-                tracker.next(message=f"失败 {compressed_stem}")
-                tracker.log(f"转录 {compressed_stem} 失败: {err_msg}")
+                tracker.next(message=t("task.transcribe.failed_next", {"name": compressed_stem}))
+                tracker.log(t("task.transcribe.failed_log", {"name": compressed_stem, "detail": err_msg}))
             error_count += 1
             continue
         finally:
             wav_path.unlink(missing_ok=True)
 
         if tracker:
-            tracker.next(message=f"完成 {compressed_stem}")
-            tracker.log(f"转录 {compressed_stem} ✓")
+            tracker.next(message=t("task.transcribe.done_next", {"name": compressed_stem}))
+            tracker.log(t("task.transcribe.done_log", {"name": compressed_stem}))
 
     if error_count > 0:
-        msg = f"转录完成（{error_count} 个文件失败）"
+        msg = t("task.transcribe.completed_with_errors", {"count": error_count})
         print(msg)
         if tracker:
             tracker.log(msg)
@@ -381,15 +415,15 @@ def run_transcribe_one(
     import time
 
     t0 = time.time()
-    print(f"  [transcribe_one] 开始处理: {video_path.name}")
+    print(t("task.transcribe.one_start", {"name": video_path.name}))
     if not video_path.is_file():
-        return {"error": f"文件不存在: {video_path}"}
+        return {"error": t("task.transcribe.one_file_missing", {"path": video_path})}
     if cancel_event and cancel_event.is_set():
-        return {"error": "转录被用户取消"}
+        return {"error": t("task.transcribe.one_cancelled")}
     readiness = check_asr_ready(config)
     if not readiness.ready:
-        return {"error": f"{readiness.display_name} 不可用：{readiness.error}"}
-    print("  [transcribe_one] 提取音频...")
+        return {"error": t("task.transcribe.not_ready", {"engine": readiness.display_name, "error": readiness.error})}
+    print(t("task.transcribe.one_extract"))
     if progress_callback:
         progress_callback(0)
     tmp_dir = _transcribe_tmp_dir(config)
@@ -411,12 +445,14 @@ def run_transcribe_one(
         tmp_dir=tmp_dir,
     )
     if wav_path is None:
-        return {"error": "音频提取失败"}
+        return {"error": t("task.transcribe.one_extract_failed")}
     wav_size = wav_path.stat().st_size
-    print(f"  [transcribe_one] WAV 提取完成: {wav_path.name} ({wav_size / 1024:.0f} KB)，耗时 {time.time() - t0:.1f}s")
+    wav_kb = f"{wav_size / 1024:.0f}"
+    elapsed_s = f"{time.time() - t0:.1f}"
+    print(t("task.transcribe.one_wav_done", {"name": wav_path.name, "kb": wav_kb, "seconds": elapsed_s}))
     try:
         model = config.whisper.model_size
-        print(f"  [transcribe_one] 开始加载模型 ({model})...")
+        print(t("task.transcribe.one_load_model", {"model": model}))
         if progress_callback:
             progress_callback(10)
         t1 = time.time()
@@ -427,7 +463,8 @@ def run_transcribe_one(
             cancel_event=cancel_event,
         )
         t2 = time.time()
-        print(f"  [transcribe_one] Whisper 完成: {len(segments)} 段, 耗时 {t2 - t1:.1f}s")
+        took_s = f"{t2 - t1:.1f}"
+        print(t("task.transcribe.one_done", {"count": len(segments), "seconds": took_s}))
         transcript: dict[str, Any] = {
             "source_video": video_path.name,
             "source_stem": video_path.stem,
@@ -446,8 +483,9 @@ def run_transcribe_one(
         out_path = transcripts_dir / f"{video_path.stem}_transcript.json"
         write_json_atomic(out_path, transcript)
         enrich_matching_analysis_files(config, transcript)
-        print(f"  [transcribe_one] ✓ 已保存到 {out_path}")
+        print(t("task.transcribe.one_saved", {"path": out_path}))
         return transcript
     finally:
         wav_path.unlink(missing_ok=True)
-        print(f"  [transcribe_one] 临时 WAV 已删除，总计耗时 {time.time() - t0:.1f}s")
+        total_s = f"{time.time() - t0:.1f}"
+        print(t("task.transcribe.one_tmp_removed", {"seconds": total_s}))

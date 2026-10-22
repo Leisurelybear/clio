@@ -7,6 +7,8 @@ import subprocess
 import sys
 import threading
 
+from clio.i18n import t
+
 _running_processes: list[subprocess.Popen] = []
 _processes_lock = threading.Lock()
 
@@ -65,7 +67,7 @@ def before_stop() -> None:
             return
         _called = True
 
-    _sprint("  [beforeStop] 开始清理资源...")
+    _sprint(t("shutdown.start"))
     had_error = False
 
     try:
@@ -77,26 +79,26 @@ def before_stop() -> None:
         if procs:
             alive = [p for p in procs if p.poll() is None]
             if alive:
-                _sprint(f"  [beforeStop] 终止 {len(alive)} 个运行中的 ffmpeg 子进程...")
+                _sprint(t("shutdown.terminating", {"count": len(alive)}))
             for proc in alive:
                 pid = proc.pid
                 try:
                     proc.terminate()
                     proc.wait(timeout=5)
-                    _sprint(f"  [beforeStop]   ffmpeg (pid={pid}) 已终止")
+                    _sprint(t("shutdown.terminated", {"pid": pid}))
                 except Exception:
                     try:
                         proc.kill()
                         proc.wait()
-                        _sprint(f"  [beforeStop]   ffmpeg (pid={pid}) 已强制终止")
+                        _sprint(t("shutdown.killed", {"pid": pid}))
                     except Exception:
-                        _sprint(f"  [beforeStop]   ffmpeg (pid={pid}) 终止失败（可能已退出）")
+                        _sprint(t("shutdown.terminate_failed", {"pid": pid}))
 
         try:
             from clio.ai.factory import _clear_provider_cache
 
             _clear_provider_cache()
-            _sprint("  [beforeStop] AI 连接池已关闭")
+            _sprint(t("shutdown.pool_closed"))
         except Exception:
             had_error = True
             pass
@@ -111,9 +113,9 @@ def before_stop() -> None:
             pass
     except Exception as e:
         had_error = True
-        _sprint(f"  [beforeStop] 清理过程异常: {e}")
+        _sprint(t("shutdown.cleanup_error", {"detail": e}))
 
-    _sprint("  [beforeStop] 清理完成" if not had_error else "  [beforeStop] 清理完成（有错误）")
+    _sprint(t("shutdown.done") if not had_error else t("shutdown.done_with_errors"))
 
 
 def reset_stop_flag() -> None:

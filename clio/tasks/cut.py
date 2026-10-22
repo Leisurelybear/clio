@@ -11,6 +11,7 @@ from typing import Any
 from clio._constants import VIDEO_EXTS
 from clio.config import AppConfig
 from clio.cut import cut_one, parse_time_range
+from clio.i18n import t
 from clio.identity import SEGMENT_SUFFIX_RE, legacy_segment_offset_sec, load_identity
 from clio.log import format_duration, timed
 from clio.plan_readiness import expand_index_keys
@@ -282,29 +283,29 @@ def run_cut_all(
     """
     plan_path = config.plans_dir / f"{safe_basename(day_label, max_len=60)}_plan.json"
     if not plan_path.is_file():
-        raise FileNotFoundError(f"规划文件不存在: {plan_path}")
+        raise FileNotFoundError(t("task.cut.plan_missing", {"path": plan_path}))
 
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
     seq = plan.get("sequence", [])
     if not seq:
-        print(f"规划文件中没有 sequence 段: {plan_path.name}")
+        print(t("task.cut.plan_empty_sequence", {"name": plan_path.name}))
         return []
     if tracker is not None:
-        tracker.update(phase="cut", current=0, total=len(seq), message=f"准备裁剪 {len(seq)} 个片段")
+        tracker.update(phase="cut", current=0, total=len(seq), message=t("task.cut.preparing", {"count": len(seq)}))
 
     out_root = resolve_cut_output_dir(config, day_label, output_dir)
     existing = list_existing_cut_videos(out_root)
     if existing and not overwrite:
-        raise FileExistsError(f"输出目录已有 {len(existing)} 个裁剪视频: {out_root}")
+        raise FileExistsError(t("task.cut.output_exists", {"count": len(existing), "path": out_root}))
     out_root.mkdir(parents=True, exist_ok=True)
     ffmpeg = resolve_binary(config.paths.ffmpeg, "ffmpeg")
     ffprobe = resolve_binary(config.paths.ffprobe, "ffprobe")
     comp_dir = config.compressed_dir
     source_label = str(comp_dir if source == "compressed" else (config.project_dir or ""))
 
-    print(f"[cut] 计划: {plan_path.name} ({len(seq)} 段)")
-    print(f"[cut] 输出: {out_root}")
-    print(f"[cut] 视频来源: {source} ({source_label})")
+    print(t("task.cut.header_plan", {"name": plan_path.name, "count": len(seq)}))
+    print(t("task.cut.header_output", {"path": out_root}))
+    print(t("task.cut.header_source", {"source": source, "label": source_label}))
 
     state = ProcessingState(config.paths.output_dir)
 
@@ -361,47 +362,47 @@ def run_cut_all(
     completed = 0
     elapsed_total = 0.0
 
-    with timed(f"run_cut_all {day_label}（{len(seq)} 段）"):
+    with timed(t("task.cut.timed_label", {"day": day_label, "count": len(seq)})):
         for i, seg in enumerate(seq, start=1):
             if cancel_event and cancel_event.is_set():
-                print(f"  [取消] 裁剪阶段被用户终止（第 {i} 段）")
+                print(t("task.cut.cancelled", {"index": i}))
                 break
             idx = seg.get("index", "")
             title = seg.get("title", "").strip()
             timeline = (seg.get("use_timeline") or "").strip()
             if not idx or not timeline:
-                print(f"  [跳过] 第 {i} 段缺少 index 或 use_timeline")
+                print(t("task.cut.skip_no_index", {"index": i}))
                 if tracker is not None:
-                    tracker.next(message=f"跳过第 {i} 段：缺少索引或时间范围")
+                    tracker.next(message=t("task.cut.skip_no_index_tracker", {"index": i}))
                 continue
 
             video_path = _resolve_video_path(idx)
             if video_path is None:
                 src = "compressed" if source != "original" else "original"
-                print(f"  [跳过] 找不到 index={idx} 的视频（{src}）: {seg.get('title', '')}")
+                print(t("task.cut.skip_video_missing", {"index": idx, "source": src, "title": seg.get("title", "")}))
                 if tracker is not None:
-                    tracker.next(message=f"跳过第 {i} 段：找不到视频")
+                    tracker.next(message=t("task.cut.skip_video_missing_tracker", {"index": i}))
                 continue
 
             try:
                 start, end = parse_time_range(timeline)
             except ValueError as e:
-                print(f"  [跳过] 时间格式错误 '{timeline}': {e}")
+                print(t("task.cut.skip_bad_time", {"timeline": timeline, "detail": e}))
                 orig_stem = _orig_stem_from_path(video_path) if video_path else ""
                 if orig_stem:
                     state.mark(orig_stem, "cut", "skipped")
                 if tracker is not None:
-                    tracker.next(message=f"跳过第 {i} 段：时间格式错误")
+                    tracker.next(message=t("task.cut.skip_bad_time_tracker", {"index": i}))
                 continue
             plan_start, plan_end = start, end
 
             if end <= start:
-                print(f"  [跳过] 时间范围无效 ({start}s >= {end}s): {seg.get('title', '')}")
+                print(t("task.cut.skip_invalid_range", {"start": start, "end": end, "title": seg.get("title", "")}))
                 orig_stem = _orig_stem_from_path(video_path) if video_path else ""
                 if orig_stem:
                     state.mark(orig_stem, "cut", "skipped")
                 if tracker is not None:
-                    tracker.next(message=f"跳过第 {i} 段：时间范围无效")
+                    tracker.next(message=t("task.cut.skip_invalid_range_tracker", {"index": i}))
                 continue
 
             try:
@@ -411,17 +412,17 @@ def run_cut_all(
                 probe = _resolve_binary(ffprobe or "", "ffprobe")
                 media_dur = get_duration_sec(video_path, probe)
                 if end > media_dur:
-                    print(f"  [警告] 结束时间 {end}s 超出媒体时长 {media_dur}s，截断至末尾")
+                    print(t("task.cut.clamp_end", {"end": end, "duration": media_dur}))
                     end = media_dur
             except Exception:
                 pass
             if end <= start:
-                print(f"  [跳过] 时间范围超出媒体时长 ({start}s >= {end}s): {seg.get('title', '')}")
+                print(t("task.cut.skip_beyond_duration", {"start": start, "end": end, "title": seg.get("title", "")}))
                 orig_stem = _orig_stem_from_path(video_path) if video_path else ""
                 if orig_stem:
                     state.mark(orig_stem, "cut", "skipped")
                 if tracker is not None:
-                    tracker.next(message=f"跳过第 {i} 段：时间范围超出媒体时长")
+                    tracker.next(message=t("task.cut.skip_beyond_duration_tracker", {"index": i}))
                 continue
 
             # Apply segment offset for original source with legacy split videos
@@ -455,7 +456,7 @@ def run_cut_all(
             clip_stem = f"{safe_basename(idx, max_len=30)}_{sanitize_name(title, max_len=30)}_seg_{i:03d}"
             clip_path = out_root / f"{clip_stem}.mp4"
 
-            print(_eta_line("裁剪", i, len(seq), clip_stem, completed, elapsed_total))
+            print(_eta_line(t("task.cut.eta_label"), i, len(seq), clip_stem, completed, elapsed_total))
             t0 = time.monotonic()
             try:
 
@@ -518,17 +519,17 @@ def run_cut_all(
                 }
             )
             if tracker is not None:
-                tracker.next(message=f"完成片段 {i}/{len(seq)}")
+                tracker.next(message=t("task.cut.segment_done", {"index": i, "total": len(seq)}))
 
     manifest_path = out_root / "manifest.md"
     lines = [
-        f"# {plan.get('day_title', day_label)} — 剪辑片段",
+        t("cut.manifest_title", {"title": plan.get("day_title", day_label)}),
         "",
-        f"**主题**: {plan.get('theme', '')}",
-        f"**预估总时长**: {plan.get('total_estimated_sec', '')} 秒",
-        f"**实际输出**: {out_root}",
+        t("plan.md_theme", {"theme": plan.get("theme", "")}),
+        t("plan.md_estimated", {"seconds": plan.get("total_estimated_sec", "")}),
+        t("cut.manifest_output", {"path": out_root}),
         "",
-        "| # | 视频 | 标题 | 时间范围 | 时长 | 输出文件 | texts |",
+        t("cut.manifest_header"),
         "|---|------|------|---------|------|---------|-------|",
     ]
     for c in clips:
@@ -539,5 +540,5 @@ def run_cut_all(
         )
     write_text_atomic(manifest_path, "\n".join(lines) + "\n")
     print(f"  -> manifest: {manifest_path.name}")
-    print(f"完成！共裁剪 {len(clips)} 段，输出目录: {out_root}")
+    print(t("task.cut.done", {"count": len(clips), "path": out_root}))
     return clips

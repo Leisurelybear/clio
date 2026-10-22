@@ -7,6 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from clio.config import AppConfig
+from clio.i18n import t
 from clio.log import format_size, timed
 from clio.utils import get_duration_sec, resolve_binary, run_ffmpeg, run_subprocess
 
@@ -57,7 +58,7 @@ def compress_video(
             _cb(sec, duration)
 
     if duration <= 0:
-        raise ValueError(f"无法读取视频时长: {input_path}")
+        raise ValueError(t("compress.duration_unreadable", {"path": input_path}))
 
     cfg = config.compress
     vf = f"scale=min({cfg.max_width}\\,iw):-2,fps={cfg.fps}"
@@ -97,10 +98,10 @@ def compress_video(
     cmd_preview = f"ffmpeg {' '.join(args)}"
     print(f"  ffmpeg: {cmd_preview}")
     try:
-        with timed(f"压缩 {input_path.name} -> {output_path.name}"):
+        with timed(t("compress.timed_label", {"src": input_path.name, "dst": output_path.name})):
             run_ffmpeg(args, ffmpeg, progress_callback=_on_ffmpeg_progress, cancel_event=cancel_event)
         if get_duration_sec(tmp, ffprobe) <= 0:
-            raise ValueError(f"压缩输出无法读取时长: {output_path.name}")
+            raise ValueError(t("compress.output_duration_unreadable", {"name": output_path.name}))
         os.replace(tmp, output_path)
     except BaseException:
         tmp.unlink(missing_ok=True)
@@ -108,7 +109,14 @@ def compress_video(
     new_size = output_path.stat().st_size
     ratio = (1 - new_size / orig_size) * 100 if orig_size > 0 else 0
     print(
-        f"  体积: {format_size(orig_size)} -> {format_size(new_size)}"
-        f"（压缩 {ratio:.0f}%，目标 {cfg.target_size_mb:.0f} MB）"
+        t(
+            "compress.size_summary",
+            {
+                "before": format_size(orig_size),
+                "after": format_size(new_size),
+                "ratio": f"{ratio:.0f}",
+                "target": f"{cfg.target_size_mb:.0f}",
+            },
+        )
     )
     return output_path

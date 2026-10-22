@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from clio.i18n import t
+
 
 @dataclass
 class TelemetrySummary:
@@ -143,9 +145,9 @@ def format_telemetry_for_prompt(summary: TelemetrySummary | None) -> str:
     """Render a short prompt block. **Always returns "" when GPS/GPMF is absent.**"""
     if not summary or not summary.has_gpmf:
         return ""
-    lines = ["### 运动遥测摘要（GoPro GPMF）"]
+    lines = [t("gpmf.header")]
     if summary.source == "probe" and not summary.speed_peaks:
-        lines.append("- 检测到 GPMF 标记，但尚无速度/海拔明细（可放置同名 `.gpmf.json` 侧车）。")
+        lines.append(t("gpmf.probe_only"))
         for n in summary.notes:
             lines.append(f"- {n}")
         return "\n".join(lines) + "\n"
@@ -156,13 +158,13 @@ def format_telemetry_for_prompt(summary: TelemetrySummary | None) -> str:
             tc = _fmt_tc(float(peak.get("t_sec") or 0))
             val = peak.get("value")
             unit = peak.get("unit") or ""
-            parts.append(f"{tc}（{val}{unit}）" if val is not None else tc)
-        lines.append("- 速度峰值约在 " + "、".join(parts))
+            parts.append(t("gpmf.peak_value", {"timecode": tc, "value": val, "unit": unit}) if val is not None else tc)
+        lines.append(t("gpmf.speed_peaks", {"peaks": t("common.list_separator").join(parts)}))
     if summary.elev_delta_m is not None:
-        lines.append(f"- 海拔变化约 {summary.elev_delta_m:.0f} m")
+        lines.append(t("gpmf.elevation", {"value": f"{summary.elev_delta_m:.0f}"}))
     if summary.duration_sec is not None:
-        lines.append(f"- 遥测覆盖时长约 {_fmt_tc(summary.duration_sec)}")
-    lines.append("请优先考虑这些时刻附近的动作/风景作为 highlight。")
+        lines.append(t("gpmf.duration", {"duration": _fmt_tc(summary.duration_sec)}))
+    lines.append(t("gpmf.highlight_hint"))
     return "\n".join(lines) + "\n"
 
 

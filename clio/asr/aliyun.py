@@ -11,6 +11,7 @@ from clio.asr.base import ProviderCapabilities, TranscriptSegment
 from clio.asr.factory import register_provider
 from clio.asr.retry import request_with_retry
 from clio.asr.upload import DASHSCOPE_BASE, dashscope_upload, get_api_key
+from clio.i18n import t
 
 _POLL_INTERVAL_S = 3
 _MAX_NETWORK_RETRIES = 3
@@ -21,7 +22,7 @@ _POLL_TIMEOUT_S = 30 * 60
 class AliyunASRProvider:
     capabilities = ProviderCapabilities(
         id="aliyun",
-        display_name="阿里云 Paraformer",
+        display_name=t("asr.aliyun.display_name"),
         supports_local_file=True,
         requires_public_url=False,
         max_audio_mb=1024,
@@ -34,7 +35,7 @@ class AliyunASRProvider:
     def readiness_error(self, environ=None) -> str | None:
         if get_api_key(environ):
             return None
-        return "DASHSCOPE_API_KEY 未设置，请在 .env 中配置阿里云百炼 API Key。"
+        return t("asr.aliyun.api_key_missing_readiness")
 
     def transcribe(
         self,
@@ -45,7 +46,7 @@ class AliyunASRProvider:
     ) -> list[TranscriptSegment]:
         api_key = get_api_key()
         if not api_key:
-            raise RuntimeError("DASHSCOPE_API_KEY 未设置，请在 .env 中配置")
+            raise RuntimeError(t("asr.api_key_missing"))
 
         file_url = dashscope_upload(
             audio_path,
@@ -89,7 +90,7 @@ class AliyunASRProvider:
                 },
                 timeout=60,
             ),
-            label="提交云端 ASR 任务",
+            label=t("asr.aliyun.label_submit"),
             attempts=_MAX_NETWORK_RETRIES,
             cancel_event=cancel_event,
         )
@@ -106,9 +107,9 @@ class AliyunASRProvider:
         start = time.monotonic()
         while True:
             if cancel_event is not None and cancel_event.is_set():
-                raise RuntimeError("云端 ASR 任务已取消")
+                raise RuntimeError(t("asr.aliyun.task_cancelled"))
             if time.monotonic() - start > _POLL_TIMEOUT_S:
-                raise RuntimeError(f"云端 ASR 转录超时（{_POLL_TIMEOUT_S // 60} 分钟）")
+                raise RuntimeError(t("asr.aliyun.poll_timeout", {"minutes": _POLL_TIMEOUT_S // 60}))
 
             resp = request_with_retry(
                 lambda: httpx.get(
@@ -116,7 +117,7 @@ class AliyunASRProvider:
                     headers={"Authorization": f"Bearer {api_key}"},
                     timeout=30,
                 ),
-                label="查询云端 ASR 状态",
+                label=t("asr.aliyun.label_poll"),
                 attempts=_MAX_NETWORK_RETRIES,
                 cancel_event=cancel_event,
             )
@@ -125,8 +126,8 @@ class AliyunASRProvider:
             if status == "SUCCEEDED":
                 return data
             if status == "FAILED":
-                message = data["output"].get("message", "未知错误")
-                raise RuntimeError(f"阿里云 ASR 转录失败: {message}")
+                message = data["output"].get("message", t("asr.aliyun.unknown_error"))
+                raise RuntimeError(t("asr.aliyun.transcribe_failed", {"message": message}))
 
             elapsed = time.monotonic() - start
             if progress_callback and _POLL_TIMEOUT_S > 0:
@@ -135,7 +136,7 @@ class AliyunASRProvider:
             if cancel_event is None:
                 time.sleep(_POLL_INTERVAL_S)
             elif cancel_event.wait(_POLL_INTERVAL_S):
-                raise RuntimeError("云端 ASR 任务已取消")
+                raise RuntimeError(t("asr.aliyun.task_cancelled"))
 
     def _parse_result(
         self,
@@ -146,29 +147,29 @@ class AliyunASRProvider:
         output = result.get("output", {})
         results = output.get("results", [])
         if not results:
-            raise RuntimeError("阿里云 ASR 返回结果为空")
+            raise RuntimeError(t("asr.aliyun.empty_result"))
 
         first_result = results[0]
         subtask_status = str(first_result.get("subtask_status") or "").upper()
         if subtask_status and subtask_status != "SUCCEEDED":
             message = first_result.get("message") or first_result.get("code") or subtask_status
-            raise RuntimeError(f"阿里云 ASR 转录失败: {message}")
+            raise RuntimeError(t("asr.aliyun.transcribe_failed", {"message": message}))
 
         transcription_url = first_result.get("transcription_url")
         if not transcription_url:
-            raise RuntimeError("阿里云 ASR 结果缺少 transcription_url")
+            raise RuntimeError(t("asr.aliyun.missing_transcription_url"))
 
         resp = request_with_retry(
             lambda: httpx.get(transcription_url, timeout=60),
-            label="下载 ASR 转录结果",
+            label=t("asr.aliyun.label_download"),
             attempts=_MAX_NETWORK_RETRIES,
             cancel_event=cancel_event,
         )
         transcript_data: dict = resp.json()
 
         segments: list[TranscriptSegment] = []
-        for t in transcript_data.get("transcripts", []):
-            for s in t.get("sentences", []):
+        for transcript in transcript_data.get("transcripts", []):
+            for s in transcript.get("sentences", []):
                 begin_ms = s.get("begin_time", 0)
                 end_ms = s.get("end_time", 0)
                 text = s.get("text", "")

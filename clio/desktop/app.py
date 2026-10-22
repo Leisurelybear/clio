@@ -17,6 +17,7 @@ from clio.desktop.single_instance import (
     remove_lock,
     write_lock,
 )
+from clio.i18n import t
 from clio.ui.server import set_desktop_focus_callback
 
 PYTEST_GUI_OVERRIDE = "CLIO_ALLOW_DESKTOP_UNDER_PYTEST"
@@ -50,7 +51,7 @@ def _confirm_web_continue() -> bool:
 
         return webview.confirm_dialog(
             "Clio",
-            "检测到网页版正在运行（端口 8765），是否继续启动桌面版？",
+            t("desktop.web_running_confirm"),
         )
     except Exception:
         return True
@@ -61,7 +62,7 @@ def _confirm_quit() -> bool:
     try:
         import webview
 
-        return webview.confirm_dialog("退出 Clio", "任务仍在运行，确定退出？")
+        return webview.confirm_dialog(t("desktop.quit_title"), t("desktop.quit_confirm"))
     except Exception:
         return True
 
@@ -74,13 +75,7 @@ def _show_window_start_error(error: Exception) -> None:
     failure is something else (port clash, pythonnet load error, ...).
     """
     detail = f"{type(error).__name__}: {error}" if str(error) else type(error).__name__
-    message = (
-        "Clio 窗口启动失败。最常见原因是缺少 WebView2 Runtime（Edge Chromium）。\n\n"
-        "Windows 11 已自带；Windows 10 需要单独安装：\n"
-        "https://developer.microsoft.com/microsoft-edge/webview2/\n\n"
-        "安装 Evergreen Runtime 后重新启动应用。\n\n"
-        f"技术细节：{detail}"
-    )
+    message = t("desktop.window_start_error", {"detail": detail})
     try:
         from tkinter import Tk, messagebox
 
@@ -88,11 +83,11 @@ def _show_window_start_error(error: Exception) -> None:
         root.withdraw()
         root.attributes("-topmost", True)
         try:
-            messagebox.showerror("Clio 窗口启动失败", message)
+            messagebox.showerror(t("desktop.window_start_error_title"), message)
         finally:
             root.destroy()
     except Exception:  # noqa: BLE001 — headless/CI fallback: never block startup
-        print("Clio 窗口启动失败:", message)
+        print(t("desktop.window_start_error_title") + ":", message)
 
 
 def _handle_closing(
@@ -188,7 +183,7 @@ def main(
     instance_token = secrets.token_hex(16)
     lock = read_lock(config_dir)
     if lock and focus_first_instance("127.0.0.1", lock.get("port")):
-        print("Clio 已在运行，已聚焦原窗口")
+        print(t("desktop.already_running"))
         return 0
 
     # Web UI (serve) on the default port: let the user choose before launching.

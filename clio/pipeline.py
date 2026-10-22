@@ -9,6 +9,7 @@ from typing import Any
 
 # Keep these orchestration-specific items in pipeline.py
 from clio.config import AppConfig
+from clio.i18n import t
 from clio.log import timed
 from clio.progress import ProgressTracker
 
@@ -39,14 +40,10 @@ def run_full_pipeline(config: AppConfig, day_label: str = "day1") -> None:
     run_pipeline_steps(config, day_label=day_label, steps=list(_STEP_FUNCS))
 
 
-_STEP_LABELS = {
-    "compress": "压缩原视频",
-    "analyze": "AI 分析素材",
-    "voiceover": "生成口播文案",
-    "transcribe": "语音转录",
-    "plan": "vlog 剪辑规划",
-    "label": "烧录序号标注",
-}
+def _step_label(name: str) -> str:
+    """Step label for pipeline logs, resolved from the active locale."""
+    return t(f"run.step.{name}.label", fallback=name)
+
 
 _STEP_FUNCS: dict[str, Callable[..., Any]] = {
     "compress": run_compress_all,
@@ -87,18 +84,20 @@ def run_pipeline_steps(
 
     unknown = [s for s in steps if s not in _STEP_FUNCS]
     if unknown:
-        raise ValueError(f"未知的 pipeline step: {', '.join(unknown)}（可选: {', '.join(_STEP_FUNCS)}）")
+        raise ValueError(
+            t("pipeline.unknown_steps", {"unknown": ", ".join(unknown), "available": ", ".join(_STEP_FUNCS)})
+        )
 
     summary: dict[str, Any] = {"steps": [], "processed": 0, "warning_count": 0, "error_count": 0}
     try:
         for step in steps:
             if cancel_event and cancel_event.is_set():
-                msg = f"[取消] pipeline 被用户终止（步骤: {_STEP_LABELS.get(step, step)}）"
+                msg = t("pipeline.cancelled", {"step": _step_label(step)})
                 print(msg)
                 if tracker:
                     tracker.cancelled(msg)
                 break
-            label = _STEP_LABELS.get(step, step)
+            label = _step_label(step)
             if tracker:
                 tracker.update(phase=step, current=0, total=1, message=f"{label}...")
             with timed(f"=== {label} ==="):
@@ -119,12 +118,12 @@ def run_pipeline_steps(
                 else:
                     result = fn(config, tracker, **kwargs)
                 if isinstance(result, int) and not isinstance(result, bool) and result != 0:
-                    raise RuntimeError(f"{label}失败（退出码 {result}）")
+                    raise RuntimeError(t("pipeline.step_failed", {"label": label, "code": result}))
                 processed = len(result) if isinstance(result, list) else int(result is not None)
                 summary["steps"].append({"name": step, "processed": processed, "failed": 0})
                 summary["processed"] += processed
         if not (cancel_event and cancel_event.is_set()):
-            tracker.done(f"完成！输出目录: {config.paths.output_dir}")
+            tracker.done(t("pipeline.done", {"output_dir": config.paths.output_dir}))
     except Exception as e:
         tracker.error(str(e))
         raise
