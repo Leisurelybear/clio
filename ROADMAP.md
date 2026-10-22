@@ -801,7 +801,7 @@ for now.
 | Phase | Status | Notes |
 | --- | --- | --- |
 | R-025a | Done | `clio/i18n.py`, `ui/static/src/i18n.js`, `clio/locales/*.json`, `ui/static/locales/*.json` |
-| R-025b | Done | `ui.language` in global config + schema + validation; switching applies immediately, no reload |
+| R-025b | Done | `ui.language` in global config + schema + validation; switching applies immediately, no reload; header `中`/`EN` button next to the theme toggle, and the global `ui` card renders even when `config.yaml` has no `ui:` block |
 | R-025c | Done | Web UI copy (shell, settings, sidebar, editor, task center, logs) resolves through the catalog; 1196 UI keys |
 | R-025d | Done | CLI/doctor/deps/task-center/pipeline messages go through `t()` (746 backend keys) |
 | R-025e | Done | README / README.en language-switch sections, AGENTS.md i18n conventions, `CLIO_LANG` documented |

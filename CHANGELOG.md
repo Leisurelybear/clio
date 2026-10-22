@@ -20,13 +20,18 @@ hard-coded Chinese from creeping back in.
   with an explicit allow-list for the literals that must stay
 - docs: README / README.en language-switch sections, AGENTS.md i18n conventions, ROADMAP R-025
   closure, `CLIO_LANG` documented
+- feat(ui): header language switcher - a `中`/`EN` button next to the theme toggle applies the
+  switch immediately and persists `ui.language`, so the setting is one click away instead of
+  buried in Settings > Global
+- fix(ui): always render the global `ui` settings card - `renderConfig()` skips sections that are
+  missing from the loaded config, so a `config.yaml` without a `ui:` block never showed 界面语言
 
 Catalog growth: backend `clio/locales/*.json` 149 -> 746 keys, Web UI `ui/static/locales/*.json`
 1196 keys, all with zh/en parity. Remaining Python literals: 84 in 3 files, all allow-listed
 (`config/descriptions.py` source of truth, `prompts.py`, the persisted-data sentinel in
 `analyze.py`).
 
-Local verification: `2409 passed, 12 skipped` pytest and `720` Vitest tests across `71` files, ruff
+Local verification: `2409 passed, 12 skipped` pytest and `738` Vitest tests across `72` files, ruff
 clean.
 
 ## 2026-10-22
