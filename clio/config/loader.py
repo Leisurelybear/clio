@@ -474,7 +474,18 @@ def _migrate_v1_to_v2(config_path: Path) -> None:
             reg = json.loads(registry_path.read_text(encoding="utf-8"))
         except Exception:
             reg = {}
-        for p_str in reg.get("projects", []):
+        if not isinstance(reg, dict):
+            reg = {}
+        entries = reg.get("projects", [])
+        if not isinstance(entries, list):
+            entries = []
+        for entry in entries:
+            if isinstance(entry, dict):
+                p_str = entry.get("project_dir") or entry.get("input_dir") or ""
+            else:
+                p_str = str(entry) if entry else ""
+            if not p_str:
+                continue
             proj_dir = Path(p_str)
             proj_yaml = proj_dir / "project.yaml"
             if not proj_yaml.is_file():

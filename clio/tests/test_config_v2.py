@@ -85,6 +85,16 @@ class TestV1ToV2Migration:
         bak = cfg_path.with_suffix(".yaml.bak")
         assert bak.is_file()
 
+    def test_non_object_registry_does_not_abort_migration(self, tmp_path: Path):
+        cfg_path = tmp_path / "config.yaml"
+        cfg_path.write_text("proxy:\n  enabled: false\n", encoding="utf-8")
+        (tmp_path / "projects.json").write_text("[]", encoding="utf-8")
+
+        _migrate_v1_to_v2(cfg_path)
+
+        global_raw = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+        assert global_raw.get("config_version") == "V2"
+
     def test_already_v2_skips(self, tmp_path: Path):
         cfg_path = tmp_path / "config.yaml"
         cfg_path.write_text("config_version: V2\nproxy:\n  enabled: false\n", encoding="utf-8")
