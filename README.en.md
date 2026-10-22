@@ -138,6 +138,16 @@ cp config.example.yaml config.yaml
 # Edit paths.input_dir, proxy.url, etc.
 ```
 
+### 🌐 Language
+
+The UI ships in **Chinese and English**. Three ways to switch (lowest to highest precedence):
+
+1. **Web UI**: Settings → Global → `Interface language`; applies **immediately, no reload**
+2. **Config file**: `config.yaml` → `ui.language: en` (or `zh-CN`)
+3. **Environment variable**: `CLIO_LANG=en python main.py check` (highest precedence; handy for CLI runs)
+
+CLI, doctor and Web UI copy all follow the same setting.
+
 ### ▶️ Run It
 
 ```bash
@@ -251,7 +261,7 @@ vlog-video-analysis/
 ```bash
 python -m pytest clio/tests/ -v
 
-# 2047 pytest (12 skipped) + 534 Vitest · verified locally on Python 3.10.6
+# 2409 pytest (12 skipped) + 720 Vitest · verified locally on Python 3.11
 # GitHub Actions CI (Ubuntu + Windows + macOS · Python 3.11 / 3.12; Node 22.12+)
 # Code style: ruff (format + lint)
 ```

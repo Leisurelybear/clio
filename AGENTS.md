@@ -200,6 +200,34 @@ Provider management is a frontend-only experience - no new backend APIs needed:
 - Preload identity includes source/project/file/seek time. A failed cut is blocked once and retried
   at the same composite time from the source video.
 
+### 4.12 Internationalization (R-025)
+
+- `ui.language` (`zh-CN` | `en`, default `zh-CN`) is the single source of truth for both backend and
+  frontend copy. Precedence in `clio/i18n.py::_resolve_locale`: explicit `locale=` argument >
+  `CLIO_LANG` env var > active locale from `ui.language` > `zh-CN`.
+- Switching in Settings applies immediately: `setLocale()` dispatches `clio:locale-changed` and
+  modules that build DOM from JS strings re-render on that event. `applyTranslations()` re-runs for
+  static `data-i18n` markup.
+- Two catalogs, both must keep identical key sets per locale:
+  - `clio/locales/{zh-CN,en}.json` - backend/CLI copy (`t()` from `clio/i18n.py`).
+  - `clio/ui/static/locales/{zh-CN,en}.json` - Web UI copy (`t()` from `ui/static/src/i18n.js`).
+  Lookup falls back `locale -> en -> zh-CN -> key`, so partial catalogs degrade to English, never to
+  a raw key.
+- `t()` interpolates `{name}` placeholders only. Never add ICU/pluralization; keep the same
+  placeholder names in every locale.
+- `zh-CN` values must stay byte-identical to the literal they replaced; tests assert that copy.
+- Never translate: `clio/prompts.py` (AI prompts), `clio/config/descriptions.py` (zh-CN source of
+  truth mirrored to `settings.desc.*`), docstrings, comments, internal log identifiers, and content
+  already persisted to disk.
+- `clio/tasks/migrate.py::is_already_new_structure()` is the only supported way to detect the
+  "already migrated" error; it checks every supported locale. Never match a localized string.
+- Milestone 10 guards prevent regressions: `clio/tests/test_i18n_inventory.py` (AST scan; comments
+  and docstrings never count) and `clio/ui/static/src/__tests__/i18n-inventory.test.js` (strips JS
+  comments first). Both compare against an explicit allow-list; add an entry with a reason rather
+  than deleting the guard.
+- `clio/pipeline.py` and `clio/ui/services/run_preview.py` share the `run.step.<name>.label` keys.
+  Do not reintroduce a private step-label dict.
+
 ## 5. User Preferences
 
 - Language: Chinese for conversation, English for commits/docs/AGENTS.md

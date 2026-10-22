@@ -10,7 +10,6 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
 - R-047-FU Optional Baidu ASR provider (deferred; Aliyun cloud transcription is complete)
 - R-043 Frontend module decomposition and remaining legacy mypy debt
 - R-032e Optional ffmpeg bundling and signed desktop installer
-- R-025 Multi-language / i18n for UI and CLI user-facing copy (large)
 - Release gate: run the Python 3.11/3.12 CI matrix for the 2026-10-21/22 batches after an approved push
 
 Detailed sections and historical delivery notes remain below.
@@ -797,18 +796,22 @@ for now.
 - Dates/numbers: start with locale string only; full ICU later if needed
 - Tests: pure `t()` fallback + at least one UI string keyed
 
-**Status (2026-10-22):**
+**Status (2026-10-23): Complete.**
 
 | Phase | Status | Notes |
 | --- | --- | --- |
 | R-025a | Done | `clio/i18n.py`, `ui/static/src/i18n.js`, `clio/locales/*.json`, `ui/static/locales/*.json` |
-| R-025b | Partial | `ui.language` in global config + schema + validation; dropdown applies only after reload |
-| R-025c | Not started | Web UI still hard-codes Chinese; only `app.title` is keyed |
-| R-025d | Done | CLI/doctor/deps/task-center messages go through `t()` (149 keys) |
-| R-025e | Not started | README/AGENTS language-switch docs missing |
+| R-025b | Done | `ui.language` in global config + schema + validation; switching applies immediately, no reload |
+| R-025c | Done | Web UI copy (shell, settings, sidebar, editor, task center, logs) resolves through the catalog; 1196 UI keys |
+| R-025d | Done | CLI/doctor/deps/task-center/pipeline messages go through `t()` (746 backend keys) |
+| R-025e | Done | README / README.en language-switch sections, AGENTS.md i18n conventions, `CLIO_LANG` documented |
 
 Phase 2 (backend locale from `ui.language`, instant switching, Web UI copy migration, inventory
-guards) is tracked in `docs/superpowers/plans/2026-10-22-i18n-completion-plan.md`.
+guards) is tracked in `docs/superpowers/plans/2026-10-22-i18n-completion-plan.md`. The milestone 10
+inventory guards (`clio/tests/test_i18n_inventory.py` and the Vitest counterpart) keep hard-coded
+Chinese copy from creeping back in. The remaining literals are allow-listed with reasons:
+`clio/config/descriptions.py` (zh-CN source of truth mirrored to `settings.desc.*`),
+`clio/prompts.py` (AI prompts), and the persisted-data sentinel in `clio/analyze.py`.
 
 **Related existing pieces:**
 - `README.en.md` (docs only)

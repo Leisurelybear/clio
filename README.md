@@ -147,6 +147,16 @@ cp config.example.yaml config.yaml
 # 项目配置：在项目目录放置 project.yaml（参考 docs/project.example.yaml）
 ```
 
+### 🌐 界面语言
+
+界面支持**中文 / English**，三种切换方式（优先级从低到高）：
+
+1. **Web UI**：设置 → 全局配置 → 「界面语言」，保存后**立即生效，无需刷新**
+2. **配置文件**：`config.yaml` → `ui.language: zh-CN`（或 `en`）
+3. **环境变量**：`CLIO_LANG=en python main.py check`（优先级最高，适合 CLI 与一次性运行）
+
+CLI、doctor、Web UI 的用户可见文案全部跟随同一个语言设置。
+
 ### ▶️ 跑起来
 
 ```bash
@@ -271,7 +281,7 @@ python -m pytest clio/tests/ -v
 # 前端单测需要 Node.js 22.12+（Web UI 运行本身仍然无需 Node）
 npm test
 
-# 2047 pytest（12 skipped）+ 534 Vitest（本机 Python 3.10.6 验证）
+# 2409 pytest（12 skipped）+ 720 Vitest（本机 Python 3.11 验证）
 # GitHub Actions CI（Ubuntu + Windows + macOS · Python 3.11 / 3.12；Node 22.12+）
 # 代码风格: ruff (format + lint)
 ```

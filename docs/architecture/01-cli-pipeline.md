@@ -51,7 +51,8 @@ Exceptions are converted to `错误: …` on stderr with exit code 1; `before_st
 
 `clio/pipeline.py` is the compatibility façade between the CLI/UI and `clio/tasks/*`:
 
-- `_STEP_LABELS` (`:55`): user-facing Chinese labels for the 6 UI/CLI steps.
+- `_step_label()` (`:43`): user-facing labels for the 6 UI/CLI steps, resolved from the shared
+  catalog (`run.step.<name>.label`) so they follow `ui.language`.
 - `_STEP_FUNCS` (`:64`): `compress → run_compress_all`, `analyze → run_analyze_all`,
   `voiceover → run_generate_scripts`, `transcribe → run_transcribe_all`, `plan → run_plan_vlog`,
   `label → run_label_videos`.

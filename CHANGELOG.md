@@ -1,5 +1,34 @@
 # Changelog
 
+## 2026-10-23
+
+Completed the i18n pass (R-025). `ui.language` now drives CLI, doctor, Web UI routes and every piece
+of Web UI copy, switching applies immediately without a reload, and two inventory guards keep
+hard-coded Chinese from creeping back in.
+
+- feat(i18n): localize the task-center pipeline copy (helpers, label, verify, cover, waveform,
+  reindex, compare, migrate, compress, refine)
+- feat(i18n): localize the remaining backend module copy - `clio/tasks/**`, the core modules
+  (analyze, plan, cut, gpmf, transcribe, whisper_cli, compress, privacy, export), `ai/*`, `asr/*`,
+  `config/*` and the infra layer (log, progress, ratelimit, shutdown, desktop, task_center/store,
+  pipeline); `pipeline.py` drops its private `_STEP_LABELS` for the shared `run.step.<name>.label`
+  keys
+- feat(i18n): localize the generated markdown artifact headings (`md.*`, `plan.md_*`,
+  `cut.manifest_*`); zh-CN output stays byte-identical
+- fix(ui): prefer the machine-readable `refine_busy` code over matching the localized error message
+- test(i18n): add `clio/tests/test_i18n_inventory.py` and the Vitest `i18n-inventory.test.js` guard,
+  with an explicit allow-list for the literals that must stay
+- docs: README / README.en language-switch sections, AGENTS.md i18n conventions, ROADMAP R-025
+  closure, `CLIO_LANG` documented
+
+Catalog growth: backend `clio/locales/*.json` 149 -> 746 keys, Web UI `ui/static/locales/*.json`
+1196 keys, all with zh/en parity. Remaining Python literals: 84 in 3 files, all allow-listed
+(`config/descriptions.py` source of truth, `prompts.py`, the persisted-data sentinel in
+`analyze.py`).
+
+Local verification: `2409 passed, 12 skipped` pytest and `720` Vitest tests across `71` files, ruff
+clean.
+
 ## 2026-10-22
 
 Optimized Task Center SSE delivery and closed the endpoint-level lifecycle coverage gap.

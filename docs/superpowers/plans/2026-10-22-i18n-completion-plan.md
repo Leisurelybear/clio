@@ -116,7 +116,7 @@ Each row is one commit; focused tests must pass before the next row starts.
 | 2026-10-22 | 9b1 task copy (helpers/label/verify/cover/waveform/reindex/compare/migrate/compress/refine) | Done |
 | 2026-10-23 | 9b2+9c+9d remaining backend copy (tasks, core, ai/asr, config, infra) | Done (one commit) |
 | 2026-10-23 | 10 inventory guards (pytest + Vitest) | Done |
-| 2026-10-23 | 11 docs | Pending |
+| 2026-10-23 | 11 docs (README/README.en, AGENTS.md 4.12, ROADMAP, CHANGELOG, CLIO_LANG) | Done |
 
 ## Remaining-String Baseline (2026-10-22)
 
