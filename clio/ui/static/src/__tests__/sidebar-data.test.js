@@ -44,8 +44,10 @@ vi.mock('../sidebar-relink.js', () => ({
   closeRelinkModal: vi.fn(),
 }));
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.resetModules();
+  const { seedCatalogs } = await import('./catalogs.js');
+  seedCatalogs();
 });
 
 describe('videoDisplayName', () => {

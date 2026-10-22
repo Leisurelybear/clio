@@ -34,6 +34,7 @@ import { phaseNewSource } from './video-fade.js';
 import { preloadNextSegment, clearPreload } from './preview-preload.js';
 import { videoUrlFor } from './video-url.js';
 import { resolvePlanMedia, localSecForPlayer } from './plan-preview-media.js';
+import { t, onLocaleChange } from './i18n.js';
 
 let _fadeCancel = null;
 let _subtitleSettingsFrame = 0;
@@ -53,7 +54,7 @@ function updateCompositeClock() {
   const tl = getPlanTimeline();
   const g = clampGlobal(tl, state.previewGlobalSec);
   const el = $('player-time');
-  if (el) el.textContent = `成片 ${fmtTime(g)} / ${fmtTime(tl.total)}`;
+  if (el) el.textContent = t('viewer.range', { done: fmtTime(g), total: fmtTime(tl.total) });
 }
 
 function softUpdatePreviewChrome(tl) {
@@ -225,7 +226,7 @@ function seekToGlobal(globalSec, opts = {}) {
   });
   if (!media) {
     state._previewMedia = null;
-    setStatus(`跳过视频 [${loc.videoIndex}]，找不到对应文件`, 'warn');
+    setStatus(t('viewer.skip_missing', { index: loc.videoIndex }), 'warn');
     hidePlanSubtitle();
     updateCompositeClock();
     softUpdatePreviewChrome(tl);
@@ -238,7 +239,7 @@ function seekToGlobal(globalSec, opts = {}) {
         seekToGlobal(tl.segments[next].globalStart, { play: true, syncExpand: opts.syncExpand });
       } else if (next == null) {
         stopPreview();
-        setStatus('预览播放完毕', 'ok');
+        setStatus(t('viewer.preview_done'), 'ok');
       }
     }
     return;
@@ -254,7 +255,11 @@ function seekToGlobal(globalSec, opts = {}) {
   if (p?.sequence?.length) {
     const s = p.sequence[loc.segIndex];
     setStatus(
-      `预览 [${loc.segIndex + 1}/${p.sequence.length}] ${s?.title || s?.index || ''}`,
+      t('viewer.preview_label', {
+        index: loc.segIndex + 1,
+        total: p.sequence.length,
+        title: s?.title || s?.index || '',
+      }),
       'ok',
     );
     const segNameEl = $('preview-seg-name');
@@ -331,7 +336,7 @@ function _advanceToNextPlayable() {
   const next = _nextPlayableWithVideo(tl, state.previewIndex);
   if (next == null) {
     stopPreview();
-    setStatus('预览播放完毕', 'ok');
+    setStatus(t('viewer.preview_done'), 'ok');
     return;
   }
   state.previewActive = true;
@@ -418,7 +423,7 @@ function _markPreviewPausedUi() {
   if (!isGlobalTimelineUi()) return;
   // Keep previewActive so resume / reaching segment end still auto-advances.
   // Only the chrome play button shows "继续".
-  if (state.previewActive) _setPlayBtnPlay('继续');
+  if (state.previewActive) _setPlayBtnPlay(t('viewer.continue'));
 }
 
 // ── Preview bar (R-012 / R-031a global scrub + R-031a2 chrome) ──
@@ -450,12 +455,12 @@ function _renderPlanSubtitleSettings() {
       state.configProject = merged;
       save(merged).then(() => {
         if (frame === _subtitleSettingsFrame && state.currentEntity === 'plan') {
-          setStatus('字幕样式已保存', 'ok');
+          setStatus(t('viewer.subtitle_style_saved'), 'ok');
           renderPlanSubtitleFromState();
         }
       }).catch(() => {
         if (frame === _subtitleSettingsFrame && state.currentEntity === 'plan') {
-          setStatus('字幕样式保存失败', 'warn');
+          setStatus(t('viewer.subtitle_style_save_failed'), 'warn');
         }
       });
     },
@@ -487,7 +492,7 @@ function renderPreviewBar() {
   if (!segBar) return;
 
   if (!p || !p.sequence || !p.sequence.length) {
-    segBar.innerHTML = '<span class="muted">暂无可预览内容</span>';
+    segBar.innerHTML = `<span class="muted">${t('viewer.no_preview_content')}</span>`;
     return;
   }
 
@@ -530,6 +535,10 @@ function renderPreviewBar() {
     recomposePlanWaveformFromCache();
   }
 }
+
+onLocaleChange(() => {
+  if (state.currentEntity === 'plan') renderPreviewBar();
+});
 
 let _scrubbing = false;
 let _lastSeekTs = 0;
@@ -593,7 +602,7 @@ function _setPlayBtnPause() {
   if (!btn) return;
   btn.innerHTML = `${icon('pause', 14)}`;
   btn.classList.add('preview-active');
-  btn.title = '暂停';
+  btn.title = t('viewer.pause');
   btn.onclick = togglePreviewPlayback;
 }
 
@@ -602,7 +611,7 @@ function _setPlayBtnPlay(title) {
   if (!btn) return;
   btn.innerHTML = `${icon('play', 14)}`;
   btn.classList.remove('preview-active');
-  btn.title = title || '预览播放';
+  btn.title = title || t('viewer.play');
   btn.onclick = togglePreviewPlayback;
 }
 
@@ -617,7 +626,7 @@ function togglePreviewPlayback() {
     _setPlayBtnPause();
   } else {
     player.pause();
-    _setPlayBtnPlay('继续');
+    _setPlayBtnPlay(t('viewer.continue'));
   }
 }
 
@@ -626,7 +635,7 @@ function startPreview(startIndex) {
   if (!p || !p.sequence || !p.sequence.length) return;
   if (state.previewActive) stopPreview();
   state.previewActive = true;
-  setStatus('预览播放', 'ok', { persist: false });
+  setStatus(t('viewer.play'), 'ok', { persist: false });
 
   const tl = buildTimeline(p.sequence);
   let idx = typeof startIndex === 'number' ? startIndex : 0;
@@ -669,11 +678,11 @@ function stopPreview() {
 
   renderPreviewBar();
   const segNameEl = $('preview-seg-name');
-  if (segNameEl) segNameEl.textContent = '预览已停止';
-  _setPlayBtnPlay('预览播放');
+  if (segNameEl) segNameEl.textContent = t('viewer.stopped');
+  _setPlayBtnPlay(t('viewer.play'));
 
   import('./editor.js').then((mod) => mod.renderPlan());
-  setStatus('预览已停止', '');
+  setStatus(t('viewer.stopped'), '');
 }
 
 function _playPreviewSegment() {
@@ -681,7 +690,7 @@ function _playPreviewSegment() {
   if (!tl.segments.length || state.previewIndex < 0 || state.previewIndex >= tl.segments.length) {
     if (state.previewActive) {
       stopPreview();
-      setStatus('预览播放完毕', 'ok');
+      setStatus(t('viewer.preview_done'), 'ok');
     }
     return;
   }
@@ -846,7 +855,7 @@ function setupPlayer() {
     if (media?.mode === 'cut' && media.segIndex === state.previewIndex) {
       state.previewCutFallbacks.add(media.segIndex);
       state._previewMedia = null;
-      setStatus('裁剪片段不可用，已回退到源视频', 'warn', { persist: false });
+      setStatus(t('viewer.cut_unavailable'), 'warn', { persist: false });
       seekToGlobal(state.previewGlobalSec, {
         play: state.previewActive,
         forceSource: true,
@@ -854,7 +863,7 @@ function setupPlayer() {
       });
       return;
     }
-    setStatus('视频加载失败', 'err');
+    setStatus(t('viewer.load_failed'), 'err');
   };
 
   // Preview bar buttons
@@ -921,9 +930,9 @@ function _setupSubtitleDrag() {
       project.preview = { ...(project.preview || {}), subtitles: { ...subtitles, pos_x: Math.round(x), pos_y: Math.round(y) } };
       try {
         await api('PUT', '/api/config/project', project);
-        setStatus('字幕位置已保存', 'ok');
+        setStatus(t('viewer.subtitle_position_saved'), 'ok');
       } catch {
-        setStatus('字幕位置保存失败', 'warn');
+        setStatus(t('viewer.subtitle_position_save_failed'), 'warn');
       }
     },
   });

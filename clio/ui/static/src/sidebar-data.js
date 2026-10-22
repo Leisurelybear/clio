@@ -18,9 +18,11 @@ import {
   matchVideoSearch,
   videoMissingStage,
   videoStageDone,
+  stageLabel,
   STAGE_CELLS,
 } from './sidebar-video-filter.js';
 import { selectVideosButtonHtml } from './select-btn.js';
+import { t } from './i18n.js';
 
 // ── Video relink helper ───────────────────────────────────────
 
@@ -35,11 +37,11 @@ export async function relinkVideo(file, absPath) {
 export async function submitRelink(oldPath, newPath) {
   const r = await api('PUT', '/api/videos/relink', { old_path: oldPath, new_path: newPath });
   if (r.ok) {
-    setStatus(`已重新关联: ${newPath}`, 'ok');
+    setStatus(t('sidebar.relinked', { path: newPath }), 'ok');
     await loadVideos();
     return r;
   }
-  setStatus('重新关联失败: ' + (r.error || '未知错误'), 'err');
+  setStatus(t('sidebar.relink_failed', { detail: r.error || t('common.unknown_error') }), 'err');
   return r;
 }
 
@@ -55,15 +57,15 @@ export async function removeVideoFromProject(file, absPath = null) {
     const stripped = baseName.replace(/^\d+_/, '');
     const found = findSelectedVideoIndex(videos, { file, absPath });
     if (found.index === -1) {
-      setStatus(found.error || '未在项目视频列表中找到该文件', 'err');
+      setStatus(found.error || t('sidebar.video_not_found'), 'err');
       return;
     }
     videos.splice(found.index, 1);
     await api('PUT', '/api/videos/selected', { videos });
     await loadVideos();
-    setStatus(`已移除 ${stripped || baseName || file}`, 'ok');
+    setStatus(t('sidebar.removed', { name: stripped || baseName || file }), 'ok');
   } catch (e) {
-    setStatus('移除失败: ' + e.message, 'err');
+    setStatus(t('sidebar.remove_failed', { detail: e.message }), 'err');
   }
 }
 
@@ -75,7 +77,7 @@ let _videoLoadingMessage = '';
 
 export function videoLoadingStateHtml(message, elapsedSec = 0) {
   const elapsed = Number.isFinite(elapsedSec) && elapsedSec >= 1
-    ? ` · 已等待 ${Math.floor(elapsedSec)} 秒`
+    ? t('sidebar.elapsed_seconds', { seconds: Math.floor(elapsedSec) })
     : '';
   return `<li class="empty-state video-loading-state" role="status" aria-live="polite">
     <div class="loading">${escapeHtml(message)}${elapsed}</div>
@@ -84,7 +86,7 @@ export function videoLoadingStateHtml(message, elapsedSec = 0) {
       <span class="video-loading-row"></span>
       <span class="video-loading-row"></span>
     </div>
-    <p class="hint">首次扫描会读取视频信息，素材较多时可能需要几秒。</p>
+    <p class="hint">${t('sidebar.scan_hint')}</p>
   </li>`;
 }
 
@@ -101,7 +103,7 @@ export function hideVideoListLoading() {
   if (ul?.querySelector?.('.video-loading-state')) ul.innerHTML = '';
 }
 
-export function showVideoListLoading(message = '正在加载视频…') {
+export function showVideoListLoading(message = t('sidebar.loading_videos')) {
   const ul = $('video-list');
   if (!ul) return;
   _stopVideoLoadingTimer();
@@ -123,10 +125,10 @@ export function showVideoListError(message) {
   if (!ul) return;
   ul.innerHTML = `<li class="empty-state video-load-error">
     ${icon('video', 36)}
-    <h4>视频加载失败</h4>
-    <p>${escapeHtml(message || '未知错误')}</p>
+    <h4>${t('sidebar.video_load_failed')}</h4>
+    <p>${escapeHtml(message || t('common.unknown_error'))}</p>
     <p style="margin-top:12px">
-      <button class="sidebar-btn" id="empty-retry-videos" style="background:var(--accent);color:#fff;border:none;padding:7px 14px;border-radius:var(--radius-sm);cursor:pointer;font:inherit;font-size:var(--text-sm)">重新加载</button>
+      <button class="sidebar-btn" id="empty-retry-videos" style="background:var(--accent);color:#fff;border:none;padding:7px 14px;border-radius:var(--radius-sm);cursor:pointer;font:inherit;font-size:var(--text-sm)">${t('sidebar.reload')}</button>
     </p>
   </li>`;
   const retryBtn = ul.querySelector('#empty-retry-videos');
@@ -163,7 +165,7 @@ export async function loadProjects() {
     state.lastProject = null;
     state.lastProjectDir = null;
     updateProjectSidebar();
-    setStatus('项目列表加载失败: ' + e.message, 'err');
+    setStatus(t('sidebar.project_list_failed', { detail: e.message }), 'err');
   }
 }
 
@@ -175,14 +177,18 @@ export async function loadConfig() {
     state.config = cfg;
   } catch (e) {
     if (isAbortError(e) || !isLatest('config', ac)) return;
-    state.config = { project_dir: '(加载失败)', output_dir: '' };
-    setStatus('配置加载失败: ' + e.message, 'err');
+    state.config = { project_dir: t('sidebar.load_failed_short'), output_dir: '' };
+    setStatus(t('sidebar.config_load_failed', { detail: e.message }), 'err');
   } finally {
     endLatest('config', ac);
   }
   updateProjectSidebar();
-  const projectName = state.currentProject?.name || state.currentProjectName || state.projectName || '选择项目';
-  $('proj-name').title = `${projectName}\n项目目录: ${state.config.project_dir || ''}\n输出目录: ${state.config.output_dir || ''}`;
+  const projectName = state.currentProject?.name || state.currentProjectName || state.projectName || t('sidebar.select_project');
+  $('proj-name').title = t('sidebar.project_dirs_tooltip', {
+    name: projectName,
+    projectDir: state.config.project_dir || '',
+    outputDir: state.config.output_dir || '',
+  });
 }
 
 /** Probe ffmpeg/ffprobe; stores result on state.deps (null if request fails). */
@@ -225,7 +231,7 @@ export function updateSelectBtnVisibility() {
 }
 
 export async function loadVideos() {
-  showVideoListLoading(state.source === 'compressed' ? '正在扫描压缩视频…' : '正在扫描原视频…');
+  showVideoListLoading(state.source === 'compressed' ? t('sidebar.scanning_compressed') : t('sidebar.scanning_original'));
   const ac = beginLatest('videos');
   try {
     const r = await api('GET', `/api/videos?source=${state.source}`, undefined, { signal: ac.signal });
@@ -241,7 +247,7 @@ export async function loadVideos() {
         if (!isLatest('videos', ac)) return;
         const n = (sel.videos || []).length;
         if (n === 0) {
-          setStatus('项目尚无视频，点击「添加视频」从磁盘选择素材（或运行 python main.py migrate）', 'ok');
+          setStatus(t('sidebar.no_videos_hint'), 'ok');
         }
       } catch (e) {
         if (isAbortError(e)) return;
@@ -339,7 +345,7 @@ export function videoThumbHtml(v) {
   if (tok) params.set('token', tok);
   const src = `/api/cover?${params.toString()}`;
   // Fallback icon under img; onerror on the img swaps to icon via .cover-error.
-  return `<div class="video-thumb has-cover" title="AI 封面">
+  return `<div class="video-thumb has-cover" title="${t('sidebar.ai_cover')}">
     <img src="${escapeHtml(src)}" alt="" loading="lazy" decoding="async">
     <span class="video-thumb-fallback">${icon('video')}</span>
   </div>`;
@@ -361,7 +367,7 @@ export function videoDisplayName(v) {
   if (v.segment_label) {
     display = display.replace(/_(?:seg|part|pt|chunk)\d+(?=\.[^.]+$)/i, '') + ` [seg ${v.segment_label}]`;
   }
-  return v.missing ? `${display} (离线)` : display;
+  return v.missing ? t('sidebar.offline_suffix', { name: display }) : display;
 }
 
 function renderVideoItem(v) {
@@ -371,7 +377,7 @@ function renderVideoItem(v) {
   if (state.selectionMode) {
     const isSelected = state.selectedFiles.includes(v.file);
     selectedClass = isSelected ? ' selected' : '';
-    const disabled = v.missing ? 'disabled title="离线视频不可选"' : '';
+    const disabled = v.missing ? `disabled title="${t('sidebar.offline_not_selectable')}"` : '';
     checkboxHtml = `<input type="checkbox" class="video-checkbox" data-file="${escapeHtml(v.file)}" ${isSelected ? 'checked' : ''} ${disabled}>`;
   }
   li.className = 'video-item' + selectedClass;
@@ -387,23 +393,23 @@ function renderVideoItem(v) {
   const tLabel = v.text_json ? `${icon('check', 12)} texts` : '· texts';
   const sLabel = v.script_json ? `${icon('check', 12)} voiceover` : '· voiceover';
   const tTransLabel = v.transcript_file ? `${icon('check', 12)} trans.` : '· trans.';
-  const counterpartLabel = state.source === 'compressed' ? '原' : '压';
+  const counterpartLabel = state.source === 'compressed' ? t('sidebar.counterpart_char.original') : t('sidebar.counterpart_char.compressed');
   let matchBadge;
   if (v.match) {
     if (v.match.missing) {
-      matchBadge = `<span class="match-badge miss" title="${escapeHtml(v.match.abs_path || v.match.file || '')}">→ ${counterpartLabel}: 离线</span>`;
+      matchBadge = `<span class="match-badge miss" title="${escapeHtml(v.match.abs_path || v.match.file || '')}">→ ${counterpartLabel}: ${t('sidebar.match_offline')}</span>`;
     } else if (v.segment_matches && v.segment_matches.length > 1) {
       const segList = v.segment_matches.map(m => m.file).join(', ');
-      matchBadge = `<button type="button" class="match-badge match-jump" title="${escapeHtml(segList)}">→ ${counterpartLabel}: ${escapeHtml(v.index || '')}/${v.segment_matches.length} 段</button>`;
+      matchBadge = `<button type="button" class="match-badge match-jump" title="${escapeHtml(segList)}">→ ${counterpartLabel}: ${escapeHtml(t('sidebar.match_segments', { index: v.index || '', total: v.segment_matches.length }))}</button>`;
     } else {
       matchBadge = `<button type="button" class="match-badge match-jump" title="${escapeHtml(v.match.file)}">→ ${counterpartLabel}: ${escapeHtml(v.match.file)}</button>`;
     }
   } else {
-    matchBadge = `<span class="match-badge miss" title="没有对应的${state.source === 'compressed' ? '原视频' : '压缩视频'}">无对应</span>`;
+    matchBadge = `<span class="match-badge miss" title="${t('sidebar.match_none_title', { kind: state.source === 'compressed' ? t('sidebar.kind.original') : t('sidebar.kind.compressed') })}">${t('sidebar.match_none')}</span>`;
   }
   const stepStatuses = buildVideoStageStatuses(v, state.source);
   const stepDots = STAGE_CELLS
-    .map(c => `<span class="video-step-dot ${stepStatuses[c.key] ? 'done' : 'pending'}" title="${c.label}: ${stepStatuses[c.key] ? '完成' : '待处理'}"></span>`)
+    .map(c => `<span class="video-step-dot ${stepStatuses[c.key] ? 'done' : 'pending'}" title="${stageLabel(c)}: ${stepStatuses[c.key] ? t('sidebar.step_done') : t('sidebar.step_pending')}"></span>`)
     .join('');
   const menuHtml = videoMenuItemsToHtml(buildVideoMenuItems(v, state.source, state.deps));
 
@@ -419,7 +425,7 @@ function renderVideoItem(v) {
       <div class="video-match">${matchBadge}</div>
     </div>
       <div class="video-actions">
-        <button class="menu-btn" title="操作">⋮</button>
+        <button class="menu-btn" title="${t('sidebar.actions')}">⋮</button>
         <div class="menu-dropdown">
           ${menuHtml}
         </div>
@@ -431,7 +437,7 @@ function renderVideoItem(v) {
     if (e.target.closest('.match-jump')) return;
     if (e.target.closest('.video-actions')) return;
     if (v.missing) {
-      setStatus('该视频文件当前不可用，请重新关联路径', 'warn');
+      setStatus(t('sidebar.video_unavailable'), 'warn');
       relinkVideo(v.file, v.abs_path || (v.match && v.match.abs_path) || null);
       return;
     }
@@ -477,7 +483,7 @@ function renderVideoItem(v) {
           return;
         }
         if (task === 'remove') {
-          if (confirm(`确定从项目中移除 ${file} 吗？`)) {
+          if (confirm(t('sidebar.confirm_remove', { file }))) {
             await removeVideoFromProject(file, v.abs_path || (v.match && v.match.abs_path) || null);
           }
           return;
@@ -486,12 +492,12 @@ function renderVideoItem(v) {
           const path = v.abs_path || v.match?.abs_path;
           try {
             const r = await api('POST', '/api/fs/reveal', { path });
-            if (r.ok) setStatus(`已打开: ${r.path || path}`, 'ok');
-            else throw new Error(r.error || '打开失败');
-          } catch (e) { setStatus('打开文件位置失败: ' + e.message, 'err'); }
+            if (r.ok) setStatus(t('sidebar.opened', { path: r.path || path }), 'ok');
+            else throw new Error(r.error || t('sidebar.open_failed'));
+          } catch (e) { setStatus(t('sidebar.open_location_failed', { detail: e.message }), 'err'); }
           return;
         }
-        setStatus(`正在重跑 ${task} (${file})...`, 'ok', { persist: false });
+        setStatus(t('sidebar.rerunning', { task, file }), 'ok', { persist: false });
         try {
           const r = await api('POST', '/api/rerun', {
             video: file,
@@ -501,10 +507,10 @@ function renderVideoItem(v) {
             abspath: v.abs_path || (v.match && v.match.abs_path) || undefined,
           });
           if (r.ok) {
-            setStatus(r.message || `${task} 已启动`, 'ok', { persist: false });
+            setStatus(r.message || t('sidebar.rerun_started', { task }), 'ok', { persist: false });
             import('./sidebar-rerun.js').then(mod => mod.showRerunProgress(task, file, r.task_id));
-          } else { throw new Error(r.error || '重跑失败'); }
-        } catch (e) { setStatus('重跑失败: ' + e.message, 'err'); }
+          } else { throw new Error(r.error || t('sidebar.rerun_failed')); }
+        } catch (e) { setStatus(t('sidebar.rerun_failed_detail', { detail: e.message }), 'err'); }
       };
     });
     if (!_portalCloseHandler) {
@@ -549,8 +555,8 @@ export function renderVideoList() {
     const selectable = state.videos.filter(v => !v.missing);
     const allSelected = selectable.length > 0 && selectable.every(v => state.selectedFiles.includes(v.file));
     headerDiv.innerHTML = `
-      <span class="selection-count">已选: ${state.selectedFiles.length}/${selectable.length}</span>
-      <span class="selection-action" data-action="all">${allSelected ? '取消全选' : '全选'}</span>
+      <span class="selection-count">${t('sidebar.selected_count', { selected: state.selectedFiles.length, total: selectable.length })}</span>
+      <span class="selection-action" data-action="all">${allSelected ? t('sidebar.deselect_all') : t('sidebar.select_all')}</span>
     `;
     headerDiv.querySelector('[data-action="all"]').onclick = () => {
       if (allSelected) {
@@ -568,12 +574,12 @@ export function renderVideoList() {
       ul.innerHTML = `
         <li class="empty-state">
           ${icon('folder', 36)}
-          <h4>暂无压缩视频</h4>
-          <p>未找到压缩后的视频文件（output/compressed/）</p>
-          <p class="hint">请先压缩原视频，或切换到「原视频」视图查看素材</p>
+          <h4>${t('sidebar.empty_compressed_title')}</h4>
+          <p>${t('sidebar.empty_compressed_body')}</p>
+          <p class="hint">${t('sidebar.empty_compressed_hint')}</p>
           <p style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
-            <button class="sidebar-btn" id="empty-go-original" style="background:var(--accent);color:#fff;border:none;padding:7px 14px;border-radius:var(--radius-sm);cursor:pointer;font:inherit;font-size:var(--text-sm)">${icon('folder', 14)} 切换到原视频</button>
-            <button class="sidebar-btn" id="empty-go-run" title="运行流水线中的压缩步骤" style="background:var(--bg-surface-2);color:var(--text-primary);border:1px solid var(--border);padding:7px 14px;border-radius:var(--radius-sm);cursor:pointer;font:inherit;font-size:var(--text-sm)">${icon('play', 14)} 去压缩视频</button>
+            <button class="sidebar-btn" id="empty-go-original" style="background:var(--accent);color:#fff;border:none;padding:7px 14px;border-radius:var(--radius-sm);cursor:pointer;font:inherit;font-size:var(--text-sm)">${icon('folder', 14)} ${t('sidebar.go_original')}</button>
+            <button class="sidebar-btn" id="empty-go-run" title="${t('sidebar.compress_step_title')}" style="background:var(--bg-surface-2);color:var(--text-primary);border:1px solid var(--border);padding:7px 14px;border-radius:var(--radius-sm);cursor:pointer;font:inherit;font-size:var(--text-sm)">${icon('play', 14)} ${t('sidebar.go_compress')}</button>
           </p>
         </li>
       `;
@@ -593,11 +599,11 @@ export function renderVideoList() {
       ul.innerHTML = `
         <li class="empty-state">
           ${icon('video', 36)}
-          <h4>暂无视频素材</h4>
-          <p>项目 <code>videos.json</code> 中还没有选中的原始视频</p>
-          <p class="hint">点击上方「添加视频」从磁盘勾选素材；旧项目可运行 <code>python main.py migrate</code></p>
+          <h4>${t('sidebar.empty_original_title')}</h4>
+          <p>${t('sidebar.empty_original_body')}</p>
+          <p class="hint">${t('sidebar.empty_original_hint')}</p>
           <p style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
-            <button class="sidebar-btn" id="empty-add-videos" style="background:var(--accent);color:#fff;border:none;padding:7px 14px;border-radius:var(--radius-sm);cursor:pointer;font:inherit;font-size:var(--text-sm)">${icon('plus', 14)} 添加视频</button>
+            <button class="sidebar-btn" id="empty-add-videos" style="background:var(--accent);color:#fff;border:none;padding:7px 14px;border-radius:var(--radius-sm);cursor:pointer;font:inherit;font-size:var(--text-sm)">${icon('plus', 14)} ${t('sidebar.add_videos')}</button>
           </p>
         </li>
       `;
@@ -636,8 +642,8 @@ export function renderVideoList() {
     const li = document.createElement('li');
     li.className = 'empty-state';
     li.innerHTML = `
-      <p class="hint">没有匹配的视频，试试清除筛选</p>
-      <button type="button" class="sidebar-btn" id="btn-clear-video-filter">清除筛选</button>
+      <p class="hint">${t('sidebar.no_filter_match')}</p>
+      <button type="button" class="sidebar-btn" id="btn-clear-video-filter">${t('sidebar.clear_filter')}</button>
     `;
     li.querySelector('#btn-clear-video-filter').onclick = () => {
       state.videoFilter.q = '';
@@ -674,7 +680,7 @@ export function renderVideoList() {
     header.innerHTML = `
       <span class="group-toggle">${isExpanded ? '▼' : '▶'}</span>
       <span class="group-name">${escapeHtml(key)}</span>
-      <span class="group-count-badge">(${items.length} 段)</span>
+      <span class="group-count-badge">${t('sidebar.segment_count', { count: items.length })}</span>
     `;
     header.onclick = (e) => {
       e.stopPropagation();
@@ -714,8 +720,8 @@ function renderOfflineSummary() {
   box.hidden = false;
   box.innerHTML = `
     <div class="offline-summary-inner">
-      <span class="offline-summary-text">⚠ ${summary.count} 个视频离线</span>
-      <button type="button" class="sidebar-btn offline-batch-btn" id="btn-batch-relink" title="按文件名批量重新关联">批量关联</button>
+      <span class="offline-summary-text">${t('sidebar.offline_summary', { count: summary.count })}</span>
+      <button type="button" class="sidebar-btn offline-batch-btn" id="btn-batch-relink" title="${t('sidebar.batch_relink_title')}">${t('sidebar.batch_relink')}</button>
     </div>
   `;
   const btn = box.querySelector('#btn-batch-relink');
@@ -736,7 +742,7 @@ function renderFilterChips() {
   const allBtn = document.createElement('button');
   allBtn.type = 'button';
   allBtn.className = 'video-filter-chip' + (!state.videoFilter.stage ? ' active' : '');
-  allBtn.textContent = `全部 ${all}`;
+  allBtn.textContent = t('sidebar.filter_all', { count: all });
   allBtn.onclick = () => {
     state.videoFilter.stage = '';
     state.videoFilter.mode = 'missing';
@@ -777,11 +783,11 @@ function renderStageCountBar() {
     cell.className = 'stage-count-cell' + (s.done === 0 ? ' empty' : '') + (isActive ? ' active' : '');
     cell.innerHTML = `<span class="stage-count-num">${s.done}/${s.total}</span>${s.label}`;
     if (s.done === 0) {
-      cell.title = `${s.label}: 尚无完成`;
+      cell.title = t('sidebar.stage_none', { label: s.label });
     } else if (s.done === s.total) {
-      cell.title = isDoneFilter && isActive ? `${s.label}: 全部 ${s.done} 个已完成` : `${s.label}: 全部完成`;
+      cell.title = isDoneFilter && isActive ? t('sidebar.stage_all_done_active', { label: s.label, count: s.done }) : t('sidebar.stage_all_done', { label: s.label });
     } else {
-      cell.title = `${s.label}: 已完成 ${s.done}，缺 ${s.total - s.done}`;
+      cell.title = t('sidebar.stage_partial', { label: s.label, done: s.done, missing: s.total - s.done });
     }
     cell.onclick = () => {
       if (s.done === 0) return;

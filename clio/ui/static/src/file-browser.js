@@ -1,15 +1,16 @@
 import { api, icon } from './api.js';
 import { addToast } from './toast.js';
+import { t } from './i18n.js';
 
 let activePicker = null;
 let pickerRoot = null;
 
 export function pickerTitle({ mode = 'file', multiple = false, kind = 'any' } = {}) {
-  if (mode === 'folder') return '选择目录';
-  if (multiple && kind === 'video') return '选择视频';
-  if (multiple) return '选择文件';
-  if (kind === 'exe') return '选择可执行文件';
-  return '选择文件';
+  if (mode === 'folder') return t('file_browser.title_folder');
+  if (multiple && kind === 'video') return t('file_browser.title_video');
+  if (multiple) return t('file_browser.title_file');
+  if (kind === 'exe') return t('file_browser.title_exe');
+  return t('file_browser.title_file');
 }
 
 export function formatFileSize(bytes) {
@@ -31,22 +32,22 @@ function ensurePicker() {
     <div class="modal-backdrop" data-fs-action="cancel"></div>
     <div class="modal-dialog fs-picker-dialog" role="dialog" aria-modal="true" aria-labelledby="fs-picker-title">
       <div class="fs-picker-header">
-        <h3 id="fs-picker-title">选择文件</h3>
-        <button type="button" class="fs-picker-icon-btn" data-fs-action="cancel" title="关闭" aria-label="关闭">×</button>
+        <h3 id="fs-picker-title">${t('file_browser.dialog_title')}</h3>
+        <button type="button" class="fs-picker-icon-btn" data-fs-action="cancel" title="${t('common.close')}" aria-label="${t('common.close')}">×</button>
       </div>
       <div class="fs-picker-pathbar">
-        <button type="button" class="fs-picker-icon-btn" data-fs-action="up" title="上一级" aria-label="上一级">↑</button>
-        <input id="fs-picker-path" type="text" aria-label="当前路径">
-        <button type="button" class="btn-secondary" data-fs-action="go">转到</button>
-        <button type="button" class="fs-picker-icon-btn" data-fs-action="refresh" title="刷新" aria-label="刷新">↻</button>
+        <button type="button" class="fs-picker-icon-btn" data-fs-action="up" title="${t('file_browser.up')}" aria-label="${t('file_browser.up')}">↑</button>
+        <input id="fs-picker-path" type="text" aria-label="${t('file_browser.current_path')}">
+        <button type="button" class="btn-secondary" data-fs-action="go">${t('file_browser.go')}</button>
+        <button type="button" class="fs-picker-icon-btn" data-fs-action="refresh" title="${t('common.refresh')}" aria-label="${t('common.refresh')}">↻</button>
       </div>
       <div id="fs-picker-status" class="fs-picker-status" aria-live="polite"></div>
       <div id="fs-picker-entries" class="fs-picker-entries" role="listbox"></div>
       <div class="fs-picker-footer">
-        <button type="button" class="btn-secondary" data-fs-action="mkdir">新建文件夹</button>
+        <button type="button" class="btn-secondary" data-fs-action="mkdir">${t('file_browser.mkdir')}</button>
         <span id="fs-picker-selection" class="muted"></span>
-        <button type="button" class="btn-secondary" data-fs-action="cancel">取消</button>
-        <button type="button" class="btn-primary" data-fs-action="confirm" disabled>选择</button>
+        <button type="button" class="btn-secondary" data-fs-action="cancel">${t('common.cancel')}</button>
+        <button type="button" class="btn-primary" data-fs-action="confirm" disabled>${t('file_browser.confirm')}</button>
       </div>
     </div>`;
   document.body.appendChild(pickerRoot);
@@ -100,14 +101,14 @@ function updateFooter() {
   const selection = pickerRoot.querySelector('#fs-picker-selection');
   if (activePicker.mode === 'folder') {
     confirm.disabled = !activePicker.currentPath;
-    confirm.textContent = '选择当前目录';
-    selection.textContent = activePicker.currentPath ? '当前目录' : '';
+    confirm.textContent = t('file_browser.pick_current_dir');
+    selection.textContent = activePicker.currentPath ? t('file_browser.current_dir') : '';
     return;
   }
   const count = activePicker.selected.size;
   confirm.disabled = count === 0;
-  confirm.textContent = activePicker.multiple ? `选择 ${count || ''} 个文件`.replace('  ', ' ') : '选择文件';
-  selection.textContent = count ? `已选 ${count} 个` : '';
+  confirm.textContent = activePicker.multiple ? t('file_browser.pick_count', { count: count || '' }) : t('file_browser.title_file');
+  selection.textContent = count ? t('file_browser.selected_count', { count }) : '';
 }
 
 function entryButton(entry, type) {
@@ -172,7 +173,7 @@ function renderEntries(data) {
   if (!list.children.length) {
     const empty = document.createElement('p');
     empty.className = 'fs-picker-empty muted';
-    empty.textContent = activePicker.mode === 'folder' ? '此目录没有子目录' : '此目录没有符合条件的文件';
+    empty.textContent = activePicker.mode === 'folder' ? t('file_browser.empty_dirs') : t('file_browser.empty_files');
     list.appendChild(empty);
   }
 }
@@ -183,7 +184,7 @@ async function loadPath(path, fallbackToRoot) {
   const requestId = ++picker.requestId;
   const status = pickerRoot.querySelector('#fs-picker-status');
   const entries = pickerRoot.querySelector('#fs-picker-entries');
-  status.textContent = '正在读取...';
+  status.textContent = t('file_browser.reading');
   status.className = 'fs-picker-status muted';
   entries.setAttribute('aria-busy', 'true');
   try {
@@ -199,7 +200,10 @@ async function loadPath(path, fallbackToRoot) {
       if (!picker.multiple) picker.selected.clear();
       picker.selected.add(data.selected_path);
     }
-    status.textContent = data.is_drive_list ? '选择磁盘' : `${(data.dirs || []).length} 个目录${picker.mode === 'folder' ? '' : `，${(data.files || []).length} 个文件`}`;
+    status.textContent = data.is_drive_list
+      ? t('file_browser.drive_list')
+      : t('file_browser.dir_count', { count: (data.dirs || []).length })
+        + (picker.mode === 'folder' ? '' : t('file_browser.file_count', { count: (data.files || []).length }));
     renderEntries(data);
     updateFooter();
   } catch (error) {
@@ -207,13 +211,13 @@ async function loadPath(path, fallbackToRoot) {
     if (fallbackToRoot && path) {
       await loadPath('', false);
       if (activePicker === picker) {
-        status.textContent = `初始路径不可用，已显示可浏览位置：${error.message || error}`;
+        status.textContent = t('file_browser.initial_unavailable', { detail: error.message || error });
         status.className = 'fs-picker-status warn';
         addToast(status.textContent, 'warning');
       }
       return;
     }
-    status.textContent = `无法打开此路径：${error.message || error}`;
+    status.textContent = t('file_browser.open_failed', { detail: error.message || error });
     status.className = 'fs-picker-status err';
     addToast(status.textContent, 'error', 6000);
   } finally {
@@ -223,7 +227,7 @@ async function loadPath(path, fallbackToRoot) {
 
 async function createDirectory() {
   if (!activePicker?.currentPath) return;
-  const name = prompt('新文件夹名称');
+  const name = prompt(t('file_browser.new_folder_prompt'));
   if (!name?.trim()) return;
   const status = pickerRoot.querySelector('#fs-picker-status');
   try {
@@ -233,7 +237,7 @@ async function createDirectory() {
     });
     await loadPath(result.path || activePicker.currentPath, false);
   } catch (error) {
-    status.textContent = `创建失败：${error.message || error}`;
+    status.textContent = t('file_browser.mkdir_failed', { detail: error.message || error });
     status.className = 'fs-picker-status err';
     addToast(status.textContent, 'error', 6000);
   }

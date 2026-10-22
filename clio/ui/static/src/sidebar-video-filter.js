@@ -4,14 +4,20 @@
  * sidebar-data.js so this module stays unit-testable.
  */
 import { isCompressStepDone } from './video-menu.js';
+import { t } from './i18n.js';
 
 /** Exact 4 per-file stages shown in rows, chips and the bottom count bar. */
 export const STAGE_CELLS = [
-  { key: 'compress', label: '压缩' },
-  { key: 'analyze', label: '分析' },
-  { key: 'voiceover', label: '口播' },
-  { key: 'transcribe', label: '转录' },
+  { key: 'compress', labelKey: 'sidebar.stage.compress' },
+  { key: 'analyze', labelKey: 'sidebar.stage.analyze' },
+  { key: 'voiceover', labelKey: 'sidebar.stage.voiceover' },
+  { key: 'transcribe', labelKey: 'sidebar.stage.transcribe' },
 ];
+
+/** Resolve a stage cell label in the active locale. */
+export function stageLabel(cell) {
+  return t(cell?.labelKey);
+}
 
 /** True if the given per-file stage is complete for `video` in `source`. */
 export function videoStageDone(video, source, key) {
@@ -46,17 +52,17 @@ export function videoMissingStage(video, source, key) {
 
 const CHIP_DEFS = {
   original: [
-    { key: 'compress', label: '未压缩' },
-    { key: 'analyze', label: '缺分析' },
-    { key: 'voiceover', label: '缺口播' },
-    { key: 'transcribe', label: '缺转录' },
-    { key: 'offline', label: '离线' },
+    { key: 'compress', labelKey: 'sidebar.chip.compress' },
+    { key: 'analyze', labelKey: 'sidebar.chip.analyze' },
+    { key: 'voiceover', labelKey: 'sidebar.chip.voiceover' },
+    { key: 'transcribe', labelKey: 'sidebar.chip.transcribe' },
+    { key: 'offline', labelKey: 'sidebar.chip.offline' },
   ],
   compressed: [
-    { key: 'analyze', label: '缺分析' },
-    { key: 'voiceover', label: '缺口播' },
-    { key: 'transcribe', label: '缺转录' },
-    { key: 'offline', label: '离线' },
+    { key: 'analyze', labelKey: 'sidebar.chip.analyze' },
+    { key: 'voiceover', labelKey: 'sidebar.chip.voiceover' },
+    { key: 'transcribe', labelKey: 'sidebar.chip.transcribe' },
+    { key: 'offline', labelKey: 'sidebar.chip.offline' },
   ],
 };
 
@@ -69,7 +75,7 @@ export function chipDefsForSource(source) {
 export function countChipStats(videos, source) {
   return chipDefsForSource(source).map((d) => ({
     key: d.key,
-    label: d.label,
+    label: t(d.labelKey),
     count: videos.filter((v) => videoMissingStage(v, source, d.key)).length,
   }));
 }
@@ -79,7 +85,7 @@ export function countStageSummary(videos, source) {
   const total = videos.length;
   return STAGE_CELLS.map((c) => ({
     key: c.key,
-    label: c.label,
+    label: t(c.labelKey),
     done: videos.filter((v) => videoStageDone(v, source, c.key)).length,
     total,
   }));

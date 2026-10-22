@@ -16,6 +16,8 @@ class FakeEventSource {
 describe('notification center', () => {
   beforeEach(async () => {
     vi.resetModules();
+    const { seedCatalogs } = await import('./catalogs.js');
+    seedCatalogs();
     ({ state } = await import('../state.js'));
     ({ api } = await import('../api.js'));
     api.mockReset();

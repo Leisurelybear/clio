@@ -11,8 +11,10 @@ vi.mock('../waveform.js', () => ({
   isPlanWaveformMode: vi.fn(() => false),
 }));
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.resetModules();
+  const { seedCatalogs } = await import('./catalogs.js');
+  seedCatalogs();
   document.body.innerHTML = `
     <div id="preview-bar" style="display:none"></div>
     <div id="preview-seg-bar"></div>

@@ -1,6 +1,7 @@
 /**
  * Pure helpers for videos.json selection mutations (add / remove).
  */
+import { t } from './i18n.js';
 
 export function normPath(p) {
   return String(p || '').replace(/\\/g, '/').toLowerCase();
@@ -41,10 +42,10 @@ export function findSelectedVideoIndex(videos = [], { file, absPath } = {}) {
   if (basenameHits.length > 1) {
     return {
       index: -1,
-      error: `找到多个同名文件 (${stripped || baseName})，请指定完整路径`,
+      error: t('video_select.ambiguous', { name: stripped || baseName }),
     };
   }
-  return { index: -1, error: '未在项目视频列表中找到该文件' };
+  return { index: -1, error: t('video_select.not_found') };
 }
 
 /**

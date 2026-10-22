@@ -4,6 +4,7 @@ import { api } from './api.js';
 import { addToast } from './toast.js';
 import { loadVideos, renderVideoList } from './sidebar-data.js';
 import { subscribeTaskEvents, fetchTask } from './task-center.js';
+import { t } from './i18n.js';
 
 let _rerunTaskUnsubscribe = null;
 
@@ -23,11 +24,11 @@ export function showRerunProgress(task, file, taskId) {
   overlay.style.display = 'block';
   overlay.dataset.active = 'true';
 
-  overlay.querySelector('.rerun-title').textContent = `重跑 ${task}`;
+  overlay.querySelector('.rerun-title').textContent = t('sidebar.rerun_title', { task });
   overlay.querySelector('.rerun-file').textContent = file;
-  overlay.querySelector('.rerun-status').textContent = '启动中...';
+  overlay.querySelector('.rerun-status').textContent = t('sidebar.rerun_starting');
   overlay.querySelector('.rerun-progress-fill').style.width = '0%';
-  overlay.querySelector('.rerun-logs').innerHTML = '<div class="rerun-log-line">连接中...</div>';
+  overlay.querySelector('.rerun-logs').innerHTML = `<div class="rerun-log-line">${t('sidebar.rerun_connecting')}</div>`;
 
   if (_rerunTaskUnsubscribe) { _rerunTaskUnsubscribe(); _rerunTaskUnsubscribe = null; }
   _rerunTaskUnsubscribe = subscribeTaskEvents(payload => {
@@ -58,17 +59,17 @@ function _applyTaskEvent(task, file, current, event) {
   const statusEl = overlay.querySelector('.rerun-status');
   const logsEl = overlay.querySelector('.rerun-logs');
   if (fill && Number.isFinite(current.progress_pct)) fill.style.width = `${Math.min(100, Math.max(0, current.progress_pct))}%`;
-  if (statusEl) statusEl.textContent = event?.message || current.message || current.phase || '运行中...';
+  if (statusEl) statusEl.textContent = event?.message || current.message || current.phase || t('sidebar.rerun_running');
   if (logsEl && event?.type === 'log' && event.message) {
     logsEl.insertAdjacentHTML('beforeend', `<div class="rerun-log-line">${escapeHtml(event.message)}</div>`);
     logsEl.scrollTop = logsEl.scrollHeight;
   }
   if (current.status === 'succeeded') {
-    _rerunTerminal(task, file, '✓ 完成', '重跑完成', 'success', 'success');
+    _rerunTerminal(task, file, t('sidebar.rerun_done_label'), t('sidebar.rerun_done'), 'success', 'success');
   } else if (current.status === 'cancelled') {
-    _rerunTerminal(task, file, '⏹ 已取消', '重跑已取消', 'warning', 'warning');
+    _rerunTerminal(task, file, t('sidebar.rerun_cancelled_label'), t('sidebar.rerun_cancelled'), 'warning', 'warning');
   } else if (current.status === 'failed' || current.status === 'interrupted') {
-    _rerunTerminal(task, file, '✗ 出错', '重跑出错', 'error', 'error');
+    _rerunTerminal(task, file, t('sidebar.rerun_error_label'), t('sidebar.rerun_error'), 'error', 'error');
   }
 }
 
@@ -81,7 +82,7 @@ function _rerunTerminal(task, file, label, message, toastKind, statusKind) {
   if (statusEl) statusEl.innerHTML = `<span class="${statusKind === 'success' ? 'ok' : statusKind === 'warning' ? 'warn' : 'err'}">${escapeHtml(label)}</span>`;
   const persisted = statusKind !== 'success';
   setStatus(message, statusKind === 'success' ? 'ok' : statusKind === 'warning' ? 'warn' : 'err', { persist: persisted });
-  addToast(message, toastKind, statusKind === 'error' ? 6000 : undefined, { persist: persisted, title: '视频重跑' });
+  addToast(message, toastKind, statusKind === 'error' ? 6000 : undefined, { persist: persisted, title: t('sidebar.rerun_toast_title') });
   if (statusKind === 'success') {
     setTimeout(() => { hideRerunProgress(); refreshAfterRerun(task, file); }, 2000);
   } else {

@@ -2,6 +2,7 @@
  * Pure helpers for video list step badges and ⋮ menu items.
  * DOM rendering stays in sidebar-data.js.
  */
+import { t } from './i18n.js';
 
 /** Whether the compress pipeline step is done for this list entry. */
 export function isCompressStepDone(video, source) {
@@ -16,10 +17,10 @@ export function isCompressStepDone(video, source) {
 
 export function buildVideoStepBadges(video, source) {
   return [
-    { label: '压缩', done: isCompressStepDone(video, source) },
-    { label: '分析', done: !!video?.text_json },
-    { label: '口播', done: !!video?.script_json },
-    { label: '转录', done: !!video?.transcript_file },
+    { label: t('menu.step.compress'), done: isCompressStepDone(video, source) },
+    { label: t('menu.step.analyze'), done: !!video?.text_json },
+    { label: t('menu.step.voiceover'), done: !!video?.script_json },
+    { label: t('menu.step.transcribe'), done: !!video?.transcript_file },
   ];
 }
 
@@ -34,7 +35,7 @@ function addRevealAction(items, video) {
   if (!before.at(-1)?.divider) before.push({ divider: true });
   return [
     ...before,
-    { action: 'reveal', label: '在文件管理器中显示', title: '打开所在目录并选中此文件' },
+    { action: 'reveal', label: t('menu.reveal'), title: t('menu.reveal_title') },
     ...items.slice(removeIndex),
   ];
 }
@@ -42,7 +43,7 @@ function addRevealAction(items, video) {
 /** Force-disable media actions that hard-require ffmpeg when deps.ok is false. */
 export function applyFfmpegMenuDeps(items, deps) {
   if (!deps || deps.ok !== false || !Array.isArray(items)) return items;
-  const reason = deps.detail || '需要 ffmpeg/ffprobe';
+  const reason = deps.detail || t('menu.need_ffmpeg');
   return items.map((item) => {
     if (item.action && FFMPEG_MENU_ACTIONS.has(item.action)) {
       return { ...item, disabled: true, title: reason };
@@ -64,62 +65,62 @@ export function buildVideoMenuItems(video, source, deps = null) {
   if (source === 'original') {
     if (missing) {
       items = [
-        { action: 'compress', label: '压缩视频', disabled: true, title: '文件离线' },
-        { action: 'transcribe', label: '语音转录', disabled: true, title: '文件离线' },
+        { action: 'compress', label: t('menu.compress'), disabled: true, title: t('menu.offline_title') },
+        { action: 'transcribe', label: t('menu.transcribe'), disabled: true, title: t('menu.offline_title') },
         { divider: true },
         {
           action: 'relink',
-          label: '重新关联路径...',
+          label: t('menu.relink'),
           disabled: false,
-          title: '文件移动或重命名后，重新关联新路径',
+          title: t('menu.relink_title'),
         },
         {
           action: 'remove',
-          label: '从项目移除',
+          label: t('menu.remove'),
           disabled: false,
           danger: true,
-          title: '从项目中移除该视频',
+          title: t('menu.remove_title'),
         },
       ];
     } else {
       items = [
         {
           action: 'compress',
-          label: '压缩视频',
+          label: t('menu.compress'),
           disabled: false,
-          title: '用 ffmpeg 将原视频压缩为 640p',
+          title: t('menu.compress_title'),
         },
         {
           action: 'transcribe',
-          label: '语音转录',
+          label: t('menu.transcribe'),
           disabled: false,
-          title: '用当前 ASR 引擎提取音频转文字',
+          title: t('menu.transcribe_title'),
         },
         {
           action: 'analyze',
-          label: 'AI分析视频',
+          label: t('menu.analyze'),
           disabled: true,
-          title: '请先压缩视频，或切换到「压缩」视图后重跑分析',
+          title: t('menu.analyze_disabled_title'),
         },
         {
           action: 'voiceover',
-          label: '重跑口播文案',
+          label: t('menu.voiceover'),
           disabled: true,
-          title: '请先压缩并完成分析，或切换到「压缩」视图',
+          title: t('menu.voiceover_disabled_title'),
         },
         {
           action: 'all',
-          label: '重跑全部',
+          label: t('menu.all'),
           disabled: true,
-          title: '请先压缩视频，或切换到「压缩」视图',
+          title: t('menu.all_disabled_title'),
         },
         { divider: true },
         {
           action: 'remove',
-          label: '从项目移除',
+          label: t('menu.remove'),
           disabled: false,
           danger: true,
-          title: '从项目中移除该视频',
+          title: t('menu.remove_title'),
         },
       ];
     }
@@ -131,41 +132,41 @@ export function buildVideoMenuItems(video, source, deps = null) {
     items = [
       {
         action: 'compress',
-        label: '压缩视频',
+        label: t('menu.compress'),
         disabled: true,
-        title: '文件离线',
+        title: t('menu.offline_title'),
       },
       {
         action: 'analyze',
-        label: 'AI分析视频',
+        label: t('menu.analyze'),
         disabled: true,
-        title: '文件离线',
+        title: t('menu.offline_title'),
       },
       {
         action: 'voiceover',
-        label: '重跑口播文案',
+        label: t('menu.voiceover'),
         disabled: true,
-        title: '文件离线',
+        title: t('menu.offline_title'),
       },
       {
         action: 'transcribe',
-        label: '语音转录',
+        label: t('menu.transcribe'),
         disabled: true,
-        title: '文件离线',
+        title: t('menu.offline_title'),
       },
       {
         action: 'all',
-        label: '重跑全部',
+        label: t('menu.all'),
         disabled: true,
-        title: '文件离线',
+        title: t('menu.offline_title'),
       },
       { divider: true },
       {
         action: 'remove',
-        label: '从项目移除',
+        label: t('menu.remove'),
         disabled: false,
         danger: true,
-        title: '从项目视频列表移除对应原片（若能解析）',
+        title: t('menu.remove_original_title'),
       },
     ];
     return applyFfmpegMenuDeps(items, deps);
@@ -174,41 +175,41 @@ export function buildVideoMenuItems(video, source, deps = null) {
   items = [
     {
       action: 'compress',
-      label: '压缩视频',
+      label: t('menu.compress'),
       disabled: true,
-      title: '当前为压缩结果；强制重压请到「原视频」视图或运行面板',
+      title: t('menu.compress_compressed_title'),
     },
     {
       action: 'analyze',
-      label: 'AI分析视频',
+      label: t('menu.analyze'),
       disabled: false,
-      title: '调用 AI 重新分析视频内容',
+      title: t('menu.analyze_title'),
     },
     {
       action: 'voiceover',
-      label: '重跑口播文案',
+      label: t('menu.voiceover'),
       disabled: false,
-      title: '基于分析结果，重新用 AI 生成口播解说文案',
+      title: t('menu.voiceover_title'),
     },
     {
       action: 'transcribe',
-      label: '语音转录',
+      label: t('menu.transcribe'),
       disabled: false,
-      title: '用当前本地或云端 ASR 引擎对压缩视频转写语音',
+      title: t('menu.transcribe_compressed_title'),
     },
     {
       action: 'all',
-      label: '重跑全部',
+      label: t('menu.all'),
       disabled: false,
-      title: '依次执行 AI 分析 + 口播文案',
+      title: t('menu.all_title'),
     },
     { divider: true },
     {
       action: 'remove',
-      label: '从项目移除',
+      label: t('menu.remove'),
       disabled: false,
       danger: true,
-      title: '从项目视频列表移除对应原片（若能解析）',
+      title: t('menu.remove_original_title'),
     },
   ];
   return applyFfmpegMenuDeps(addRevealAction(items, video), deps);

@@ -96,7 +96,8 @@ Each row is one commit; focused tests must pass before the next row starts.
 | 2026-10-22 | 4 settings copy | Done |
 | 2026-10-22 | 5 notifications / warnings / ffmpeg / task center | Done |
 | 2026-10-22 | 6 logs / waveform | Done |
-| 2026-10-22 | 7-11 | Pending |
+| 2026-10-22 | 7 sidebar / menus / viewer / transcription | Done |
+| 2026-10-22 | 8-11 | Pending |
 
 ## Remaining-String Baseline (2026-10-22)
 

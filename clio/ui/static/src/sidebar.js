@@ -14,6 +14,7 @@ import {
 } from './sidebar-data.js';
 import { selectVideosButtonHtml } from './select-btn.js';
 import { loadPlanPreviewMedia } from './plan-preview-media.js';
+import { t } from './i18n.js';
 
 let _selectVideoRequestId = 0;
 
@@ -21,7 +22,7 @@ let _selectVideoRequestId = 0;
 
 async function selectVideo(file, options = {}) {
   if (state.dirty) {
-    if (!confirm('当前 tab 有未保存的修改，确定切换视频吗？')) return;
+    if (!confirm(t('sidebar.dirty.video'))) return;
   }
   if (state.previewActive) stopPreview();
   $('player-pane').classList.remove('plan-mode');
@@ -62,7 +63,7 @@ async function selectVideo(file, options = {}) {
     try { return await api('GET', url); }
     catch (e) {
       if (requestId === _selectVideoRequestId && state.currentVideo === file) {
-        setStatus(`${label} 加载失败: ${e.message}`, 'err');
+        setStatus(t('sidebar.artifact_load_failed', { label, detail: e.message }), 'err');
       }
       return null;
     }
@@ -87,7 +88,7 @@ async function selectVideo(file, options = {}) {
 
 async function selectPlan(dayOverride) {
   if (state.dirty) {
-    if (!confirm('当前 tab 有未保存的修改，确定切换到规划吗？')) return;
+    if (!confirm(t('sidebar.dirty.plan'))) return;
   }
   if (state.previewActive) stopPreview();
   $('player-pane').classList.add('plan-mode');
@@ -117,7 +118,7 @@ async function selectPlan(dayOverride) {
 
 async function selectRun() {
   if (state.dirty) {
-    if (!confirm('当前 tab 有未保存的修改，确定切换到运行吗？')) return;
+    if (!confirm(t('sidebar.dirty.run'))) return;
   }
   if (state.previewActive) stopPreview();
   $('player-pane').classList.remove('plan-mode');
@@ -131,7 +132,7 @@ async function selectRun() {
 
 async function selectConfig() {
   if (state.dirty) {
-    if (!confirm('当前 tab 有未保存的修改，确定切换到设置吗？')) return;
+    if (!confirm(t('sidebar.dirty.config'))) return;
   }
   if (state.previewActive) stopPreview();
   $('player-pane').classList.remove('plan-mode');
@@ -155,7 +156,7 @@ async function selectConfig() {
       state._needsConfigInit = false;
     }
   } catch (e) {
-    setStatus('配置加载失败: ' + e.message, 'err');
+    setStatus(t('sidebar.config_load_failed', { detail: e.message }), 'err');
     state.configRaw = {};
     state.configGlobal = {};
     state.configProject = {};
@@ -169,7 +170,7 @@ async function selectConfig() {
 
 async function selectLogs() {
   if (state.dirty) {
-    if (!confirm('当前 tab 有未保存的修改，确定切换到日志吗？')) return;
+    if (!confirm(t('sidebar.dirty.logs'))) return;
   }
   if (state.previewActive) stopPreview();
   $('player-pane').classList.remove('plan-mode');
@@ -183,7 +184,7 @@ async function selectLogs() {
 
 async function selectTokens() {
   if (state.dirty) {
-    if (!confirm('当前 tab 有未保存的修改，确定切换到统计吗？')) return;
+    if (!confirm(t('sidebar.dirty.tokens'))) return;
   }
   if (state.previewActive) stopPreview();
   $('player-pane').classList.remove('plan-mode');
@@ -221,7 +222,7 @@ function sameVideoIndex(a, b) {
 
 async function selectTasks() {
   if (state.dirty) {
-    if (!confirm('当前 tab 有未保存的修改，确定切换到任务中心吗？')) return;
+    if (!confirm(t('sidebar.dirty.tasks'))) return;
   }
   if (state.previewActive) stopPreview();
   $('player-pane').classList.remove('plan-mode');
@@ -261,7 +262,7 @@ function _sourceSwitchResumePoint(
 async function setSource(source, options = {}) {
   if (source === state.source) return;
   if (state.dirty) {
-    if (!confirm('当前 tab 有未保存的修改，确定切换源吗？')) return;
+    if (!confirm(t('sidebar.dirty.source'))) return;
   }
   const player = $('player');
   const currentTime = Number.isFinite(player?.currentTime) ? player.currentTime : 0;
@@ -295,8 +296,8 @@ async function setSource(source, options = {}) {
         if (target) {
           if (target.missing) {
             $('player').removeAttribute('src');
-            $('player-name').textContent = '对应原视频当前离线';
-            setStatus(`已切换到${source}视图（对应原视频离线）`, 'warn');
+            $('player-name').textContent = t('sidebar.counterpart_offline');
+            setStatus(t('sidebar.switched_offline', { source }), 'warn');
           } else {
             const resume = _sourceSwitchResumePoint(
               true,
@@ -308,16 +309,16 @@ async function setSource(source, options = {}) {
               target,
             );
             seekToGlobal(resume.globalSec, { play: wasPlaying });
-            setStatus(`已切换到${source}视图`, 'ok');
+            setStatus(t('sidebar.switched', { source }), 'ok');
           }
         } else {
           $('player').removeAttribute('src');
-          $('player-name').textContent = '当前规划段在此源无对应视频';
-          setStatus(`已切换到${source}视图（无对应视频）`, 'ok');
+          $('player-name').textContent = t('sidebar.plan_no_counterpart');
+          setStatus(t('sidebar.switched_no_match', { source }), 'ok');
         }
       } else {
         if (target?.missing) {
-          setStatus('对应原视频当前离线，已切换视图', 'warn');
+          setStatus(t('sidebar.counterpart_offline_switched'), 'warn');
           state.currentVideo = target.file;
           renderVideoList();
           saveProject();
@@ -341,11 +342,11 @@ async function setSource(source, options = {}) {
       }
     } else {
       $('player').removeAttribute('src');
-      $('player-name').textContent = '当前视图没有视频';
-      setStatus(`当前视图没有视频 (${source})`, 'warn');
+      $('player-name').textContent = t('sidebar.no_video');
+      setStatus(t('sidebar.no_video_named', { source }), 'warn');
     }
   } catch (e) {
-    setStatus('切换源失败: ' + e.message, 'err');
+    setStatus(t('sidebar.source_switch_failed', { detail: e.message }), 'err');
   }
 }
 
@@ -364,7 +365,7 @@ function _findSourceSwitchTarget(oldVideo, videos, oldMatchFile = null, oldMatch
 async function jumpToCounterpart(video) {
   if (!video?.match?.source) return;
   if (video.match.missing) {
-    setStatus('对应原视频当前离线或不存在', 'warn');
+    setStatus(t('sidebar.counterpart_offline_or_missing'), 'warn');
     return;
   }
   if (video.match.source === state.source) {
@@ -385,7 +386,7 @@ async function switchToOriginalThenCompress() {
 function goToRunTab() {
   // Same dirty guard as selectRun — empty CTAs should not discard edits silently
   if (state.dirty) {
-    if (!confirm('当前 tab 有未保存的修改，确定切换到运行吗？')) return;
+    if (!confirm(t('sidebar.dirty.run'))) return;
   }
   if (state.previewActive) stopPreview();
   $('player-pane').classList.remove('plan-mode');

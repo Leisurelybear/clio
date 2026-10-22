@@ -1,9 +1,11 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 
 describe('addToast a11y and duration', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     document.body.innerHTML = '<div id="toast-container" class="toast-container"></div>';
     vi.resetModules();
+    const { seedCatalogs } = await import('./catalogs.js');
+    seedCatalogs();
     vi.useFakeTimers();
   });
 

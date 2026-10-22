@@ -2,6 +2,7 @@ import { $, setStatus } from './utils.js';
 import { api } from './api.js';
 import { loadVideos } from './sidebar-data.js';
 import { addToast } from './toast.js';
+import { t } from './i18n.js';
 
 export async function openVideoManager() {
   const { pickFiles } = await import('./desktop-pick.js');
@@ -11,7 +12,7 @@ export async function openVideoManager() {
     if (!paths || paths.length === 0) return;
     await _addPaths(paths);
   } catch (e) {
-    addToast(`文件浏览器不可用：${String(e.message || e)}`, 'error', 6000);
+    addToast(t('sidebar.file_browser_unavailable', { detail: String(e.message || e) }), 'error', 6000);
     _openServePasteModal();
   }
 }
@@ -38,7 +39,7 @@ async function _addPaths(paths) {
   const btn = $('vm-add');
   if (btn) {
     btn.disabled = true;
-    btn.textContent = '保存中...';
+    btn.textContent = t('sidebar.saving');
   }
   try {
     const { mergeSelectedVideos } = await import('./video-selection.js');
@@ -46,32 +47,32 @@ async function _addPaths(paths) {
     const { merged, added, already } = mergeSelectedVideos(current.videos || [], list);
     const r = await api('PUT', '/api/videos/selected', { videos: merged });
     if (r && r.rejected_count) {
-      const msg = `已添加，但有 ${r.rejected_count} 个路径被拒绝（扩展名无效或无法解析）`;
+      const msg = t('sidebar.add_rejected', { count: r.rejected_count });
       setStatus(msg, 'warn');
       addToast(msg, 'warning', 6000, { persist: false });
     } else if (added === 0) {
       const msg = already
-        ? `所选 ${already} 个均已在项目中`
-        : '没有新视频需要添加';
+        ? t('sidebar.add_all_exist', { count: already })
+        : t('sidebar.add_nothing');
       setStatus(msg, 'warn');
       addToast(msg, 'warning', undefined, { persist: false });
     } else {
       const msg = already
-        ? `新增 ${added} 个视频（另 ${already} 个已存在）`
-        : `已添加 ${added} 个视频`;
+        ? t('sidebar.add_with_existing', { added, existing: already })
+        : t('sidebar.add_count', { count: added });
       setStatus(msg, 'ok');
       addToast(msg, 'success', undefined, { persist: false });
     }
     closeVideoManager();
     await loadVideos();
   } catch (e) {
-    const msg = '添加视频失败: ' + e.message;
+    const msg = t('sidebar.add_failed', { detail: e.message });
     setStatus(msg, 'err');
-      addToast(msg, 'error', 6000, { title: '添加视频失败' });
+      addToast(msg, 'error', 6000, { title: t('sidebar.add_failed_title') });
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.textContent = '添加';
+      btn.textContent = t('common.add');
     }
   }
 }
@@ -80,7 +81,7 @@ async function _vmAddPasted() {
   const ta = $('vm-paste');
   const text = (ta?.value || '').trim();
   if (!text) {
-    setStatus('请输入或粘贴视频绝对路径', 'warn');
+    setStatus(t('sidebar.need_abs_path'), 'warn');
     return;
   }
   const paths = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
@@ -136,7 +137,7 @@ function _vmInitDragDrop() {
       if (!dt) return;
       const absPaths = _vmDropAbsolutePaths(dt);
       if (absPaths.length === 0) {
-        addToast('无法解析拖入路径，请手动输入绝对路径或使用系统对话框', 'warning');
+        addToast(t('sidebar.drag_unresolved'), 'warning');
         return;
       }
       const ok = absPaths.filter(p => {
@@ -146,7 +147,7 @@ function _vmInitDragDrop() {
         return _VIDEO_EXTS_DND.has(ext);
       });
       if (ok.length === 0) {
-        addToast('没有可添加的视频文件', 'warning');
+        addToast(t('sidebar.no_addable'), 'warning');
         return;
       }
       await _addPaths(ok);

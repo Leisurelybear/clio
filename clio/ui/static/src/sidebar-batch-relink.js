@@ -3,6 +3,7 @@ import { api } from './api.js';
 import { addToast } from './toast.js';
 import { matchBatchRelink } from './offline-media.js';
 import { state } from './state.js';
+import { t } from './i18n.js';
 
 let _pendingMatches = [];
 let _inited = false;
@@ -54,9 +55,9 @@ async function _scanAndMatch() {
   if (!result || !path) return;
   if (scanBtn) {
     scanBtn.disabled = true;
-    scanBtn.textContent = '扫描中...';
+    scanBtn.textContent = t('sidebar.scanning');
   }
-  result.innerHTML = '<p class="muted">正在扫描视频并匹配…</p>';
+  result.innerHTML = `<p class="muted">${t('sidebar.batch_scanning')}</p>`;
   try {
     const videosRes = await api('GET', `/api/fs/videos?path=${encodeURIComponent(path)}`);
     const candidates = (videosRes.files || []).map(f => ({
@@ -73,31 +74,31 @@ async function _scanAndMatch() {
     _pendingMatches = match.matched;
     if (apply) apply.disabled = match.matched.length === 0;
 
-    let html = `<p><strong>匹配 ${match.matched.length}</strong> · 未匹配 ${match.unmatched.length}`;
-    if (match.ambiguous.length) html += ` · 歧义 ${match.ambiguous.length}`;
-    html += ` · 候选 ${candidates.length}</p>`;
+    let html = `<p><strong>${t('sidebar.batch_matched', { count: match.matched.length })}</strong> · ${t('sidebar.batch_unmatched', { count: match.unmatched.length })}`;
+    if (match.ambiguous.length) html += ` · ${t('sidebar.batch_ambiguous', { count: match.ambiguous.length })}`;
+    html += ` · ${t('sidebar.batch_candidates', { count: candidates.length })}</p>`;
     if (match.matched.length) {
       html += '<ul class="br-match-list">' + match.matched.map(m =>
         `<li><code>${escapeHtml(m.file)}</code><br><span class="muted">${escapeHtml(m.old_path)} → ${escapeHtml(m.new_path)}</span></li>`
       ).join('') + '</ul>';
     }
     if (match.ambiguous.length) {
-      html += '<p class="warn">以下文件名在目录中出现多次，已跳过：' +
+      html += `<p class="warn">${t('sidebar.batch_ambiguous_note')}` +
         match.ambiguous.map(a => escapeHtml(a.basename)).join(', ') + '</p>';
     }
     if (!match.matched.length) {
-      html += '<p class="muted">没有可应用的匹配。确认目录中包含与离线视频同名的文件。</p>';
+      html += `<p class="muted">${t('sidebar.batch_no_match')}</p>`;
     }
     result.innerHTML = html;
   } catch (e) {
-    const message = '扫描失败: ' + e.message;
+    const message = t('sidebar.batch_scan_failed', { detail: e.message });
     result.innerHTML = `<p class="err">${escapeHtml(message)}</p>`;
     setStatus(message, 'err');
     _pendingMatches = [];
     if (apply) apply.disabled = true;
   } finally {
     if (scanBtn) {
-      scanBtn.textContent = '扫描此目录并匹配';
+      scanBtn.textContent = t('sidebar.batch_scan_button');
       _updateScanEnabled();
     }
   }
@@ -109,7 +110,7 @@ async function _applyMatches() {
   if (apply?.disabled) return;
   if (apply) {
     apply.disabled = true;
-    apply.textContent = '应用中...';
+    apply.textContent = t('sidebar.applying');
   }
   let ok = 0;
   let fail = 0;
@@ -125,11 +126,11 @@ async function _applyMatches() {
       fail++;
     }
   }
-  const msg = `批量关联完成：成功 ${ok}` + (fail ? `，失败 ${fail}` : '');
+  const msg = t('sidebar.batch_done', { ok }) + (fail ? t('sidebar.batch_done_fail', { fail }) : '');
   setStatus(msg, fail ? 'warn' : 'ok');
-  addToast(msg, fail ? 'warning' : 'success', 6000, { persist: fail > 0, title: '批量关联视频' });
+  addToast(msg, fail ? 'warning' : 'success', 6000, { persist: fail > 0, title: t('sidebar.batch_toast_title') });
   if (apply) {
-    apply.textContent = '应用匹配';
+    apply.textContent = t('sidebar.apply_match');
     apply.disabled = true;
   }
   closeBatchRelinkModal();

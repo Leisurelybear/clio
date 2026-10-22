@@ -24,8 +24,10 @@ vi.mock('../video-fade.js', () => ({
   }),
 }));
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.resetModules();
+  const { seedCatalogs } = await import('./catalogs.js');
+  seedCatalogs();
   document.body.innerHTML = `
     <video id="player"></video>
     <canvas id="video-fade"></canvas>

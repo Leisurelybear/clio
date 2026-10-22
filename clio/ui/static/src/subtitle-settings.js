@@ -1,3 +1,5 @@
+import { t } from './i18n.js';
+
 const SUBTITLE_MODES = new Set(['auto', 'multi', 'scroll']);
 const COLOR_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$|^rgba?\(\s*[\d.%\s,/]+\s*\)$/;
 const CSS_SHADOW_RE = /^[0-9a-zA-Z#%.,()\s/-]+$/;
@@ -138,24 +140,24 @@ export function renderSubtitleSettingsPanel(container, opts = {}) {
   const m = subtitleControlsModel(config);
   container.innerHTML = `
     <details class="subtitle-settings" open>
-      <summary>字幕样式</summary>
+      <summary>${t('subtitle.section')}</summary>
       <div class="subtitle-settings-grid">
-        <label>字号 <input type="number" min="8" max="72" data-subtle="font_size" value="${m.font_size}"></label>
-        <label>最小字号 <input type="number" min="6" max="72" data-subtle="min_font_size" value="${m.min_font_size}"></label>
-        <label>文字颜色 <input type="color" data-subtle="font_color" value="${m.font_color}"></label>
-        <label>背景色 <input type="text" data-subtle="background" value="${m.background}" placeholder="rgba(0,0,0,.55)"></label>
-        <label>描边 <input type="text" data-subtle="outline" value="${m.outline}" placeholder="0 0 2px rgba(0,0,0,.8)"></label>
-        <label>字体 <input type="text" data-subtle="font_family" value="${m.font_family}" placeholder="system-ui, sans-serif"></label>
-        <label>模式
+        <label>${t('subtitle.font_size')} <input type="number" min="8" max="72" data-subtle="font_size" value="${m.font_size}"></label>
+        <label>${t('subtitle.min_font_size')} <input type="number" min="6" max="72" data-subtle="min_font_size" value="${m.min_font_size}"></label>
+        <label>${t('subtitle.font_color')} <input type="color" data-subtle="font_color" value="${m.font_color}"></label>
+        <label>${t('subtitle.background')} <input type="text" data-subtle="background" value="${m.background}" placeholder="rgba(0,0,0,.55)"></label>
+        <label>${t('subtitle.outline')} <input type="text" data-subtle="outline" value="${m.outline}" placeholder="0 0 2px rgba(0,0,0,.8)"></label>
+        <label>${t('subtitle.font_family')} <input type="text" data-subtle="font_family" value="${m.font_family}" placeholder="system-ui, sans-serif"></label>
+        <label>${t('subtitle.mode')}
           <select data-subtle="mode">
-            <option value="auto" ${m.mode === 'auto' ? 'selected' : ''}>自动</option>
-            <option value="multi" ${m.mode === 'multi' ? 'selected' : ''}>多行</option>
-            <option value="scroll" ${m.mode === 'scroll' ? 'selected' : ''}>滚动</option>
+            <option value="auto" ${m.mode === 'auto' ? 'selected' : ''}>${t('subtitle.mode_auto')}</option>
+            <option value="multi" ${m.mode === 'multi' ? 'selected' : ''}>${t('subtitle.mode_multi')}</option>
+            <option value="scroll" ${m.mode === 'scroll' ? 'selected' : ''}>${t('subtitle.mode_scroll')}</option>
           </select>
         </label>
-        <label>最多行数 <input type="number" min="1" max="6" data-subtle="max_lines" value="${m.max_lines}"></label>
-        <label>每行字数 <input type="number" min="1" max="60" data-subtle="max_len_per_line" value="${m.max_len_per_line}"></label>
-        <label>滚动速度(px/s) <input type="number" min="1" max="300" data-subtle="scroll_speed" value="${m.scroll_speed}"></label>
+        <label>${t('subtitle.max_lines')} <input type="number" min="1" max="6" data-subtle="max_lines" value="${m.max_lines}"></label>
+        <label>${t('subtitle.max_len_per_line')} <input type="number" min="1" max="60" data-subtle="max_len_per_line" value="${m.max_len_per_line}"></label>
+        <label>${t('subtitle.scroll_speed')} <input type="number" min="1" max="300" data-subtle="scroll_speed" value="${m.scroll_speed}"></label>
       </div>
     </details>
   `;
