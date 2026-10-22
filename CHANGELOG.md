@@ -13,6 +13,8 @@ Optimized Task Center SSE delivery and closed the endpoint-level lifecycle cover
 - test(coverage): audit UT coverage for the 2026-10-21/22 features, add route/executor/lifecycle
   tests, and remove the dead `TaskStore.notification_events()` store method
 - docs: record the SSE delivery contract, missing-task behavior, and verification scope
+- fix(test): make the `check` and ffmpeg-install route tests platform-independent so CI is green
+  on macOS and on non-virtualenv runners
 
 Local verification: `2391 passed, 12 skipped` (Python 3.11.9, 83.95% line coverage), `679`
 Vitest tests across `62` files (42.99% statements), Ruff clean, and mypy clean across the

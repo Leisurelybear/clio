@@ -350,6 +350,7 @@ def test_check_reports_project_video_states(cli_runner, config_path, tmp_path, c
     project.mkdir()
     present = project / "a.mp4"
     present.write_bytes(b"x")
+    monkeypatch.setattr("clio.main.is_virtualenv_python", lambda *a, **k: True)
     monkeypatch.setattr("clio.main.discover_ffmpeg_bin", lambda name: f"/usr/bin/{name}")
 
     monkeypatch.setattr("clio.tasks._video_loader.source_videos", lambda cfg: [present, project / "gone.mp4"])
@@ -375,6 +376,7 @@ def test_run_check_without_project_prints_usage(tmp_path, capsys, monkeypatch):
     config.proxy.enabled = False
     config.proxy.url = ""
     monkeypatch.setattr("clio.main.load_config", lambda *a, **k: config)
+    monkeypatch.setattr("clio.main.is_virtualenv_python", lambda *a, **k: True)
     monkeypatch.setattr("clio.main.discover_ffmpeg_bin", lambda name: f"/usr/bin/{name}")
 
     result = run_check(tmp_path / "config.yaml")

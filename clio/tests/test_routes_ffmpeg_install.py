@@ -95,6 +95,13 @@ def _handler(manager: TaskManager) -> MagicMock:
     return handler
 
 
+def _stub_supported_capabilities(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "clio.ui.routes.deps._ffmpeg_install_capabilities",
+        lambda: {"platform": "linux", "automatic": True},
+    )
+
+
 def test_start_status_and_duplicate_rejection(tmp_path: Path, monkeypatch):
     manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"), recover_on_start=False)
     entered = threading.Event()
@@ -106,6 +113,7 @@ def test_start_status_and_duplicate_rejection(tmp_path: Path, monkeypatch):
         return InstallResult(True, "download", "ffmpeg", "ffprobe", "ok")
 
     monkeypatch.setattr("clio.ui.routes.deps.install_ffmpeg", fake_install)
+    _stub_supported_capabilities(monkeypatch)
     handler = _handler(manager)
 
     handle_post_deps_ffmpeg_install(handler, {})
@@ -134,6 +142,7 @@ def test_terminal_install_does_not_block_retry(tmp_path: Path, monkeypatch):
         "clio.ui.routes.deps.install_ffmpeg",
         lambda **kwargs: InstallResult(True, "download", "ffmpeg", "ffprobe", "ok"),
     )
+    _stub_supported_capabilities(monkeypatch)
     handler = _handler(manager)
 
     handle_post_deps_ffmpeg_install(handler, {})
@@ -162,6 +171,7 @@ def test_start_returns_409_when_submit_races_active_task(tmp_path: Path, monkeyp
 
     monkeypatch.setattr("clio.ui.routes.deps.install_ffmpeg", fake_install)
     monkeypatch.setattr("clio.ui.routes.deps._active_ffmpeg_task", lambda manager: None)
+    _stub_supported_capabilities(monkeypatch)
     handler = _handler(manager)
 
     handle_post_deps_ffmpeg_install(handler, {})
