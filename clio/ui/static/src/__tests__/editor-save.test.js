@@ -10,7 +10,7 @@ describe('resolveEditorSaveTarget', () => {
   it('does not claim save on transcript tab (no false success)', () => {
     const r = resolveEditorSaveTarget({ entity: 'video', tab: 'transcript' });
     expect(r.action).toBe('noop');
-    expect(r.reason).toMatch(/无可保存|分析结果|口播/);
+    expect(r.reasonKey).toBe('editor.save.nothing');
   });
 
   it('plans and config global/project are writable', () => {
@@ -23,7 +23,9 @@ describe('resolveEditorSaveTarget', () => {
   });
 
   it('run / logs / merged config are noop', () => {
+    expect(resolveEditorSaveTarget({ entity: 'run' }).reasonKey).toBe('editor.save.no_target');
     expect(resolveEditorSaveTarget({ entity: 'run' }).action).toBe('noop');
+    expect(resolveEditorSaveTarget({ entity: 'config', configTab: 'merged' }).reasonKey).toBe('plan.config_readonly');
     expect(resolveEditorSaveTarget({ entity: 'config', configTab: 'merged' }).action).toBe('noop');
     expect(resolveEditorSaveTarget({ entity: 'config', configTab: 'prompts' }).action).toBe('noop');
   });

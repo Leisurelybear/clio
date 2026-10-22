@@ -1,4 +1,5 @@
 import { state } from './state.js';
+import { t } from './i18n.js';
 
 function $(id) {
   return document.getElementById(id);
@@ -76,7 +77,7 @@ function updateSaveBtn() {
   const btn = $('btn-save');
   if (!btn) return;
   btn.classList.toggle('dirty', state.dirty);
-  btn.textContent = state.dirty ? '保存 (有改动)' : '保存';
+  btn.textContent = state.dirty ? t('common.save_dirty') : t('common.save');
 }
 
 function setStatus(msg, kind = '', options = {}) {
@@ -101,7 +102,7 @@ function setStatus(msg, kind = '', options = {}) {
       return import('./notification-center.js').then(({ registerNotification }) => registerNotification({
         message: captured,
         severity,
-        title: severity === 'error' ? '操作失败' : severity === 'warning' ? '操作提醒' : '操作完成',
+        title: severity === 'error' ? t('status.operation_failed') : severity === 'warning' ? t('status.operation_warning') : t('status.operation_complete'),
         sourceType: 'ui_status',
       })).catch(() => null);
     }
@@ -119,17 +120,17 @@ function updateProjectSidebar() {
   const switcher = $('btn-project-switcher');
   const pathEl = $('project-menu-path');
   const revealBtn = $('btn-reveal-project');
-  const name = state.currentProject?.name || state.currentProjectName || state.projectName || '选择项目';
+  const name = state.currentProject?.name || state.currentProjectName || state.projectName || t('shell.select_project');
   const path = state.currentProjectDir || state.currentProject?.project_dir || state.config?.project_dir || '';
   if (nameEl) {
     nameEl.textContent = name;
     nameEl.title = path ? `${name}\n${path}` : name;
   }
   if (switcher) {
-    switcher.title = path ? `当前项目: ${name}\n${path}` : '选择项目或管理当前项目';
+    switcher.title = path ? t('shell.current_project_path', { name, path }) : t('shell.select_or_manage_project');
     switcher.classList.toggle('is-empty', !path);
   }
-  if (pathEl) pathEl.textContent = path ? `${name} · ${path}` : '尚未打开项目';
+  if (pathEl) pathEl.textContent = path ? t('shell.project_path_label', { name, path }) : t('shell.no_project_open');
   if (revealBtn) {
     revealBtn.disabled = !path;
     revealBtn.setAttribute('aria-disabled', String(!path));

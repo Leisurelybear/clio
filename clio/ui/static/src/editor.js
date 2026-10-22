@@ -1,5 +1,6 @@
 import { state } from './state.js';
 import { $$ } from './utils.js';
+import { onLocaleChange } from './i18n.js';
 
 // Sub-module imports
 import { renderTexts, renderTranscript } from './editor-texts.js';
@@ -47,6 +48,12 @@ export function renderActiveTab() {
   else if (state.currentTab === 'voiceover') renderVoiceover();
   else if (state.currentTab === 'transcript') renderTranscript();
 }
+
+// Video tabs render their copy from JS strings, so re-render the active one
+// when the language changes instead of leaving stale labels behind.
+onLocaleChange(() => {
+  if (state.currentEntity === 'video') renderActiveTab();
+});
 
 // Re-export all public symbols so existing import paths continue to work
 export {

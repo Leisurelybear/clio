@@ -100,6 +100,20 @@ describe('notification center', () => {
     }));
   });
 
+  it('localizes the status notification title in the active locale', async () => {
+    api.mockResolvedValue({});
+    const { applyLocale } = await import('../i18n.js');
+    const { setStatus } = await import('../utils.js');
+    applyLocale('en');
+
+    await setStatus('预览播放完毕', 'ok');
+
+    expect(api).toHaveBeenCalledWith('POST', '/api/notifications', expect.objectContaining({
+      title: 'Operation complete', severity: 'success', source_type: 'ui_status',
+    }));
+    applyLocale('zh-CN');
+  });
+
   it('keeps the panel open when changing filters', async () => {
     api.mockResolvedValue({ notifications: [], unread_count: 0, latest_seq: 0, total_count: 0 });
     const { initNotificationCenter } = await import('../notification-center.js');

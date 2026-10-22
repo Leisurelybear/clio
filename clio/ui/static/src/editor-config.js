@@ -55,6 +55,7 @@ let _configSchema = null;
 // Labels and tooltips are rebuilt from the catalogs on every language switch.
 onLocaleChange(() => {
   if (state.currentEntity === 'config') renderConfig();
+  else if (state.currentEntity === 'tokens') renderTokens();
 });
 
 export function _isAdvancedVisible() {

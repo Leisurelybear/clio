@@ -3,6 +3,7 @@ import { $, markDirty, setStatus } from './utils.js';
 import { api } from './api.js';
 import { renderRefineUI, refineCurrentFile } from './editor-refine.js';
 import { renderEmptyArtifactHtml, bindEmptyArtifactActions } from './empty-states.js';
+import { t } from './i18n.js';
 
 
 export function renderVoiceover() {
@@ -22,11 +23,11 @@ export function renderVoiceover() {
       onRerun: async (task) => {
         const file = state.currentVideo;
         if (!file) {
-          setStatus('请先选择视频', 'warn');
+          setStatus(t('editor.pick_video_first'), 'warn');
           return;
         }
         const vid = state.videos.find(x => x.file === file);
-        setStatus(`正在重跑 ${task} (${file})...`, 'ok', { persist: false });
+        setStatus(t('sidebar.rerunning', { task, file }), 'ok', { persist: false });
         try {
           const r = await api('POST', '/api/rerun', {
             video: file,
@@ -36,25 +37,25 @@ export function renderVoiceover() {
             abspath: vid?.abs_path || undefined,
           });
           if (r.ok) {
-            setStatus(r.message || `${task} 已启动`, 'ok', { persist: false });
+            setStatus(r.message || t('sidebar.rerun_started', { task }), 'ok', { persist: false });
             import('./sidebar-rerun.js').then(mod => mod.showRerunProgress(task, file, r.task_id));
           } else {
-            throw new Error(r.error || '重跑失败');
+            throw new Error(r.error || t('sidebar.rerun_failed'));
           }
         } catch (e) {
-          setStatus('重跑失败: ' + e.message, 'err');
+          setStatus(t('sidebar.rerun_failed_detail', { detail: e.message }), 'err');
         }
       },
     });
     return;
   }
   pane.innerHTML = `
-    <h3>口播文案</h3>
-    <label>标题 <input data-field="title"></label>
-    <label>口播文案 <textarea data-field="voiceover" rows="10"></textarea></label>
-    <h3>剪辑提示</h3>
-    <label>剪辑提示 <textarea data-field="edit_tip" rows="2"></textarea></label>
-    <label>预计时长 (秒) <input data-field="duration_hint_sec" type="number" min="0" step="0.5"></label>
+    <h3>${t('editor.artifact.voiceover')}</h3>
+    <label>${t('plan.field.title')} <input data-field="title"></label>
+    <label>${t('editor.artifact.voiceover')} <textarea data-field="voiceover" rows="10"></textarea></label>
+    <h3>${t('editor.field.edit_tip')}</h3>
+    <label>${t('editor.field.edit_tip')} <textarea data-field="edit_tip" rows="2"></textarea></label>
+    <label>${t('editor.field.duration_hint')} <input data-field="duration_hint_sec" type="number" min="0" step="0.5"></label>
   `;
   for (const k of ['title', 'voiceover', 'edit_tip']) {
     const el = pane.querySelector(`[data-field="${k}"]`);

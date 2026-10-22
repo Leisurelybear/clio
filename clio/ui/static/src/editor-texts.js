@@ -6,6 +6,7 @@ import { renderVideoList } from './sidebar.js';
 import { renderRefineUI, refineCurrentFile } from './editor-refine.js';
 import { renderEmptyArtifactHtml, bindEmptyArtifactActions } from './empty-states.js';
 import { transcriptionReadinessPrompt } from './transcription-status.js';
+import { t } from './i18n.js';
 
 
 function _jumpToTranscriptTime(timeSec) {
@@ -66,11 +67,11 @@ function _transcriptTimeFromPlayer(playerTime, offsetSec = 0) {
 async function _rerunCurrentVideo(task) {
   const file = state.currentVideo;
   if (!file) {
-    setStatus('请先选择视频', 'warn');
+    setStatus(t('editor.pick_video_first'), 'warn');
     return;
   }
   const v = state.videos.find(x => x.file === file);
-  setStatus(`正在重跑 ${task} (${file})...`, 'ok', { persist: false });
+  setStatus(t('sidebar.rerunning', { task, file }), 'ok', { persist: false });
   try {
     const r = await api('POST', '/api/rerun', {
       video: file,
@@ -80,24 +81,24 @@ async function _rerunCurrentVideo(task) {
       abspath: v?.abs_path || undefined,
     });
     if (r.ok) {
-      setStatus(r.message || `${task} 已启动`, 'ok', { persist: false });
+        setStatus(r.message || t('sidebar.rerun_started', { task }), 'ok', { persist: false });
       import('./sidebar-rerun.js').then(mod => mod.showRerunProgress(task, file, r.task_id));
     } else {
-      throw new Error(r.error || '重跑失败');
+        throw new Error(r.error || t('sidebar.rerun_failed'));
     }
   } catch (e) {
-    setStatus('重跑失败: ' + e.message, 'err');
+    setStatus(t('sidebar.rerun_failed_detail', { detail: e.message }), 'err');
   }
 }
 
 export function renderTexts() {
-  const t = state.texts;
+  const data = state.texts;
   const pane = $('tab-texts');
   if (!state.currentVideo) {
     pane.innerHTML = renderEmptyArtifactHtml('texts', { hasVideo: false });
     return;
   }
-  if (!t) {
+  if (!data) {
     pane.innerHTML = renderEmptyArtifactHtml('texts', { hasVideo: true });
     bindEmptyArtifactActions(pane, {
       onRun: () => import('./sidebar.js').then(m => m.goToRunTab()),
@@ -106,8 +107,8 @@ export function renderTexts() {
     return;
   }
 
-  const coverTs = String(t.cover_timestamp || '').trim();
-  const coverFile = String(t.cover_file || '').trim();
+  const coverTs = String(data.cover_timestamp || '').trim();
+  const coverFile = String(data.cover_file || '').trim();
   const coverName = coverFile ? coverFile.replace(/\\/g, '/').split('/').pop() : '';
   let coverHtml = '';
   if (coverName || coverTs) {
@@ -122,48 +123,48 @@ export function renderTexts() {
       coverUrl = `/api/cover?${params.toString()}`;
     }
     const img = coverUrl
-      ? `<img class="texts-cover-img" alt="AI 封面帧" src="${escapeHtml(coverUrl)}" loading="lazy">`
+      ? `<img class="texts-cover-img" alt="${t('editor.cover_alt')}" src="${escapeHtml(coverUrl)}" loading="lazy">`
       : '';
     coverHtml = `
       <div class="texts-cover">
         ${img}
         <div class="texts-cover-meta">
-          <div><strong>AI 封面参考</strong></div>
-          <div>时间点：${escapeHtml(coverTs || '—')}</div>
-          ${coverName ? `<div>文件：<code>${escapeHtml(coverName)}</code></div>` : ''}
-          <p class="hint" style="margin:6px 0 0">分析时 AI 建议的封面帧（非叠字成品）。可跳到播放器对应位置。</p>
-          ${coverTs ? `<button type="button" class="btn-secondary" id="btn-cover-seek" style="margin-top:8px">跳到封面时间</button>` : ''}
+          <div><strong>${t('editor.cover_title')}</strong></div>
+          <div>${t('editor.cover_time', { ts: escapeHtml(coverTs || '—') })}</div>
+          ${coverName ? `<div>${t('editor.cover_file', { name: escapeHtml(coverName) })}</div>` : ''}
+          <p class="hint" style="margin:6px 0 0">${t('editor.cover_hint')}</p>
+          ${coverTs ? `<button type="button" class="btn-secondary" id="btn-cover-seek" style="margin-top:8px">${t('editor.cover_seek')}</button>` : ''}
         </div>
       </div>`;
   }
 
   pane.innerHTML = `
-    <h3>基础信息</h3>
+    <h3>${t('editor.section.basic')}</h3>
     ${coverHtml}
-    <label>标题 <input data-field="title"></label>
-    <label>位置 <input data-field="location"></label>
-    <label>情绪 <input data-field="mood"></label>
-    <label>建议用途 <input data-field="suggested_use"></label>
-    <label>摘要 <textarea data-field="summary" rows="3"></textarea></label>
-    <h3>时间轴 (timeline) — ${(t.timeline || []).length} 段</h3>
-    <p class="hint">点击 segment 跳到该时间；点击文字框可编辑</p>
+    <label>${t('plan.field.title')} <input data-field="title"></label>
+    <label>${t('editor.field.location')} <input data-field="location"></label>
+    <label>${t('editor.field.mood')} <input data-field="mood"></label>
+    <label>${t('editor.field.suggested_use')} <input data-field="suggested_use"></label>
+    <label>${t('editor.field.summary')} <textarea data-field="summary" rows="3"></textarea></label>
+    <h3>${t('editor.section.timeline', { count: (data.timeline || []).length })}</h3>
+    <p class="hint">${t('editor.timeline_hint')}</p>
     <ol id="timeline-list"></ol>
   `;
   for (const k of ['title', 'location', 'mood', 'suggested_use']) {
     const el = pane.querySelector(`[data-field="${k}"]`);
-    el.value = t[k] || '';
-    el.oninput = () => { t[k] = el.value; markDirty(); };
+    el.value = data[k] || '';
+    el.oninput = () => { data[k] = el.value; markDirty(); };
   }
   const sumEl = pane.querySelector('[data-field="summary"]');
-  sumEl.value = t.summary || '';
-  sumEl.oninput = () => { t.summary = sumEl.value; markDirty(); };
+  sumEl.value = data.summary || '';
+  sumEl.oninput = () => { data.summary = sumEl.value; markDirty(); };
 
   pane.querySelector('#btn-cover-seek')?.addEventListener('click', () => {
     if (coverTs) _jumpToTranscriptTime(parseTimecode(coverTs));
   });
 
   const ol = pane.querySelector('#timeline-list');
-  for (const seg of (t.timeline || [])) {
+  for (const seg of (data.timeline || [])) {
     const li = document.createElement('li');
     li.className = 'timeline-seg';
     li.innerHTML = `
@@ -186,13 +187,13 @@ export function renderTexts() {
 
 
 export function renderTranscript() {
-  const t = state.transcript;
+  const data = state.transcript;
   const pane = $('tab-transcript');
   if (!state.currentVideo) {
     pane.innerHTML = renderEmptyArtifactHtml('transcript', { hasVideo: false });
     return;
   }
-  if (!t || !t.ok) {
+  if (!data || !data.ok) {
     pane.innerHTML = renderEmptyArtifactHtml('transcript', { hasVideo: true });
     bindEmptyArtifactActions(pane, {
       onRun: () => import('./sidebar.js').then(m => m.goToRunTab()),
@@ -201,59 +202,59 @@ export function renderTranscript() {
     pane.insertAdjacentHTML(
       'beforeend',
       `<p style="margin-top:12px">
-        <button id="btn-create-transcript" type="button" class="btn-primary">${icon('plus', 14)} 创建手动转录</button>
+        <button id="btn-create-transcript" type="button" class="btn-primary">${icon('plus', 14)} ${t('editor.create_transcript')}</button>
       </p>
-      <p class="hint" style="margin-top:8px">手动创建后可自由编辑时间轴；也可上方重跑语音转录或去运行流水线自动生成。</p>`
+      <p class="hint" style="margin-top:8px">${t('editor.create_transcript_hint')}</p>`
     );
     pane.querySelector('#btn-create-transcript').onclick = async () => {
       const v = state.videos.find(x => x.file === state.currentVideo);
-      if (!v) { setStatus('找不到当前视频', 'err'); return; }
+      if (!v) { setStatus(t('editor.video_not_found'), 'err'); return; }
       try {
         const r = await api('POST', `/api/transcripts?video=${encodeURIComponent(v.file)}`, { create: true });
         if (r.ok) {
           state.transcript = await api('GET', `/api/transcripts?video=${encodeURIComponent(v.file)}`);
           renderTranscript();
         } else {
-          setStatus('创建失败: ' + (r.error || ''), 'err');
+          setStatus(t('editor.create_failed', { detail: r.error || '' }), 'err');
         }
       } catch (e) {
-        setStatus('创建失败: ' + e.message, 'err');
+        setStatus(t('editor.create_failed', { detail: e.message }), 'err');
       }
     };
     renderWhisperInstallPrompt(pane);
     return;
   }
-  const segments = t.segments || [];
+  const segments = data.segments || [];
   pane.innerHTML = `
-    <h3>语音转录 (ASR) — ${segments.length} 段</h3>
-    <p class="hint">点击 segment 跳到对应时间；双击文字框可编辑</p>
-    <button id="btn-toggle-add-transcript" class="btn-secondary" style="font-size:var(--text-sm);margin-bottom:8px">${icon('plus', 14)} 添加手动转录</button>
+    <h3>${t('editor.section.transcript', { count: segments.length })}</h3>
+    <p class="hint">${t('editor.transcript_hint')}</p>
+    <button id="btn-toggle-add-transcript" class="btn-secondary" style="font-size:var(--text-sm);margin-bottom:8px">${icon('plus', 14)} ${t('editor.add_transcript')}</button>
     <div id="add-transcript-form" style="display:none;margin-bottom:12px;padding:10px;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-md)"></div>
     <ol id="transcript-list"></ol>
   `;
 
   const addForm = pane.querySelector('#add-transcript-form');
   addForm.innerHTML = `
-    <p style="margin:0 0 8px;font-weight:600">手动添加转录条目</p>
+    <p style="margin:0 0 8px;font-weight:600">${t('editor.add_transcript_title')}</p>
     <div style="display:flex;gap:8px;margin-bottom:6px">
-      <label style="flex:1">开始时间
+      <label style="flex:1">${t('editor.field.start_time')}
         <div style="display:flex;gap:4px;align-items:center">
-          <input id="add-ts-start" type="text" placeholder="MM:SS 或秒数" style="flex:1">
-          <button class="btn-secondary btn-ts-now" data-target="add-ts-start" title="使用当前视频时间" type="button" style="font-size:var(--text-xs);padding:4px 8px">← 当前</button>
+          <input id="add-ts-start" type="text" placeholder="${t('editor.time_placeholder')}" style="flex:1">
+          <button class="btn-secondary btn-ts-now" data-target="add-ts-start" title="${t('editor.use_current_time')}" type="button" style="font-size:var(--text-xs);padding:4px 8px">${t('editor.use_current')}</button>
         </div>
       </label>
-      <label style="flex:1">结束时间
+      <label style="flex:1">${t('editor.field.end_time')}
         <div style="display:flex;gap:4px;align-items:center">
-          <input id="add-ts-end" type="text" placeholder="MM:SS 或秒数" style="flex:1">
-          <button class="btn-secondary btn-ts-now" data-target="add-ts-end" title="使用当前视频时间" type="button" style="font-size:var(--text-xs);padding:4px 8px">← 当前</button>
+          <input id="add-ts-end" type="text" placeholder="${t('editor.time_placeholder')}" style="flex:1">
+          <button class="btn-secondary btn-ts-now" data-target="add-ts-end" title="${t('editor.use_current_time')}" type="button" style="font-size:var(--text-xs);padding:4px 8px">${t('editor.use_current')}</button>
         </div>
       </label>
     </div>
-    <label style="margin-bottom:6px;display:block">转录文字
-      <textarea id="add-ts-text" rows="2" style="width:100%;margin-top:2px" placeholder="输入这段语音对应的文字..."></textarea>
+    <label style="margin-bottom:6px;display:block">${t('editor.field.transcript_text')}
+      <textarea id="add-ts-text" rows="2" style="width:100%;margin-top:2px" placeholder="${t('editor.transcript_placeholder')}"></textarea>
     </label>
     <div style="display:flex;gap:8px">
-      <button id="btn-add-transcript" class="btn-primary">${icon('plus', 14)} 添加</button>
+      <button id="btn-add-transcript" class="btn-primary">${icon('plus', 14)} ${t('common.add')}</button>
       <span id="add-ts-msg" class="muted" style="font-size:var(--text-xs);align-self:center"></span>
     </div>
   `;
@@ -262,7 +263,7 @@ export function renderTranscript() {
   toggleBtn.onclick = () => {
     const visible = addForm.style.display !== 'none';
     addForm.style.display = visible ? 'none' : 'block';
-    toggleBtn.innerHTML = visible ? `${icon('plus', 14)} 添加手动转录` : `${icon('x', 14)} 收起`;
+    toggleBtn.innerHTML = visible ? `${icon('plus', 14)} ${t('editor.add_transcript')}` : `${icon('x', 14)} ${t('common.collapse')}`;
   };
 
   addForm.querySelectorAll('.btn-ts-now').forEach(btn => {
@@ -282,76 +283,76 @@ export function renderTranscript() {
     const endStr = $('add-ts-end').value.trim();
     const text = $('add-ts-text').value.trim();
     if (!startStr || !endStr) {
-      addMsg.textContent = '请输入开始和结束时间（格式 MM:SS 或秒数）';
+      addMsg.textContent = t('editor.err.need_times');
       addMsg.style.color = 'var(--error)';
       return;
     }
     if (!text) {
-      addMsg.textContent = '请输入转录文字';
+      addMsg.textContent = t('editor.err.need_text');
       addMsg.style.color = 'var(--error)';
       return;
     }
     if (text.length > 5000) {
-      addMsg.textContent = '文字过长（超过 5000 字符）';
+      addMsg.textContent = t('editor.err.text_too_long', { limit: 5000 });
       addMsg.style.color = 'var(--error)';
       return;
     }
     const start = parseTimecode(startStr);
     const end = parseTimecode(endStr);
     if (!Number.isFinite(start) || !Number.isFinite(end)) {
-      addMsg.textContent = '时间格式无效，请使用 MM:SS 或秒数（如 12.5）';
+      addMsg.textContent = t('editor.err.bad_time');
       addMsg.style.color = 'var(--error)';
       return;
     }
     if (start < 0) {
-      addMsg.textContent = '开始时间不能为负数';
+      addMsg.textContent = t('editor.err.negative_start');
       addMsg.style.color = 'var(--error)';
       return;
     }
     if (end <= start) {
-      addMsg.textContent = '结束时间必须大于开始时间';
+      addMsg.textContent = t('editor.err.end_before_start');
       addMsg.style.color = 'var(--error)';
       return;
     }
     if (end > 86400) {
-      addMsg.textContent = '时间值过大（超过 24 小时）';
+      addMsg.textContent = t('editor.err.time_too_large');
       addMsg.style.color = 'var(--error)';
       return;
     }
     addBtn.disabled = true;
-    addMsg.textContent = '添加中...';
+    addMsg.textContent = t('common.adding');
     addMsg.style.color = '';
     const v = state.videos.find(x => x.file === state.currentVideo);
-    if (!v) { addMsg.textContent = '找不到当前视频'; addBtn.disabled = false; return; }
+    if (!v) { addMsg.textContent = t('editor.video_not_found'); addBtn.disabled = false; return; }
     try {
       const r = await api('POST', `/api/transcripts?video=${encodeURIComponent(v.file)}`, {
         start, end, text, revision: state.transcript && state.transcript.revision,
       });
       if (r.ok) {
         state.transcript = await api('GET', `/api/transcripts?video=${encodeURIComponent(v.file)}`);
-        addMsg.textContent = '✓ 已添加';
+        addMsg.textContent = t('editor.added');
         addMsg.style.color = 'var(--success)';
-        setStatus('已添加转录文本', 'ok');
+        setStatus(t('editor.added_status'), 'ok');
         $('add-ts-start').value = '';
         $('add-ts-end').value = '';
         $('add-ts-text').value = '';
         renderTranscript();
       } else {
-        const message = '添加失败: ' + (r.error || '');
+        const message = t('editor.add_failed', { detail: r.error || '' });
         addMsg.textContent = message;
         addMsg.style.color = 'var(--error)';
         setStatus(message, 'err');
       }
     } catch (e) {
       if (e.status === 409) {
-        const message = '内容已被其他窗口修改，已刷新: ' + (e.message || '');
+        const message = t('editor.stale_refreshed_detail', { detail: e.message || '' });
         addMsg.textContent = message;
         addMsg.style.color = 'var(--error)';
         setStatus(message, 'err');
         state.transcript = await api('GET', `/api/transcripts?video=${encodeURIComponent(v.file)}`);
         renderTranscript();
       } else {
-        const message = '添加失败: ' + e.message;
+        const message = t('editor.add_failed', { detail: e.message });
         addMsg.textContent = message;
         addMsg.style.color = 'var(--error)';
         setStatus(message, 'err');
@@ -371,10 +372,10 @@ export function renderTranscript() {
     const confidence = seg.avg_logprob != null
       ? `<span class="muted" title="avg_logprob=${seg.avg_logprob.toFixed(2)}">${Math.round(Math.max(0, Math.min(100, (1 + (seg.avg_logprob || 0)) * 100)))}%</span>`
       : '';
-    const lowIcon = seg.low_confidence ? '<span class="low-conf-icon" title="低置信度，建议复核">⚠</span>' : '';
+    const lowIcon = seg.low_confidence ? `<span class="low-conf-icon" title="${t('editor.low_confidence')}">⚠</span>` : '';
     li.innerHTML = `
       <div class="seg-time">${escapeHtml(startStr)} - ${escapeHtml(endStr)} ${confidence} ${lowIcon}
-        <button class="seg-del" data-index="${i}" title="删除此段">×</button>
+        <button class="seg-del" data-index="${i}" title="${t('editor.delete_segment')}">×</button>
       </div>
       <div class="seg-text" data-seg-index="${i}">${escapeHtml(seg.text || '')}</div>
     `;
@@ -403,7 +404,7 @@ export function renderTranscript() {
           return;
         }
         const v = origV || state.videos.find(x => x.file === state.currentVideo);
-        if (!v) { setStatus('找不到当前视频', 'err'); return; }
+        if (!v) { setStatus(t('editor.video_not_found'), 'err'); return; }
         try {
           const r = await api('PUT', `/api/transcripts?video=${encodeURIComponent(v.file)}`, {
             segment_index: i,
@@ -412,17 +413,17 @@ export function renderTranscript() {
           });
           if (r.ok) {
             seg.text = newText;
-            setStatus('转录文本已保存', 'ok');
+            setStatus(t('editor.transcript_saved'), 'ok');
           } else {
-            setStatus('保存失败: ' + (r.error || '未知错误'), 'err');
+            setStatus(t('plan.save_failed', { detail: r.error || t('common.unknown_error') }), 'err');
           }
         } catch (e) {
           if (e.status === 409) {
-            setStatus('内容已被其他窗口修改，已刷新', 'err');
+            setStatus(t('editor.stale_refreshed'), 'err');
             state.transcript = await api('GET', `/api/transcripts?video=${encodeURIComponent(v.file)}`);
             renderTranscript();
           } else {
-            setStatus('保存失败: ' + e.message, 'err');
+            setStatus(t('plan.save_failed', { detail: e.message }), 'err');
           }
         }
         const newDiv = document.createElement('div');
@@ -439,27 +440,27 @@ export function renderTranscript() {
     const delBtn = li.querySelector('.seg-del');
     delBtn.onclick = async (e) => {
       e.stopPropagation();
-      if (!confirm(`确定删除第 ${i + 1} 段转录？`)) return;
+      if (!confirm(t('editor.confirm_delete_segment', { index: i + 1 }))) return;
       const v = state.videos.find(x => x.file === state.currentVideo);
-      if (!v) { setStatus('找不到当前视频', 'err'); return; }
+      if (!v) { setStatus(t('editor.video_not_found'), 'err'); return; }
       try {
         const r = await api('PUT', `/api/transcripts?video=${encodeURIComponent(v.file)}`, {
           segment_index: i, delete: true, revision: state.transcript && state.transcript.revision,
         });
         if (r.ok) {
           segments.splice(i, 1);
-          setStatus('已删除', 'ok');
+          setStatus(t('editor.deleted'), 'ok');
           renderTranscript();
         } else {
-          setStatus('删除失败: ' + (r.error || '未知错误'), 'err');
+          setStatus(t('editor.delete_failed', { detail: r.error || t('common.unknown_error') }), 'err');
         }
       } catch (e) {
         if (e.status === 409) {
-          setStatus('内容已被其他窗口修改，已刷新', 'err');
+          setStatus(t('editor.stale_refreshed'), 'err');
           state.transcript = await api('GET', `/api/transcripts?video=${encodeURIComponent(v.file)}`);
           renderTranscript();
         } else {
-          setStatus('删除失败: ' + e.message, 'err');
+          setStatus(t('editor.delete_failed', { detail: e.message }), 'err');
         }
       }
     };

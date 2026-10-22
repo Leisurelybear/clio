@@ -1,4 +1,5 @@
 import { state } from './state.js';
+import { t } from './i18n.js';
 
 let _showingAuth = false;
 
@@ -30,7 +31,7 @@ async function api(method, url, body, options = {}) {
       _showingAuth = true;
       document.getElementById('modal-auth').style.display = 'flex';
     }
-    throw new Error('HTTP 401: 需要 API Token');
+    throw new Error(t('errors.http_auth'));
   }
   if (!r.ok) {
     const txt = await r.text();

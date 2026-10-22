@@ -109,7 +109,8 @@ Each row is one commit; focused tests must pass before the next row starts.
 | 2026-10-22 | 8c `editor-config.js` providers / prompts | Done |
 | 2026-10-22 | 8c2 `editor-config.js` tokens / Whisper models | Done |
 | 2026-10-22 | 8d plan editor / range picker | Done |
-| 2026-10-22 | 8e, 9-11 | Pending |
+| 2026-10-22 | 8e editor texts / voiceover / refine | Done |
+| 2026-10-22 | 9-11 | Pending |
 
 ## Remaining-String Baseline (2026-10-22)
 
@@ -123,6 +124,21 @@ Chinese string literals per file before this pass (comments excluded):
 
 Largest JS offenders: `editor-config.js` (198), `ffmpeg-install.js` (52), `editor-plan.js` (52),
 `video-menu.js` (51), `sidebar-data.js` (46), `editor-texts.js` (46), `main.js` (43).
+
+After milestone 8e the JS side is down to five intentional holdouts, all of which milestone 10
+must whitelist rather than flag:
+
+| File | Literals | Why it stays |
+|---|---|---|
+| `editor-config.js` | 41 | `FIELD_LABELS` zh-CN source of truth (D3) |
+| `runner.js` | 3 | inline `catch { /* ... */ }` comments |
+| `logs-filter.js` | 3 | regexes that match Chinese log text, not UI copy |
+| `sidebar-data.js` | 1 | inline `catch` comment |
+| `editor-refine.js` | 1 | matches a backend error string (localized in milestone 9) |
+
+`editor-refine.js` compares `e.message.includes('正在 AI 审阅')` against the backend error text, so
+milestone 9 must keep that specific backend message stable or move the check to a machine-readable
+error code.
 
 ## Verification
 

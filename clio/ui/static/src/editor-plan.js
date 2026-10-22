@@ -945,7 +945,7 @@ export async function save() {
     configTab: state.configTab,
   });
   if (target.action === 'noop') {
-    setStatus(target.reason || t('plan.no_save_target'), 'warn');
+    setStatus(t(target.reasonKey || 'plan.no_save_target'), 'warn');
     return;
   }
   try {
