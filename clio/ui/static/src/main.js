@@ -29,6 +29,7 @@ import {
   toggleSelection,
   hideRerunProgress,
 } from './sidebar.js';
+import { showVideoListLoading, hideVideoListLoading } from './sidebar-data.js';
 import { resolveSessionRestore } from './session-restore.js';
 import { shouldConfirmDirtyTabSwitch } from './editor-save.js';
 import { stripQueryParams } from './url-params.js';
@@ -174,6 +175,7 @@ function showFfmpegHelp() {
 }
 
 async function init() {
+  showVideoListLoading('正在加载项目…');
   initLayout();
   initTheme();
   initDesktopPickers(document);
@@ -567,6 +569,7 @@ async function init() {
     }
     // 如果没有 URL 指定项目，也没有上次使用的项目，显示打开界面
     if (!urlProject && !state.lastProject && !state.currentProject) {
+      hideVideoListLoading();
       $('proj-name').textContent = '选择项目';
       $('btn-open-project').click();
       setStatus('尚未加载项目，请选择一个项目开始。', 'warn');
@@ -574,6 +577,7 @@ async function init() {
     }
     // 如果上次使用的项目是旧版，跳过自动跳转，让用户新建项目
     if (!urlProject && !urlProjectDir && _isLastProjectLegacy()) {
+      hideVideoListLoading();
       state.lastProject = null;
       $('proj-name').textContent = '选择项目';
       $('btn-open-project').click();
@@ -592,6 +596,7 @@ async function init() {
     // 如果 URL 指定了项目，但当前不是该项目，需要重载
     const urlProjectObj = state.projects?.find(p => p.name === urlProject || p.project_dir === urlProjectDir);
     if (urlProjectObj?.legacy) {
+      hideVideoListLoading();
       state.currentProjectName = null;
       state.currentProjectDir = null;
       $('proj-name').textContent = '选择项目';
@@ -681,6 +686,7 @@ async function init() {
     startTaskStream();
     void loadTasks();
   } catch (e) {
+    hideVideoListLoading();
     $('proj-name').textContent = '(加载失败)';
     setStatus('Init failed: ' + e.message, 'err');
   }

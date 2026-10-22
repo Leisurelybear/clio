@@ -90,7 +90,17 @@
         <div id="video-filter-chips" class="video-filter-chips"></div>
       </div>
 
-      <ul id="video-list"></ul>
+      <ul id="video-list">
+        <li class="empty-state video-loading-state" role="status" aria-live="polite">
+          <div class="loading">正在加载项目…</div>
+          <div class="video-loading-skeleton" aria-hidden="true">
+            <span class="video-loading-row"></span>
+            <span class="video-loading-row"></span>
+            <span class="video-loading-row"></span>
+          </div>
+          <p class="hint">首次扫描会读取视频信息，素材较多时可能需要几秒。</p>
+        </li>
+      </ul>
 
       <div id="stage-count-bar" class="stage-count-bar" aria-label="各阶段完成计数"></div>
     </div>

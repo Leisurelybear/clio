@@ -199,3 +199,20 @@ describe('videoThumbHtml', () => {
     expect(html).toContain('video-thumb-fallback');
   });
 });
+
+describe('videoLoadingStateHtml', () => {
+  it('renders a spinner message and skeleton rows', async () => {
+    const { videoLoadingStateHtml } = await import('../sidebar-data.js');
+    const html = videoLoadingStateHtml('正在扫描压缩视频…', 0);
+    expect(html).toContain('video-loading-state');
+    expect(html).toContain('正在扫描压缩视频…');
+    expect(html.match(/video-loading-row/g)).toHaveLength(3);
+    expect(html).not.toContain('已等待');
+  });
+
+  it('shows elapsed seconds after the first second', async () => {
+    const { videoLoadingStateHtml } = await import('../sidebar-data.js');
+    const html = videoLoadingStateHtml('正在加载视频…', 3.2);
+    expect(html).toContain('已等待 3 秒');
+  });
+});

@@ -803,6 +803,28 @@ body.editor-collapsed .resize-handle[data-side="editor"]:hover::after {
 }
 #video-list { list-style: none; padding: var(--space-1) 0; margin: 0; }
 
+.video-loading-state { padding: var(--space-6) var(--space-4); }
+.video-loading-state .loading { justify-content: center; font-weight: 500; }
+.video-loading-skeleton {
+  display: grid;
+  gap: 8px;
+  margin: 18px auto 12px;
+  max-width: 280px;
+}
+.video-loading-row {
+  display: block;
+  height: 38px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, var(--bg-surface-2), var(--bg-hover), var(--bg-surface-2));
+  background-size: 200% 100%;
+  animation: video-loading-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes video-loading-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.video-load-error p { word-break: break-word; }
+
 .project-item {
   padding: var(--space-2) var(--space-3); cursor: pointer;
   display: flex; align-items: center; gap: var(--space-2);

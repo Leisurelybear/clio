@@ -69,6 +69,70 @@ export async function removeVideoFromProject(file, absPath = null) {
 
 // ── Data loading ───────────────────────────────────────────────
 
+let _videoLoadingTimer = null;
+let _videoLoadingStartedAt = 0;
+let _videoLoadingMessage = '';
+
+export function videoLoadingStateHtml(message, elapsedSec = 0) {
+  const elapsed = Number.isFinite(elapsedSec) && elapsedSec >= 1
+    ? ` · 已等待 ${Math.floor(elapsedSec)} 秒`
+    : '';
+  return `<li class="empty-state video-loading-state" role="status" aria-live="polite">
+    <div class="loading">${escapeHtml(message)}${elapsed}</div>
+    <div class="video-loading-skeleton" aria-hidden="true">
+      <span class="video-loading-row"></span>
+      <span class="video-loading-row"></span>
+      <span class="video-loading-row"></span>
+    </div>
+    <p class="hint">首次扫描会读取视频信息，素材较多时可能需要几秒。</p>
+  </li>`;
+}
+
+function _stopVideoLoadingTimer() {
+  if (_videoLoadingTimer) {
+    clearInterval(_videoLoadingTimer);
+    _videoLoadingTimer = null;
+  }
+}
+
+export function hideVideoListLoading() {
+  _stopVideoLoadingTimer();
+  const ul = $('video-list');
+  if (ul?.querySelector?.('.video-loading-state')) ul.innerHTML = '';
+}
+
+export function showVideoListLoading(message = '正在加载视频…') {
+  const ul = $('video-list');
+  if (!ul) return;
+  _stopVideoLoadingTimer();
+  _videoLoadingStartedAt = Date.now();
+  _videoLoadingMessage = message;
+  const paint = () => {
+    const elapsedSec = (Date.now() - _videoLoadingStartedAt) / 1000;
+    ul.innerHTML = videoLoadingStateHtml(_videoLoadingMessage, elapsedSec);
+  };
+  paint();
+  const countEl = $('video-count');
+  if (countEl) countEl.textContent = '…';
+  _videoLoadingTimer = setInterval(paint, 1000);
+}
+
+export function showVideoListError(message) {
+  _stopVideoLoadingTimer();
+  const ul = $('video-list');
+  if (!ul) return;
+  ul.innerHTML = `<li class="empty-state video-load-error">
+    ${icon('video', 36)}
+    <h4>视频加载失败</h4>
+    <p>${escapeHtml(message || '未知错误')}</p>
+    <p style="margin-top:12px">
+      <button class="sidebar-btn" id="empty-retry-videos" style="background:var(--accent);color:#fff;border:none;padding:7px 14px;border-radius:var(--radius-sm);cursor:pointer;font:inherit;font-size:var(--text-sm)">重新加载</button>
+    </p>
+  </li>`;
+  const retryBtn = ul.querySelector('#empty-retry-videos');
+  if (retryBtn) retryBtn.onclick = () => { loadVideos().catch(() => {}); };
+}
+
 export async function loadProjects() {
   try {
     const r = await api('GET', '/api/projects');
@@ -161,6 +225,7 @@ export function updateSelectBtnVisibility() {
 }
 
 export async function loadVideos() {
+  showVideoListLoading(state.source === 'compressed' ? '正在扫描压缩视频…' : '正在扫描原视频…');
   const ac = beginLatest('videos');
   try {
     const r = await api('GET', `/api/videos?source=${state.source}`, undefined, { signal: ac.signal });
@@ -184,6 +249,7 @@ export async function loadVideos() {
     }
   } catch (e) {
     if (isAbortError(e) || !isLatest('videos', ac)) return;
+    showVideoListError(e.message || String(e));
     throw e;
   } finally {
     endLatest('videos', ac);
@@ -472,6 +538,7 @@ function renderVideoItem(v) {
 export function renderVideoList() {
   const ul = $('video-list');
   if (!ul) return;
+  hideVideoListLoading();
   ul.innerHTML = '';
   renderOfflineSummary();
   if (state.selectionMode) {
