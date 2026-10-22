@@ -326,6 +326,11 @@ class TestMatchesSelected:
         p.write_text("{", encoding="utf-8")
         assert _matches_selected_artifact(p, {"x"}) is False
 
+    def test_non_object_json_false(self, tmp_path: Path):
+        p = tmp_path / "array.json"
+        p.write_text("[]", encoding="utf-8")
+        assert _matches_selected_artifact(p, {"x"}) is False
+
     def test_stem_direct_match(self, tmp_path: Path):
         p = tmp_path / "001_foo.json"
         p.write_text("{}", encoding="utf-8")

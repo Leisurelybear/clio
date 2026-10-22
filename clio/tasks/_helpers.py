@@ -84,6 +84,8 @@ def _matches_selected_artifact(path: Path, selected: set[str]) -> bool:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         return False
+    if not isinstance(data, dict):
+        return False
     candidates: list[str] = []
     identity = data.get("media_identity")
     if isinstance(identity, dict):
