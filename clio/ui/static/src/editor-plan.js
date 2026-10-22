@@ -2,7 +2,7 @@ import { state } from './state.js';
 import { $, escapeHtml, markDirty, clearDirty, updateSidebarDay, setStatus } from './utils.js';
 import { api, icon } from './api.js';
 import { beginLatest, endLatest, isLatest, isAbortError } from './latest.js';
-import { renderPreviewBar, startPreview, _playPreviewSegment } from './viewer.js';
+import { renderPreviewBar, startPreview, stopPreview, _playPreviewSegment, seekToGlobal } from './viewer.js';
 import { buildTimeline, clampGlobal } from './plan-timeline.js';
 import { recomposePlanWaveformFromCache, isPlanWaveformMode } from './waveform.js';
 import { addToast } from './toast.js';
@@ -87,7 +87,11 @@ export function configSaveStatusForTab(tab) {
 
 function applySequence(next, opts = {}) {
   if (!state.plan) return;
+  const hadPreview = state.previewActive;
   state.plan.sequence = next;
+  state.planPreviewMedia = null;
+  state.previewCutFallbacks.clear();
+  if (hadPreview) stopPreview();
   markDirty();
   renderPlan();
   const hi = opts.highlightIndex;
@@ -240,10 +244,23 @@ function confirmWarningsIfNeeded() {
 function _refreshPreviewTimeline() {
   const seq = state.plan?.sequence;
   if (!Array.isArray(seq)) return;
+  const player = $('player');
+  const wasActive = state.previewActive;
+  const wasPlaying = wasActive && Boolean(player && !player.paused);
+  const previewIndex = state.previewIndex;
   const tl = buildTimeline(seq);
   state.previewGlobalSec = clampGlobal(tl, state.previewGlobalSec);
+  state._previewMedia = null;
+  state._previewEndTime = null;
   renderPreviewBar();
   if (isPlanWaveformMode()) recomposePlanWaveformFromCache();
+  if (wasActive && tl.segments.length === 0) {
+    stopPreview();
+    return;
+  }
+  if (wasActive && previewIndex >= 0) {
+    seekToGlobal(state.previewGlobalSec, { play: wasPlaying, syncExpand: false });
+  }
 }
 
 let _insertAfterIndex = -1;

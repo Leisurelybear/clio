@@ -126,6 +126,15 @@ export function playerSrcMatchesFile(playerSrc, file, source, identity = {}) {
   }
 }
 
+/** Clamp a cut segment end to the real media duration when metadata is short. */
+export function cutPlaybackEndSec(media, duration) {
+  const end = Number(media?.endSec);
+  if (!Number.isFinite(end)) return null;
+  const mediaDuration = Number(duration);
+  if (!Number.isFinite(mediaDuration) || mediaDuration <= 0) return end;
+  return Math.min(end, mediaDuration);
+}
+
 /**
  * Load source video and seek. Does not always force play.
  * @param {{ file: string, abs_path?: string }} v
@@ -168,12 +177,12 @@ function _loadAndSeekSource(v, seekSec, wantPlay, media = null) {
     } else {
       player.src = url;
     }
-    player.onloadedmetadata = () => {
+    player.addEventListener('loadedmetadata', () => {
       if (!isGlobalTimelineUi()) {
         $('player-time').textContent = `${fmtTime(0)} / ${fmtTime(player.duration)}`;
       }
       doSeek();
-    };
+    }, { once: true });
   }
   if (!isGlobalTimelineUi()) {
     loadWaveformForCurrentVideo();
@@ -348,12 +357,13 @@ function _resyncPlanPreviewFromPlayer(player, opts = {}) {
     if (seg && media.segIndex === state.previewIndex) {
       const local = localSecForPlayer(seg, media, player.currentTime);
       state.previewGlobalSec = localToGlobal(tl, state.previewIndex, local);
-      state._previewEndTime = media.endSec;
+      const endSec = cutPlaybackEndSec(media, player.duration) ?? media.endSec;
+      state._previewEndTime = endSec;
       softUpdatePreviewChrome(tl);
       _softUpdateSegBlockClasses(state.previewIndex);
       updateCompositeClock();
       if (opts.syncExpand !== false) _syncPlanExpandFromPreview();
-      const pastEnd = player.currentTime >= media.endSec - 0.05;
+      const pastEnd = player.currentTime >= endSec - 0.05;
       if (pastEnd && opts.maybeAdvance !== false && state.previewActive && !player.paused) {
         _advanceToNextPlayable();
         return true;
@@ -802,7 +812,7 @@ function setupPlayer() {
     if (isGlobalTimelineUi()) {
       const media = state._previewMedia;
       if (media?.mode === 'cut' && Number.isFinite(player.duration) && player.duration > 0) {
-        state._previewEndTime = Math.min(media.endSec, player.duration);
+        state._previewEndTime = cutPlaybackEndSec(media, player.duration);
       }
       updateCompositeClock();
     }

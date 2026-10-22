@@ -78,4 +78,38 @@ describe('cut preview fallback', () => {
     expect(player.src).toContain('source=compressed');
     expect(state.previewGlobalSec).toBe(2);
   });
+
+  it('keeps the effective end at the real cut duration after play/seek resync', async () => {
+    const { state } = await import('../state.js');
+    const { setupPlayer, seekToGlobal } = await import('../viewer.js');
+    state.currentEntity = 'plan';
+    state.currentProjectName = 'trip';
+    state.source = 'compressed';
+    state.previewActive = false;
+    state.previewIndex = -1;
+    state.previewGlobalSec = 0;
+    state.plan = {
+      sequence: [{ index: '001', title: 'A', use_timeline: '00:00-00:05' }],
+    };
+    state.videos = [{ file: '001_A.mp4', index: '001', offset_sec: 0 }];
+    state.planPreviewMedia = {
+      day: 'day1',
+      segments: [{
+        file: '001_A_seg_001.mp4',
+        duration_sec: 5,
+        start_sec: 0,
+        end_sec: 5,
+        source: { video_index: '001' },
+      }],
+    };
+    setupPlayer();
+    const player = document.getElementById('player');
+    seekToGlobal(1, { play: false });
+    Object.defineProperty(player, 'duration', { configurable: true, value: 2.5 });
+    player.onloadedmetadata();
+    expect(state._previewEndTime).toBe(2.5);
+
+    player.onplay();
+    expect(state._previewEndTime).toBe(2.5);
+  });
 });
