@@ -140,6 +140,8 @@ class TestHandlePutEnv:
         handler._send_json = MagicMock()
         dotenv = tmp_path / ".env"
         dotenv.write_text("MY_GEMINI_API_KEY=old\n", encoding="utf-8")
+        if os.name != "nt":
+            os.chmod(dotenv, 0o600)
         monkeypatch.setenv("MY_GEMINI_API_KEY", "old")
 
         with patch("clio.ui.routes.env_routes._load_dotenv"):
