@@ -14,6 +14,7 @@ from typing import Any
 
 from clio._constants import VIDEO_EXTENSIONS
 from clio.desktop import dialogs
+from clio.desktop.notifications import send_desktop_notification
 from clio.desktop.state import resolve_initial_dir, save_last_dir
 
 
@@ -24,6 +25,14 @@ class DesktopApi:
 
     def bind_window(self, window: Any) -> None:
         self._window = window
+
+    def notify(self, title: str = "Clio", message: str = "") -> dict:
+        """Best-effort native notification used only while the window is hidden."""
+        try:
+            delivered = send_desktop_notification(title, message)
+            return {"ok": True, "delivered": delivered}
+        except Exception as exc:  # noqa: BLE001 - never break the js_api bridge
+            return {"ok": False, "delivered": False, "error": str(exc)}
 
     def _initial(self, initial_dir: str = "", scope: str = "config", project_dir: str = "") -> str | None:
         base_dir = project_dir if scope == "project" and project_dir else self._config_dir
