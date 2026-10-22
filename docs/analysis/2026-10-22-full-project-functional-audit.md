@@ -64,7 +64,7 @@ mypy --check-untyped-defs --show-error-codes
 | A-02 | 中 | 已修复 | CLI `export` 把空 ffprobe 配置直接传入导出器，未自动发现 PATH 中的 ffprobe | 与 UI 一致使用 `resolve_binary` |
 | A-03 | 中 | 已修复 | reindex 只剥离 `_segNN`，遗漏 `_partNN`、`_ptNN`、`_chunkNN`，可能拆散同一源视频分组 | 已复用统一分段后缀正则 |
 | A-04 | 中 | 已修复 | UI 步骤检测与 texts 发现把自定义子目录截成 basename，`nested/deep` 等合法配置检测失败 | 已保留安全相对路径，并统一拒绝绝对/穿越路径 |
-| A-05 | 中 | 待验证 | 默认 provider 删除仅在前端隐藏按钮，后端可能允许直接 DELETE 绕过 | 核查后端后决定修复或记录 |
+| A-05 | 中 | 已修复 | 默认 provider 删除仅在前端隐藏按钮，后端允许直接 DELETE 绕过 | 后端对 `gemini/openai/deepseek` 返回 409 |
 | A-06 | 高 | 待验证 | 显式 `-p`/`-i` 指向不存在目录时静默回退 cwd，可能把产物写到错误位置 | 核查单文件 `-i` 后改为显式报错 |
 | A-07 | 高 | 待验证 | wheel 可能未携带首次运行所需的 `config.example.yaml` 与默认模板 | 构建 wheel 实测；大改则进入优化 backlog |
 
@@ -86,7 +86,8 @@ mypy --check-untyped-defs --show-error-codes
 | `b047d80` | `fix(cli): read token stats from project output` | `test_main.py` 14 passed；Ruff 通过 |
 | `337626f` | `fix(cli): resolve ffprobe for export` | `test_main.py` 15 passed；Ruff 通过 |
 | `a43476a` | `fix(reindex): recognize all legacy split suffixes` | `test_reindex.py` 16 passed；Ruff 通过 |
-| 待填 | `fix(ui): detect nested artifact subdirs` | `test_file_service.py` + `test_project_service.py` 136 passed；Ruff 通过 |
+| `c95ea69` | `fix(ui): detect nested artifact subdirs` | `test_file_service.py` + `test_project_service.py` 136 passed；Ruff 通过 |
+| 待填 | `fix(config): protect built-in providers from deletion` | `test_routes_config.py` 47 passed；Ruff 通过 |
 
 ## 7. 未实机验证项
 

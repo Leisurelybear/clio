@@ -164,16 +164,32 @@ class TestProviderCrud:
         from unittest.mock import patch as mock_patch
 
         config_path = _write_provider_config(tmp_path)
+        raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        raw["ai"]["providers"]["custom"] = {"type": "openai", "models": ["custom-model"]}
+        config_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
         handler = self._handler(config_path)
 
         with mock_patch("clio.ui.routes.config_routes.load_global_config"):
-            handle_delete_provider(handler, {}, "openai")
+            handle_delete_provider(handler, {}, "custom")
 
         payload = handler._send_json.call_args[0][0]
         assert payload["ok"] is True
         saved = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-        assert "openai" not in saved["ai"]["providers"]
+        assert "custom" not in saved["ai"]["providers"]
+        assert "openai" in saved["ai"]["providers"]
         assert "gemini" in saved["ai"]["providers"]
+
+    def test_delete_default_provider_rejected(self, tmp_path):
+        config_path = _write_provider_config(tmp_path)
+        handler = self._handler(config_path)
+        before = config_path.read_text(encoding="utf-8")
+
+        handle_delete_provider(handler, {}, "openai")
+
+        payload = handler._send_json.call_args[0][0]
+        assert payload["ok"] is False
+        assert handler._send_json.call_args[0][1] == 409
+        assert config_path.read_text(encoding="utf-8") == before
 
     def test_delete_nonexistent_returns_404(self, tmp_path):
         config_path = _write_provider_config(tmp_path)

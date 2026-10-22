@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from clio.ui.handler_protocol import HandlerProtocol
 
 _PROVIDER_TYPES = {"gemini", "openai", "openai_compat"}
+_DEFAULT_PROVIDERS = frozenset({"gemini", "openai", "deepseek"})
 
 
 def _provider_name_error(name: str) -> str | None:
@@ -657,6 +658,8 @@ def handle_delete_provider(handler: HandlerProtocol, qs: dict[str, Any], name: s
     name = unquote(name).strip()
     if error := _provider_name_error(name):
         return handler._send_json({"ok": False, "error": error}, 400)
+    if name in _DEFAULT_PROVIDERS:
+        return handler._send_json({"ok": False, "error": f"内置 provider 不能删除: {name}"}, 409)
     raw, error = _read_global_config_raw(handler.config_path)
     if error:
         return handler._send_json({"ok": False, "error": error}, 500)
