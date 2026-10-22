@@ -90,9 +90,7 @@ Each row is one commit; focused tests must pass before the next row starts.
 | 8e | feat(ui) | Localize `editor-texts.js` and the remaining editor modules |
 | 9a | feat(i18n) | Localize `clio/ui/**` Web UI API payloads |
 | 9b1 | feat(i18n) | Localize `clio/tasks/**` helpers, label, verify, cover, waveform, reindex, compare, migrate, compress, refine |
-| 9b2 | feat(i18n) | Localize `clio/tasks/**` analyze, plan, cut, scripts |
-| 9c | feat(i18n) | Localize core modules (analyze, transcribe, cut, plan, export, ai, asr) |
-| 9d | feat(i18n) | Localize infra copy (log, progress, ratelimit, shutdown, desktop) |
+| 9b2+9c+9d | feat(i18n) | Localize the remaining `clio/tasks/**`, core modules (analyze, transcribe, cut, plan, export, ai, asr) and infra copy (log, progress, ratelimit, shutdown, desktop, pipeline) |
 | 10 | test(i18n) | Remaining-string inventory + parity guards (Python + Vitest) |
 | 11 | docs | README language switch, AGENTS.md conventions, ROADMAP/CHANGELOG |
 
@@ -116,7 +114,9 @@ Each row is one commit; focused tests must pass before the next row starts.
 | 2026-10-22 | 8e editor texts / voiceover / refine | Done |
 | 2026-10-22 | 9a UI API payloads | Done |
 | 2026-10-22 | 9b1 task copy (helpers/label/verify/cover/waveform/reindex/compare/migrate/compress/refine) | Done |
-| 2026-10-22 | 9b2, 9c, 9d, 10, 11 | Pending |
+| 2026-10-23 | 9b2+9c+9d remaining backend copy (tasks, core, ai/asr, config, infra) | Done (one commit) |
+| 2026-10-23 | 10 inventory guards (pytest + Vitest) | Done |
+| 2026-10-23 | 11 docs | Pending |
 
 ## Remaining-String Baseline (2026-10-22)
 
@@ -131,35 +131,63 @@ Chinese string literals per file before this pass (comments excluded):
 Largest JS offenders: `editor-config.js` (198), `ffmpeg-install.js` (52), `editor-plan.js` (52),
 `video-menu.js` (51), `sidebar-data.js` (46), `editor-texts.js` (46), `main.js` (43).
 
-After milestone 8e the JS side is down to five intentional holdouts, all of which milestone 10
-must whitelist rather than flag:
+Milestone 10 whitelists the surviving JS holdouts. The guard strips comments before scanning, so
+the `catch { /* ... */ }` comments in `runner.js` and `sidebar-data.js` no longer need an entry:
 
-| File | Literals | Why it stays |
+| File | Runs | Why it stays |
 |---|---|---|
-| `editor-config.js` | 41 | `FIELD_LABELS` zh-CN source of truth (D3) |
-| `runner.js` | 3 | inline `catch { /* ... */ }` comments |
-| `logs-filter.js` | 3 | regexes that match Chinese log text, not UI copy |
-| `sidebar-data.js` | 1 | inline `catch` comment |
-| `editor-refine.js` | 1 | matches a backend error string (localized in milestone 9) |
+| `editor-config.js` | 45 | `FIELD_LABELS` zh-CN source of truth (D3) |
+| `logs-filter.js` | 5 | regexes that match Chinese log text, not UI copy |
+| `editor-refine.js` | 2 | fallback match for a pre-9a backend error message |
 
-`editor-refine.js` compares `e.message.includes('正在 AI 审阅')` against the backend error text, so
-milestone 9 must keep that specific backend message stable or move the check to a machine-readable
-error code.
-
+`editor-refine.js` compares `e.message.includes('正在 AI 审阅')` against the backend error text.
 Milestone 9a resolved that by returning `"code": "refine_busy"` alongside the message; the frontend
 prefers `e.body.code` and keeps the message match only as a fallback for older servers.
 
 Milestone 9a also unified the run-preview step labels with the run pane: `run_preview.STEP_LABELS`
 was replaced by `_step_label()`, which reads `run.step.<name>.label` from the shared catalog. That
 renamed the preview rows for `compress` (压缩视频 -> 压缩原视频) and `transcribe`/`label`, and
-`clio/tests/test_run_preview.py` was updated to the catalog copy.
+`clio/tests/test_run_preview.py` was updated to the catalog copy. Milestone 9b2+9c+9d applied the
+same treatment to `clio/pipeline.py`, which now uses those shared keys instead of its private
+`_STEP_LABELS` dict.
 
 Milestone 9b1 resolved the migrate marker: `clio/tasks/migrate.py` renders
 `task.migrate.already_new_suffix` and exposes `is_already_new_structure()`, which checks every
 supported locale instead of a hard-coded Chinese substring; `clio/ui/routes/projects.py` calls it.
 
-`clio/pipeline.py` still keeps its own `_STEP_LABELS`; milestone 9d must switch it to the shared
-`run.step.<name>.label` keys used by `run_preview._step_label()`.
+## Result (2026-10-23)
+
+| Area | Before | After |
+|---|---|---|
+| Backend catalog `clio/locales/*.json` | 149 keys | 746 keys |
+| Python Chinese literals (non-test, non-prompt) | ~930 in 60+ files | 84 in 3 files |
+| JS Chinese runs | 811 literals in 35 modules | 52 runs in 3 allow-listed modules |
+| pytest / Vitest | 2047 / 534 | 2409 / 720 |
+
+The 84 remaining Python literals are intentional and allow-listed by the guard:
+
+| File | Literals | Why it stays |
+|---|---|---|
+| `clio/config/descriptions.py` | 72 | D3: zh-CN source of truth, mirrored to `settings.desc.*` |
+| `clio/analyze.py` | 11 | AI prompt fragments plus the persisted-data sentinel |
+| `clio/analyze_windows.py` | 1 | the same persisted-data sentinel |
+
+### Delivered as one commit, not three
+
+Milestones 9b2, 9c and 9d were planned as three commits but shipped as one
+(`feat(i18n): localize the remaining backend module copy`). `clio/tasks/**`, the core modules and
+the infra modules are mutually coupled: `test_pipeline`, `test_log`, `test_ratelimit` and
+`test_notifications` assert copy produced by the task and core layers, so any split left an
+intermediate commit with a failing suite. One green commit beat three red ones.
+
+### Markdown artifact templates
+
+`clio/tasks/_helpers.py`, `clio/tasks/scripts.py`, `clio/tasks/plan.py` and `clio/tasks/cut.py`
+generate `.txt` / `.md` artifacts whose headings now resolve through the catalog (`md.*`,
+`plan.md_*`, `cut.manifest_*`). zh-CN output stays byte-identical to the previous literals, so
+existing projects keep the same files, while an English UI now produces English headings. Nothing
+parses those headings, so the change is safe. Reverting to a fixed artifact format is a one-commit
+change if mixed-language output is unwanted.
 
 ## Verification
 
@@ -169,6 +197,15 @@ npm test
 ruff check clio main.py
 ruff format --check clio main.py
 ```
+
+The milestone 10 inventory guards run as part of those two suites:
+
+- `clio/tests/test_i18n_inventory.py` scans `clio/**/*.py` through the AST (comments and
+  docstrings never count) and asserts both that no unexpected Chinese literal survives and that
+  every literal `t()` key resolves in the merged catalog.
+- `clio/ui/static/src/__tests__/i18n-inventory.test.js` strips JS comments with a small state
+  machine, then compares the remaining Chinese runs against an explicit allow-list.
+
 
 Manual smoke: switch `界面语言` to `English` in Settings, save, and confirm the settings pane,
 sidebar, notification center, and `<html lang>` all flip without a reload; then run
