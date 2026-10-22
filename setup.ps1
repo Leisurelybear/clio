@@ -193,42 +193,51 @@ if ($whisperAnswer -eq 'y' -or $whisperAnswer -eq 'Y') {
 }
 
 # 2. ffmpeg
-$ffmpeg = Get-Command ffmpeg -ErrorAction SilentlyContinue
-if (-not $ffmpeg) {
-    # 检查常见安装路径
+function Find-FFmpegBin {
+    $ffmpeg = Get-Command ffmpeg -ErrorAction SilentlyContinue
+    $ffprobe = Get-Command ffprobe -ErrorAction SilentlyContinue
+    if ($ffmpeg -and $ffprobe) { return (Split-Path $ffmpeg.Source) }
     $ffmpegCandidates = @(
+        "$env:LOCALAPPDATA\Microsoft\WinGet\Links\ffmpeg.exe",
         "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\*\ffmpeg.exe",
         "C:\ProgramData\chocolatey\lib\ffmpeg\tools\ffmpeg\bin\ffmpeg.exe",
         "$env:USERPROFILE\scoop\apps\ffmpeg\current\bin\ffmpeg.exe",
         "C:\Program Files\ffmpeg\bin\ffmpeg.exe",
         "C:\Tools\ffmpeg\bin\ffmpeg.exe"
     )
-    $foundFfmpeg = $null
     foreach ($p in $ffmpegCandidates) {
-        $foundFfmpeg = Resolve-Path $p -ErrorAction SilentlyContinue
-        if ($foundFfmpeg) { break }
-    }
-    if ($foundFfmpeg) {
-        Write-Host "[3/4] 检测到 ffmpeg: $($foundFfmpeg.Path)"
-        # 将 bin 目录临时加入 PATH
-        $env:PATH = "$(Split-Path $foundFfmpeg.Path);$env:PATH"
-    } else {
-        Write-Host "[3/4] 未检测到 ffmpeg，尝试通过 winget 安装..."
-        winget install --id Gyan.FFmpeg -e --accept-package-agreements --accept-source-agreements 2>$null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "     winget 安装失败，尝试下载经过校验的静态构建..." -ForegroundColor Yellow
-            & ".venv\Scripts\python.exe" -m clio.ffmpeg_install --mode download
-            if ($LASTEXITCODE -ne 0) {
-                Write-Host "     自动安装失败，请手动下载安装:" -ForegroundColor Yellow
-                Write-Host "     https://ffmpeg.org/download.html#build-windows" -ForegroundColor Cyan
-                Write-Host "     下载后请将 bin 目录加入 PATH 环境变量，或设置 FFMPEG_HOME" -ForegroundColor DarkYellow
-            } else {
-                $env:PATH = "$env:LOCALAPPDATA\clio\ffmpeg;$env:PATH"
-            }
+        $foundFfmpeg = Get-Item $p -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($foundFfmpeg -and (Test-Path (Join-Path $foundFfmpeg.DirectoryName "ffprobe.exe"))) {
+            return $foundFfmpeg.DirectoryName
         }
     }
+    return $null
+}
+
+$ffmpegBin = Find-FFmpegBin
+if (-not $ffmpegBin) {
+    Write-Host "[3/4] 未检测到 ffmpeg，尝试通过 winget 安装..."
+    winget install --id Gyan.FFmpeg -e --accept-package-agreements --accept-source-agreements 2>$null
+    # winget may not refresh PATH in the current process; probe known link/package locations.
+    $ffmpegBin = Find-FFmpegBin
+}
+if (-not $ffmpegBin) {
+    Write-Host "     winget 未提供可用的 ffmpeg/ffprobe，尝试下载经过校验的静态构建..." -ForegroundColor Yellow
+    & ".venv\Scripts\python.exe" -m clio.ffmpeg_install --mode download
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "     自动安装失败，请手动下载安装:" -ForegroundColor Yellow
+        Write-Host "     https://ffmpeg.org/download.html#build-windows" -ForegroundColor Cyan
+        Write-Host "     下载后请将 bin 目录加入 PATH 环境变量，或设置 FFMPEG_HOME" -ForegroundColor DarkYellow
+    } else {
+        $ffmpegBin = & ".venv\Scripts\python.exe" -c "from clio.ffmpeg_install import managed_install_root; print(managed_install_root())"
+        if (-not $ffmpegBin) { $ffmpegBin = "$env:LOCALAPPDATA\clio\ffmpeg" }
+    }
+}
+if ($ffmpegBin) {
+    Write-Host "[3/4] ffmpeg 已就绪: $ffmpegBin"
+    $env:PATH = "$ffmpegBin;$env:PATH"
 } else {
-    Write-Host "[3/4] ffmpeg 已就绪: $($ffmpeg.Source)"
+    Write-Host "[3/4] ffmpeg 尚不可用，请按上面的提示手动安装。" -ForegroundColor Yellow
 }
 
 # 3. .env

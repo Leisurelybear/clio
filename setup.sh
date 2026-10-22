@@ -104,7 +104,7 @@ else
             ;;
         Darwin)
             if command -v brew >/dev/null 2>&1; then
-                brew install ffmpeg
+                brew install ffmpeg || true
             else
                 echo "未找到 Homebrew，请先安装：https://brew.sh/" >&2
             fi

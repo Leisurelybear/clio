@@ -21,3 +21,6 @@ def test_setup_scripts_use_verified_ffmpeg_fallback():
     assert "clio.ffmpeg_install --mode download" in sh
     assert "ffmpeg.org/download.html" in ps1
     assert "ffmpeg.org/download.html" in sh
+    assert "Microsoft\\WinGet\\Links" in ps1
+    assert "winget 未提供可用的 ffmpeg/ffprobe" in ps1
+    assert "brew install ffmpeg || true" in sh
