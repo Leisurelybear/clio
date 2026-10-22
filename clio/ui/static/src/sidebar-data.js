@@ -22,7 +22,7 @@ import {
   STAGE_CELLS,
 } from './sidebar-video-filter.js';
 import { selectVideosButtonHtml } from './select-btn.js';
-import { t } from './i18n.js';
+import { t, onLocaleChange } from './i18n.js';
 
 // ── Video relink helper ───────────────────────────────────────
 
@@ -804,3 +804,11 @@ function renderStageCountBar() {
     box.appendChild(cell);
   }
 }
+
+// The sidebar is rendered from JS strings, so re-render it on a language switch
+// instead of leaving stale copy behind.
+onLocaleChange(() => {
+  updateProjectSidebar();
+  updateSelectBtnVisibility();
+  renderVideoList();
+});
