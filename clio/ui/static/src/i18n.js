@@ -2,8 +2,10 @@ const SUPPORTED_LOCALES = ['zh-CN', 'en'];
 const DEFAULT_LOCALE = 'zh-CN';
 const FALLBACK_LOCALES = ['en', 'zh-CN'];
 const STORAGE_KEY = 'clio.locale';
+const LOCALE_CHANGED_EVENT = 'clio:locale-changed';
 
 const _catalogs = new Map();
+const _listeners = new Set();
 let _locale = DEFAULT_LOCALE;
 let _loadPromise = null;
 
@@ -32,13 +34,44 @@ export function readStoredLocale(fallback = DEFAULT_LOCALE) {
 }
 
 export function setLocale(value) {
-  _locale = normalizeLocale(value);
+  const next = normalizeLocale(value);
+  const changed = next !== _locale;
+  _locale = next;
   try {
     globalThis.localStorage?.setItem(STORAGE_KEY, _locale);
   } catch { /* storage may be unavailable */ }
   if (globalThis.document?.documentElement) {
     globalThis.document.documentElement.lang = _locale;
   }
+  if (changed) _emitLocaleChanged(_locale);
+  return _locale;
+}
+
+function _emitLocaleChanged(locale) {
+  _listeners.forEach(callback => {
+    try {
+      callback(locale);
+    } catch {
+      // A broken listener must never abort the language switch.
+    }
+  });
+  const target = globalThis.document;
+  if (target?.dispatchEvent && typeof globalThis.CustomEvent === 'function') {
+    target.dispatchEvent(new globalThis.CustomEvent(LOCALE_CHANGED_EVENT, { detail: { locale } }));
+  }
+}
+
+/** Subscribe to locale changes. Returns an unsubscribe function. */
+export function onLocaleChange(callback) {
+  if (typeof callback !== 'function') return () => {};
+  _listeners.add(callback);
+  return () => _listeners.delete(callback);
+}
+
+/** Switch locale and re-apply static `data-i18n` markup in one call. */
+export function applyLocale(value) {
+  setLocale(value);
+  applyTranslations();
   return _locale;
 }
 
@@ -78,6 +111,18 @@ export function t(key, params = {}, locale = _locale) {
     if (typeof value === 'string') return _interpolate(value, params);
   }
   return String(key);
+}
+
+/** True when any catalog in the fallback chain defines `key`. */
+export function hasKey(key, locale = _locale) {
+  const candidates = [normalizeLocale(locale), ...FALLBACK_LOCALES];
+  const seen = new Set();
+  for (const candidate of candidates) {
+    if (seen.has(candidate)) continue;
+    seen.add(candidate);
+    if (typeof _lookup(_catalogs.get(candidate), key) === 'string') return true;
+  }
+  return false;
 }
 
 function _parseCatalog(payload, locale) {
@@ -137,8 +182,9 @@ export function applyTranslations(root = globalThis.document) {
 
 export function _resetI18nForTests() {
   _catalogs.clear();
+  _listeners.clear();
   _locale = DEFAULT_LOCALE;
   _loadPromise = null;
 }
 
-export { DEFAULT_LOCALE, STORAGE_KEY, SUPPORTED_LOCALES };
+export { DEFAULT_LOCALE, LOCALE_CHANGED_EVENT, STORAGE_KEY, SUPPORTED_LOCALES };

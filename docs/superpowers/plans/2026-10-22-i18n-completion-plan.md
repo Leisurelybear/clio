@@ -92,7 +92,8 @@ Each row is one commit; focused tests must pass before the next row starts.
 |---|---|---|
 | 2026-10-22 | 1 docs | Done |
 | 2026-10-22 | 2 backend locale | Done |
-| 2026-10-22 | 3-11 | Pending |
+| 2026-10-22 | 3 instant switching | Done |
+| 2026-10-22 | 4-11 | Pending |
 
 ## Remaining-String Baseline (2026-10-22)
 

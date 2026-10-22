@@ -19,6 +19,7 @@ import {
   sortLogFiles,
 } from './logs-history.js';
 import { transcriptionModelManagementNotice } from './transcription-status.js';
+import { onLocaleChange } from './i18n.js';
 // Dynamic import avoids static cycle: editor.js → editor-config.js → editor.js (A-006)
 
 const DEFAULT_PROVIDERS = ['gemini', 'openai', 'deepseek'];
@@ -50,6 +51,11 @@ export function providerEnvName(name) {
 
 const ADVANCED_TOGGLE_KEY = 'vlog-config-show-advanced';
 let _configSchema = null;
+
+// Labels and tooltips are rebuilt from the catalogs on every language switch.
+onLocaleChange(() => {
+  if (state.currentEntity === 'config') renderConfig();
+});
 
 export function _isAdvancedVisible() {
   return localStorage.getItem(ADVANCED_TOGGLE_KEY) === 'true';

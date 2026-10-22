@@ -7,6 +7,7 @@ import { buildTimeline, clampGlobal } from './plan-timeline.js';
 import { recomposePlanWaveformFromCache, isPlanWaveformMode } from './waveform.js';
 import { addToast } from './toast.js';
 import { resolveEditorSaveTarget } from './editor-save.js';
+import { applyLocale, getLocale } from './i18n.js';
 import { exportJianyingDraft } from './plan-export.js';
 import { waitForTask } from './task-center.js';
 import { openPlanRangePicker } from './plan-range-picker.js';
@@ -83,6 +84,13 @@ export function configSaveStatusForTab(tab) {
     };
   }
   return { message: '合并视图为只读，无法保存', level: 'warn' };
+}
+
+/** Apply `ui.language` from a freshly saved global config without a reload. */
+export function applySavedConfigLanguage(config = state.configGlobal) {
+  const next = config?.ui?.language;
+  if (!next || next === getLocale()) return getLocale();
+  return applyLocale(next);
 }
 
 function applySequence(next, opts = {}) {
@@ -947,6 +955,7 @@ export async function save() {
       if (r.error) throw new Error(r.error);
       if (generation !== _saveGeneration) return;
       clearDirty();
+      if (ct === 'global') applySavedConfigLanguage();
       const status = configSaveStatusForTab(ct);
       setStatus(status.message, status.level);
       addToast(status.message, status.level === 'ok' ? 'success' : 'warning', undefined, { persist: false });

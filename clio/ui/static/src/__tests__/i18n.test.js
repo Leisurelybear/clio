@@ -1,10 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   _resetI18nForTests,
+  applyLocale,
   applyTranslations,
   getLocale,
+  hasKey,
+  LOCALE_CHANGED_EVENT,
   loadCatalogs,
   normalizeLocale,
+  onLocaleChange,
   setCatalog,
   setLocale,
   t,
@@ -51,6 +55,70 @@ describe('t', () => {
     setCatalog('zh-CN', {});
     setLocale('en');
     expect(t('missing.key')).toBe('missing.key');
+  });
+});
+
+describe('hasKey', () => {
+  it('reports keys from the active locale and its fallbacks', () => {
+    setCatalog('zh-CN', { 'only.zh': '中文' });
+    setCatalog('en', { shared: 'Shared' });
+
+    expect(hasKey('shared', 'en')).toBe(true);
+    expect(hasKey('only.zh', 'en')).toBe(true);
+    expect(hasKey('missing.key', 'en')).toBe(false);
+  });
+});
+
+describe('locale change notification', () => {
+  it('notifies listeners and dispatches a DOM event only when the locale changes', () => {
+    const listener = vi.fn();
+    const events = vi.fn();
+    onLocaleChange(listener);
+    document.addEventListener(LOCALE_CHANGED_EVENT, events);
+
+    setLocale('en');
+    setLocale('en');
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith('en');
+    expect(events).toHaveBeenCalledTimes(1);
+    expect(events.mock.calls[0][0].detail).toEqual({ locale: 'en' });
+  });
+
+  it('stops notifying after unsubscribe', () => {
+    const listener = vi.fn();
+    const unsubscribe = onLocaleChange(listener);
+
+    setLocale('en');
+    unsubscribe();
+    setLocale('zh-CN');
+
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps switching when a listener throws', () => {
+    const good = vi.fn();
+    onLocaleChange(() => {
+      throw new Error('boom');
+    });
+    onLocaleChange(good);
+
+    expect(() => setLocale('en')).not.toThrow();
+    expect(getLocale()).toBe('en');
+    expect(good).toHaveBeenCalledWith('en');
+  });
+});
+
+describe('applyLocale', () => {
+  it('switches locale and re-applies static markup', () => {
+    setCatalog('en', { 'app.title': 'Vlog Editing UI' });
+    document.body.innerHTML = '<span id="text" data-i18n="app.title">Vlog 剪辑 UI</span>';
+
+    applyLocale('en');
+
+    expect(getLocale()).toBe('en');
+    expect(document.getElementById('text').textContent).toBe('Vlog Editing UI');
+    expect(document.documentElement.lang).toBe('en');
   });
 });
 
