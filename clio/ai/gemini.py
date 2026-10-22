@@ -93,6 +93,43 @@ class GeminiProvider:
             should_retry=lambda e: self._is_retryable(e),
         )
 
+    def _get_file_with_retry(
+        self,
+        name: str,
+        *,
+        deadline: float,
+        timeout: float,
+        cancel_event: threading.Event | None,
+    ):
+        for attempt in range(self._retry_attempts):
+            if cancel_event is not None and cancel_event.is_set():
+                raise RuntimeError("视频处理被用户取消")
+            if time.monotonic() > deadline:
+                raise TimeoutError(f"视频处理超时（{timeout}s）: {name}")
+
+            try:
+                return self._client.files.get(name=name)
+            except BaseException as exc:
+                if not self._is_retryable(exc) or attempt + 1 >= self._retry_attempts:
+                    raise
+
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError(f"视频处理超时（{timeout}s）: {name}") from exc
+                delay = min(2.0 * (2**attempt), remaining)
+                print(
+                    f"  [重试] Gemini 文件状态查询失败 "
+                    f"({type(exc).__name__}: {str(exc)[:80]})，"
+                    f"{delay:.1f}s 后重试 ({attempt + 2}/{self._retry_attempts})"
+                )
+                if cancel_event is not None:
+                    if cancel_event.wait(delay):
+                        raise RuntimeError("视频处理被用户取消") from exc
+                else:
+                    time.sleep(delay)
+
+        raise AssertionError("Gemini file polling retry loop exhausted unexpectedly")
+
     def _wait_for_file(
         self,
         uploaded,
@@ -112,7 +149,12 @@ class GeminiProvider:
                 on_progress(f"等待 Gemini 处理（{waited}s）...")
             print(f"  视频处理中...（{waited}s）")
             time.sleep(self._poll_interval)
-            uploaded = self._client.files.get(name=uploaded.name)
+            uploaded = self._get_file_with_retry(
+                uploaded.name,
+                deadline=deadline,
+                timeout=timeout,
+                cancel_event=cancel_event,
+            )
         if uploaded.state == types.FileState.FAILED:
             raise RuntimeError(f"视频处理失败: {uploaded.name}")
         return uploaded
