@@ -393,6 +393,7 @@ def run_cut_all(
                 if tracker is not None:
                     tracker.next(message=f"跳过第 {i} 段：时间格式错误")
                 continue
+            plan_start, plan_end = start, end
 
             if end <= start:
                 print(f"  [跳过] 时间范围无效 ({start}s >= {end}s): {seg.get('title', '')}")
@@ -414,6 +415,14 @@ def run_cut_all(
                     end = media_dur
             except Exception:
                 pass
+            if end <= start:
+                print(f"  [跳过] 时间范围超出媒体时长 ({start}s >= {end}s): {seg.get('title', '')}")
+                orig_stem = _orig_stem_from_path(video_path) if video_path else ""
+                if orig_stem:
+                    state.mark(orig_stem, "cut", "skipped")
+                if tracker is not None:
+                    tracker.next(message=f"跳过第 {i} 段：时间范围超出媒体时长")
+                continue
 
             # Apply segment offset for original source with legacy split videos
             offset = 0.0
@@ -469,24 +478,29 @@ def run_cut_all(
             elapsed_total += time.monotonic() - t0
             completed += 1
 
-            # 复制对应的 texts JSON，附加 _cut_info 标明片段来源
+            # 复制对应的 texts JSON，并始终写 sidecar 标明片段来源
             text_json = None
+            cut_info = {
+                "seg_index": i,
+                "timeline": timeline,
+                "plan_start_sec": round(plan_start, 2),
+                "plan_end_sec": round(plan_end, 2),
+                "start_sec": round(start, 2),
+                "end_sec": round(end, 2),
+            }
             matching_texts = _indexed_files(
                 config.texts_dir, idx, index_width=config.naming.index_width, suffix=".json"
             )
             if matching_texts:
                 text_path = matching_texts[0]
                 data = json.loads(text_path.read_text(encoding="utf-8"))
-                data["_cut_info"] = {
-                    "seg_index": i,
-                    "timeline": timeline,
-                    "start_sec": round(start, 2),
-                    "end_sec": round(end, 2),
-                }
-                dst = out_root / f"{clip_stem}.json"
-                replace_file_safely(dst, lambda p, d=data: write_json_atomic(p, d))
-                text_json = dst.name
-                print(f"  -> texts: {dst.name}")
+            else:
+                data = {}
+            data["_cut_info"] = cut_info
+            dst = out_root / f"{clip_stem}.json"
+            replace_file_safely(dst, lambda p, d=data: write_json_atomic(p, d))
+            text_json = dst.name
+            print(f"  -> texts: {dst.name}")
 
             clips.append(
                 {
@@ -494,6 +508,8 @@ def run_cut_all(
                     "video_index": idx,
                     "title": title,
                     "timeline": timeline,
+                    "plan_start_sec": round(plan_start, 2),
+                    "plan_end_sec": round(plan_end, 2),
                     "start_sec": round(start, 2),
                     "end_sec": round(end, 2),
                     "duration_sec": round(end - start, 2),

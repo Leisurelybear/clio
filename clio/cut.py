@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import threading
 from pathlib import Path
 
@@ -25,14 +26,25 @@ def _to_seconds(s: str) -> float:
     if not s:
         return 0.0
     chunks = s.split(":")
+    if len(chunks) > 3:
+        raise ValueError(f"无法解析时间字符串 '{s}': 分量过多")
     try:
-        if len(chunks) == 3:
-            return float(chunks[0]) * 3600 + float(chunks[1]) * 60 + float(chunks[2])
-        if len(chunks) == 2:
-            return float(chunks[0]) * 60 + float(chunks[1])
-        return float(chunks[0])
-    except (ValueError, IndexError) as e:
-        raise ValueError(f"无法解析时间字符串 '{s}': {e}")
+        values = [float(chunk) for chunk in chunks]
+    except ValueError as e:
+        raise ValueError(f"无法解析时间字符串 '{s}': {e}") from e
+    if any(not math.isfinite(value) or value < 0 for value in values):
+        raise ValueError(f"无法解析时间字符串 '{s}': 时间必须是非负有限数")
+    if len(values) == 3:
+        hours, minutes, seconds = values
+        if minutes >= 60 or seconds >= 60:
+            raise ValueError(f"无法解析时间字符串 '{s}': 分钟和秒必须小于 60")
+        return hours * 3600 + minutes * 60 + seconds
+    if len(values) == 2:
+        minutes, seconds = values
+        if seconds >= 60:
+            raise ValueError(f"无法解析时间字符串 '{s}': 秒必须小于 60")
+        return minutes * 60 + seconds
+    return values[0]
 
 
 def cut_one(
@@ -47,6 +59,8 @@ def cut_one(
     """用 ffmpeg 从 video_path 中裁剪 [start_sec, end_sec] 区间到 output_path。"""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     duration_sec = end_sec - start_sec
+    if duration_sec <= 0:
+        raise ValueError(f"无效裁剪范围: {start_sec}s >= {end_sec}s")
     label = f"裁剪 {video_path.name} ({format_duration(start_sec)}-{format_duration(end_sec)})"
 
     args = [

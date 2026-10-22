@@ -54,6 +54,11 @@ class TestToSeconds:
         with pytest.raises(ValueError, match="无法解析"):
             _to_seconds("not-a-time")
 
+    @pytest.mark.parametrize("value", ["00:70", "01:60", "00:00:60", "-1", "inf", "nan", "1:2:3:4"])
+    def test_rejects_out_of_range_or_non_finite_components(self, value):
+        with pytest.raises(ValueError, match="无法解析"):
+            _to_seconds(value)
+
 
 # ── parse_time_range ────────────────────────────────────────────────
 
@@ -119,12 +124,9 @@ class TestCutOne:
         assert "-c" in args
         assert "copy" in args
 
-    def test_cut_one_negative_duration_still_passes(self, tmp_path):
-        """cut_one 本身不校验 end>start，校验在 parse_time_range 完成。"""
+    def test_cut_one_rejects_negative_duration(self, tmp_path):
         src = tmp_path / "input.mp4"
         src.write_text("fake")
         out = tmp_path / "output.mp4"
-        with mock.patch("clio.cut.run_ffmpeg") as mock_run:
+        with pytest.raises(ValueError, match="无效裁剪范围"):
             cut_one(src, out, 30, 10, "ffmpeg", reencode=False)
-        args = mock_run.call_args[0][0]
-        assert "-t" in args

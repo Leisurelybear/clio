@@ -229,6 +229,47 @@ class TestRunCutAllOverwrite:
             run_cut_all(cfg, "day1", overwrite=False)
         mock_cut.assert_not_called()
 
+    def test_writes_sidecar_even_without_texts(self, cfg):
+        _write_plan(cfg, seq=[{"index": "001", "title": "A", "use_timeline": "00:00-00:10"}])
+        (cfg.compressed_dir / "001_src.mp4").write_bytes(b"\x00")
+
+        def fake_cut(_video_path, output_path, *_args, **_kwargs):
+            output_path.write_bytes(b"clip")
+
+        with (
+            patch("clio.tasks.cut.cut_one", side_effect=fake_cut),
+            patch("clio.tasks.cut.resolve_binary", return_value="ffmpeg"),
+            patch("clio.tasks.cut.get_duration_sec", return_value=100.0),
+        ):
+            from clio.tasks.cut import run_cut_all
+
+            clips = run_cut_all(cfg, "day1", overwrite=True)
+
+        sidecar = cfg.paths.output_dir / "cuts" / "day1" / "001_A_seg_001.json"
+        assert clips[0]["text_file"] == sidecar.name
+        info = json.loads(sidecar.read_text(encoding="utf-8"))["_cut_info"]
+        assert info["plan_start_sec"] == 0
+        assert info["plan_end_sec"] == 10
+        assert info["start_sec"] == 0
+        assert info["end_sec"] == 10
+
+    def test_skips_segment_when_start_exceeds_media_duration(self, cfg):
+        _write_plan(cfg, seq=[{"index": "001", "title": "late", "use_timeline": "00:10-00:20"}])
+        (cfg.compressed_dir / "001_src.mp4").write_bytes(b"\x00")
+
+        with (
+            patch("clio.tasks.cut.cut_one") as mock_cut,
+            patch("clio.tasks.cut.resolve_binary", return_value="ffmpeg"),
+            patch("clio.utils.resolve_binary", return_value="ffmpeg"),
+            patch("clio.utils.get_duration_sec", return_value=5.0),
+        ):
+            from clio.tasks.cut import run_cut_all
+
+            clips = run_cut_all(cfg, "day1", overwrite=True)
+
+        assert clips == []
+        mock_cut.assert_not_called()
+
 
 class TestComputeSegmentOffset:
     def test_no_seg_suffix_returns_zero(self, cfg):
