@@ -82,6 +82,19 @@ mypy --check-untyped-defs --show-error-codes
 | A-20 | 中 | 已修复 | `/api/run` 对未知 pipeline step 先登记任务再异步失败，任务中心产生无意义失败记录 | 白名单校验前置，未知步骤同步返回 400 |
 | A-21 | 中 | 已修复 | 字幕样式并发保存失败时 waiter 被静默 resolve，前端仍显示已保存 | 失败传播到所有 waiter，队列恢复后可继续保存；补 Vitest 回归 |
 | A-22 | 中 | 已修复 | 重跑接口拒绝项目子目录中的原片路径，合法的 `footage/foo.mp4` 无法重跑 | 允许安全的项目相对路径，继续拒绝绝对路径、盘符和 `..` 穿越 |
+| A-23 | 低 | 已修复 | 选片结果合并按原字符串去重，Windows 下仅大小写不同的同一路径会重复入列 | 按大小写不敏感键去重，保留首次出现的路径拼写 |
+| A-24 | 中 | 已修复 | 批量重链先用剥离 `NNN_` 前缀的 stem 匹配，自然文件名冲突时会误报歧义或选错目标 | 优先精确 basename，再回退剥离前缀的 stem |
+| A-25 | 中 | 已修复 | `/api/fs/mkdir`、`/api/fs/reveal` 对非字符串字段调用路径方法，触发未捕获异常 | 标量字段类型校验前置，非法载荷返回 400 |
+| A-26 | 中 | 已修复 | `/api/videos/relink` 未校验路径类型，非字符串载荷会抛出未捕获异常 | 校验 `path`/`old_path` 类型并捕获路径解析错误 |
+| A-27 | 中 | 已修复 | 重链到项目内已选视频时仍会追加记录，产生重复视频条目 | 目标已存在时返回 409，不修改项目 |
+| A-28 | 低 | 已修复 | `/api/env` 对非字符串 `content` 调用字符串方法，返回 500 | 保存前校验载荷类型并返回 400 |
+| A-29 | 低 | 已修复 | `/api/refine` 对非字符串 `file`/`context` 调用字符串方法，返回 500 | 请求字段类型校验前置 |
+| A-30 | 中 | 已修复 | `/api/rerun` 在类型/取值校验前登记任务，非法 `index`、`abspath` 等会造成无意义任务记录 | 提交任务前校验 `video`、`task`、`source`、`index`、`abspath` |
+| A-31 | 中 | 已修复 | 项目创建、添加、移除、迁移和选择路由对非字符串字段处理不一致，可能触发 500 或误操作 | 统一类型校验，非法值返回 400 |
+| A-32 | 低 | 已修复 | Provider 创建路由接受非字符串名称，后续配置写入行为异常 | 名称类型校验前置 |
+| A-33 | 低 | 已修复 | Whisper 模型删除/绑定路由接受非字符串模型名 | 模型名类型校验前置 |
+| A-34 | 中 | 已修复 | 文档推荐 `analyze --force`，但子命令解析器不接受该位置，已知可用写法被拒绝 | `--force` 支持全局和子命令两个位置 |
+| A-35 | 中 | 已修复 | `refine` 不支持其他项目命令通用的 `-p/--project` 与 `-o/--output`，文档化用法不可执行 | 补齐项目选择与输出目录参数 |
 
 ## 5. 优化 backlog
 
@@ -96,7 +109,7 @@ mypy --check-untyped-defs --show-error-codes
 | O-06 | P1 | Provider 非 ASCII 名称 | 后端接受中文等非 ASCII provider 名，但前端对纯非 ASCII 名称统一生成 `CUSTOM_PROVIDER_API_KEY`，多个 provider 会共用/覆盖 key；需产品决策是拒绝名称还是生成稳定编码 |
 | O-07 | P2 | Gemini 文件轮询韧性 | `_wait_for_file` 每轮只有单次 `files.get()`，长任务遇到一次瞬时网络错误即失败；可为瞬时错误增加有界重试 |
 | O-08 | P3 | Trip context 缓存淘汰 | `_trip_context_cache` 以 project+mtime 为 key，修改文件后旧 key 不会淘汰，长期切换项目会缓慢增长 |
-| O-09 | P3 | CLI 文档同步 | `docs/cli-reference.md` 仍以 `-i/--input` 为主，且缺少 `doctor`、`desktop`、`tokens`、`migrate`、`migrate-config`、`compare-models` 等命令 |
+| O-09 | P3 | CLI 文档同步（已完成：`9332b5d`） | 已将 `-p/--project` 设为首选入口，补充命令总览、`doctor`、`desktop`、`tokens`、`migrate`、`migrate-config`、`compare-models` 和 `serve --token` |
 | O-10 | P3 | 测试基线漂移 | `README*` 与 `ROADMAP.md` 的 pytest/Vitest 数量已落后；最终验证后统一回填 |
 
 ## 6. 修复与提交记录
@@ -126,6 +139,21 @@ mypy --check-untyped-defs --show-error-codes
 | `ca5713b` | `fix(run): reject unknown pipeline steps` | `test_routes_run.py` 55 passed；Ruff 通过 |
 | `ee96a3f` | `fix(ui): surface subtitle save failures` | `subtitle-settings.test.js` 17 passed |
 | `e8fdcef` | `fix(rerun): allow nested original video paths` | `test_routes_run.py` 55 passed；Ruff 通过 |
+| `be780d2` | `docs(audit): record completed fixes and remaining risks` | 文档检查 |
+| `11424e1` | `fix(ui): dedupe selected video paths case-insensitively` | `video-selection.test.js` 8 passed |
+| `2ebb9a3` | `fix(ui): prefer exact names in batch relink matching` | `offline-media.test.js` 9 passed |
+| `af3c550` | `fix(ui): reject non-string filesystem payloads` | `test_fs.py` 48 passed；Ruff 通过 |
+| `409f021` | `fix(ui): validate video relink path types` | `test_routes_videos.py` 60 passed；Ruff 通过 |
+| `9982060` | `fix(ui): reject relinking to an existing project video` | `test_routes_videos.py` 60 passed；Ruff 通过 |
+| `32c18d7` | `fix(env): validate dotenv save payload type` | `test_routes_env.py` 11 passed, 1 skipped；Ruff 通过 |
+| `c1b7733` | `fix(refine): validate request field types` | `test_refine_routes.py` 25 passed；Ruff 通过 |
+| `e9c0dde` | `fix(rerun): validate rerun payload types` | `test_routes_run.py` 60 passed；Ruff 通过 |
+| `ba29f39` | `fix(projects): validate project route payload types` | `test_routes_projects.py` 26 passed；Ruff 通过 |
+| `74d7c1f` | `fix(config): validate provider name payload type` | `test_routes_config.py` 48 passed；Ruff 通过 |
+| `ed941bd` | `fix(whisper): validate model route payload types` | `test_routes_transcripts.py` 63 passed；Ruff 通过 |
+| `f38644f` | `fix(cli): accept force after subcommands` | `test_main.py` 22 passed；`analyze --force` 与 `--force analyze` 冒烟通过 |
+| `197bfed` | `fix(cli): support project selection for refine` | `test_main.py` 22 passed；Ruff 通过 |
+| `9332b5d` | `docs(cli): align command reference with current CLI` | 对照 argparse 帮助核对 |
 
 ## 7. 未实机验证项
 
