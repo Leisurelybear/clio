@@ -92,14 +92,14 @@ const DEFAULT_CAPABILITIES = {
   openai: ['text'],
 };
 
-const PROMPT_LABELS = {
-  ANALYZE_PROMPT: '视频分析',
-  SCRIPT_PROMPT: '口播文案',
-  PLAN_PROMPT: '剪辑规划',
-  REFINE_TEXT_PROMPT: '素材精修',
-  REFINE_TEXT_FIX_PROMPT: '素材定向修复',
-  REFINE_SCRIPT_PROMPT: '脚本精修',
-  REFINE_SCRIPT_FIX_PROMPT: '脚本定向修复',
+const PROMPT_LABEL_KEYS = {
+  ANALYZE_PROMPT: 'settings.prompt.label.ANALYZE_PROMPT',
+  SCRIPT_PROMPT: 'settings.prompt.label.SCRIPT_PROMPT',
+  PLAN_PROMPT: 'settings.prompt.label.PLAN_PROMPT',
+  REFINE_TEXT_PROMPT: 'settings.prompt.label.REFINE_TEXT_PROMPT',
+  REFINE_TEXT_FIX_PROMPT: 'settings.prompt.label.REFINE_TEXT_FIX_PROMPT',
+  REFINE_SCRIPT_PROMPT: 'settings.prompt.label.REFINE_SCRIPT_PROMPT',
+  REFINE_SCRIPT_FIX_PROMPT: 'settings.prompt.label.REFINE_SCRIPT_FIX_PROMPT',
 };
 
 
@@ -250,7 +250,7 @@ export function _renderTagInput(container, values, onChange) {
   const input = document.createElement('input');
   input.type = 'text';
   input.className = 'tag-input';
-  input.placeholder = '输入模型名，按回车添加';
+  input.placeholder = t('settings.tags.placeholder');
   input.onkeydown = (e) => {
     if (e.key === 'Enter' || e.key === ',') {
       e.preventDefault();
@@ -347,7 +347,7 @@ export function _renderConfigForm(obj, path, descriptions = null, layer = 'proje
     ).join('')}</fieldset>`;
   }
   if (typeof obj === 'object') {
-    let html = `<fieldset class="config-fieldset"><legend>${labelFromPath(path) || '配置'}${tip}</legend>`;
+    let html = `<fieldset class="config-fieldset"><legend>${labelFromPath(path) || t('settings.section_generic')}${tip}</legend>`;
     for (const [key, val] of Object.entries(obj)) {
       if (key === 'context_file') continue;
       html += _renderConfigForm(val, path ? `${path}.${key}` : key, descriptions);
@@ -415,13 +415,13 @@ export async function initProjectConfig() {
       state._needsConfigInit = false;
       import('./editor.js').then(m => m.renderActiveTab());
     } else {
-      setStatus('创建失败: ' + (r.error || '未知错误'), 'err');
+      setStatus(t('settings.init.failed', { detail: r.error || t('common.unknown_error') }), 'err');
     }
   } catch (e) {
-    setStatus('创建失败: ' + e.message, 'err');
+    setStatus(t('settings.init.failed', { detail: e.message }), 'err');
   } finally {
     const btn = $('btn-config-init');
-    if (btn) { btn.disabled = false; btn.textContent = '为该项目创建配置文件'; }
+    if (btn) { btn.disabled = false; btn.textContent = t('settings.init.button'); }
   }
 }
 
@@ -442,7 +442,7 @@ export function _renderConfigGlobal(globalData, descs) {
   html += `<div class="config-card" data-section-key="global.task-binding">
     <div class="config-card-header" tabindex="0" role="button">
       <span class="config-card-arrow">▶</span>
-      <span class="config-card-title">AI 默认任务绑定</span>
+      <span class="config-card-title">${t('settings.ai_default_task_binding')}</span>
     </div>
     <div class="config-card-body">${_renderTaskBinding(
       default_tasks || {},
@@ -454,7 +454,7 @@ export function _renderConfigGlobal(globalData, descs) {
   html += `<div class="config-card" data-section-key="global.providers">
     <div class="config-card-header" tabindex="0" role="button">
       <span class="config-card-arrow">▶</span>
-      <span class="config-card-title">AI 模型列表</span>
+      <span class="config-card-title">${t('settings.ai_model_list')}</span>
     </div>
     <div class="config-card-body">${_renderProviderList(providers || {}, descs)}</div>
   </div>`;
@@ -477,7 +477,7 @@ function _renderConfigProject(projectData, globalData, descs) {
   html += `<div class="config-card" data-section-key="project.task-binding">
     <div class="config-card-header" tabindex="0" role="button">
       <span class="config-card-arrow">▶</span>
-      <span class="config-card-title">AI 任务绑定</span>
+      <span class="config-card-title">${t('settings.ai_task_binding')}</span>
     </div>
     <div class="config-card-body">${_renderTaskBinding(
       tasks || {},
@@ -490,24 +490,27 @@ function _renderConfigProject(projectData, globalData, descs) {
 }
 
 function _promptLabel(name) {
-  return PROMPT_LABELS[name] || name;
+  const key = PROMPT_LABEL_KEYS[name];
+  return key ? t(key) : name;
 }
 
 function _promptSourceLabel(item) {
-  if (!item?.has_override) return '系统默认';
+  if (!item?.has_override) return t('settings.prompt.source.system');
   const source = item.source_path || item.override_path || '';
-  return source.includes('templates') ? '覆盖文件' : '项目覆盖';
+  return source.includes('templates') ? t('settings.prompt.source.file') : t('settings.prompt.source.project');
 }
 
 export function _renderPromptManagement(payload, selectedName = null) {
   const prompts = payload?.prompts || [];
   if (!prompts.length) {
-    return '<div class="config-empty-state"><p class="muted">暂无可编辑 Prompt。</p></div>';
+    return `<div class="config-empty-state"><p class="muted">${t('settings.prompt.empty')}</p></div>`;
   }
   const selected = prompts.find(p => p.name === selectedName) || prompts[0];
   const listHtml = prompts.map(p => {
     const active = p.name === selected.name ? ' active' : '';
-    const badge = p.has_override ? '<span class="prompt-badge override">已覆盖</span>' : '<span class="prompt-badge">默认</span>';
+    const badge = p.has_override
+      ? `<span class="prompt-badge override">${t('settings.prompt.badge.override')}</span>`
+      : `<span class="prompt-badge">${t('settings.prompt.badge.default')}</span>`;
     return `<button class="prompt-list-item${active}" data-prompt-name="${escapeHtml(p.name)}">
       <span class="prompt-list-title">${escapeHtml(_promptLabel(p.name))}</span>
       <span class="prompt-list-name">${escapeHtml(p.name)}</span>
@@ -524,17 +527,17 @@ export function _renderPromptManagement(payload, selectedName = null) {
           <p class="hint">${escapeHtml(selected.name)} · ${escapeHtml(_promptSourceLabel(selected))}</p>
         </div>
         <div class="prompt-actions">
-          <button id="btn-prompt-save" class="btn-primary">${icon('save', 14)} 保存覆盖</button>
-          <button id="btn-prompt-restore" class="btn-secondary" ${selected.has_override ? '' : 'disabled'}>${icon('refresh', 14)} 恢复默认</button>
+          <button id="btn-prompt-save" class="btn-primary">${icon('save', 14)} ${t('settings.prompt.save_override')}</button>
+          <button id="btn-prompt-restore" class="btn-secondary" ${selected.has_override ? '' : 'disabled'}>${icon('refresh', 14)} ${t('settings.prompt.restore_default')}</button>
         </div>
       </div>
       <textarea id="prompt-editor-text" class="prompt-editor-text" spellcheck="false">${escapeHtml(selected.content || '')}</textarea>
       <div class="prompt-meta">
-        <span>保存路径: ${escapeHtml(selected.override_path || '')}</span>
-        ${sourcePath ? `<span>当前来源: ${escapeHtml(sourcePath)}</span>` : ''}
+        <span>${t('settings.prompt.save_path', { path: escapeHtml(selected.override_path || '') })}</span>
+        ${sourcePath ? `<span>${t('settings.prompt.current_source', { path: escapeHtml(sourcePath) })}</span>` : ''}
       </div>
       <details class="prompt-default-preview">
-        <summary>查看系统默认 Prompt</summary>
+        <summary>${t('settings.prompt.view_default')}</summary>
         <pre>${escapeHtml(selected.default || '')}</pre>
       </details>
     </div>
@@ -544,7 +547,7 @@ export function _renderPromptManagement(payload, selectedName = null) {
 async function _loadPromptManagement() {
   const container = $('prompt-management-root');
   if (!container) return;
-  container.innerHTML = '<p class="muted">加载 Prompt...</p>';
+  container.innerHTML = `<p class="muted">${t('settings.prompt.loading')}</p>`;
   try {
     state.promptPayload = await api('GET', '/api/prompts');
     const prompts = state.promptPayload?.prompts || [];
@@ -553,7 +556,7 @@ async function _loadPromptManagement() {
     }
     _refreshPromptManagement();
   } catch (e) {
-    const message = '加载失败: ' + (e.message || e);
+    const message = t('settings.prompt.load_failed', { detail: e.message || e });
     container.innerHTML = `<p class="err">${escapeHtml(message)}</p>`;
     setStatus(message, 'err');
   }
@@ -582,17 +585,17 @@ function _attachPromptManagementHandlers(container) {
     saveBtn.onclick = async () => {
       const content = textarea.value.trim();
       if (!content) {
-        setStatus('Prompt 内容不能为空', 'err');
+        setStatus(t('settings.prompt.empty_content'), 'err');
         return;
       }
       saveBtn.disabled = true;
       try {
         await api('PUT', `/api/prompts/${encodeURIComponent(selected.name)}`, { content });
-        setStatus('Prompt 覆盖已保存，下一次 AI 调用生效', 'ok');
+        setStatus(t('settings.prompt.saved'), 'ok');
         state.promptPayload = await api('GET', '/api/prompts');
         _refreshPromptManagement();
       } catch (e) {
-        setStatus('保存失败: ' + (e.message || e), 'err');
+        setStatus(t('settings.env.save_failed_detail', { detail: e.message || e }), 'err');
       } finally {
         saveBtn.disabled = false;
       }
@@ -601,15 +604,15 @@ function _attachPromptManagementHandlers(container) {
   if (restoreBtn && selected) {
     restoreBtn.onclick = async () => {
       if (!selected.has_override) return;
-      if (!confirm(`恢复 ${selected.name} 的项目级 Prompt 覆盖？`)) return;
+      if (!confirm(t('settings.prompt.restore_confirm', { name: selected.name }))) return;
       restoreBtn.disabled = true;
       try {
         await api('DELETE', `/api/prompts/${encodeURIComponent(selected.name)}`);
-        setStatus('Prompt 覆盖已恢复默认', 'ok');
+        setStatus(t('settings.prompt.restored'), 'ok');
         state.promptPayload = await api('GET', '/api/prompts');
         _refreshPromptManagement();
       } catch (e) {
-        setStatus('恢复失败: ' + (e.message || e), 'err');
+        setStatus(t('settings.prompt.restore_failed', { detail: e.message || e }), 'err');
       } finally {
         restoreBtn.disabled = false;
       }
@@ -688,14 +691,14 @@ export function _renderTaskBinding(tasks, providersObj, descs, opts = {}) {
       html += '<label class="task-binding-label refine-follow-cb">';
       html += `<input type="checkbox" class="refine-follow-check" data-task="${taskKey}" ${isFollowing ? 'checked' : ''}> ${t('settings.task_binding.follow')}`;
       html += '</label>';
-      html += '<span class="hint" style="font-size:var(--text-xs)">勾选 = 使用 video_analyze 相同的 Provider/模型；取消 = 可独立指定其他 Provider</span>';
+      html += `<span class="hint" style="font-size:var(--text-xs)">${t('settings.task_binding.follow_hint')}</span>`;
       html += '</div>';
     }
 
     if (isFollowing) {
       const vaCfg = merged.video_analyze || {};
       html += '<div class="task-binding-row">';
-      html += `<span class="muted">继承自 video_analyze: ${escapeHtml(vaCfg.provider || '(未配置)')} / ${escapeHtml(vaCfg.model || '(未配置)')}</span>`;
+      html += `<span class="muted">${t('settings.task_binding.inherited_from', { provider: escapeHtml(vaCfg.provider || t('settings.task_binding.unset')), model: escapeHtml(vaCfg.model || t('settings.task_binding.unset')) })}</span>`;
       html += '</div>';
     } else {
       const currentProvider = taskCfg?.provider || '';
@@ -709,37 +712,37 @@ export function _renderTaskBinding(tasks, providersObj, descs, opts = {}) {
       html += '<div class="task-binding-row">';
       html += '<label class="task-binding-label">Provider</label>';
       html += `<select class="task-provider-select" data-task="${taskKey}">`;
-      html += '<option value="">-- 选择 Provider --</option>';
+      html += `<option value="">${t('settings.provider.select_placeholder')}</option>`;
       for (const pk of eligibleProviders) {
         const p = providersObj[pk];
-        const typeLabel = p?.type === 'gemini' ? 'Gemini' : 'OpenAI 兼容';
+        const typeLabel = p?.type === 'gemini' ? t('settings.provider.type.gemini') : t('settings.provider.type.openai_compat');
         const selected = pk === currentProvider ? ' selected' : '';
         html += `<option value="${escapeHtml(pk)}"${selected}>${escapeHtml(pk)} (${typeLabel})</option>`;
       }
       html += '</select>';
       if (taskKey === 'video_analyze' && eligibleProviders.length === 0 && providerKeys.length > 0) {
-        html += '<span class="warn" style="font-size:var(--text-xs)">需要 capabilities 包含 video 的 Provider</span>';
+        html += `<span class="warn" style="font-size:var(--text-xs)">${t('settings.provider.need_video_capability')}</span>`;
       }
       html += '</div>';
 
       const hasProvider = currentProvider && providersObj[currentProvider];
       html += '<div class="task-binding-row">';
-      html += '<label class="task-binding-label">模型</label>';
+      html += `<label class="task-binding-label">${t('settings.task_binding.model_label')}</label>`;
       if (hasProvider) {
         const models = providersObj[currentProvider].models || [];
         if (models.length > 0) {
           html += `<select class="task-model-select" data-task="${taskKey}">`;
-          html += '<option value="">-- 选择模型 --</option>';
+          html += `<option value="">${t('settings.provider.select_model_placeholder')}</option>`;
           for (const m of models) {
             const selected = m === currentModel ? ' selected' : '';
             html += `<option value="${escapeHtml(m)}"${selected}>${escapeHtml(m)}</option>`;
           }
           html += '</select>';
         } else {
-          html += `<span class="warn">⚠️ 该 Provider 没有注册可用模型 <a href="#" class="edit-provider-link" data-provider="${escapeHtml(currentProvider)}" style="color:var(--accent);font-size:var(--text-xs)">编辑</a></span>`;
+          html += `<span class="warn">⚠️ ${t('settings.provider.no_models')} <a href="#" class="edit-provider-link" data-provider="${escapeHtml(currentProvider)}" style="color:var(--accent);font-size:var(--text-xs)">${t('common.edit')}</a></span>`;
         }
       } else {
-        html += '<span class="muted">请先选择 Provider</span>';
+        html += `<span class="muted">${t('settings.provider.select_provider_first')}</span>`;
       }
       html += '</div>';
     }
@@ -754,21 +757,21 @@ export function _renderTaskBinding(tasks, providersObj, descs, opts = {}) {
 export function _renderProviderList(providers, descs) {
   const providersObj = providers || {};
   const keys = Object.keys(providersObj);
-  let html = '<fieldset class="config-fieldset"><legend>AI 模型列表</legend>';
+  let html = `<fieldset class="config-fieldset"><legend>${t('settings.ai_model_list')}</legend>`;
 
   if (keys.length === 0) {
-    html += '<div class="config-empty-state"><p class="muted">还没有注册任何 AI 模型</p><p class="hint">点击下方按钮添加一个 AI 厂商（如 Gemini、DeepSeek、通义千问等），然后在 Project 标签页中为任务绑定模型。</p></div>';
+    html += `<div class="config-empty-state"><p class="muted">${t('settings.provider.empty_title')}</p><p class="hint">${t('settings.provider.empty_hint')}</p></div>`;
   } else {
-    html += '<p class="hint" style="margin:0 0 8px;line-height:1.6">在此管理 AI 厂商（Provider）。每个 Provider 需要：类型（决定能否做视频分析）、API 密钥（保存在 .env）、和模型列表（供任务绑定选择）。<br>添加完成后，切换到"项目"标签页为每个 AI 任务绑定具体的 Provider 和模型。</p>';
+    html += `<p class="hint" style="margin:0 0 8px;line-height:1.6">${t('settings.provider.intro')}</p>`;
   }
 
   for (const name of keys) {
     const p = providersObj[name];
-    const typeLabel = p.type === 'gemini' ? 'Gemini' : 'OpenAI 兼容';
+    const typeLabel = p.type === 'gemini' ? t('settings.provider.type.gemini') : t('settings.provider.type.openai_compat');
     const hasModels = p.models && p.models.length > 0;
     const modelTags = hasModels
       ? p.models.map(m => `<span class="tag-chip">${escapeHtml(m)}</span>`).join(' ')
-      : '<span class="warn">⚠️ 未注册模型</span>';
+      : `<span class="warn">⚠️ ${t('settings.provider.no_models_badge')}</span>`;
     const capabilityTags = providerCapabilities(p)
       .map(c => `<span class="tag-chip">${escapeHtml(c)}</span>`)
       .join(' ');
@@ -778,25 +781,25 @@ export function _renderProviderList(providers, descs) {
         <span class="provider-card-name">${escapeHtml(name)}</span>
         <span class="provider-card-type">${typeLabel}</span>
         <span class="provider-card-actions">
-          <button class="btn-provider-test" data-provider="${escapeHtml(name)}">测试</button>
-          <button class="btn-provider-edit" data-provider="${escapeHtml(name)}">编辑</button>
-          ${DEFAULT_PROVIDERS.includes(name) ? '' : `<button class="btn-provider-delete" data-provider="${escapeHtml(name)}">删除</button>`}
+          <button class="btn-provider-test" data-provider="${escapeHtml(name)}">${t('settings.provider.test')}</button>
+          <button class="btn-provider-edit" data-provider="${escapeHtml(name)}">${t('common.edit')}</button>
+          ${DEFAULT_PROVIDERS.includes(name) ? '' : `<button class="btn-provider-delete" data-provider="${escapeHtml(name)}">${t('common.delete')}</button>`}
         </span>
       </div>
       <div class="provider-card-body">
-        <div class="provider-card-field"><span class="provider-card-label">类型</span><span>${typeLabel}</span></div>
-        <div class="provider-card-field"><span class="provider-card-label">API 密钥</span><span class="provider-key-wrap" data-provider="${escapeHtml(name)}"><span class="provider-key-masked">••••••••••</span><span class="provider-key-value" style="display:none"></span><button class="btn-provider-show-key">显示</button></span></div>
-        ${p.type !== 'gemini' ? `<div class="provider-card-field"><span class="provider-card-label">接口地址</span><span>${escapeHtml(p.base_url || '(默认)')}</span></div>` : ''}
-        <div class="provider-card-field"><span class="provider-card-label">能力</span><span class="provider-card-models">${capabilityTags}</span></div>
-        <div class="provider-card-field"><span class="provider-card-label">模型</span><span class="provider-card-models">${modelTags}</span></div>
-        <div class="provider-card-field"><span class="provider-card-label">max_tokens</span><span>${p.max_tokens === 0 || p.max_tokens == null ? '不限制' : escapeHtml(String(p.max_tokens))}</span></div>
+        <div class="provider-card-field"><span class="provider-card-label">${t('settings.provider.field.type')}</span><span>${typeLabel}</span></div>
+        <div class="provider-card-field"><span class="provider-card-label">${t('settings.provider.field.api_key')}</span><span class="provider-key-wrap" data-provider="${escapeHtml(name)}"><span class="provider-key-masked">••••••••••</span><span class="provider-key-value" style="display:none"></span><button class="btn-provider-show-key">${t('settings.provider.show_key')}</button></span></div>
+        ${p.type !== 'gemini' ? `<div class="provider-card-field"><span class="provider-card-label">${t('settings.provider.field.base_url')}</span><span>${escapeHtml(p.base_url || t('settings.provider.field.default_value'))}</span></div>` : ''}
+        <div class="provider-card-field"><span class="provider-card-label">${t('settings.provider.field.capabilities')}</span><span class="provider-card-models">${capabilityTags}</span></div>
+        <div class="provider-card-field"><span class="provider-card-label">${t('settings.provider.field.models')}</span><span class="provider-card-models">${modelTags}</span></div>
+        <div class="provider-card-field"><span class="provider-card-label">max_tokens</span><span>${p.max_tokens === 0 || p.max_tokens == null ? t('settings.provider.field.unlimited') : escapeHtml(String(p.max_tokens))}</span></div>
         <div class="provider-card-field"><span class="provider-card-label">timeout</span><span>${escapeHtml(String(p.timeout_sec ?? 120))}s</span></div>
         <div class="provider-test-status" data-provider="${escapeHtml(name)}"></div>
       </div>
     </div>`;
   }
 
-  html += `<div style="margin-top:12px"><button id="btn-add-provider" class="btn-primary">${icon('plus', 14)} 添加 Provider</button></div>`;
+  html += `<div style="margin-top:12px"><button id="btn-add-provider" class="btn-primary">${icon('plus', 14)} ${t('settings.provider.add')}</button></div>`;
   html += '</fieldset>';
   return html;
 }
@@ -808,81 +811,81 @@ function _showProviderModal(providersObj, name, onSave) {
   backdrop.className = 'modal';
   backdrop.style.display = 'flex';
 
-  const typeOptions = ['gemini', 'openai'].map(t =>
-    `<option value="${t}"${existing?.type === t ? ' selected' : ''}>${t === 'gemini' ? 'Gemini（支持视频分析）' : 'OpenAI 兼容（纯文本，如 DeepSeek）'}</option>`
+  const typeOptions = ['gemini', 'openai'].map(type =>
+    `<option value="${type}"${existing?.type === type ? ' selected' : ''}>${type === 'gemini' ? t('settings.provider.type.gemini_long') : t('settings.provider.type.openai_compat_long')}</option>`
   ).join('');
 
   backdrop.innerHTML = `
     <div class="modal-backdrop"></div>
     <div class="modal-dialog" style="max-width:520px">
-      <h3 style="margin:0 0 var(--space-4)">${isEdit ? '编辑 Provider' : '添加 Provider'}</h3>
+      <h3 style="margin:0 0 var(--space-4)">${isEdit ? t('settings.provider.edit_title') : t('settings.provider.add_title')}</h3>
       <div class="form-group">
-        <label class="form-label">名称 <span class="muted">（唯一标识符）</span></label>
-        <input id="modal-provider-name" class="form-input" value="${escapeHtml(name || '')}" ${isEdit ? 'readonly' : ''} placeholder="如 my-gemini">
+        <label class="form-label">${t('settings.provider.field.name')} <span class="muted">${t('settings.provider.field.name_hint')}</span></label>
+        <input id="modal-provider-name" class="form-input" value="${escapeHtml(name || '')}" ${isEdit ? 'readonly' : ''} placeholder="${t('settings.provider.field.name_placeholder')}">
       </div>
       <div class="form-group">
-        <label class="form-label">类型</label>
+        <label class="form-label">${t('settings.provider.field.type')}</label>
         <select id="modal-provider-type" class="form-input">${typeOptions}</select>
-        <span class="hint">Gemini 支持视频分析和纯文本任务；OpenAI 兼容（如 DeepSeek、通义千问）仅支持文本任务</span>
+        <span class="hint">${t('settings.provider.field.type_hint')}</span>
       </div>
       <div class="form-group">
-        <label class="form-label">API 密钥</label>
+        <label class="form-label">${t('settings.provider.field.api_key')}</label>
         <div style="display:flex;gap:8px">
-          <input id="modal-provider-key" class="form-input" type="password" placeholder="输入 API 密钥" style="flex:1">
-          <button id="modal-key-toggle" class="btn-secondary">显示</button>
+          <input id="modal-provider-key" class="form-input" type="password" placeholder="${t('settings.provider.field.key_placeholder')}" style="flex:1">
+          <button id="modal-key-toggle" class="btn-secondary">${t('settings.provider.show_key')}</button>
         </div>
-        <span class="hint">密钥将通过 .env 文件存储，不会写入 config.yaml${isEdit ? '。留空则保持现有密钥不变' : ''}</span>
+        <span class="hint">${t('settings.provider.field.key_hint')}${isEdit ? t('settings.provider.field.key_hint_edit') : ''}</span>
       </div>
       <div class="form-group" id="modal-base-url-group" style="${existing?.type === 'gemini' && !isEdit ? 'display:none' : ''}">
-        <label class="form-label">接口地址</label>
+        <label class="form-label">${t('settings.provider.field.base_url')}</label>
         <input id="modal-provider-base-url" class="form-input" value="${escapeHtml(existing?.base_url || '')}" placeholder="https://api.openai.com/v1">
-        <span class="hint">仅 OpenAI 兼容类型需要填写</span>
+        <span class="hint">${t('settings.provider.field.base_url_hint')}</span>
       </div>
       <div class="form-group">
-        <label class="form-label">模型列表 <span class="muted">（按回车添加）</span></label>
+        <label class="form-label">${t('settings.provider.field.models_label')} <span class="muted">${t('settings.provider.field.enter_to_add')}</span></label>
         <div id="modal-provider-models"></div>
-        <span class="hint">输入该厂商可用的模型名称。默认厂商已预填常用模型。这些模型将出现在项目标签页的任务绑定下拉菜单中。</span>
+        <span class="hint">${t('settings.provider.field.models_hint')}</span>
       </div>
       <div class="form-group">
-        <label class="form-label">能力标签 <span class="muted">（按回车添加）</span></label>
+        <label class="form-label">${t('settings.provider.field.capabilities_label')} <span class="muted">${t('settings.provider.field.enter_to_add')}</span></label>
         <div id="modal-provider-capabilities"></div>
-        <span class="hint">常用标签：video 表示可做视频理解，text 表示可做文本生成。</span>
+        <span class="hint">${t('settings.provider.field.capabilities_hint')}</span>
       </div>
       <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div>
           <label class="form-label">max_tokens</label>
           <input id="modal-provider-max-tokens" class="form-input" type="number" min="0" step="1"
             value="${existing?.max_tokens ?? 0}">
-          <span class="hint">0 = 不限制（推荐规划任务）</span>
+          <span class="hint">${t('settings.provider.field.max_tokens_hint')}</span>
         </div>
         <div>
           <label class="form-label">timeout_sec</label>
           <input id="modal-provider-timeout" class="form-input" type="number" min="0" step="1"
             value="${existing?.timeout_sec ?? 120}">
-          <span class="hint">HTTP 超时（秒）</span>
+          <span class="hint">${t('settings.provider.field.timeout_hint')}</span>
         </div>
         <div>
           <label class="form-label">retry_attempts</label>
           <input id="modal-provider-retry" class="form-input" type="number" min="0" step="1"
             value="${existing?.retry_attempts ?? 2}">
-          <span class="hint">额外重试次数</span>
+          <span class="hint">${t('settings.provider.field.retry_hint')}</span>
         </div>
         <div>
           <label class="form-label">requests_per_minute</label>
           <input id="modal-provider-rpm" class="form-input" type="number" min="0" step="1"
             value="${existing?.requests_per_minute ?? 0}">
-          <span class="hint">0 = 不限速</span>
+          <span class="hint">${t('settings.provider.field.rpm_hint')}</span>
         </div>
         <div id="modal-poll-group" style="${(existing?.type || 'gemini') === 'gemini' ? '' : 'display:none'}">
           <label class="form-label">poll_interval_sec</label>
           <input id="modal-provider-poll" class="form-input" type="number" min="0" step="1"
             value="${existing?.poll_interval_sec ?? 5}">
-          <span class="hint">Gemini 文件轮询间隔</span>
+          <span class="hint">${t('settings.provider.field.poll_hint')}</span>
         </div>
       </div>
       <div class="modal-actions">
-        <button id="modal-cancel" class="btn-secondary">取消</button>
-        <button id="modal-save" class="btn-primary">${isEdit ? '保存修改' : '添加'}</button>
+        <button id="modal-cancel" class="btn-secondary">${t('common.cancel')}</button>
+        <button id="modal-save" class="btn-primary">${isEdit ? t('settings.provider.save_edit') : t('settings.provider.modal_add')}</button>
       </div>
     </div>
   `;
@@ -924,7 +927,7 @@ function _showProviderModal(providersObj, name, onSave) {
   backdrop.querySelector('#modal-key-toggle').onclick = () => {
     const isPwd = keyInput.type === 'password';
     keyInput.type = isPwd ? 'text' : 'password';
-    backdrop.querySelector('#modal-key-toggle').textContent = isPwd ? '隐藏' : '显示';
+    backdrop.querySelector('#modal-key-toggle').textContent = isPwd ? t('settings.provider.hide_key') : t('settings.provider.show_key');
   };
 
   // Save
@@ -945,11 +948,11 @@ function _showProviderModal(providersObj, name, onSave) {
     const newRpm = parseNum('#modal-provider-rpm', 0);
     const newPoll = parseNum('#modal-provider-poll', 5);
 
-    if (!newName) { setStatus('请填写 Provider 名称', 'warn'); return; }
-    if (isEdit && newName !== name) { setStatus('名称不可修改（如需重命名请删除后重建）', 'warn'); return; }
-    if (!isEdit && providersObj[newName]) { setStatus(`Provider "${newName}" 已存在`, 'warn'); return; }
+    if (!newName) { setStatus(t('settings.provider.name_required'), 'warn'); return; }
+    if (isEdit && newName !== name) { setStatus(t('settings.provider.name_immutable'), 'warn'); return; }
+    if (!isEdit && providersObj[newName]) { setStatus(t('settings.provider.name_exists', { name: newName }), 'warn'); return; }
     if (newMaxTokens < 0 || newTimeout < 0 || newRetry < 0 || newRpm < 0 || newPoll < 0) {
-      setStatus('数值字段不能为负数', 'warn');
+      setStatus(t('settings.provider.negative_numbers'), 'warn');
       return;
     }
 
@@ -970,8 +973,8 @@ function _showProviderModal(providersObj, name, onSave) {
         }
         if (!found) lines.push(`${envNameEnv}=${newKey}`);
         const envResult = await api('PUT', '/api/env', { content: lines.join('\n') });
-        if (!envResult.ok) { setStatus('API 密钥保存失败: ' + (envResult.error || ''), 'err'); return; }
-      } catch (e) { setStatus('API 密钥保存失败: ' + e.message, 'err'); return; }
+        if (!envResult.ok) { setStatus(t('settings.provider.key_save_failed', { detail: envResult.error || '' }), 'err'); return; }
+      } catch (e) { setStatus(t('settings.provider.key_save_failed', { detail: e.message }), 'err'); return; }
     }
 
     const envName = providerEnvName(newName);
@@ -1027,13 +1030,13 @@ function _escapeCssAttributeValue(value) {
 
 function _chooseProviderTestModel(provider) {
   const models = provider?.models || [];
-  if (models.length === 0) return { ok: false, error: '请先添加模型' };
+  if (models.length === 0) return { ok: false, error: t('settings.provider.test_need_models') };
   if (models.length === 1) return { ok: true, model: models[0] };
 
-  const selected = prompt(`请选择要测试的模型：\n${models.join('\n')}`, models[0]);
-  if (selected === null) return { ok: false, error: '已取消测试', canceled: true };
+  const selected = prompt(`${t('settings.provider.test_pick_model')}\n${models.join('\n')}`, models[0]);
+  if (selected === null) return { ok: false, error: t('settings.provider.test_canceled'), canceled: true };
   const model = selected.trim();
-  if (!models.includes(model)) return { ok: false, error: '请选择有效模型' };
+  if (!models.includes(model)) return { ok: false, error: t('settings.provider.test_invalid_model') };
   return { ok: true, model };
 }
 
@@ -1060,25 +1063,25 @@ export function _attachProviderListHandlers(pane, providersObj) {
       btn.disabled = true;
       if (status) {
         status.className = 'provider-test-status';
-        status.textContent = '测试中...';
+        status.textContent = t('settings.provider.testing');
       }
       try {
         const result = await _testProvider(providersObj, providerName);
         if (result?.canceled) {
-          const message = result.error || '已取消测试';
+          const message = result.error || t('settings.provider.test_canceled');
           if (status) status.textContent = message;
           void setStatus(message, 'warn');
           return;
         }
         if (result?.ok) {
-          const message = `测试成功：${result.elapsed_ms ?? '?'} ms`;
+          const message = t('settings.provider.test_ok', { ms: result.elapsed_ms ?? '?' });
           if (status) {
             status.className = 'provider-test-status ok';
             status.textContent = message;
           }
           void setStatus(message, 'ok');
         } else {
-          const message = '测试失败：' + (result?.error || '未知错误');
+          const message = t('settings.provider.test_failed', { detail: result?.error || t('common.unknown_error') });
           if (status) {
             status.className = 'provider-test-status err';
             status.textContent = message;
@@ -1086,7 +1089,7 @@ export function _attachProviderListHandlers(pane, providersObj) {
           void setStatus(message, 'err');
         }
       } catch (e) {
-        const message = '测试失败：' + (e.message || e);
+        const message = t('settings.provider.test_failed', { detail: e.message || e });
         if (status) {
           status.className = 'provider-test-status err';
           status.textContent = message;
@@ -1114,16 +1117,16 @@ export function _attachProviderListHandlers(pane, providersObj) {
       const defaultTasks = state.configGlobal?.ai?.default_tasks || {};
       const refs = [
         ...Object.entries(projectTasks)
-          .filter(([_, t]) => t.provider === name)
-          .map(([k]) => `项目:${k}`),
+          .filter(([_, task]) => task.provider === name)
+          .map(([k]) => t('settings.provider.ref_project', { name: k })),
         ...Object.entries(defaultTasks)
-          .filter(([_, t]) => t.provider === name)
-          .map(([k]) => `全局默认:${k}`),
+          .filter(([_, task]) => task.provider === name)
+          .map(([k]) => t('settings.provider.ref_global', { name: k })),
       ];
       if (refs.length > 0) {
-        if (!confirm(`以下任务正在使用 "${name}"：${refs.join('、')}。确定删除？删除后这些任务将无法运行。`)) return;
+        if (!confirm(t('settings.provider.delete_in_use', { name, refs: refs.join(t('common.list_separator')) }))) return;
       } else {
-        if (!confirm(`确定删除 Provider "${name}"？`)) return;
+        if (!confirm(t('settings.provider.delete_confirm', { name }))) return;
       }
       delete providersObj[name];
       markDirty();
@@ -1148,7 +1151,7 @@ export function _attachProviderListHandlers(pane, providersObj) {
       if (isVisible) {
         value.style.display = 'none';
         masked.style.display = '';
-        btn.textContent = '显示';
+        btn.textContent = t('settings.provider.show_key');
       } else {
         if (!value.textContent) {
           const providerName = wrap.dataset.provider;
@@ -1164,14 +1167,14 @@ export function _attachProviderListHandlers(pane, providersObj) {
                 break;
               }
             }
-            if (!found) { setStatus(`未找到 ${envName}`, 'warn'); return; }
+            if (!found) { setStatus(t('settings.provider.env_not_found', { name: envName }), 'warn'); return; }
           } catch {
-            setStatus('无法读取 .env 文件', 'err'); return;
+            setStatus(t('settings.env.read_failed'), 'err'); return;
           }
         }
         value.style.display = '';
         masked.style.display = 'none';
-        btn.textContent = '隐藏';
+        btn.textContent = t('settings.provider.hide_key');
       }
     };
   });
@@ -1228,7 +1231,7 @@ function _attachTaskBindingHandlers(pane, cfg, opts = {}) {
   if (gotoBtn) {
     gotoBtn.onclick = (e) => {
       e.preventDefault();
-      if (state.dirty && !confirm('设置有未保存的修改，确定切换标签吗？')) return;
+      if (state.dirty && !confirm(t('settings.dirty_switch_confirm'))) return;
       state.configTab = 'global';
       clearDirty();
       renderConfig();
@@ -1238,7 +1241,7 @@ function _attachTaskBindingHandlers(pane, cfg, opts = {}) {
   pane.querySelectorAll('.edit-provider-link').forEach(link => {
     link.onclick = (e) => {
       e.preventDefault();
-      if (state.dirty && !confirm('设置有未保存的修改，确定切换标签吗？')) return;
+      if (state.dirty && !confirm(t('settings.dirty_switch_confirm'))) return;
       const pName = link.dataset.provider;
       state.configTab = 'global';
       clearDirty();
@@ -1362,9 +1365,9 @@ function _attachContextTemplate(pane) {
     const btn = document.createElement('button');
     btn.className = 'btn-primary';
     btn.style.cssText = 'margin-top:6px;font-size:var(--text-sm);padding:5px 12px;';
-    btn.innerHTML = `${icon('plus', 14)} 添加默认模板`;
+    btn.innerHTML = `${icon('plus', 14)} ${t('settings.ai_context.add_template')}`;
     btn.onclick = () => {
-      const template = '## 项目背景\n- 拍摄地点：[填写拍摄地点]\n- 行程安排：[填写行程安排]\n- 人物/事件：[填写人物或事件]\n- 注意事项：[填写注意事项]\n\n请根据以上信息调整 AI 的分析和口播生成方向。';
+      const template = t('settings.ai_context.template');
       ctxTextarea.value = template;
       setDeep(state.configProject, 'ai.context', template);
       markDirty();

@@ -84,7 +84,8 @@ Each row is one commit; focused tests must pass before the next row starts.
 | 7b | fix(ui) | Re-render sidebar copy when the locale changes |
 | 8a | feat(ui) | Bind the static `index.html` shell to `data-i18n` attributes |
 | 8b | feat(ui) | Localize `runner.js` and `main.js` |
-| 8c | feat(ui) | Localize `editor-config.js` (prompts, providers, model management) |
+| 8c | feat(ui) | Localize `editor-config.js` prompts, providers and task bindings |
+| 8c2 | feat(ui) | Localize `editor-config.js` token stats and Whisper model management |
 | 8d | feat(ui) | Localize `editor-plan.js` and plan editing helpers |
 | 8e | feat(ui) | Localize `editor-texts.js` and the remaining editor modules |
 | 9 | feat(i18n) | Localize backend route/task user-facing messages |
@@ -105,7 +106,8 @@ Each row is one commit; focused tests must pass before the next row starts.
 | 2026-10-22 | 7b sidebar locale re-render | Done |
 | 2026-10-22 | 8a `index.html` shell | Done |
 | 2026-10-22 | 8b `runner.js` / `main.js` | Done |
-| 2026-10-22 | 8c-8e, 9-11 | Pending |
+| 2026-10-22 | 8c `editor-config.js` providers / prompts | Done |
+| 2026-10-22 | 8c2, 8d-8e, 9-11 | Pending |
 
 ## Remaining-String Baseline (2026-10-22)
 

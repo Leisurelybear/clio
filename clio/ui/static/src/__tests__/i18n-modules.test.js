@@ -11,6 +11,7 @@ import { pickerTitle } from '../file-browser.js';
 import { transcriptionEngineLabel, transcriptionReadinessPrompt } from '../transcription-status.js';
 import { buildVideoMenuItems } from '../video-menu.js';
 import { renderSubtitleSettingsPanel } from '../subtitle-settings.js';
+import { _renderPromptManagement, _renderProviderList, _renderTaskBinding } from '../editor-config.js';
 
 afterEach(() => applyLocale('zh-CN'));
 
@@ -99,5 +100,29 @@ describe('localized module copy', () => {
     applyLocale('zh-CN');
     expect(historyStatusText({ name: '2026-07-20-22.log', logs: [1, 2], truncated: true }))
       .toBe('2026-07-20 22:00 \u00b7 2 \u884c \u00b7 \u4ec5\u663e\u793a\u6587\u4ef6\u672b\u5c3e');
+  });
+
+  it('localizes the provider list, task binding and prompt management copy', () => {
+    const providers = {
+      gemini: { type: 'gemini', models: ['gemini-2.5-flash'], capabilities: ['video', 'text'] },
+    };
+
+    applyLocale('en');
+    const enProviders = _renderProviderList(providers);
+    expect(enProviders).toContain('Add provider');
+    expect(enProviders).toContain('API key');
+    expect(_renderTaskBinding({}, providers)).toContain('Follow video analysis');
+    const enPrompts = _renderPromptManagement({
+      prompts: [{ name: 'ANALYZE_PROMPT', content: 'x', has_override: false }],
+    });
+    expect(enPrompts).toContain('Video analysis');
+    expect(enPrompts).toContain('Save override');
+
+    applyLocale('zh-CN');
+    expect(_renderProviderList(providers)).toContain('\u6dfb\u52a0 Provider');
+    expect(_renderTaskBinding({}, providers)).toContain('\u8ddf\u968f\u89c6\u9891\u5206\u6790');
+    expect(_renderPromptManagement({
+      prompts: [{ name: 'ANALYZE_PROMPT', content: 'x', has_override: false }],
+    })).toContain('\u4fdd\u5b58\u8986\u76d6');
   });
 });

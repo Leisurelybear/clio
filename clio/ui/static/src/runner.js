@@ -245,7 +245,7 @@ function renderRunPreviewHtml(preview) {
   const steps = Array.isArray(preview.steps) ? preview.steps : [];
   const preflight = preview.preflight;
   const missing = Array.isArray(preflight?.missing) ? preflight.missing : [];
-  const separator = t('run.list_separator');
+  const separator = t('common.list_separator');
   const preflightLine = preflight && preflight.ok === false
     ? `<p class="err run-preflight-error">${t('run.preview.preflight_error', { detail: escapeHtml(preflight.detail || t('run.preview.step_unrunnable')) })}\n` +
       `${missing.length ? t('run.preview.missing', { items: escapeHtml(missing.join(separator)) }) : ''}</p>`
@@ -285,7 +285,7 @@ export function formatRunStartError(error) {
   const preflight = error?.body?.code === 'media_dependency_missing' ? error.body.preflight : null;
   const detail = preflight?.detail || error?.body?.error || error?.message || t('run.start_failed');
   const missing = Array.isArray(preflight?.missing) && preflight.missing.length
-    ? t('run.start_failed_missing', { items: preflight.missing.join(t('run.list_separator')) })
+    ? t('run.start_failed_missing', { items: preflight.missing.join(t('common.list_separator')) })
     : '';
   return `${detail}${missing}`;
 }
@@ -357,7 +357,7 @@ async function startRun() {
   }
   const missingMediaDeps = missingMediaDepsForSteps(options.steps, state.deps);
   if (state.deps && state.deps.ok === false && missingMediaDeps.length > 0) {
-    const msg = state.deps.detail || t('run.deps_required', { items: missingMediaDeps.join(t('run.list_separator')) });
+    const msg = state.deps.detail || t('run.deps_required', { items: missingMediaDeps.join(t('common.list_separator')) });
     setStatus(msg, 'warn');
     addToast(msg, 'warning', 6000, { persist: false });
     updateRunStartButtonState();
