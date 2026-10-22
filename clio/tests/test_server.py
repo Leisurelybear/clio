@@ -39,6 +39,7 @@ def test_builtin_task_handlers_are_registered_for_cold_start(tmp_path):
         TaskKind.RERUN,
         TaskKind.CUT_EXPORT,
         TaskKind.EXPORT,
+        TaskKind.FFMPEG_INSTALL,
         TaskKind.WHISPER_INSTALL,
         TaskKind.WAVEFORM,
     }

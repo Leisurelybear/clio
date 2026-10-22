@@ -217,7 +217,16 @@ function Find-FFmpegBin {
 $ffmpegBin = Find-FFmpegBin
 if (-not $ffmpegBin) {
     Write-Host "[3/4] 未检测到 ffmpeg，尝试通过 winget 安装..."
-    winget install --id Gyan.FFmpeg -e --accept-package-agreements --accept-source-agreements 2>$null
+    $winget = Get-Command winget -ErrorAction SilentlyContinue
+    if ($winget) {
+        try {
+            & $winget.Source install --id Gyan.FFmpeg -e --accept-package-agreements --accept-source-agreements 2>$null
+        } catch {
+            Write-Host "     winget 安装失败，继续尝试静态构建: $_" -ForegroundColor DarkYellow
+        }
+    } else {
+        Write-Host "     未找到 winget，跳过包管理器安装。" -ForegroundColor DarkYellow
+    }
     # winget may not refresh PATH in the current process; probe known link/package locations.
     $ffmpegBin = Find-FFmpegBin
 }

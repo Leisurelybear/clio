@@ -65,7 +65,7 @@ describe('ffmpeg install dialog', () => {
       listener = callback;
       return () => { stopped = true; };
     });
-    const refreshDeps = vi.fn(async () => {});
+    const refreshDeps = vi.fn(async () => ({ ok: true }));
     const dialog = openFfmpegInstallDialog({ platform: 'win32', refreshDeps });
     await dialog.ready;
 
@@ -84,6 +84,51 @@ describe('ffmpeg install dialog', () => {
     expect(addToast).toHaveBeenCalledWith('ffmpeg / ffprobe 安装完成', 'success');
     dialog.close();
     expect(stopped).toBe(true);
+  });
+
+  it('does not report success when the post-install probe still fails', async () => {
+    let listener;
+    api.mockResolvedValueOnce({ status: 'idle', running: false, automatic: true, platform: 'win32' });
+    api.mockResolvedValueOnce({ ok: true, task_id: 'task-2' });
+    subscribeTask.mockImplementation((_id, callback) => {
+      listener = callback;
+      return () => {};
+    });
+    const refreshDeps = vi.fn(async () => ({ ok: false }));
+    const dialog = openFfmpegInstallDialog({ platform: 'win32', refreshDeps });
+    await dialog.ready;
+
+    document.querySelector('#ffi-start').click();
+    await flush();
+    listener({ task: { id: 'task-2', status: 'succeeded', progress_pct: 100 } });
+    await flush();
+
+    expect(refreshDeps).toHaveBeenCalled();
+    expect(addToast).not.toHaveBeenCalled();
+    expect(document.querySelector('#ffi-status').textContent).toContain('仍无法解析');
+    dialog.close();
+  });
+
+  it('applies an already-running task to the dialog immediately', async () => {
+    api.mockResolvedValueOnce({
+      status: 'running',
+      running: true,
+      task_id: 'task-9',
+      progress_pct: 42,
+      message: 'Downloading',
+      cancellable: true,
+      automatic: true,
+      platform: 'win32',
+    });
+    const subscribe = vi.fn(() => () => {});
+    const dialog = openFfmpegInstallDialog({ platform: 'win32', subscribe });
+    await dialog.ready;
+
+    expect(document.querySelector('#ffi-start').disabled).toBe(true);
+    expect(document.querySelector('#ffi-cancel').style.display).toBe('');
+    expect(Number(document.querySelector('#ffi-progress').value)).toBe(42);
+    expect(subscribe).toHaveBeenCalledWith('task-9', expect.any(Function));
+    dialog.close();
   });
 
   it('disables automatic install when the backend reports no verified build', async () => {

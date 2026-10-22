@@ -106,7 +106,7 @@ export function openFfmpegInstallDialog(options = {}) {
   const apiFn = options.apiFn || api;
   const subscribe = options.subscribe || subscribeTask;
   const toast = options.toast || addToast;
-  const refreshDeps = options.refreshDeps || (async () => {});
+  const refreshDeps = options.refreshDeps || (async () => ({ ok: false }));
   let platform = options.platform || detectPlatform();
   let taskId = null;
   let stopTask = null;
@@ -190,10 +190,13 @@ export function openFfmpegInstallDialog(options = {}) {
       startButton.textContent = '重新检测';
       cancelButton.style.display = 'none';
       setStatus('安装完成，正在重新检测…', 'ok');
-      Promise.resolve(refreshDeps()).then(() => {
-        if (!closed) {
+      Promise.resolve(refreshDeps()).then((deps) => {
+        if (closed) return;
+        if (deps?.ok === true) {
           setStatus('ffmpeg / ffprobe 已安装并通过检测。', 'ok');
           toast('ffmpeg / ffprobe 安装完成', 'success');
+        } else {
+          setStatus('安装完成，但当前配置路径仍无法解析 ffmpeg/ffprobe，请检查路径设置。', 'error');
         }
       }).catch(() => {
         if (!closed) setStatus('安装完成，但重新检测失败，请点击「重新检测」重试。', 'error');
@@ -233,8 +236,8 @@ export function openFfmpegInstallDialog(options = {}) {
       startButton.disabled = true;
       setStatus('正在重新检测…');
       try {
-        await refreshDeps();
-        setStatus('检测完成。', 'ok');
+        const deps = await refreshDeps();
+        setStatus(deps?.ok === true ? '检测完成。' : '仍未检测到可用的 ffmpeg/ffprobe。', deps?.ok === true ? 'ok' : 'error');
       } catch (error) {
         setStatus(`重新检测失败：${error.message}`, 'error');
       } finally {
@@ -288,8 +291,8 @@ export function openFfmpegInstallDialog(options = {}) {
     $id('ffi-reprobe').disabled = true;
     setStatus('正在重新检测…');
     try {
-      await refreshDeps();
-      setStatus('检测完成。', 'ok');
+      const deps = await refreshDeps();
+      setStatus(deps?.ok === true ? '检测完成。' : '仍未检测到可用的 ffmpeg/ffprobe。', deps?.ok === true ? 'ok' : 'error');
     } catch (error) {
       setStatus(`重新检测失败：${error.message}`, 'error');
     } finally {
@@ -315,10 +318,7 @@ export function openFfmpegInstallDialog(options = {}) {
       setAutomatic(current?.automatic !== false);
       appendGuidance($id('ffi-manual-body'), platform);
       if (current?.running && current.task_id) {
-        setStatus(current.message || taskStatusText(current));
-        progressBox.style.display = 'block';
-        progress.value = String(taskProgress(current));
-        percent.textContent = `${Math.round(taskProgress(current))}%`;
+        updateTask({ ...current, id: current.task_id });
         attachTask(current.task_id);
       }
     })

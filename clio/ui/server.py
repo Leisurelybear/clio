@@ -53,6 +53,7 @@ from clio.ui.routes.config_routes import (
     handle_put_provider,
 )
 from clio.ui.routes.deps import (
+    _ensure_ffmpeg_install_handler,
     handle_get_deps_ffmpeg,
     handle_get_deps_ffmpeg_install_status,
     handle_get_deps_keys,
@@ -174,6 +175,7 @@ def register_builtin_task_handlers(manager: TaskManager) -> None:
 
     _ensure_run_handlers(manager)
     _ensure_cut_handler(manager)
+    _ensure_ffmpeg_install_handler(manager)
     _ensure_whisper_handler(manager)
     _ensure_waveform_handler(manager)
     _ensure_export_handler(manager)

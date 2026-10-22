@@ -88,6 +88,7 @@ if command -v ffmpeg >/dev/null 2>&1 && command -v ffprobe >/dev/null 2>&1; then
     echo "ffmpeg 已就绪：$(command -v ffmpeg)"
 else
     echo "未检测到完整 ffmpeg/ffprobe，尝试使用系统包管理器安装..."
+    ffmpeg_download_supported=1
     case "$(uname -s)" in
         Linux)
             if command -v apt-get >/dev/null 2>&1; then
@@ -103,6 +104,7 @@ else
             fi
             ;;
         Darwin)
+            ffmpeg_download_supported=0
             if command -v brew >/dev/null 2>&1; then
                 brew install ffmpeg || true
             else
@@ -110,14 +112,19 @@ else
             fi
             ;;
         *)
+            ffmpeg_download_supported=0
             echo "当前系统未适配自动安装 ffmpeg，请手动安装：https://ffmpeg.org/download.html" >&2
             ;;
     esac
     if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
-        if .venv/bin/python -m clio.ffmpeg_install --mode download; then
-            export PATH="$HOME/.local/share/clio/ffmpeg:$PATH"
+        if [[ "$ffmpeg_download_supported" -eq 1 ]]; then
+            if .venv/bin/python -m clio.ffmpeg_install --mode download; then
+                export PATH="$HOME/.local/share/clio/ffmpeg:$PATH"
+            else
+                echo "自动安装 ffmpeg 失败，请手动安装：https://ffmpeg.org/download.html" >&2
+            fi
         else
-            echo "自动安装 ffmpeg 失败，请手动安装：https://ffmpeg.org/download.html" >&2
+            echo "当前平台不支持自动下载 ffmpeg，请按上方说明手动安装。" >&2
         fi
     fi
 fi
