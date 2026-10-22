@@ -123,6 +123,14 @@ class TestHandlePutProject:
 
 
 class TestHandlePostProjectCreate:
+    def test_non_string_fields_return_400(self):
+        handler = MagicMock()
+        handler._send_json = MagicMock()
+
+        handle_post_project_create(handler, {"name": 1, "project_dir": {"path": "x"}})
+
+        assert handler._send_json.call_args[0][1] == 400
+
     def test_missing_name(self):
         handler = MagicMock()
         handler._send_json = MagicMock()
@@ -199,6 +207,14 @@ class TestHandlePostProjectCreate:
 
 
 class TestHandlePostProjectAdd:
+    def test_non_string_project_dir_returns_400(self):
+        handler = MagicMock()
+        handler._send_json = MagicMock()
+
+        handle_post_project_add(handler, {"project_dir": 123})
+
+        assert handler._send_json.call_args[0][1] == 400
+
     def test_missing_input_dir(self):
         handler = MagicMock()
         handler._send_json = MagicMock()
@@ -236,6 +252,16 @@ class TestHandlePostProjectAdd:
 
 
 class TestHandlePostProjectMigrate:
+    def test_non_string_project_dir_returns_400(self, tmp_path: Path):
+        from clio.ui.routes.projects import handle_post_project_migrate
+
+        handler = MagicMock()
+        handler.config_path = tmp_path / "config.yaml"
+        handler.config_path.write_text("paths: {}\n", encoding="utf-8")
+        handler._send_json = MagicMock()
+        handle_post_project_migrate(handler, {"project_dir": 123})
+        assert handler._send_json.call_args[0][1] == 400
+
     def test_requires_project_dir(self, tmp_path: Path):
         from clio.ui.routes.projects import handle_post_project_migrate
 
@@ -297,6 +323,13 @@ class TestProjectCreateVideosJson:
 
 
 class TestHandlePostProjectRemove:
+    def test_non_string_fields_return_400(self, tmp_path: Path):
+        from clio.ui.routes.projects import handle_post_project_remove
+
+        handler = self._handler(tmp_path)
+        handle_post_project_remove(handler, {"name": 123})
+        assert handler._send_json.call_args[0][1] == 400
+
     def _handler(self, tmp_path: Path) -> MagicMock:
         handler = MagicMock()
         cfg = tmp_path / "config.yaml"

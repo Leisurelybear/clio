@@ -23,6 +23,10 @@ if TYPE_CHECKING:
     from clio.ui.handler_protocol import HandlerProtocol
 
 
+def _clean_text(value: object) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
 def handle_get_project(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     """Handle GET /api/project. Read-only: does NOT modify the registry."""
     proj_dir = handler._resolve_project_dir(qs)
@@ -42,8 +46,9 @@ def handle_get_project(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
 def handle_post_project_select(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
     """Handle POST /api/project/select. Records the project as last-used."""
     qs_project = obj.get("project") or qs.get("project", [None])[0]
-    if not qs_project:
+    if not isinstance(qs_project, str) or not qs_project.strip():
         return handler._send_json({"ok": False, "error": "missing project"}, 400)
+    qs_project = qs_project.strip()
     proj_dir = handler._resolve_project_dir(qs)
     config_path = handler.config_path
     try:
@@ -117,9 +122,9 @@ def handle_post_project_create(handler: HandlerProtocol, obj: dict) -> None:
     """Handle POST /api/project/create."""
     config_path = handler.config_path
 
-    name = (obj.get("name") or "").strip()
-    project_dir_raw = (obj.get("project_dir") or obj.get("input_dir") or "").strip()
-    output_dir_raw = (obj.get("output_dir") or "").strip()
+    name = _clean_text(obj.get("name"))
+    project_dir_raw = _clean_text(obj.get("project_dir")) or _clean_text(obj.get("input_dir"))
+    output_dir_raw = _clean_text(obj.get("output_dir"))
     if not name:
         return handler._send_json({"ok": False, "error": "name is required"}, 400)
     if not project_dir_raw:
@@ -171,7 +176,7 @@ def handle_post_project_add(handler: HandlerProtocol, obj: dict) -> None:
     """Handle POST /api/project/add."""
     config_path = handler.config_path
 
-    project_dir_raw = (obj.get("project_dir") or obj.get("input_dir") or "").strip()
+    project_dir_raw = _clean_text(obj.get("project_dir")) or _clean_text(obj.get("input_dir"))
     if not project_dir_raw:
         return handler._send_json({"ok": False, "error": "project_dir is required"}, 400)
     input_path = Path(project_dir_raw)
@@ -229,8 +234,8 @@ def handle_post_project_remove(handler: HandlerProtocol, obj: dict) -> None:
     (GAP-P2-13).
     """
     config_path = handler.config_path
-    project_name = (obj.get("name") or "").strip()
-    input_dir_raw = (obj.get("project_dir") or obj.get("input_dir") or "").strip()
+    project_name = _clean_text(obj.get("name"))
+    input_dir_raw = _clean_text(obj.get("project_dir")) or _clean_text(obj.get("input_dir"))
     if not project_name and not input_dir_raw:
         return handler._send_json({"ok": False, "error": "需要 project_dir 或唯一的 name"}, 400)
 
@@ -309,7 +314,7 @@ def handle_post_project_migrate(handler: HandlerProtocol, obj: dict) -> None:
     if not config_path:
         return handler._send_json({"ok": False, "error": "config_path not available"}, 500)
 
-    project_dir_raw = (obj.get("project_dir") or obj.get("input_dir") or "").strip()
+    project_dir_raw = _clean_text(obj.get("project_dir")) or _clean_text(obj.get("input_dir"))
     if not project_dir_raw:
         return handler._send_json({"ok": False, "error": "project_dir is required"}, 400)
     project_path = Path(project_dir_raw)
