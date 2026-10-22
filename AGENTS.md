@@ -227,6 +227,11 @@ Provider management is a frontend-only experience - no new backend APIs needed:
   than deleting the guard.
 - `clio/pipeline.py` and `clio/ui/services/run_preview.py` share the `run.step.<name>.label` keys.
   Do not reintroduce a private step-label dict.
+- The header language button (`#btn-lang` in `index.html`, `ui/static/src/language-switcher.js`)
+  sits next to the theme toggle and is the quick entry point for `ui.language`. It cycles the
+  shipped locales, applies the switch immediately, and persists through `PUT /api/config/global`.
+  It never sends unsaved settings edits: while the config form is dirty it reads the on-disk
+  global config instead, and a failed write only warns (the live switch stays).
 
 ## 5. User Preferences
 

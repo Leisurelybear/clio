@@ -3,6 +3,7 @@ import { $, $$, escapeHtml, setStatus, updateSidebarDay, clearDirty } from './ut
 import { api, submitToken } from './api.js';
 import { initLayout } from './layout.js';
 import { initTheme, toggleTheme } from './theme.js';
+import { initLanguageSwitcher } from './language-switcher.js';
 import { pickFolder, pickFile, applyPickToInput, initDesktopPickers } from './desktop-pick.js';
 import { addToast } from './toast.js';
 import { updateRuntimeWarnings } from './runtime-warnings.js';
@@ -470,6 +471,7 @@ async function init() {
   }
   $('btn-reveal-project')?.addEventListener('click', revealProjectDir);
   document.getElementById('btn-theme').onclick = toggleTheme;
+  initLanguageSwitcher();
   $('btn-save').onclick = save;
   document.getElementById('btn-select-videos').addEventListener('click', toggleSelection);
   document.getElementById('btn-add-videos').addEventListener('click', () => import('./sidebar-video-manage.js').then(m => m.openVideoManager()));

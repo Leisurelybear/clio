@@ -93,6 +93,7 @@ Each row is one commit; focused tests must pass before the next row starts.
 | 9b2+9c+9d | feat(i18n) | Localize the remaining `clio/tasks/**`, core modules (analyze, transcribe, cut, plan, export, ai, asr) and infra copy (log, progress, ratelimit, shutdown, desktop, pipeline) |
 | 10 | test(i18n) | Remaining-string inventory + parity guards (Python + Vitest) |
 | 11 | docs | README language switch, AGENTS.md conventions, ROADMAP/CHANGELOG |
+| 12 | feat(ui) | Header language switcher next to the theme toggle |
 
 ## Progress Log
 
@@ -117,6 +118,7 @@ Each row is one commit; focused tests must pass before the next row starts.
 | 2026-10-23 | 9b2+9c+9d remaining backend copy (tasks, core, ai/asr, config, infra) | Done (one commit) |
 | 2026-10-23 | 10 inventory guards (pytest + Vitest) | Done |
 | 2026-10-23 | 11 docs (README/README.en, AGENTS.md 4.12, ROADMAP, CHANGELOG, CLIO_LANG) | Done |
+| 2026-10-23 | 12 header language switcher | Done |
 
 ## Remaining-String Baseline (2026-10-22)
 

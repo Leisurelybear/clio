@@ -251,6 +251,17 @@ header > * { -webkit-app-region: no-drag; }
 .btn-icon:hover { background: var(--bg-hover); color: var(--text-primary); border-color: var(--border); }
 .btn-icon:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
 
+.lang-button {
+  width: auto;
+  min-width: 30px;
+  padding: 5px 8px;
+}
+.lang-button-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
 .notification-shell { position: relative; }
 .notification-button { position: relative; }
 .notification-button.has-unread { color: var(--text-primary); }
