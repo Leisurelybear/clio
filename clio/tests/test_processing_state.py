@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 from clio.processing_state import ProcessingState
@@ -69,3 +70,18 @@ class TestProcessingState:
         data1["files"]["GL010683"]["compress"] = "modified"
         data2 = state.get_state()
         assert data2["files"]["GL010683"]["compress"] == "done"
+
+    def test_background_flush_survives_transient_write_failure(self, tmp_path: Path, monkeypatch):
+        state = ProcessingState(tmp_path, flush_interval_sec=0.0)
+        state.mark("GL010683", "compress", "done")
+        state._dirty = True
+        state._flush_timer = threading.Timer(0, lambda: None)
+
+        def _boom() -> None:
+            raise OSError("transient failure")
+
+        monkeypatch.setattr(state, "_flush_locked", _boom)
+
+        state._flush_sleeper()
+
+        assert state._dirty is True

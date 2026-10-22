@@ -114,7 +114,14 @@ class ProcessingState:
                 return
             self._flush_timer = None
             if self._dirty:
-                self._flush_locked()
+                try:
+                    self._flush_locked()
+                except OSError:
+                    # Best-effort background flush: a transient write failure (locked or
+                    # delete-pending directory on Windows) must not kill this thread or
+                    # surface as an unhandled thread exception. State stays dirty, so the
+                    # next mark()/flush() retries.
+                    pass
 
     def flush(self) -> None:
         with self._lock:
