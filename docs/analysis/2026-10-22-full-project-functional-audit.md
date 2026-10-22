@@ -1,6 +1,6 @@
 # 2026-10-22 全域功能审计与增量修复记录
 
-> 状态：进行中。本文档随审计、修复和验证实时更新。
+> 状态：已完成（自动化审计范围）。外部服务、真实媒体和桌面窗口仍保留实机验证项。
 >
 > 范围：CLI、配置、媒体处理、AI/ASR、任务中心、HTTP/Web UI、桌面壳、导出、日志/通知、打包与发布文档。
 >
@@ -43,18 +43,18 @@ mypy --check-untyped-defs --show-error-codes
 
 | 功能域 | 主要入口 | 审查状态 | 备注 |
 |---|---|---|---|
-| CLI 参数与项目选择 | `clio/main.py` | 已核查 | 发现 token、export、显式项目路径问题 |
-| 配置加载/校验/迁移 | `clio/config/*`、配置路由 | 已核查 | 默认 provider 删除保护待后端核验 |
+| CLI 参数与项目选择 | `clio/main.py` | 已核查 | token、export、显式项目路径、force/refine 参数已修复并冒烟 |
+| 配置加载/校验/迁移 | `clio/config/*`、配置路由 | 已核查 | provider 删除保护、类型校验、损坏注册表降级已覆盖 |
 | 压缩与媒体身份 | `compress.py`、`identity.py`、`vmeta.py` | 已核查 | ffmpeg/ffprobe 调用与 sidecar 契约 |
-| 分析/口播/规划/refine | `tasks/*`、`pipeline.py`、`prompts.py` | 待深入 | AI 外部响应仅按 mock/错误分支核查 |
-| ASR（本地/阿里云） | `asr/*`、`transcribe.py` | 待深入 | 真实模型和云端上传为实机待验 |
+| 分析/口播/规划/refine | `tasks/*`、`pipeline.py`、`prompts.py` | 已核查 | AI 外部响应按 mock/错误分支核查；真实调用待实机验证 |
+| ASR（本地/阿里云） | `asr/*`、`transcribe.py` | 已核查 | 真实模型和云端上传待实机验证 |
 | 裁剪/导出 | `cut.py`、`export/jianying.py` | 已核查 | 剪映实际导入为实机待验 |
-| 任务中心 | `task_center/*`、`routes/tasks.py` | 部分核查 | 生命周期、SQLite、执行器、SSE |
-| HTTP API / Web UI | `ui/server.py`、`ui/routes/*` | 部分核查 | 认证、Range、静态文件与并发路径待继续 |
-| 桌面壳 | `desktop/*` | 待深入 | 单实例、窗口关闭策略、pywebview 实机待验 |
+| 任务中心 | `task_center/*`、`routes/tasks.py` | 已核查 | 生命周期、SQLite、执行器、SSE；任务锁清理记入 O-04 |
+| HTTP API / Web UI | `ui/server.py`、`ui/routes/*` | 已核查 | 认证、Range、静态文件、元数据异常路径已覆盖 |
+| 桌面壳 | `desktop/*` | 已核查 | 单实例与关闭策略有测试；pywebview 实机待验 |
 | 日志与通知 | `log*.py`、通知路由/前端 | 已核查 | 历史日志与 SSE 分离 |
-| 打包/发布 | `pyproject.toml`、`packaging/*`、CI | 待深入 | wheel 首次运行资源是重点风险 |
-| 用户文档 | `README*`、`docs/cli-reference.md`、`ROADMAP.md` | 已核查 | 发现 CLI 与测试基线漂移 |
+| 打包/发布 | `pyproject.toml`、`packaging/*`、CI | 已核查 | wheel 首次运行资源已实测 |
+| 用户文档 | `README*`、`docs/cli-reference.md`、`ROADMAP.md` | 已核查 | CLI、配置示例与测试基线已同步 |
 
 ## 4. 确认问题与处置
 
@@ -95,6 +95,11 @@ mypy --check-untyped-defs --show-error-codes
 | A-33 | 低 | 已修复 | Whisper 模型删除/绑定路由接受非字符串模型名 | 模型名类型校验前置 |
 | A-34 | 中 | 已修复 | 文档推荐 `analyze --force`，但子命令解析器不接受该位置，已知可用写法被拒绝 | `--force` 支持全局和子命令两个位置 |
 | A-35 | 中 | 已修复 | `refine` 不支持其他项目命令通用的 `-p/--project` 与 `-o/--output`，文档化用法不可执行 | 补齐项目选择与输出目录参数 |
+| A-36 | 中 | 已修复 | 未注册的当前项目在列表回退分支复用循环变量 `p`，会 `UnboundLocalError` 或用错项目配置判断步骤 | 改用当前 `project_dir`，补嵌套子目录回归测试 |
+| A-37 | 中 | 已修复 | `project.json` 根节点为非对象时，项目读取、更新和启动迁移触发 `AttributeError` | 统一安全读取，非对象按缺省元数据处理 |
+| A-38 | 中 | 已修复 | `projects.json` 根节点为非对象时，项目列表/名称解析返回 500 | 统一走注册表校验并隔离，读取失败降级为空注册表 |
+| A-39 | 中 | 已修复 | V1→V2 配置迁移读取非对象 `projects.json` 时中断 | 迁移读取增加结构校验并跳过无效条目 |
+| A-40 | 低 | 已修复 | 选片任务匹配遇到非对象分析 JSON 时抛 `AttributeError`，拖垮流水线 | 非对象分析产物按不匹配处理 |
 
 ## 5. 优化 backlog
 
@@ -110,7 +115,9 @@ mypy --check-untyped-defs --show-error-codes
 | O-07 | P2 | Gemini 文件轮询韧性 | `_wait_for_file` 每轮只有单次 `files.get()`，长任务遇到一次瞬时网络错误即失败；可为瞬时错误增加有界重试 |
 | O-08 | P3 | Trip context 缓存淘汰 | `_trip_context_cache` 以 project+mtime 为 key，修改文件后旧 key 不会淘汰，长期切换项目会缓慢增长 |
 | O-09 | P3 | CLI 文档同步（已完成：`9332b5d`） | 已将 `-p/--project` 设为首选入口，补充命令总览、`doctor`、`desktop`、`tokens`、`migrate`、`migrate-config`、`compare-models` 和 `serve --token` |
-| O-10 | P3 | 测试基线漂移 | `README*` 与 `ROADMAP.md` 的 pytest/Vitest 数量已落后；最终验证后统一回填 |
+| O-10 | P3 | 测试基线漂移（已完成：`a423ee8`） | `README*` 与 `ROADMAP.md` 已回填 `2171 passed / 12 skipped`、`561` Vitest |
+| O-11 | P3 | 配置示例字段清单（已完成：`34b0d1d`） | `config.example.yaml` 头部全局 `ai` 字段补上 `default_tasks` |
+| O-12 | P3 | 死条件清理 | `_list_projects` 的 `version` 条件表达式两个分支相同，可在后续纯重构中简化 |
 
 ## 6. 修复与提交记录
 
@@ -154,6 +161,14 @@ mypy --check-untyped-defs --show-error-codes
 | `f38644f` | `fix(cli): accept force after subcommands` | `test_main.py` 22 passed；`analyze --force` 与 `--force analyze` 冒烟通过 |
 | `197bfed` | `fix(cli): support project selection for refine` | `test_main.py` 22 passed；Ruff 通过 |
 | `9332b5d` | `docs(cli): align command reference with current CLI` | 对照 argparse 帮助核对 |
+| `30f2ff9` | `docs(audit): record route and CLI validation fixes` | 文档检查 |
+| `9477b56` | `fix(projects): use current directory for fallback steps` | `test_project_service.py` 67 passed |
+| `65ac069` | `fix(projects): tolerate non-object project metadata` | 相关项目/服务/启动测试 230 passed, 1 skipped |
+| `e01218d` | `fix(projects): tolerate malformed project registry` | 项目服务/路由测试 100 passed |
+| `34b0d1d` | `docs(config): document default task bindings in example` | 文档检查 |
+| `38be846` | `fix(tasks): ignore non-object analysis artifacts` | `test_helpers.py` 33 passed |
+| `e1bcb1a` | `fix(config): tolerate malformed registry during migration` | `test_config_v2.py` 44 passed |
+| `a423ee8` | `docs: refresh test suite baselines` | 文档检查 |
 
 ## 7. 未实机验证项
 
@@ -167,4 +182,17 @@ mypy --check-untyped-defs --show-error-codes
 
 ## 8. 收尾验证
 
-待全部修复完成后回填最终测试、覆盖率、Ruff、mypy 与工作区状态。
+最终自动化验证（2026-10-22，项目 `.venv` Python 3.11.9）：
+
+| 项目 | 结果 |
+|---|---|
+| pytest | `2171 passed, 12 skipped`（2183 collected，68.37s） |
+| 后端覆盖率 | `81.68%`（branch coverage，16022 statements） |
+| Vitest | `561 passed`，`54` 个测试文件 |
+| Ruff check | 通过 |
+| Ruff format check | 通过（236 files） |
+| mypy subset | 通过（39 source files） |
+| CLI 冒烟 | `check` 与 `doctor` 正常退出，输出符合文档 |
+| 工作区 | 所有修复均已本地提交；用户已授权推送 |
+
+真实 Gemini/DeepSeek/阿里云调用、真实剪映导入、pywebview 窗口交互和真实长视频处理仍属于实机验证范围；对应风险已列入第 7 节。
