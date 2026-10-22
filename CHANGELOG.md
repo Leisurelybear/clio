@@ -2,6 +2,19 @@
 
 ## 2026-10-22
 
+Completed R-031b cut-clip-first plan preview. Rendered clips under the standard day directory now
+play on the composite timeline without changing the clock or waveform, with source fallback for
+missing, stale, or unreadable cuts.
+
+- feat(preview): map plan sequence entries to verified `output/cuts/<day>` clips and validate
+  `_cut_info` index/timeline/range metadata
+- feat(preview): serve cut media through a restricted `/api/video?source=cut` route
+- feat(ui): resolve cut-local timing, include seek time in preload identity, and refresh mappings
+  after plan/cut changes
+- fix(ui): retry a failed cut once from the source video at the same composite time
+- test(preview): cover partial cuts, missing/broken metadata, traversal, symlinks, timing, preload,
+  and cut-to-source fallback
+
 Completed the verified ffmpeg installation path (R-028b/c). Setup scripts and the Web UI now share
 one cross-platform installer with checksum verification, safe archive extraction, progress, cancel,
 and manual fallback.

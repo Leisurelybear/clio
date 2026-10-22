@@ -9,7 +9,6 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
 
 - R-047-FU Optional Baidu ASR provider (deferred; Aliyun cloud transcription is complete)
 - R-043 Frontend module decomposition and remaining legacy mypy debt
-- R-031b Plan preview: prefer cut/concat media on the global timeline
 - R-032e Optional ffmpeg bundling and signed desktop installer
 - R-025 Multi-language / i18n for UI and CLI user-facing copy (large)
 - Follow-up: add endpoint-level HTTP/SSE lifecycle coverage (restart retry, late subscription,
@@ -30,6 +29,18 @@ Detailed sections and historical delivery notes remain below.
 - [x] Focused Python and Vitest coverage for platform selection, corrupt archives, routes, progress, cancel, and fallback
 
 Summary: `docs/analysis/2026-10-22-ffmpeg-installer-summary.md`
+
+### R-031b cut-clip preview media
+
+**Status:** Complete (2026-10-22). Cut clips are preferred; source seek remains the fallback.
+
+- [x] Map saved plan entries to standard `output/cuts/<day>` files with `_cut_info` validation
+- [x] Add `GET /api/plan/preview-media` and restricted `/api/video?source=cut` serving
+- [x] Add pure cut-vs-source media/timing resolution and timing-aware preload identity
+- [x] Retry a missing/broken cut once from the source at the same composite time
+- [x] Cover partial cuts, stale metadata, symlinks, traversal, preload, and fallback with tests
+
+Summary: `docs/analysis/2026-10-22-cut-preview-media-summary.md`
 
 ## Recently completed (2026-10-22)
 

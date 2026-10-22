@@ -39,6 +39,7 @@ vlog-video-analysis/
 │   ├── log_history.py         Read-only hourly log listing/tail (R-027e)
 │   ├── cut.py                 Segment cutting (ffmpeg wrapper)
 │   ├── plan_model.py          Plan/PlanSegment domain + save validation (R-026)
+│   ├── plan_preview.py        Standard cut-clip mapping for preview (R-031b)
 │   ├── plan_readiness.py      Export/cut readiness (error/warning tiers)
 │   ├── analyze_windows.py     Long-clip logical windows (slice/merge; no physical split)
 │   ├── identity.py            MediaIdentity + is_legacy_split_* gate
@@ -58,6 +59,7 @@ vlog-video-analysis/
 │   │   └── static/            Frontend (no build step, ES modules)
 │   │       └── src/           ES modules: editor-plan.js, plan-edit.js,
 │   │                           task-center.js, ffmpeg-install.js,
+│   │                           plan-preview-media.js,
 │   │                           notification-center.js,
 │   │                           logs-history.js, logs-filter.js, logs-buffer.js,
 │   │                          sidebar.js, sidebar-data.js, sidebar-video-filter.js,
@@ -182,6 +184,21 @@ Provider management is a frontend-only experience - no new backend APIs needed:
   `GET /api/deps/ffmpeg/install/status` reports capability, platform, task id, and progress.
 - `ffmpeg-install.js` owns the dialog and manual fallback. Keep extraction, checksum, and archive
   safety tests with any installer change; UI progress/cancel tests live in Vitest.
+
+### 4.11 Plan Preview Media (R-031b)
+
+- Preview resolution is cut first, source second. Never add day concatenation without a versioned
+  artifact contract and invalidation rules.
+- `clio/plan_preview.py` maps sequence positions to `{index}_{title}_seg_{i:03d}.mp4` under the
+  standard `paths.output_dir/cuts/<day>` only. Custom `cut-outdir` is unsupported.
+- `/api/video?source=cut` serves only a direct child of that directory. Reject traversal, nested
+  paths, symlinked roots/components, and files outside the project output.
+- Accept clips without `_cut_info`; when metadata exists, require matching segment index, timeline,
+  start/end (within 0.05s), and valid JSON.
+- `plan-preview-media.js` owns cut-vs-source resolution and timing. `_previewMedia` in state records
+  the active mode; cut seeks are clip-local, source seeks retain plan start plus legacy offsets.
+- Preload identity includes source/project/file/seek time. A failed cut is blocked once and retried
+  at the same composite time from the source video.
 
 ## 5. User Preferences
 
