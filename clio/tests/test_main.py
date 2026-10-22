@@ -249,6 +249,18 @@ def test_transcribe_default(mock_run, cli_runner, config_path):
     assert cfg_arg.analyze.skip_existing is True
 
 
+@patch("clio.pipeline.run_analyze_all")
+@patch("clio.tasks.reindex.auto_reindex_if_needed")
+def test_force_flag_after_subcommand(mock_reindex, mock_analyze, cli_runner, config_path):
+    """The documented `analyze --force` form must be accepted."""
+    result = cli_runner(["--config", str(config_path), "analyze", "--force"])
+
+    assert result == 0
+    mock_reindex.assert_called_once()
+    cfg_arg = mock_analyze.call_args[0][0]
+    assert cfg_arg.analyze.skip_existing is False
+
+
 @patch("clio.main.load_config")
 @patch("clio.tasks.transcribe.run_transcribe_all")
 def test_transcribe_with_input(mock_run, mock_load, cli_runner, config_path, tmp_path):

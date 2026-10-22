@@ -18,7 +18,11 @@ from clio.utils import discover_ffmpeg_bin, resolve_binary, safe_basename
 PLACEHOLDER_KEYS = {"your_api_key_here", "YOUR_API_KEY", ""}
 
 
-def _add_io_args(parser: argparse.ArgumentParser) -> None:
+def _add_io_args(
+    parser: argparse.ArgumentParser,
+    *,
+    force_help: str = "忽略已存在的输出，强制重新生成（覆盖 config.yaml 的 skip_existing）",
+) -> None:
     parser.add_argument(
         "-p",
         "--project",
@@ -36,6 +40,12 @@ def _add_io_args(parser: argparse.ArgumentParser) -> None:
         "--output",
         type=Path,
         help="输出文件夹覆盖",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help=force_help,
     )
 
 
@@ -202,7 +212,7 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--day", default="day1", help="日 vlog 标签")
 
     p_cut = sub.add_parser("cut", help="根据规划从视频中裁剪片段")
-    _add_io_args(p_cut)
+    _add_io_args(p_cut, force_help="忽略规划就绪警告（error 仍会阻止）")
     p_cut.add_argument("--day", default="day1", help="日 vlog 标签（默认 day1）")
     p_cut.add_argument(
         "--out-dir",
@@ -221,12 +231,6 @@ def main(argv: list[str] | None = None) -> int:
         default="compressed",
         help="视频来源（compressed: 从压缩版裁剪 / original: 从原片裁剪）",
     )
-    p_cut.add_argument(
-        "--force",
-        action="store_true",
-        help="忽略规划就绪警告（error 仍会阻止）",
-    )
-
     p_refine = sub.add_parser("refine", help="用 AI + trip 上下文 审阅并修正已有分析/口播")
     p_refine.add_argument(
         "--target",
@@ -306,7 +310,7 @@ def main(argv: list[str] | None = None) -> int:
     p_tokens.set_defaults(func=cmd_tokens)
 
     p_export = sub.add_parser("export", help="导出 plan 到剪辑软件草稿")
-    _add_io_args(p_export)
+    _add_io_args(p_export, force_help="忽略规划就绪警告（error 仍会阻止）")
     p_export.add_argument("--format", default="jianying", choices=["jianying"], help="导出格式")
     p_export.add_argument("--day", default="day1", help="日 vlog 标签（默认 day1）")
     # -o/--output already from _add_io_args (output_dir override for config).
@@ -318,12 +322,6 @@ def main(argv: list[str] | None = None) -> int:
         dest="export_out_dir",
         help="导出草稿输出目录（默认 output/export/<day>_<format>/）",
     )
-    p_export.add_argument(
-        "--force",
-        action="store_true",
-        help="忽略规划就绪警告（error 仍会阻止）",
-    )
-
     _p_verify = sub.add_parser("verify", help="校验压缩文件与原始视频的完整性")
     _add_io_args(_p_verify)
 
@@ -338,8 +336,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     p_transcribe = sub.add_parser("transcribe", help="Whisper ASR 语音转录（需先安装 faster-whisper）")
-    _add_io_args(p_transcribe)
-    p_transcribe.add_argument("--force", action="store_true", help="忽略已有转录，重新生成")
+    _add_io_args(p_transcribe, force_help="忽略已有转录，重新生成")
 
     p_whisper = sub.add_parser("whisper", help="Whisper 环境管理（安装/检测）")
     whisper_sub = p_whisper.add_subparsers(dest="whisper_command", required=True)
