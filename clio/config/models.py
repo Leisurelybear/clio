@@ -161,10 +161,17 @@ class GlobalWhisperConfig:
 
 
 @dataclass
+class UiConfig:
+    language: str = "zh-CN"
+    desktop_notifications: bool = False
+
+
+@dataclass
 class GlobalConfig:
     proxy: ProxyConfig = field(default_factory=ProxyConfig)
     server: ServerConfig = field(default_factory=ServerConfig)
     naming: NamingConfig = field(default_factory=NamingConfig)
+    ui: UiConfig = field(default_factory=UiConfig)
     paths: GlobalPathsConfig = field(default_factory=GlobalPathsConfig)
     ai: GlobalAIConfig = field(default_factory=GlobalAIConfig)
     compress: GlobalCompressConfig = field(default_factory=GlobalCompressConfig)
@@ -634,6 +641,10 @@ class AppConfig:
     @property
     def naming(self) -> NamingConfig:
         return self._global_cfg.naming
+
+    @property
+    def ui(self) -> UiConfig:
+        return self._global_cfg.ui
 
     # -- computed paths (unchanged) --
 

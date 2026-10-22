@@ -38,6 +38,7 @@ from clio.config.models import (
     ScriptConfig,
     ServerConfig,
     TaskConfig,
+    UiConfig,
     WhisperConfig,
 )
 from clio.config.parsers import (
@@ -77,6 +78,7 @@ __all__ = [
     "ScriptConfig",
     "ServerConfig",
     "TaskConfig",
+    "UiConfig",
     "WhisperConfig",
     "WhisperDevice",
     "WhisperLang",

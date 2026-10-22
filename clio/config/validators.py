@@ -184,6 +184,7 @@ def validate_global_config(config: GlobalConfig) -> None:
     """Validate global-layer config and default task bindings."""
     if config.proxy.enabled and not config.proxy.url:
         raise ValueError("proxy.enabled=true 但 proxy.url 为空。请填写 proxy.url，或把 proxy.enabled 改成 false。")
+    _require_choice("ui.language", config.ui.language, ("zh-CN", "en"))
     _require_min("ai.provider_ttl_min", config.ai.provider_ttl_min, 0)
     _require_min("naming.index_width", config.naming.index_width, 1)
     _require_min("compress.fps", config.compress.fps, 1)

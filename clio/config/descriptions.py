@@ -50,6 +50,9 @@ CONFIG_DESCRIPTIONS: dict[str, str] = {
     "analyze.use_gpmf": "可选：将原片旁 .gpmf.json / GPMF 探测摘要注入 AI 分析上下文（默认关闭；无 GPS 时静默跳过）",
     # naming
     "naming.index_width": "文件名中索引编号的位数（如 3 表示 001）",
+    # ui
+    "ui.language": "界面语言：zh-CN（中文）或 en（English）",
+    "ui.desktop_notifications": "页面在后台时发送系统通知；默认关闭，通知中心记录不受影响",
     # script
     "script.scripts_subdir": "口播文案存放的子目录名",
     "script.template_file": "口播文案模板文件路径",

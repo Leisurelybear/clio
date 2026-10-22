@@ -140,6 +140,9 @@ const FIELD_LABELS = {
   'ai.context': '项目背景（追加到 trip_context）',
   'ai.debug_print_prompt': '调试打印完整 prompt',
   'ai.provider_ttl_min': 'Provider 缓存 TTL（分钟）',
+  // ui
+  'ui.language': '界面语言',
+  'ui.desktop_notifications': '后台系统通知',
   // provider
   'max_tokens': 'max_tokens（0=不限制）',
   'timeout_sec': 'HTTP 超时（秒）',

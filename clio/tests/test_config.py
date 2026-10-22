@@ -707,3 +707,31 @@ def test_validate_preview_subtitles_pos_range():
         ),
     )
     assert _validate_config(ok) is None
+
+
+def test_ui_config_defaults_and_roundtrip(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("ui:\n  language: en\n  desktop_notifications: true\n", encoding="utf-8")
+
+    cfg = load_config(config_path)
+
+    assert cfg.ui.language == "en"
+    assert cfg.ui.desktop_notifications is True
+
+
+def test_ui_config_defaults_when_missing(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("proxy:\n  enabled: false\n", encoding="utf-8")
+
+    cfg = load_config(config_path)
+
+    assert cfg.ui.language == "zh-CN"
+    assert cfg.ui.desktop_notifications is False
+
+
+def test_ui_config_rejects_unknown_language(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("ui:\n  language: fr\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"ui\.language"):
+        load_config(config_path)

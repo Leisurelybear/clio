@@ -31,6 +31,7 @@ from clio.config.models import (
     ScriptConfig,
     ServerConfig,
     TaskConfig,
+    UiConfig,
 )
 from clio.config.parsers import (
     _infer_provider_capabilities,
@@ -58,6 +59,7 @@ _GLOBAL_SECTION_DC_MAP: dict[str, type] = {
     "proxy": ProxyConfig,
     "server": ServerConfig,
     "naming": NamingConfig,
+    "ui": UiConfig,
     "ai": GlobalAIConfig,
     "compress": GlobalCompressConfig,
     "whisper": GlobalWhisperConfig,
@@ -325,7 +327,7 @@ _V2 = "V2"
 _PROJECT_ONLY_SECTIONS = {"analyze", "script", "plan", "export", "preview"}
 
 # Sections entirely global-only (no split)
-_GLOBAL_ONLY_SECTIONS = {"proxy", "server", "naming"}
+_GLOBAL_ONLY_SECTIONS = {"proxy", "server", "naming", "ui"}
 
 # Split-section keys belonging to project
 _SPLIT_PROJECT_KEYS: dict[str, set[str]] = {
@@ -563,6 +565,7 @@ def load_global_config(config_path: str | Path = "config.yaml") -> GlobalConfig:
         proxy=ProxyConfig(**_filter_dc(raw.get("proxy", {}), ProxyConfig)),
         server=ServerConfig(**_filter_dc(raw.get("server", {}), ServerConfig)),
         naming=NamingConfig(**_filter_dc(raw.get("naming", {}), NamingConfig)),
+        ui=UiConfig(**_filter_dc(raw.get("ui", {}), UiConfig)),
         paths=GlobalPathsConfig(
             ffmpeg=raw.get("paths", {}).get("ffmpeg", ""),
             ffprobe=raw.get("paths", {}).get("ffprobe", ""),

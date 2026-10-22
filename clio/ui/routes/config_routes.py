@@ -204,7 +204,7 @@ def handle_post_config_init(handler: HandlerProtocol, qs: dict[str, Any], obj: d
 # ---------------------------------------------------------------------------
 
 # Layer field ownership (mirrors loader.py constants)
-_GLOBAL_SECTIONS = {"proxy", "server", "naming"}
+_GLOBAL_SECTIONS = {"proxy", "server", "naming", "ui"}
 _PROJECT_SECTIONS = {"analyze", "script", "plan", "export", "preview"}
 _SPLIT_GLOBAL: dict[str, set[str]] = {
     "paths": {"ffmpeg", "ffprobe", "logs_dir"},

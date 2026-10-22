@@ -29,6 +29,15 @@ class TestConfigSchema:
         assert "proxy" in keys
         assert "server" in keys
         assert "compress" in keys
+        assert "ui" in keys
+
+    def test_ui_fields_are_basic(self):
+        fields = _all_fields("global")
+        language = fields["ui.language"]
+        assert language["group"] == BASIC
+        assert language["ui"] == "select"
+        assert language["choices"] == ["zh-CN", "en"]
+        assert fields["ui.desktop_notifications"]["group"] == BASIC
 
     def test_canvas_ratio_is_basic_select(self):
         fields = _all_fields("project")

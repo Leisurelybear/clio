@@ -528,6 +528,15 @@ class TestProhibitedFields:
         assert err is not None
         assert "export" in err
 
+    def test_ui_section_rejected_in_project(self):
+        err = _validate_no_foreign_fields({"ui": {"language": "en"}}, "project")
+        assert err is not None
+        assert "ui" in err
+
+    def test_ui_section_allowed_in_global(self):
+        err = _validate_no_foreign_fields({"ui": {"language": "en"}}, "global")
+        assert err is None
+
     def test_proxy_section_rejected_in_project(self):
         err = _validate_no_foreign_fields({"proxy": {}}, "project")
         assert err is not None

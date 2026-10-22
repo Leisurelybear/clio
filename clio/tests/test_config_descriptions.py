@@ -18,6 +18,7 @@ from clio.config.models import (
     ProxyConfig,
     ScriptConfig,
     TaskConfig,
+    UiConfig,
     WhisperConfig,
 )
 
@@ -35,6 +36,7 @@ _CONFIG_DC_MAP: list[tuple[str, type]] = [
     ("compress", CompressConfig),
     ("analyze", AnalyzeConfig),
     ("naming", NamingConfig),
+    ("ui", UiConfig),
     ("script", ScriptConfig),
     ("plan", PlanConfig),
     ("whisper", WhisperConfig),

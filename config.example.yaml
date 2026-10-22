@@ -5,7 +5,7 @@
 #   project.yaml — 项目级配置，放在每个项目的目录下
 #
 # 全局配置项：
-#   proxy, server, naming
+#   proxy, server, naming, ui
 #   paths: ffmpeg, ffprobe, logs_dir
 #   ai: providers, default_tasks, debug_print_prompt, provider_ttl_min
 #   compress: fps, codec, crf, remove_audio
@@ -22,6 +22,10 @@
 proxy:
   enabled: false
   url: "socks5://127.0.0.1:1080"
+
+ui:
+  language: zh-CN
+  desktop_notifications: false
 
 server:
   # Optional fixed token for Web UI API access.
