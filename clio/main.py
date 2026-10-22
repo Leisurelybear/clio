@@ -52,6 +52,26 @@ def _prepare_config(config_path: Path, args: argparse.Namespace):
     return config
 
 
+def _explicit_path_error(args: argparse.Namespace) -> str | None:
+    """Validate explicitly supplied project/input paths before config loading."""
+    project_path = getattr(args, "project", None)
+    if project_path is not None and not project_path.is_dir():
+        if not project_path.exists():
+            return f"项目路径不存在: {project_path}"
+        return f"项目路径不是目录: {project_path}"
+
+    input_path = getattr(args, "input", None)
+    if input_path is None:
+        return None
+    if not input_path.exists():
+        return f"输入路径不存在: {input_path}"
+    if input_path.is_dir():
+        return None
+    if args.command in {"compress", "analyze", "scripts", "refine", "compare-models"}:
+        return None
+    return f"该命令的 -i/--input 需要目录: {input_path}"
+
+
 def run_check(config_path: Path, project_dir: Path | None = None) -> int:
     config = load_config(config_path, project_dir=project_dir)
 
@@ -328,6 +348,11 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     config_path = Path(args.config)
+
+    path_error = _explicit_path_error(args)
+    if path_error:
+        print(f"错误: {path_error}", file=sys.stderr)
+        return 2
 
     if args.command == "doctor":
         project = getattr(args, "project", None) or getattr(args, "input", None)

@@ -65,8 +65,9 @@ mypy --check-untyped-defs --show-error-codes
 | A-03 | 中 | 已修复 | reindex 只剥离 `_segNN`，遗漏 `_partNN`、`_ptNN`、`_chunkNN`，可能拆散同一源视频分组 | 已复用统一分段后缀正则 |
 | A-04 | 中 | 已修复 | UI 步骤检测与 texts 发现把自定义子目录截成 basename，`nested/deep` 等合法配置检测失败 | 已保留安全相对路径，并统一拒绝绝对/穿越路径 |
 | A-05 | 中 | 已修复 | 默认 provider 删除仅在前端隐藏按钮，后端允许直接 DELETE 绕过 | 后端对 `gemini/openai/deepseek` 返回 409 |
-| A-06 | 高 | 待验证 | 显式 `-p`/`-i` 指向不存在目录时静默回退 cwd，可能把产物写到错误位置 | 核查单文件 `-i` 后改为显式报错 |
+| A-06 | 高 | 已修复 | 显式 `-p`/`-i` 指向不存在目录时静默回退 cwd，可能把产物写到错误位置 | 提前校验显式路径；错误返回 2，单文件命令仍允许文件 `-i` |
 | A-07 | 高 | 待验证 | wheel 可能未携带首次运行所需的 `config.example.yaml` 与默认模板 | 构建 wheel 实测；大改则进入优化 backlog |
+| A-08 | 中 | 已确认 | 自定义 `-c /other/config.yaml` 且未给 `-p` 时，强制 cwd 为项目目录，忽略同目录 project.yaml | 改为仅在显式/有效目录时覆盖 project_dir |
 
 ## 5. 优化 backlog
 
@@ -87,7 +88,8 @@ mypy --check-untyped-defs --show-error-codes
 | `337626f` | `fix(cli): resolve ffprobe for export` | `test_main.py` 15 passed；Ruff 通过 |
 | `a43476a` | `fix(reindex): recognize all legacy split suffixes` | `test_reindex.py` 16 passed；Ruff 通过 |
 | `c95ea69` | `fix(ui): detect nested artifact subdirs` | `test_file_service.py` + `test_project_service.py` 136 passed；Ruff 通过 |
-| 待填 | `fix(config): protect built-in providers from deletion` | `test_routes_config.py` 47 passed；Ruff 通过 |
+| `89cc29c` | `fix(config): protect built-in providers from deletion` | `test_routes_config.py` 47 passed；Ruff 通过 |
+| 待填 | `fix(cli): reject invalid explicit project paths` | `test_main.py` 19 passed；Ruff 通过 |
 
 ## 7. 未实机验证项
 

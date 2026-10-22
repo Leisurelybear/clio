@@ -111,6 +111,36 @@ def test_tokens_uses_project_output(cli_runner, config_path, tmp_path, capsys):
     assert '"total_tokens": 10' in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("flag", ["-p", "-i"])
+def test_missing_explicit_path_is_rejected(cli_runner, config_path, tmp_path, capsys, flag):
+    missing = tmp_path / "missing"
+
+    result = cli_runner(["--config", str(config_path), "compress", flag, str(missing)])
+
+    assert result == 2
+    assert "不存在" in capsys.readouterr().err
+
+
+def test_project_path_must_be_directory(cli_runner, config_path, tmp_path, capsys):
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"fake")
+
+    result = cli_runner(["--config", str(config_path), "compress", "-p", str(video)])
+
+    assert result == 2
+    assert "不是目录" in capsys.readouterr().err
+
+
+def test_input_file_rejected_for_directory_command(cli_runner, config_path, tmp_path, capsys):
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"fake")
+
+    result = cli_runner(["--config", str(config_path), "transcribe", "-i", str(video)])
+
+    assert result == 2
+    assert "需要目录" in capsys.readouterr().err
+
+
 @patch("clio.plan_readiness.collect_project_indices", return_value=({"001"}, set()))
 @patch("clio.export.export_plan")
 def test_export_resolves_ffprobe(mock_export, _mock_indices, cli_runner, config_path, tmp_path):
