@@ -70,6 +70,7 @@ mypy --check-untyped-defs --show-error-codes
 | A-08 | 中 | 已修复 | 自定义 `-c /other/config.yaml` 且未给 `-p` 时，强制 cwd 为项目目录，忽略同目录 project.yaml | 改为仅在显式/有效目录时覆盖 project_dir |
 | A-09 | 中 | 已修复 | 选片、转录、规划仍只剥离 `_segNN`，其他 legacy 分段会错配或丢失转录 | 任务层统一复用 `SEGMENT_SUFFIX_RE`，移除重复死代码 |
 | A-10 | 中 | 已修复 | UI 原始视频解析、运行预览和字幕查找仍只识别 `_segNN` | UI 层统一复用 `SEGMENT_SUFFIX_RE` |
+| A-11 | 中 | 修复中 | 裁剪任务仍只识别 `_segNN`，legacy `_part/_pt/_chunk` 无法计算偏移、反解原始视频或记录正确状态 | 统一复用 `SEGMENT_SUFFIX_RE`，补充别名与大小写回归测试 |
 
 ## 5. 优化 backlog
 
@@ -79,6 +80,8 @@ mypy --check-untyped-defs --show-error-codes
 |---|---|---|---|
 | O-02 | P2 | CLI 文档自动化 | 从 argparse 生成命令/参数清单或加入文档一致性测试，减少手写漂移 |
 | O-03 | P2 | 外部服务契约测试 | 为 Gemini/DeepSeek/DashScope 增加可选 live smoke suite，默认 CI 跳过 |
+| O-04 | P2 | 任务锁生命周期 | `TaskManager._task_locks` 不清理已完成任务的锁，长期运行会随历史任务数量增长 |
+| O-05 | P3 | 桌面关闭确认 | `fetch_active_tasks` 只检查前 50 条，极端历史量下可能漏掉活跃任务 |
 
 ## 6. 修复与提交记录
 
@@ -94,7 +97,8 @@ mypy --check-untyped-defs --show-error-codes
 | `0b241ba` | `fix(cli): honor sibling project config` | `test_main.py` 20 passed；Ruff 通过 |
 | `37bcd3e` | `fix(packaging): bundle first-run config and templates` | 138 related tests passed；wheel 安装及首次配置生成实测通过 |
 | `540d056` | `fix(tasks): strip all legacy split suffixes` | 65 related tests passed；Ruff 通过 |
-| 待填 | `fix(ui): match all legacy split suffixes` | 154 related tests passed；Ruff 通过 |
+| `dd8b9e2` | `fix(ui): match all legacy split suffixes` | 154 related tests passed；Ruff 通过 |
+| 待填 | `fix(cut): recognize all legacy split suffixes` | `test_tasks_cut.py` 44 passed；Ruff 通过 |
 
 ## 7. 未实机验证项
 

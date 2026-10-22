@@ -253,6 +253,16 @@ class TestComputeSegmentOffset:
             result = _compute_segment_offset("001_src_seg2", cfg.compressed_dir, Path("/dummy.mp4"), "ffprobe")
             assert result == 60.0
 
+    @pytest.mark.parametrize("alias", ["part", "pt", "chunk", "PART"])
+    def test_computes_offset_for_legacy_aliases(self, cfg, alias):
+        for n in (1, 2):
+            (cfg.compressed_dir / f"001_src_{alias}{n}.mp4").write_bytes(b"\x00")
+        with patch("clio.tasks.cut.get_duration_sec", return_value=120.0):
+            from clio.tasks.cut import _compute_segment_offset
+
+            result = _compute_segment_offset(f"001_src_{alias}2", cfg.compressed_dir, Path("/dummy.mp4"), "ffprobe")
+            assert result == 60.0
+
 
 class TestResolveVideoPath:
     def test_resolve_video_path_reads_vmeta(self, cfg):
@@ -290,6 +300,27 @@ class TestResolveVideoPath:
 
             result = run_cut_all(cfg, "day1", source="original")
         assert len(result) == 1
+
+    @pytest.mark.parametrize("alias", ["part", "pt", "chunk", "PART"])
+    def test_resolve_video_path_accepts_legacy_split_aliases(self, cfg, alias):
+        compressed = cfg.compressed_dir / f"001_src_{alias}2.mp4"
+        compressed.write_bytes(b"\x00" * 100)
+        original = cfg.project_dir / "src.mp4"
+        original.write_bytes(b"\x00" * 1000)
+        save_selected_videos(cfg.project_dir, [original])
+
+        seq = [{"index": "001", "title": "A", "use_timeline": "00:00-00:10"}]
+        _write_plan(cfg, seq=seq)
+        with (
+            patch("clio.tasks.cut.cut_one") as mock_cut,
+            patch("clio.tasks.cut.resolve_binary", return_value="ffmpeg"),
+        ):
+            from clio.tasks.cut import run_cut_all
+
+            result = run_cut_all(cfg, "day1", source="original")
+
+        assert len(result) == 1
+        assert mock_cut.call_args.args[0] == original
 
 
 class TestRunCutAll:
@@ -395,6 +426,20 @@ class TestRunCutAll:
         result = run_cut_all(cfg, "day1")
         assert result == []
         mock_cut.assert_not_called()
+
+    @pytest.mark.parametrize("alias", ["part", "pt", "chunk", "PART"])
+    @patch("clio.tasks.cut.resolve_binary")
+    def test_skipped_legacy_segment_uses_original_stem(self, mock_resolve, cfg, alias):
+        _write_plan(cfg, seq=[{"index": "001", "title": "X", "use_timeline": "invalid"}])
+        (cfg.compressed_dir / f"001_src_{alias}2.mp4").write_bytes(b"\x00")
+        mock_resolve.return_value = "ffmpeg"
+
+        from clio.tasks.cut import run_cut_all
+
+        run_cut_all(cfg, "day1")
+
+        state = json.loads((cfg.paths.output_dir / ".processing.json").read_text(encoding="utf-8"))
+        assert state["files"]["src"]["cut"] == "skipped"
 
     @patch("clio.tasks.cut.cut_one")
     @patch("clio.tasks.cut.resolve_binary")

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import threading
 import time
 from pathlib import Path
@@ -12,7 +11,7 @@ from typing import Any
 from clio._constants import VIDEO_EXTS
 from clio.config import AppConfig
 from clio.cut import cut_one, parse_time_range
-from clio.identity import legacy_segment_offset_sec, load_identity
+from clio.identity import SEGMENT_SUFFIX_RE, legacy_segment_offset_sec, load_identity
 from clio.log import format_duration, timed
 from clio.plan_readiness import expand_index_keys
 from clio.processing_state import ProcessingState
@@ -27,13 +26,19 @@ from clio.utils import (
 )
 from clio.vmeta import VideoMeta
 
-_SEG_RE = re.compile(r"^(.+)_seg(\d+)$")
 _VIDEO_OUT_EXTS = {".mp4", ".mov", ".mkv", ".m4v", ".webm"}
 CUT_BAK_SUFFIX = ".clio_bak"
 
 
 class CutBackupConflictError(Exception):
     """Raised when a cut target and its backup coexist and no decision was given."""
+
+
+def _legacy_segment_parts(stem: str) -> tuple[str, int] | None:
+    match = SEGMENT_SUFFIX_RE.search(stem)
+    if match is None or match.start() == 0:
+        return None
+    return stem[: match.start()], int(match.group(1))
 
 
 def _indexed_files(directory: Path, raw_index: str, *, index_width: int, suffix: str | None = None) -> list[Path]:
@@ -233,18 +238,18 @@ def _compute_segment_offset(compressed_stem: str, comp_dir: Path, original_path:
                 return meta.split_info.offset_sec
 
     # 降级：原有估算逻辑
-    m = _SEG_RE.match(compressed_stem.split("_", 1)[1] if "_" in compressed_stem else "")
-    if not m:
+    parts = _legacy_segment_parts(compressed_stem.split("_", 1)[1] if "_" in compressed_stem else compressed_stem)
+    if parts is None:
         return 0.0
-    prefix = m.group(1).lower()
-    seg_num = int(m.group(2))
+    prefix, seg_num = parts
+    prefix = prefix.lower()
     total = 0
     for p in sorted(comp_dir.iterdir()):
         if p.suffix.lower() not in VIDEO_EXTS:
             continue
-        pm = _SEG_RE.match(p.stem.split("_", 1)[1] if "_" in p.stem else "")
-        if pm and pm.group(1).lower() == prefix:
-            total = max(total, int(pm.group(2)))
+        segment_parts = _legacy_segment_parts(p.stem.split("_", 1)[1] if "_" in p.stem else p.stem)
+        if segment_parts is not None and segment_parts[0].lower() == prefix:
+            total = max(total, segment_parts[1])
     if total <= 1:
         return 0.0
     try:
@@ -305,8 +310,7 @@ def run_cut_all(
         stem = video_path.stem
         if "_" in stem:
             stem = stem.split("_", 1)[1]
-        m = _SEG_RE.match(stem)
-        return m.group(1) if m else stem
+        return SEGMENT_SUFFIX_RE.sub("", stem)
 
     def _resolve_video_path(idx: str) -> Path | None:
         if source == "compressed":
@@ -335,8 +339,7 @@ def run_cut_all(
 
             # 降级：regex 反解 + videos.json
             suffix = compressed.stem.split("_", 1)[1].lower()
-            m = _SEG_RE.match(suffix)
-            orig_stem = m.group(1) if m else suffix
+            orig_stem = SEGMENT_SUFFIX_RE.sub("", suffix)
             from clio.tasks._video_loader import source_videos
 
             for p in source_videos(config):
