@@ -7,6 +7,11 @@ from typing import TYPE_CHECKING, Any
 
 from clio.ai.base import TaskName
 from clio.doctor import provider_key_missing
+from clio.ffmpeg_install import install_ffmpeg, select_asset
+from clio.task_center.manager import TaskAlreadyRunningError, TaskManager
+from clio.task_center.models import TaskKind, TaskStatus
+from clio.task_center.reporter import TaskCancelled
+from clio.task_center.store import TaskQuery
 from clio.utils import probe_ffmpeg_deps
 
 if TYPE_CHECKING:
@@ -17,6 +22,106 @@ _REQUIRED_TASKS = (
     TaskName.VOICEOVER.value,
     TaskName.VLOG_PLAN.value,
 )
+
+
+def _managed_task_manager(handler: HandlerProtocol) -> TaskManager | None:
+    try:
+        manager = handler._get_task_manager()
+    except (AttributeError, TypeError):
+        return None
+    return manager if isinstance(manager, TaskManager) else None
+
+
+def _run_ffmpeg_install_task(context) -> dict[str, Any]:
+    def report(pct: int, message: str) -> None:
+        context.reporter.progress(phase="ffmpeg_install", current=pct, total=100, message=message)
+
+    result = install_ffmpeg(mode="download", reporter=report, cancel_event=context.cancel_event)
+    if context.cancel_event.is_set():
+        raise TaskCancelled("ffmpeg 安装已取消")
+    if not result.ok:
+        raise RuntimeError(result.message or "ffmpeg 安装失败")
+    return {"ffmpeg": result.ffmpeg, "ffprobe": result.ffprobe, "method": result.method}
+
+
+def _ensure_ffmpeg_install_handler(manager: TaskManager) -> None:
+    manager.ensure_registered(
+        TaskKind.FFMPEG_INSTALL,
+        _run_ffmpeg_install_task,
+        concurrency_key="ffmpeg-install",
+        max_concurrency=1,
+        cancellable=True,
+    )
+
+
+def _active_ffmpeg_task(manager: TaskManager):
+    tasks = manager.store.list(
+        TaskQuery(
+            statuses=(TaskStatus.QUEUED, TaskStatus.RUNNING, TaskStatus.CANCELLING),
+            kinds=(TaskKind.FFMPEG_INSTALL,),
+            visibility=None,
+            limit=1,
+        )
+    )
+    return tasks[0] if tasks else None
+
+
+def _ffmpeg_install_capabilities() -> dict[str, Any]:
+    import platform as platform_module
+
+    system = (
+        "win32"
+        if platform_module.system() == "Windows"
+        else ("darwin" if platform_module.system() == "Darwin" else "linux")
+    )
+    return {
+        "platform": system,
+        "automatic": select_asset(system, platform_module.machine()) is not None,
+    }
+
+
+def handle_get_deps_ffmpeg_install_status(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
+    del qs
+    capabilities = _ffmpeg_install_capabilities()
+    manager = _managed_task_manager(handler)
+    if manager is None:
+        return handler._send_json({**capabilities, "status": "idle", "running": False})
+    task = _active_ffmpeg_task(manager)
+    if task is None:
+        return handler._send_json({**capabilities, "status": "idle", "running": False})
+    return handler._send_json(
+        {
+            **capabilities,
+            "status": task.status,
+            "running": True,
+            "task_id": task.id,
+            "progress_pct": task.progress_pct or 0,
+            "message": task.message,
+            "cancellable": task.cancellable,
+        }
+    )
+
+
+def handle_post_deps_ffmpeg_install(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
+    del qs
+    manager = _managed_task_manager(handler)
+    if manager is None:
+        return handler._send_json({"ok": False, "error": "task manager unavailable"}, 503)
+    _ensure_ffmpeg_install_handler(manager)
+    if _active_ffmpeg_task(manager) is not None:
+        return handler._send_json({"ok": False, "error": "ffmpeg install is already running"}, 409)
+    try:
+        task = manager.submit(
+            TaskKind.FFMPEG_INSTALL,
+            "安装 ffmpeg / ffprobe",
+            input_summary={"mode": "download"},
+            reject_if_active=True,
+        )
+    except TaskAlreadyRunningError:
+        return handler._send_json({"ok": False, "error": "ffmpeg install is already running"}, 409)
+    return handler._send_json(
+        {"ok": True, "message": "ffmpeg install started", "task_id": task.id, "task": task.to_dict()}
+    )
 
 
 def handle_get_deps_ffmpeg(handler: HandlerProtocol, qs: dict[str, Any]) -> None:

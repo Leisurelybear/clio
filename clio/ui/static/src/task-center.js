@@ -9,7 +9,7 @@ const STATUS_LABELS = {
 };
 const KIND_LABELS = {
   pipeline: '流水线', rerun: '重跑', cut_export: '裁剪导出',
-  export: '剪映草稿导出', whisper_install: 'Whisper 安装', waveform: '波形生成',
+  export: '剪映草稿导出', whisper_install: 'Whisper 安装', ffmpeg_install: 'FFmpeg 安装', waveform: '波形生成',
 };
 const ACTIVE = new Set(['queued', 'running', 'cancelling']);
 const TERMINAL = new Set(['succeeded', 'failed', 'cancelled', 'interrupted']);

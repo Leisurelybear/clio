@@ -52,7 +52,12 @@ from clio.ui.routes.config_routes import (
     handle_put_config_raw,
     handle_put_provider,
 )
-from clio.ui.routes.deps import handle_get_deps_ffmpeg, handle_get_deps_keys
+from clio.ui.routes.deps import (
+    handle_get_deps_ffmpeg,
+    handle_get_deps_ffmpeg_install_status,
+    handle_get_deps_keys,
+    handle_post_deps_ffmpeg_install,
+)
 from clio.ui.routes.env_routes import handle_get_env, handle_put_env
 from clio.ui.routes.export import handle_post_export
 from clio.ui.routes.fs import (
@@ -715,6 +720,7 @@ def make_handler(
             Route("POST", "/api/fs/reveal", "handle_post_fs_reveal"),
             Route("GET", "/api/transcripts", "handle_get_transcripts"),
             Route("GET", "/api/deps/ffmpeg", "handle_get_deps_ffmpeg"),
+            Route("GET", "/api/deps/ffmpeg/install/status", "handle_get_deps_ffmpeg_install_status"),
             Route("GET", "/api/deps/keys", "handle_get_deps_keys"),
             Route("GET", "/api/whisper/check", "handle_get_whisper_check"),
             Route("GET", "/api/whisper/install/status", "handle_get_whisper_install_status"),
@@ -747,6 +753,7 @@ def make_handler(
             Route("POST", "/api/run/preview", "handle_post_run_preview"),
             Route("POST", "/api/desktop/focus", "handle_post_desktop_focus", auth_required=False),
             Route("POST", "/api/ai/test", "handle_post_ai_test"),
+            Route("POST", "/api/deps/ffmpeg/install", "handle_post_deps_ffmpeg_install"),
             Route("POST", "/api/config/init", "handle_post_config_init"),
             Route("POST", "/api/providers", "handle_post_provider"),
             Route("POST", "/api/cut", "handle_post_cut"),

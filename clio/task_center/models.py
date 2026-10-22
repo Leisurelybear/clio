@@ -61,6 +61,7 @@ class TaskKind(StrEnum):
     CUT_EXPORT = "cut_export"
     EXPORT = "export"
     WHISPER_INSTALL = "whisper_install"
+    FFMPEG_INSTALL = "ffmpeg_install"
     WAVEFORM = "waveform"
 
 
