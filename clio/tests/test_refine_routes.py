@@ -99,6 +99,16 @@ class TestHandlePostRefineValidation:
         handle_post_refine(handler, {}, {})
         handler._send_json.assert_called_once_with({"ok": False, "error": "missing or invalid file/type"}, 400)
 
+    def test_non_string_file_returns_400(self):
+        handler = MagicMock()
+        handle_post_refine(handler, {}, {"file": 123, "type": "texts"})
+        handler._send_json.assert_called_once_with({"ok": False, "error": "missing or invalid file/type"}, 400)
+
+    def test_non_string_context_returns_400(self):
+        handler = MagicMock()
+        handle_post_refine(handler, {}, {"file": "test.json", "type": "texts", "context": 1})
+        handler._send_json.assert_called_once_with({"ok": False, "error": "context must be a string"}, 400)
+
 
 # ===========================================================================
 # handle_post_refine — file not found / forbidden

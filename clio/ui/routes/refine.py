@@ -39,10 +39,13 @@ def handle_post_refine(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) 
     """
     fname = obj.get("file", "")
     ftype = obj.get("type", "")
-    context_override = obj.get("context") or None
+    raw_context = obj.get("context")
 
-    if not fname or ftype not in ("texts", "scripts"):
+    if not isinstance(fname, str) or not fname or ftype not in ("texts", "scripts"):
         return handler._send_json({"ok": False, "error": "missing or invalid file/type"}, 400)
+    if raw_context is not None and not isinstance(raw_context, str):
+        return handler._send_json({"ok": False, "error": "context must be a string"}, 400)
+    context_override = raw_context or None
 
     proj_dir = handler._resolve_project_dir(qs)
     proj_out = handler._get_project_output(proj_dir)
