@@ -373,7 +373,7 @@ function _resyncPlanPreviewFromPlayer(player, opts = {}) {
 
   const offset = state.source === 'original' ? (v.offset_sec || 0) : 0;
   const planSec = Math.max(0, player.currentTime - offset);
-  const loc = locateSegmentByPlanSec(tl, v.index, planSec);
+  const loc = locateSegmentByPlanSec(tl, v.index, planSec, state.previewIndex);
   if (!loc) return false;
 
   state.previewIndex = loc.segIndex;

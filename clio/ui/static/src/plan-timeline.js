@@ -151,9 +151,10 @@ export function segmentWidths(timeline) {
  * @param {{ segments?: Array }} timeline
  * @param {string|number} videoIndex
  * @param {number} planSec
+ * @param {number|null} preferredSegIndex active segment to keep across duplicate windows
  * @returns {{ segIndex: number, localSec: number, planSec: number, videoIndex: string, pastEnd: boolean } | null}
  */
-export function locateSegmentByPlanSec(timeline, videoIndex, planSec) {
+export function locateSegmentByPlanSec(timeline, videoIndex, planSec, preferredSegIndex = null) {
   const segs = timeline?.segments || [];
   if (!segs.length) return null;
   const idxKey = String(videoIndex ?? '');
@@ -168,6 +169,17 @@ export function locateSegmentByPlanSec(timeline, videoIndex, planSec) {
     matches.push(s);
   }
   if (!matches.length) return null;
+
+  const preferred = matches.find((s) => s.segIndex === Number(preferredSegIndex));
+  if (preferred && plan >= preferred.planStart && plan < preferred.planEnd) {
+    return {
+      segIndex: preferred.segIndex,
+      localSec: plan - preferred.planStart,
+      planSec: plan,
+      videoIndex: preferred.videoIndex,
+      pastEnd: false,
+    };
+  }
 
   for (const s of matches) {
     if (plan >= s.planStart && plan < s.planEnd) {
@@ -196,8 +208,12 @@ export function locateSegmentByPlanSec(timeline, videoIndex, planSec) {
 
   // At/after a segment end (or past last): pick last match whose planStart ≤ plan
   let best = byStart[0];
-  for (const s of byStart) {
-    if (s.planStart <= plan) best = s;
+  if (preferred && plan >= preferred.planStart) {
+    best = preferred;
+  } else {
+    for (const s of byStart) {
+      if (s.planStart <= plan) best = s;
+    }
   }
   const pastEnd = plan >= best.planEnd;
   return {

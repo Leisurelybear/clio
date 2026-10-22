@@ -179,4 +179,31 @@ describe('locateSegmentByPlanSec', () => {
     expect(loc.localSec).toBe(5);
     expect(loc.pastEnd).toBe(false);
   });
+
+  it('keeps the active segment when two windows overlap exactly', () => {
+    const t = buildTimeline([
+      { index: '001', use_timeline: '00:10-00:20' },
+      { index: '001', use_timeline: '00:10-00:20' },
+    ]);
+    const loc = locateSegmentByPlanSec(t, '001', 13, 1);
+    expect(loc).toMatchObject({ segIndex: 1, localSec: 3, pastEnd: false });
+  });
+
+  it('keeps the active segment when overlapping windows have different starts', () => {
+    const t = buildTimeline([
+      { index: '001', use_timeline: '00:10-00:20' },
+      { index: '001', use_timeline: '00:15-00:25' },
+    ]);
+    const loc = locateSegmentByPlanSec(t, '001', 17, 1);
+    expect(loc).toMatchObject({ segIndex: 1, localSec: 2, pastEnd: false });
+  });
+
+  it('does not jump forward to a later overlapping window', () => {
+    const t = buildTimeline([
+      { index: '001', use_timeline: '00:10-00:20' },
+      { index: '001', use_timeline: '00:15-00:25' },
+    ]);
+    const loc = locateSegmentByPlanSec(t, '001', 17, 0);
+    expect(loc).toMatchObject({ segIndex: 0, localSec: 7, pastEnd: false });
+  });
 });
