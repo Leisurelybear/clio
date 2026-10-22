@@ -4,6 +4,7 @@ import { $ } from './utils.js';
 import { buildTimeline } from './plan-timeline.js';
 import { composePlanPeaks } from './plan-waveform.js';
 import { subscribeTaskEvents, fetchTask } from './task-center.js';
+import { t } from './i18n.js';
 
 /** @type {number} */
 let _pollToken = 0;
@@ -266,7 +267,7 @@ export function bindWaveformScrub(player) {
   bar.dataset.bound = '1';
   if (!bar.getAttribute('role')) bar.setAttribute('role', 'slider');
   if (!bar.hasAttribute('tabindex')) bar.setAttribute('tabindex', '0');
-  if (!bar.getAttribute('aria-label')) bar.setAttribute('aria-label', '波形进度');
+  if (!bar.getAttribute('aria-label')) bar.setAttribute('aria-label', t('waveform.aria_progress'));
   bar.setAttribute('aria-valuemin', '0');
   bar.setAttribute('aria-valuemax', '100');
   _syncWaveformAria(bar, _currentWaveformRatio(player));
@@ -362,7 +363,7 @@ export function recomposePlanWaveformFromCache() {
       break;
     }
   }
-  const statusText = pending ? '部分波形生成中…' : '';
+  const statusText = pending ? t('waveform.partial_pending') : '';
   _applyPlanCompose(statusText);
 }
 
@@ -377,7 +378,7 @@ export async function loadPlanWaveform() {
   }
   if (state.deps && state.deps.ok === false) {
     _mode = 'plan';
-    setWaveformStatus(state.deps.detail || '需要 ffmpeg');
+    setWaveformStatus(state.deps.detail || t('waveform.need_ffmpeg'));
     return;
   }
 
@@ -396,11 +397,11 @@ export async function loadPlanWaveform() {
   )];
 
   if (!indexes.length || tl.total <= 0) {
-    setWaveformStatus('无可预览波形');
+    setWaveformStatus(t('waveform.no_preview'));
     return;
   }
 
-  setWaveformStatus('波形生成中…');
+  setWaveformStatus(t('waveform.generating'));
 
   /** @type {string[]} */
   let pendingKeys = [];
@@ -465,8 +466,8 @@ export async function loadPlanWaveform() {
     return e && e !== 'pending' && Array.isArray(e.peaks);
   }).length;
   const statusText = pendingKeys.length
-    ? (readyCount ? '部分波形生成中…' : '波形生成中…')
-    : (readyCount ? '' : '无可用音频源');
+    ? (readyCount ? t('waveform.partial_pending') : t('waveform.generating'))
+    : (readyCount ? '' : t('waveform.no_audio'));
 
   _applyPlanCompose(statusText);
 
@@ -510,7 +511,7 @@ export async function loadPlanWaveform() {
       }));
       if (token !== _planLoadToken) return;
       pendingKeys = still;
-      const st = pendingKeys.length ? '部分波形生成中…' : '';
+      const st = pendingKeys.length ? t('waveform.partial_pending') : '';
       _applyPlanCompose(st);
       if (pendingKeys.length && attempt < 120) {
         _pollTimer = setTimeout(() => pollPending(attempt + 1), 2500);
@@ -538,7 +539,7 @@ export async function loadWaveformForCurrentVideo() {
     return;
   }
   if (state.deps && state.deps.ok === false) {
-    setWaveformStatus(state.deps.detail || '需要 ffmpeg');
+    setWaveformStatus(state.deps.detail || t('waveform.need_ffmpeg'));
     return;
   }
   const v = (state.videos || []).find((x) => x.file === file);
@@ -548,7 +549,7 @@ export async function loadWaveformForCurrentVideo() {
     return;
   }
 
-  setWaveformStatus('波形生成中…');
+  setWaveformStatus(t('waveform.generating'));
 
   const poll = async (attempt) => {
     if (token !== _pollToken) return;
@@ -556,7 +557,7 @@ export async function loadWaveformForCurrentVideo() {
       const body = await _fetchWaveform(params, token);
       if (token !== _pollToken || !body) return;
       if (body.status === 'pending') {
-        setWaveformStatus('波形生成中…');
+        setWaveformStatus(t('waveform.generating'));
         if (body.task_id) {
           _watchWaveformTask(body.task_id, () => {
             if (token === _pollToken) loadWaveformForCurrentVideo();
@@ -566,16 +567,16 @@ export async function loadWaveformForCurrentVideo() {
         if (attempt < 120) {
           _pollTimer = setTimeout(() => poll(attempt + 1), 2500);
         } else {
-          setWaveformStatus('波形生成超时');
+          setWaveformStatus(t('waveform.timeout'));
         }
         return;
       }
       if (body.status === 'error') {
-        setWaveformStatus(body.error ? `波形失败: ${body.error}` : '波形生成失败');
+        setWaveformStatus(body.error ? t('waveform.failed_detail', { detail: body.error }) : t('waveform.generate_failed'));
         return;
       }
       if (body.no_audio) {
-        setWaveformStatus('无可用音频源');
+        setWaveformStatus(t('waveform.no_audio'));
         return;
       }
       if (Array.isArray(body.peaks) || body.status === 'ready') {
@@ -584,18 +585,18 @@ export async function loadWaveformForCurrentVideo() {
         if (player) updateWaveformPlayhead(player);
         return;
       }
-      setWaveformStatus(body.error || '无波形');
+      setWaveformStatus(body.error || t('waveform.none'));
     } catch (err) {
       if (token !== _pollToken) return;
-      const msg = err?.message || '波形加载失败';
+      const msg = err?.message || t('waveform.load_failed');
       const status = err?.status;
       if (status === 404 || String(msg).includes('404') || String(msg).includes('no media')) {
-        setWaveformStatus('无可用音频源');
+        setWaveformStatus(t('waveform.no_audio'));
       } else if (status === 503) {
         const detail = err?.body?.error;
-        setWaveformStatus(detail ? `波形失败: ${detail}` : '波形生成失败');
+        setWaveformStatus(detail ? t('waveform.failed_detail', { detail }) : t('waveform.generate_failed'));
       } else {
-        setWaveformStatus('波形加载失败');
+        setWaveformStatus(t('waveform.load_failed'));
       }
     }
   };

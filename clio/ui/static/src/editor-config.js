@@ -1572,18 +1572,17 @@ let _logsHistoryTruncated = false;
 /** Ignore stale historical-file responses after switching sources. */
 let _logsHistorySeq = 0;
 
-const _LEVEL_LABELS = {
-  debug: '调试',
-  info: '信息',
-  warn: '警告',
-  error: '错误',
-};
+const _LOG_LEVELS = ['debug', 'info', 'warn', 'error'];
+
+function _levelLabel(level) {
+  return _LOG_LEVELS.includes(level) ? t(`logs.level.${level}`) : t('logs.level.info');
+}
 
 const _SINCE_CHIPS = [
-  { ms: 0, label: '全部' },
-  { ms: 5 * 60 * 1000, label: '5分钟' },
-  { ms: 15 * 60 * 1000, label: '15分钟' },
-  { ms: 60 * 60 * 1000, label: '60分钟' },
+  { ms: 0, key: 'logs.since.all' },
+  { ms: 5 * 60 * 1000, key: 'logs.since.5m' },
+  { ms: 15 * 60 * 1000, key: 'logs.since.15m' },
+  { ms: 60 * 60 * 1000, key: 'logs.since.60m' },
 ];
 
 function _logsFilterOpts() {
@@ -1606,7 +1605,7 @@ function _appendLogLineEl(view, entryOrLine) {
   d.dataset.level = level;
   const badge = document.createElement('span');
   badge.className = 'log-level-badge';
-  badge.textContent = _LEVEL_LABELS[level] || '信息';
+  badge.textContent = _levelLabel(level);
   const timeEl = document.createElement('span');
   timeEl.className = 'log-line-time';
   const clock = formatLogTime(entry.ts);
@@ -1639,7 +1638,7 @@ function _paintLogsView(view) {
   const countEl = $('logs-match-count');
   if (countEl) {
     countEl.textContent = buffer.length
-      ? `显示 ${visible.length} / ${buffer.length}`
+      ? t('logs.match_count', { visible: visible.length, total: buffer.length })
       : '';
   }
   if (_logsAutoScroll) view.scrollTop = view.scrollHeight;
@@ -1653,8 +1652,8 @@ function _syncLogsSourceUi(statusText = '') {
   if (clearBtn) {
     clearBtn.disabled = Boolean(_logsSource);
     clearBtn.title = _logsSource
-      ? '历史日志只读；切回当前会话后可清空'
-      : '清空当前会话与磁盘日志';
+      ? t('logs.clear_title_history')
+      : t('logs.clear_title_live');
   }
 
   const status = $('logs-source-status');
@@ -1666,7 +1665,7 @@ function _syncLogsSourceUi(statusText = '') {
           logs: _logsHistoryBuffer,
           truncated: _logsHistoryTruncated,
         })
-        : '实时'
+        : t('logs.source_live')
     );
   }
 }
@@ -1703,35 +1702,35 @@ export function renderLogs() {
   const pane = $('tab-logs');
   stopLogsPolling();
   const sinceChipsHtml = _SINCE_CHIPS.map((c) =>
-    `<button type="button" class="logs-chip" data-log-since="${c.ms}">${c.label}</button>`
+    `<button type="button" class="logs-chip" data-log-since="${c.ms}">${escapeHtml(t(c.key))}</button>`
   ).join('');
   pane.innerHTML = `
     <div class="logs-toolbar">
-      <span class="logs-toolbar-title">会话日志</span>
-      <select id="logs-source-select" class="logs-source-select" aria-label="日志来源">
-        <option value="">当前会话</option>
+      <span class="logs-toolbar-title">${t('logs.title')}</span>
+      <select id="logs-source-select" class="logs-source-select" aria-label="${t('logs.source_label')}">
+        <option value="">${t('logs.source_current')}</option>
       </select>
       <span id="logs-source-status" class="logs-source-status muted" role="status"></span>
       <input type="search" id="logs-filter-query" class="logs-filter-input"
-        placeholder="过滤关键字…" autocomplete="off"
+        placeholder="${t('logs.filter_placeholder')}" autocomplete="off"
         value="${escapeHtml(_logsFilterQuery)}"
-        aria-label="日志关键字过滤">
-      <div class="logs-level-chips" role="group" aria-label="日志等级">
-        <button type="button" class="logs-chip" data-log-level="all">全部</button>
-        <button type="button" class="logs-chip" data-log-level="info">信息</button>
-        <button type="button" class="logs-chip" data-log-level="warn">警告</button>
-        <button type="button" class="logs-chip" data-log-level="error">错误</button>
+        aria-label="${t('logs.filter_aria')}">
+      <div class="logs-level-chips" role="group" aria-label="${t('logs.level_aria')}">
+        <button type="button" class="logs-chip" data-log-level="all">${t('logs.level.all')}</button>
+        <button type="button" class="logs-chip" data-log-level="info">${t('logs.level.info')}</button>
+        <button type="button" class="logs-chip" data-log-level="warn">${t('logs.level.warn')}</button>
+        <button type="button" class="logs-chip" data-log-level="error">${t('logs.level.error')}</button>
       </div>
-      <div class="logs-since-chips" role="group" aria-label="时间范围">
+      <div class="logs-since-chips" role="group" aria-label="${t('logs.since_aria')}">
         ${sinceChipsHtml}
       </div>
       <span id="logs-match-count" class="logs-match-count muted"></span>
       <label class="logs-autoscroll-label">
-        <input type="checkbox" id="logs-autoscroll" ${_logsAutoScroll ? 'checked' : ''}> 自动滚动
+        <input type="checkbox" id="logs-autoscroll" ${_logsAutoScroll ? 'checked' : ''}> ${t('logs.autoscroll')}
       </label>
-      <button type="button" class="btn-secondary" id="btn-logs-clear">清空</button>
+      <button type="button" class="btn-secondary" id="btn-logs-clear">${t('logs.clear')}</button>
     </div>
-    <p id="logs-empty-hint" class="logs-empty-hint muted" hidden>没有匹配当前过滤条件的日志</p>
+    <p id="logs-empty-hint" class="logs-empty-hint muted" hidden>${t('logs.empty_filtered')}</p>
     <div id="logs-view" class="logs-view" role="log" aria-live="polite"></div>
   `;
   const view = $('logs-view');
@@ -1797,7 +1796,7 @@ export function renderLogs() {
     const countEl = $('logs-match-count');
     if (countEl) {
       const visible = filterLogEntries(_logsBuffer, _logsFilterOpts());
-      countEl.textContent = `显示 ${visible.length} / ${_logsBuffer.length}`;
+      countEl.textContent = t('logs.match_count', { visible: visible.length, total: _logsBuffer.length });
     }
     if (_logsAutoScroll) view.scrollTop = view.scrollHeight;
   };
@@ -1841,7 +1840,7 @@ export function renderLogs() {
     _logsSource = name;
     _logsHistoryBuffer = [];
     _logsHistoryTruncated = false;
-    _syncLogsSourceUi('正在加载历史日志…');
+    _syncLogsSourceUi(t('logs.loading_history'));
     _paintLogsView(view);
     try {
       const r = await api('GET', `/api/logs/file?name=${encodeURIComponent(name)}`);
@@ -1856,7 +1855,7 @@ export function renderLogs() {
       if (seq !== _logsHistorySeq || !$('logs-view')) return;
       _logsHistoryBuffer = [];
       _logsHistoryTruncated = false;
-      _syncLogsSourceUi('历史日志加载失败');
+      _syncLogsSourceUi(t('logs.history_load_failed'));
       _paintLogsView(view);
     }
   };
@@ -1867,7 +1866,7 @@ export function renderLogs() {
       const select = $('logs-source-select');
       if (!select) return;
       const files = sortLogFiles(r?.files);
-      const options = ['<option value="">当前会话</option>'];
+      const options = [`<option value="">${escapeHtml(t('logs.source_current'))}</option>`];
       for (const file of files) {
         options.push(
           `<option value="${escapeHtml(file.name)}">${escapeHtml(logFileLabel(file))}</option>`
@@ -1876,14 +1875,14 @@ export function renderLogs() {
       const currentMissing = _logsSource && !files.some((file) => file.name === _logsSource);
       if (currentMissing) {
         options.push(
-          `<option value="${escapeHtml(_logsSource)}">${escapeHtml(formatLogHour(_logsSource))}（不可用）</option>`
+          `<option value="${escapeHtml(_logsSource)}">${escapeHtml(t('logs.source_unavailable', { name: formatLogHour(_logsSource) }))}</option>`
         );
       }
       select.innerHTML = options.join('');
       select.value = _logsSource;
-      _syncLogsSourceUi(currentMissing ? '历史日志文件不存在或已被清理' : '');
+      _syncLogsSourceUi(currentMissing ? t('logs.history_missing') : '');
     } catch {
-      if ($('logs-source-status')) _syncLogsSourceUi('历史日志列表加载失败');
+      if ($('logs-source-status')) _syncLogsSourceUi(t('logs.history_list_failed'));
     }
   };
 

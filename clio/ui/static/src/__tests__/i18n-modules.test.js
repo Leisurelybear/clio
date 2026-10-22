@@ -4,6 +4,7 @@ import { renderEmptyArtifactHtml } from '../empty-states.js';
 import { kindLabel, statusLabel } from '../task-center.js';
 import { manualInstallGuidance, taskStatusText } from '../ffmpeg-install.js';
 import { buildRuntimeWarnings } from '../runtime-warnings.js';
+import { historyStatusText } from '../logs-history.js';
 
 afterEach(() => applyLocale('zh-CN'));
 
@@ -43,5 +44,14 @@ describe('localized module copy', () => {
     applyLocale('zh-CN');
     expect(statusLabel('running')).toBe('\u8fd0\u884c\u4e2d');
     expect(renderEmptyArtifactHtml('texts')).toContain('\u6ca1\u6709\u5206\u6790\u7ed3\u679c');
+  });
+
+  it('localizes the historical log status line', () => {
+    applyLocale('en');
+    expect(historyStatusText({ name: '2026-07-20-22.log', logs: [1, 2], truncated: true }))
+      .toBe('2026-07-20 22:00 \u00b7 2 lines \u00b7 Showing the end of the file only');
+    applyLocale('zh-CN');
+    expect(historyStatusText({ name: '2026-07-20-22.log', logs: [1, 2], truncated: true }))
+      .toBe('2026-07-20 22:00 \u00b7 2 \u884c \u00b7 \u4ec5\u663e\u793a\u6587\u4ef6\u672b\u5c3e');
   });
 });

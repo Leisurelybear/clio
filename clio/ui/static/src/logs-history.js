@@ -1,5 +1,7 @@
 /** Pure helpers for browsing hourly disk logs (R-027e). */
 
+import { t } from './i18n.js';
+
 const LOG_FILE_RE = /^(\d{4})-(\d{2})-(\d{2})-(\d{2})\.log$/;
 
 /**
@@ -59,7 +61,7 @@ export function sortLogFiles(files) {
  */
 export function historyStatusText(result = {}) {
   const count = Array.isArray(result.logs) ? result.logs.length : 0;
-  const parts = [`${formatLogHour(result.name ?? '')} · ${count} 行`];
-  if (result.truncated) parts.push('仅显示文件末尾');
+  const parts = [`${formatLogHour(result.name ?? '')} · ${t('logs.line_count', { count })}`];
+  if (result.truncated) parts.push(t('logs.tail_only'));
   return parts.join(' · ');
 }
