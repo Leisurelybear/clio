@@ -153,6 +153,10 @@ Provider management is a frontend-only experience - no new backend APIs needed:
 - Unread notifications are never removed by retention cleanup; only read history is bounded.
 - `notification-center.js` owns the global SSE connection, unread badge, inbox filters,
   read actions, and Task Center deep links.
+- `ui.desktop_notifications` is a global opt-in, default off. Native delivery happens only when
+  the page is hidden; the inbox write remains authoritative and native failure is silent.
+- `desktop-notify.js` owns eligibility and dedupe. `clio/desktop/notifications.py` uses
+  PowerShell Toast, `osascript`, or `notify-send`; never build a shell string from notification text.
 
 ### 4.9 Historical Logs (R-027e)
 

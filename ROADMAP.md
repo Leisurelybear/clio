@@ -8,7 +8,6 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
 ## Active backlog (2026-10-22)
 
 - R-047-FU Optional Baidu ASR provider (deferred; Aliyun cloud transcription is complete)
-- R-042 Opt-in desktop OS notifications when the app is backgrounded
 - R-043 Frontend module decomposition and remaining legacy mypy debt
 - R-028b ffmpeg setup zip fallback after package-manager installation fails
 - R-028c UI one-click ffmpeg installation with progress reporting
@@ -198,7 +197,7 @@ providers, so this does not block Aliyun cloud transcription or packaged-build u
 
 ### R-042 Notification center
 
-**Status:** Implemented (2026-08-17); desktop OS delivery remains optional follow-up.
+**Status:** Implemented (2026-08-17); opt-in desktop delivery added 2026-10-22.
 
 **Goal:** Add a persistent notification inbox for task completion, failure, interruption,
 and other conditions that need user attention. Notifications must survive page/project
@@ -208,7 +207,7 @@ switches and link directly to the relevant task, project, video, plan, or settin
 - [x] Consume R-041 terminal/attention events without duplicating task lifecycle state
 - [x] Register UI status, toast, and runtime warning notifications in the same persistent inbox
 - [x] Add global inbox, unread badge, filters, mark-read/mark-all-read, and task deep links
-- [ ] Add opt-in desktop OS notifications when the app is backgrounded
+- [x] Add opt-in desktop OS notifications when the app is backgrounded (`ui.desktop_notifications`)
 - [x] Keep email, remote push, and webhook delivery out of the first release
 
 Design: `docs/superpowers/specs/2026-08-17-r042-notification-center-design.md`

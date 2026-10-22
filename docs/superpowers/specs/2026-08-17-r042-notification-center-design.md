@@ -1,6 +1,6 @@
 # R-042 Persistent Notification Center Design
 
-**Status:** Implemented on 2026-08-17.
+**Status:** Implemented on 2026-08-17. Opt-in native delivery added 2026-10-22.
 
 ## Goal
 
