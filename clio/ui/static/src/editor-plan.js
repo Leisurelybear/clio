@@ -872,6 +872,12 @@ export async function executeCut() {
     result.innerHTML = `<p class="ok">裁剪完成</p><p>输出目录: ${escapeHtml(r.output_dir)}</p>`;
     setStatus('裁剪完成', 'ok', { persist: !taskId });
     addToast('裁剪完成', 'success', undefined, { persist: false });
+    if (!body.output_dir) {
+      const { loadPlanPreviewMedia } = await import('./plan-preview-media.js');
+      state.planPreviewMedia = await loadPlanPreviewMedia(dayLabel);
+      state.previewCutFallbacks.clear();
+      state._previewMedia = null;
+    }
     import('./sidebar.js').then(mod => mod.saveProject());
   } catch (e) {
     result.innerHTML = `<p class="err">错误: ${escapeHtml(e.message)}</p>`;

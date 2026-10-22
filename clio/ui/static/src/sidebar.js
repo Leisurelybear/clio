@@ -13,6 +13,7 @@ import {
   updateSelectBtnVisibility, renderVideoList,
 } from './sidebar-data.js';
 import { selectVideosButtonHtml } from './select-btn.js';
+import { loadPlanPreviewMedia } from './plan-preview-media.js';
 
 let _selectVideoRequestId = 0;
 
@@ -94,8 +95,19 @@ async function selectPlan(dayOverride) {
   clearDirty();
   if (dayOverride) state.currentDay = dayOverride;
   // Keep run SSE alive across entity switches so done/cancel handlers still fire.
-  try { state.plan = await api('GET', `/api/plan?day=${state.currentDay}`); }
-  catch (e) { state.plan = null; }
+  try {
+    const [plan, previewMedia] = await Promise.all([
+      api('GET', `/api/plan?day=${state.currentDay}`),
+      loadPlanPreviewMedia(state.currentDay),
+    ]);
+    state.plan = plan;
+    state.planPreviewMedia = previewMedia;
+    state.previewCutFallbacks.clear();
+    state._previewMedia = null;
+  } catch (e) {
+    state.plan = null;
+    state.planPreviewMedia = null;
+  }
   updateSidebarDay();
   updateEntityUI();
   updateSelectBtnVisibility();

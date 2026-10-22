@@ -33,6 +33,7 @@ import {
 import { phaseNewSource } from './video-fade.js';
 import { preloadNextSegment, clearPreload } from './preview-preload.js';
 import { videoUrlFor } from './video-url.js';
+import { resolvePlanMedia, localSecForPlayer } from './plan-preview-media.js';
 
 let _fadeCancel = null;
 let _subtitleSettingsFrame = 0;
@@ -126,13 +127,15 @@ export function playerSrcMatchesFile(playerSrc, file, source) {
  * @param {number} seekSec
  * @param {boolean} wantPlay
  */
-function buildVideoSrc(v) {
-  return videoUrlFor(v, state.source, state.currentProjectName);
+function buildVideoSrc(v, source = state.source) {
+  return videoUrlFor(v, source, state.currentProjectName);
 }
 
-function _loadAndSeekSource(v, seekSec, wantPlay) {
+function _loadAndSeekSource(v, seekSec, wantPlay, media = null) {
   const player = $('player');
   const fadeCanvas = $('video-fade');
+  const source = media?.mode === 'cut' ? 'cut' : state.source;
+  const url = media?.url || buildVideoSrc(v, source);
   const doSeek = () => {
     player.currentTime = seekSec;
     if (wantPlay) player.play().catch(() => {});
@@ -142,7 +145,7 @@ function _loadAndSeekSource(v, seekSec, wantPlay) {
   $('player-name').textContent = v.file;
   const same =
     player.src
-    && playerSrcMatchesFile(player.src, v.file, state.source)
+    && playerSrcMatchesFile(player.src, v.file, source)
     && player.readyState >= 1;
   if (same) {
     doSeek();
@@ -153,10 +156,10 @@ function _loadAndSeekSource(v, seekSec, wantPlay) {
     if (fadeCanvas) {
       if (_fadeCancel) _fadeCancel();
       _fadeCancel = phaseNewSource(player, fadeCanvas, {
-        setSrc: () => { player.src = buildVideoSrc(v); },
+        setSrc: () => { player.src = url; },
       });
     } else {
-      player.src = buildVideoSrc(v);
+      player.src = url;
     }
     player.onloadedmetadata = () => {
       if (!isGlobalTimelineUi()) {
@@ -196,10 +199,16 @@ function seekToGlobal(globalSec, opts = {}) {
   state.previewIndex = loc.segIndex;
   state.previewGlobalSec = clampGlobal(tl, globalSec);
 
-  const v = state.videos.find(
-    (x) => String(x.index) === String(loc.videoIndex),
-  );
-  if (!v) {
+  const media = resolvePlanMedia(tl, loc.segIndex, {
+    previewMedia: state.planPreviewMedia,
+    videos: state.videos,
+    source: state.source,
+    projectName: state.currentProjectName,
+    localSec: loc.localSec,
+    blockedCuts: state.previewCutFallbacks,
+  });
+  if (!media) {
+    state._previewMedia = null;
     setStatus(`跳过视频 [${loc.videoIndex}]，找不到对应文件`, 'warn');
     hidePlanSubtitle();
     updateCompositeClock();
@@ -219,14 +228,10 @@ function seekToGlobal(globalSec, opts = {}) {
     return;
   }
 
-  const offset = state.source === 'original' ? (v.offset_sec || 0) : 0;
-  const seekSec = loc.planSec + offset;
-  const seg = tl.segments[loc.segIndex];
-  state._previewEndTime = seg
-    ? seg.planEnd + offset
-    : null;
+  state._previewMedia = media;
+  state._previewEndTime = media.endSec;
 
-  _loadAndSeekSource(v, seekSec, wantPlay);
+  _loadAndSeekSource(media.video, media.seekSec, wantPlay, media);
   renderPlanSubtitleFromState();
 
   const p = state.plan;
@@ -261,6 +266,8 @@ function seekToGlobal(globalSec, opts = {}) {
     state.source,
     state.videos || [],
     state.currentProjectName,
+    state.planPreviewMedia,
+    state.previewCutFallbacks,
   );
 }
 
@@ -289,11 +296,15 @@ function _nextPlayableWithVideo(tl, fromIndex) {
   for (let n = 0; n < guard; n++) {
     const next = nextPlayableSegIndex(tl, i);
     if (next == null) return null;
-    const seg = tl.segments[next];
-    const found = state.videos.find(
-      (x) => String(x.index) === String(seg.videoIndex),
-    );
-    if (found) return next;
+    const media = resolvePlanMedia(tl, next, {
+      previewMedia: state.planPreviewMedia,
+      videos: state.videos,
+      source: state.source,
+      projectName: state.currentProjectName,
+      localSec: 0,
+      blockedCuts: state.previewCutFallbacks,
+    });
+    if (media) return next;
     i = next;
   }
   return null;
@@ -323,6 +334,26 @@ function _resyncPlanPreviewFromPlayer(player, opts = {}) {
   if (!isGlobalTimelineUi() || !player) return false;
   const tl = getPlanTimeline();
   if (!tl.segments.length) return false;
+
+  if (state._previewMedia?.mode === 'cut' && state.previewIndex >= 0) {
+    const seg = tl.segments[state.previewIndex];
+    const media = state._previewMedia;
+    if (seg && media.segIndex === state.previewIndex) {
+      const local = localSecForPlayer(seg, media, player.currentTime);
+      state.previewGlobalSec = localToGlobal(tl, state.previewIndex, local);
+      state._previewEndTime = media.endSec;
+      softUpdatePreviewChrome(tl);
+      _softUpdateSegBlockClasses(state.previewIndex);
+      updateCompositeClock();
+      if (opts.syncExpand !== false) _syncPlanExpandFromPreview();
+      const pastEnd = player.currentTime >= media.endSec - 0.05;
+      if (pastEnd && opts.maybeAdvance !== false && state.previewActive && !player.paused) {
+        _advanceToNextPlayable();
+        return true;
+      }
+      return pastEnd;
+    }
+  }
 
   const curFile = state.currentVideo;
   const v = (state.videos || []).find((x) => x.file === curFile)
@@ -613,6 +644,7 @@ function stopPreview() {
   state.previewActive = false;
   state.previewIndex = -1;
   state._previewEndTime = null;
+  state._previewMedia = null;
   clearPreload();
   const player = $('player');
   player.pause();
@@ -735,13 +767,8 @@ function setupPlayer() {
     if (isGlobalTimelineUi() && state.previewIndex >= 0) {
       const tl = getPlanTimeline();
       const seg = tl.segments[state.previewIndex];
-      const v = state.videos.find(
-        (x) => String(x.index) === String(seg?.videoIndex),
-      );
-      const offset = state.source === 'original' ? (v?.offset_sec || 0) : 0;
       if (seg && seg.duration > 0) {
-        const planSec = Math.max(0, player.currentTime - offset);
-        const local = Math.min(seg.duration, Math.max(0, planSec - seg.planStart));
+        const local = localSecForPlayer(seg, state._previewMedia, player.currentTime);
         state.previewGlobalSec = localToGlobal(tl, state.previewIndex, local);
         softUpdatePreviewChrome(tl);
       }
@@ -765,7 +792,13 @@ function setupPlayer() {
     }
   };
   player.onloadedmetadata = () => {
-    if (isGlobalTimelineUi()) updateCompositeClock();
+    if (isGlobalTimelineUi()) {
+      const media = state._previewMedia;
+      if (media?.mode === 'cut' && Number.isFinite(player.duration) && player.duration > 0) {
+        state._previewEndTime = Math.min(media.endSec, player.duration);
+      }
+      updateCompositeClock();
+    }
     else $('player-time').textContent = `${fmtTime(0)} / ${fmtTime(player.duration)}`;
   };
   player.onended = () => {
@@ -791,7 +824,21 @@ function setupPlayer() {
       maybeAdvance: state.previewActive && !player.paused,
     });
   };
-  player.onerror = () => setStatus('视频加载失败', 'err');
+  player.onerror = () => {
+    const media = state._previewMedia;
+    if (media?.mode === 'cut' && media.segIndex === state.previewIndex) {
+      state.previewCutFallbacks.add(media.segIndex);
+      state._previewMedia = null;
+      setStatus('裁剪片段不可用，已回退到源视频', 'warn', { persist: false });
+      seekToGlobal(state.previewGlobalSec, {
+        play: state.previewActive,
+        forceSource: true,
+        syncExpand: false,
+      });
+      return;
+    }
+    setStatus('视频加载失败', 'err');
+  };
 
   // Preview bar buttons
   const prevBtn = $('btn-prev-seg');

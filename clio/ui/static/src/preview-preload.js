@@ -9,6 +9,7 @@
  * re-requests from HTTP cache with minimal latency.
  */
 
+import { resolvePlanMedia, previewMediaKey } from './plan-preview-media.js';
 import { videoUrlFor } from './video-url.js';
 
 let _preloadVideo = null;
@@ -38,10 +39,6 @@ function removeMetaListener() {
  * Unique key for a preloaded source to avoid stale dedup across
  * source-type or project switches.
  */
-function makeKey(v, source, projectName) {
-  return [v?.abs_path || v?.file, source, projectName].join('\x00');
-}
-
 /**
  * Preload the next playable segment's video at its target seek offset.
  * @param {boolean} previewActive
@@ -51,8 +48,19 @@ function makeKey(v, source, projectName) {
  * @param {string} currentSource - 'compressed' | 'original'
  * @param {Array<{ file: string, index?: string, abs_path?: string, offset_sec?: number }>} videos
  * @param {string|null} projectName
+ * @param {object|null} previewMedia
+ * @param {Set<number>|Array<number>|null} blockedCuts
  */
-function _doPreload(timeline, currentSegIndex, nextPlayableFn, currentSource, videos, projectName) {
+function _doPreload(
+  timeline,
+  currentSegIndex,
+  nextPlayableFn,
+  currentSource,
+  videos,
+  projectName,
+  previewMedia = null,
+  blockedCuts = null,
+) {
   if (!timeline || !Array.isArray(timeline.segments) || !nextPlayableFn || !Array.isArray(videos)) return;
 
   const nextIdx = nextPlayableFn(timeline, currentSegIndex);
@@ -60,10 +68,18 @@ function _doPreload(timeline, currentSegIndex, nextPlayableFn, currentSource, vi
   const seg = timeline.segments[nextIdx];
   if (!seg) return;
 
-  const v = videos.find((x) => String(x.index) === String(seg.videoIndex));
-  if (!v) return;
+  const media = resolvePlanMedia(timeline, nextIdx, {
+    previewMedia,
+    videos,
+    source: currentSource,
+    projectName,
+    localSec: 0,
+    blockedCuts,
+    buildUrl: false,
+  });
+  if (!media) return;
 
-  const key = makeKey(v, currentSource, projectName);
+  const key = previewMediaKey(media);
   if (_preloadKey === key) return;
   _preloadKey = key;
 
@@ -72,15 +88,15 @@ function _doPreload(timeline, currentSegIndex, nextPlayableFn, currentSource, vi
   // Clean up any stale listener before switching sources.
   removeMetaListener();
 
-  pv.src = videoUrlFor(v, currentSource, projectName);
+  const source = media.mode === 'cut' ? 'cut' : currentSource;
+  pv.src = videoUrlFor(media.video, source, projectName);
 
   // Seek to segment start (plus original-video offset if applicable).
   // Setting currentTime triggers a Range request around that byte offset,
   // so the browser buffers data near the actual playback start point.
   _metaListener = () => {
     removeMetaListener();
-    const offsetSec = currentSource === 'original' ? (v.offset_sec || 0) : 0;
-    const target = Math.max(0, (seg.planStart || 0) + offsetSec);
+    const target = Math.max(0, media.seekSec);
     try {
       if (Number.isFinite(pv.duration) && pv.duration > 0) {
         pv.currentTime = Math.min(target, pv.duration - 0.1);
@@ -94,12 +110,31 @@ function _doPreload(timeline, currentSegIndex, nextPlayableFn, currentSource, vi
  * Debounced entry point: during progress-bar scrubbing seekToGlobal fires
  * rapidly; only the last call within the window actually preloads.
  */
-export function preloadNextSegment(previewActive, timeline, currentSegIndex, nextPlayableFn, currentSource, videos, projectName) {
+export function preloadNextSegment(
+  previewActive,
+  timeline,
+  currentSegIndex,
+  nextPlayableFn,
+  currentSource,
+  videos,
+  projectName,
+  previewMedia = null,
+  blockedCuts = null,
+) {
   if (!previewActive) return;
   if (_debounceTimer) clearTimeout(_debounceTimer);
   _debounceTimer = setTimeout(() => {
     _debounceTimer = null;
-    _doPreload(timeline, currentSegIndex, nextPlayableFn, currentSource, videos, projectName);
+    _doPreload(
+      timeline,
+      currentSegIndex,
+      nextPlayableFn,
+      currentSource,
+      videos,
+      projectName,
+      previewMedia,
+      blockedCuts,
+    );
   }, 200);
 }
 
@@ -112,5 +147,7 @@ export function clearPreload() {
     try { _preloadVideo.pause(); } catch { /* ignore */ }
     _preloadVideo.removeAttribute('src');
     try { _preloadVideo.load(); } catch { /* ignore */ }
+    _preloadVideo.remove();
+    _preloadVideo = null;
   }
 }

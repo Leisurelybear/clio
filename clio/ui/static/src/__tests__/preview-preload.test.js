@@ -106,6 +106,36 @@ describe('preloadNextSegment', () => {
     vi.advanceTimersByTime(250);
     expect(document.querySelector('video')).toBeNull();
   });
+
+  it('preloads a cut clip with its day and clip-local start', () => {
+    vi.clearAllMocks();
+    const tl = makeTimeline([
+      { videoIndex: '1', planStart: 0, planEnd: 5, duration: 5 },
+      { videoIndex: '2', planStart: 10, planEnd: 15, duration: 5 },
+    ]);
+    const videos = [{ file: 'b.mp4', index: '2' }];
+    const previewMedia = {
+      day: 'day1',
+      segments: [
+        { file: null, start_sec: 0, end_sec: 5, source: { video_index: '1' } },
+        {
+          file: '002_B_seg_002.mp4',
+          duration_sec: 5,
+          start_sec: 10,
+          end_sec: 15,
+          source: { video_index: '2' },
+        },
+      ],
+    };
+    preloadNextSegment(true, tl, 0, nextFn, 'compressed', videos, null, previewMedia);
+    vi.advanceTimersByTime(250);
+    expect(videoUrlFor).toHaveBeenCalledWith(
+      expect.objectContaining({ file: '002_B_seg_002.mp4', cut_day: 'day1' }),
+      'cut',
+      null,
+    );
+    expect(getCreated()?.src).toContain('002_B_seg_002.mp4');
+  });
 });
 
 describe('clearPreload', () => {
