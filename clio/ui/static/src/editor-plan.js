@@ -7,7 +7,7 @@ import { buildTimeline, clampGlobal } from './plan-timeline.js';
 import { recomposePlanWaveformFromCache, isPlanWaveformMode } from './waveform.js';
 import { addToast } from './toast.js';
 import { resolveEditorSaveTarget } from './editor-save.js';
-import { applyLocale, getLocale } from './i18n.js';
+import { applyLocale, getLocale, onLocaleChange, t } from './i18n.js';
 import { exportJianyingDraft } from './plan-export.js';
 import { waitForTask } from './task-center.js';
 import { openPlanRangePicker } from './plan-range-picker.js';
@@ -29,6 +29,12 @@ let _dragFromIndex = null;
 let _dropToIndex = null;
 let _highlightTimer = null;
 let _expandedSegIndex = null;
+
+// The plan pane is rendered from JS strings, so re-render it on a language switch
+// instead of leaving stale copy behind.
+onLocaleChange(() => {
+  if (state.currentEntity === 'plan') renderPlan();
+});
 
 export function getPlanExpandedIndex() {
   return _expandedSegIndex;
@@ -75,15 +81,15 @@ function autoScrollDuringDrag(clientY) {
 
 export function configSaveStatusForTab(tab) {
   if (tab === 'project') {
-    return { message: '项目配置已保存，立即生效', level: 'ok' };
+    return { message: t('plan.config_saved_project'), level: 'ok' };
   }
   if (tab === 'global') {
     return {
-      message: '全局配置已保存并热加载；正在运行中的任务仍使用启动时配置',
+      message: t('plan.config_saved_global'),
       level: 'ok',
     };
   }
-  return { message: '合并视图为只读，无法保存', level: 'warn' };
+  return { message: t('plan.config_readonly'), level: 'warn' };
 }
 
 /** Apply `ui.language` from a freshly saved global config without a reload. */
@@ -151,7 +157,7 @@ async function refreshReadinessPanel() {
   const panel = $('plan-readiness');
   if (!panel || !state.plan) return;
   const ac = beginLatest('plan-readiness');
-  panel.innerHTML = '<p class="muted">检查规划就绪状态…</p>';
+  panel.innerHTML = `<p class="muted">${t('plan.readiness_checking')}</p>`;
   try {
     const r = await api('POST', '/api/plan/readiness', {
       day: state.currentDay || 'day1',
@@ -166,7 +172,7 @@ async function refreshReadinessPanel() {
     updateActionButtonsGate();
   } catch (e) {
     if (isAbortError(e) || !isLatest('plan-readiness', ac)) return;
-    panel.innerHTML = `<p class="err">就绪检查失败: ${escapeHtml(e.message || e)}</p>`;
+    panel.innerHTML = `<p class="err">${t('plan.readiness_failed', { detail: escapeHtml(e.message || e) })}</p>`;
     _lastReadiness = { ok: false, errors: [{ message: String(e.message || e) }], warnings: [] };
     updateActionButtonsGate();
   } finally {
@@ -176,16 +182,16 @@ async function refreshReadinessPanel() {
 
 function renderReadinessList(panel, errors, warnings) {
   if (!errors.length && !warnings.length) {
-    panel.innerHTML = '<p class="ok">规划检查通过，可以裁剪/导出。</p>';
+    panel.innerHTML = `<p class="ok">${t('plan.readiness_ok')}</p>`;
     return;
   }
-  const parts = ['<h3>导出/裁剪检查</h3>'];
+  const parts = [`<h3>${t('plan.readiness_title')}</h3>`];
   if (errors.length) {
     parts.push('<ul class="plan-readiness-errors">');
     for (const issue of errors) {
       const idx = issue.segment_index;
       parts.push(
-        `<li class="plan-issue-error" data-seg="${idx != null ? idx : ''}">${escapeHtml(issue.message || issue.code || '错误')}</li>`
+        `<li class="plan-issue-error" data-seg="${idx != null ? idx : ''}">${escapeHtml(issue.message || issue.code || t('plan.issue_error'))}</li>`
       );
     }
     parts.push('</ul>');
@@ -195,7 +201,7 @@ function renderReadinessList(panel, errors, warnings) {
     for (const issue of warnings) {
       const idx = issue.segment_index;
       parts.push(
-        `<li class="plan-issue-warn" data-seg="${idx != null ? idx : ''}">${escapeHtml(issue.message || issue.code || '警告')}</li>`
+        `<li class="plan-issue-warn" data-seg="${idx != null ? idx : ''}">${escapeHtml(issue.message || issue.code || t('plan.issue_warning'))}</li>`
       );
     }
     parts.push('</ul>');
@@ -220,17 +226,17 @@ function updateActionButtonsGate() {
   const expBtn = $('btn-jianying-export');
   if (cutBtn) {
     cutBtn.disabled = hasErrors;
-    cutBtn.title = hasErrors ? '请先修复规划错误' : '';
+    cutBtn.title = hasErrors ? t('plan.fix_errors_first') : '';
   }
   if (expBtn) {
     expBtn.disabled = hasErrors;
-    expBtn.title = hasErrors ? '请先修复规划错误' : '';
+    expBtn.title = hasErrors ? t('plan.fix_errors_first') : '';
   }
 }
 
 function ensureSavedBeforeAction() {
   if (!state.dirty) return true;
-  alert('有未保存的规划修改，请先保存后再裁剪/导出。');
+  alert(t('plan.save_before_action'));
   return false;
 }
 
@@ -238,12 +244,12 @@ function confirmWarningsIfNeeded() {
   const warnings = _lastReadiness.warnings || [];
   const errors = _lastReadiness.errors || [];
   if (errors.length) {
-    addToast(errors[0].message || '规划存在错误，无法继续', 'error', 6000);
+    addToast(errors[0].message || t('plan.errors_block'), 'error', 6000);
     return false;
   }
   if (warnings.length) {
     const preview = warnings.slice(0, 5).map((w) => w.message).join('\n');
-    return confirm(`规划存在警告：\n${preview}\n\n仍要继续？`);
+    return confirm(t('plan.warnings_confirm', { preview }));
   }
   return true;
 }
@@ -304,7 +310,7 @@ function openInsertModal(afterIndex) {
   ensureInsertModalBound();
   const modal = $('modal-plan-insert');
   if (!modal) {
-    addToast('插入对话框不可用', 'error');
+    addToast(t('plan.insert_unavailable'), 'error');
     return;
   }
   _insertAfterIndex = afterIndex;
@@ -315,11 +321,11 @@ function openInsertModal(afterIndex) {
   if (hint) {
     const n = (state.plan?.sequence?.length || 0);
     if (n === 0 || afterIndex < 0) {
-      hint.textContent = '选择要插入到规划开头的视频';
+      hint.textContent = t('plan.insert_hint_start');
     } else if (afterIndex >= n - 1) {
-      hint.textContent = '选择要插入到末尾的视频';
+      hint.textContent = t('plan.insert_hint_end');
     } else {
-      hint.textContent = `选择要插入到第 ${afterIndex + 1} 段之后的视频`;
+      hint.textContent = t('plan.insert_hint_after', { index: afterIndex + 1 });
     }
   }
   renderInsertVideoList('');
@@ -343,14 +349,14 @@ function renderInsertVideoList(query) {
 
   if (!filtered.length) {
     list.innerHTML = videos.length
-      ? '<p class="muted">没有匹配的视频</p>'
-      : '<p class="muted">当前项目没有可用视频</p>';
+      ? `<p class="muted">${t('plan.insert_no_match')}</p>`
+      : `<p class="muted">${t('plan.insert_no_videos')}</p>`;
     return;
   }
 
   list.innerHTML = filtered.map((v) => {
     const idx = String(v.index);
-    const title = v.title || v.file || '(无标题)';
+    const title = v.title || v.file || t('plan.untitled');
     const selected = _insertSelectedIndex != null && String(_insertSelectedIndex) === idx;
     return `<button type="button" class="plan-insert-item${selected ? ' selected' : ''}" data-index="${escapeHtml(idx)}" title="${escapeHtml(v.file || '')}">
       <span class="plan-insert-item-idx">[${escapeHtml(idx)}]</span>
@@ -379,12 +385,12 @@ function confirmInsertSegment() {
   if (!p) return;
   const index = _insertSelectedIndex != null ? String(_insertSelectedIndex).trim() : '';
   if (!index) {
-    addToast('请先选择一个视频', 'warning');
+    addToast(t('plan.pick_video_first'), 'warning');
     return;
   }
   const v = (state.videos || []).find((x) => String(x.index) === index);
   if (!v) {
-    addToast(`找不到视频 [${index}]`, 'warning');
+    addToast(t('plan.video_not_found', { index }), 'warning');
     return;
   }
   const afterIndex = _insertAfterIndex;
@@ -406,7 +412,7 @@ function openRangePickerForSegment(segIndex) {
   const seg = p.sequence[segIndex];
   const v = (state.videos || []).find((x) => String(x.index) === String(seg.index));
   if (!v?.file) {
-    addToast(`找不到视频 [${seg.index || '?'}]，无法打开选区`, 'warning');
+    addToast(t('plan.video_not_found_range', { index: seg.index || '?' }), 'warning');
     return;
   }
   openPlanRangePicker({
@@ -450,19 +456,19 @@ function _prefillSubtitle(li, seg) {
     return;
   }
   const v = state.videos.find((x) => String(x.index) === String(seg.index));
-  if (!v) { subEl.placeholder = '无关联视频'; return; }
-  if (!v.script_json) { subEl.placeholder = '无口播文案文件'; return; }
+  if (!v) { subEl.placeholder = t('plan.subtitle.no_video'); return; }
+  if (!v.script_json) { subEl.placeholder = t('plan.subtitle.no_script'); return; }
   api('GET', `/api/voiceover?file=${encodeURIComponent(v.script_json)}`)
     .then((d) => {
       const text = typeof d?.voiceover === 'string' ? d.voiceover : '';
-      subEl.placeholder = text ? '从口播文案预填，编辑将保存到规划' : '无口播文案';
+      subEl.placeholder = text ? t('plan.subtitle.prefilled') : t('plan.subtitle.none');
       if (subEl.value === '') {
         subEl.value = text;
         seg.subtitle = text;
         markDirty();
       }
     })
-    .catch(() => { subEl.placeholder = '加载失败'; });
+    .catch(() => { subEl.placeholder = t('plan.subtitle.load_failed'); });
 }
 
 export function renderPlan() {
@@ -472,18 +478,18 @@ export function renderPlan() {
   renderPreviewBar();
   if (!p) {
     pane.innerHTML = `
-      <h3>vlog 剪辑规划</h3>
-      <p class="muted">当前项目没有编排文件。</p>
-      <p class="hint">请先运行流水线中的「vlog 剪辑规划」步骤，或在 CLI 执行 <code>python main.py plan</code>。</p>
+      <h3>${t('plan.title')}</h3>
+      <p class="muted">${t('plan.empty_title')}</p>
+      <p class="hint">${t('plan.empty_hint')}</p>
     `;
     return;
   }
   if (!Array.isArray(p.sequence)) p.sequence = [];
 
   pane.innerHTML = `
-    <h3>编排元信息</h3>
+    <h3>${t('plan.meta_title')}</h3>
     ${state.availablePlans.length >= 1 ? `
-    <label>分集
+    <label>${t('plan.field.day')}
       <select id="plan-day-select">
         ${state.availablePlans.map(dp =>
           `<option value="${escapeHtml(dp.day_label)}" ${dp.day_label === state.currentDay ? 'selected' : ''}>${escapeHtml(dp.day_label)}</option>`
@@ -491,12 +497,12 @@ export function renderPlan() {
       </select>
     </label>
     ` : ''}
-    <label>标题 <input data-field="day_title"></label>
-    <label>主题 <input data-field="theme"></label>
-    <label>开场提示 <textarea data-field="opening_tip" rows="2"></textarea></label>
-    <label>收尾提示 <textarea data-field="ending_tip" rows="2"></textarea></label>
-    <h3>顺序 (sequence) — ${p.sequence.length} 项</h3>
-    <p class="hint">拖动手柄或使用 ↑↓ 调整顺序；点击片段跳转预览</p>
+    <label>${t('plan.field.title')} <input data-field="day_title"></label>
+    <label>${t('plan.field.theme')} <input data-field="theme"></label>
+    <label>${t('plan.field.opening_tip')} <textarea data-field="opening_tip" rows="2"></textarea></label>
+    <label>${t('plan.field.ending_tip')} <textarea data-field="ending_tip" rows="2"></textarea></label>
+    <h3>${t('plan.sequence_title', { count: p.sequence.length })}</h3>
+    <p class="hint">${t('plan.sequence_hint')}</p>
     <ol id="plan-list"></ol>
     <div id="plan-readiness" class="plan-readiness cut-section"></div>
   `;
@@ -505,7 +511,7 @@ export function renderPlan() {
     daySelect.onchange = async () => {
       const day = daySelect.value;
       if (day === state.currentDay) return;
-      if (state.dirty && !confirm('切换分集将丢弃当前修改，确定吗？')) { daySelect.value = state.currentDay; return; }
+      if (state.dirty && !confirm(t('plan.day_switch_confirm'))) { daySelect.value = state.currentDay; return; }
       state.currentDay = day;
       state.plan = null;
       clearDirty();
@@ -541,42 +547,42 @@ export function renderPlan() {
     li.dataset.previewIndex = String(i);
     li.innerHTML = `
       <div class="plan-seg-header">
-        <span class="plan-drag-handle" title="拖拽排序" aria-hidden="true">⠿</span>
+        <span class="plan-drag-handle" title="${t('plan.drag_sort_title')}" aria-hidden="true">⠿</span>
         <span class="plan-seg-ord">${i + 1}.</span>
-        <span class="plan-seg-title-text" title="${escapeHtml(titleText)}">${escapeHtml(titleText || '(无标题)')}</span>
+        <span class="plan-seg-title-text" title="${escapeHtml(titleText)}">${escapeHtml(titleText || t('plan.untitled'))}</span>
         <span class="plan-seg-tl">${escapeHtml(tlText || '—')}</span>
         <span class="plan-seg-vid">[${escapeHtml(String(vid))}]</span>
         <button type="button" class="plan-seg-chevron" data-chevron
           aria-expanded="${expanded ? 'true' : 'false'}"
-          aria-label="${expanded ? '收起片段' : '展开片段'}">${expanded ? '▾' : '▸'}</button>
+          aria-label="${expanded ? t('plan.collapse_segment') : t('plan.expand_segment')}">${expanded ? '▾' : '▸'}</button>
       </div>
       ${expanded ? `
       <div class="plan-seg-panel">
-        <label class="plan-title-field">标题
+        <label class="plan-title-field">${t('plan.field.title')}
           <input class="plan-title-input" value="${escapeHtml(titleText)}" data-k="title">
         </label>
-        <label class="plan-timeline-row">时间轴
+        <label class="plan-timeline-row">${t('plan.field.timeline')}
           <input value="${escapeHtml(tlText)}" data-k="use_timeline" placeholder="00:10-00:45">
-          <button type="button" class="plan-ghost-btn" data-range-pick title="在源视频上拖选起止时间">选区</button>
+          <button type="button" class="plan-ghost-btn" data-range-pick title="${t('plan.range_pick_title')}">${t('plan.range_pick')}</button>
         </label>
         <div class="plan-seg-fields">
-          <label>理由
+          <label>${t('plan.field.reason')}
             <textarea rows="3" data-k="reason">${escapeHtml(seg.reason || '')}</textarea>
           </label>
-          <label>口播提示（仅预览/旁白，不导出成片字幕）
+          <label>${t('plan.field.voiceover_hint')}
             <textarea rows="3" data-k="voiceover_hint">${escapeHtml(seg.voiceover_hint || '')}</textarea>
           </label>
         </div>
         <div class="plan-seg-subtitles">
-          <label>成片字幕（导出到剪映字幕轨）
-            <textarea rows="3" data-k="subtitle" placeholder="加载中…"></textarea>
+          <label>${t('plan.field.subtitle')}
+            <textarea rows="3" data-k="subtitle" placeholder="${t('common.loading')}"></textarea>
           </label>
         </div>
         <div class="plan-seg-actions">
-          <button type="button" class="plan-icon-btn" data-move="up" title="上移" ${i === 0 ? 'disabled' : ''}>↑</button>
-          <button type="button" class="plan-icon-btn" data-move="down" title="下移" ${i === p.sequence.length - 1 ? 'disabled' : ''}>↓</button>
-          <button type="button" class="plan-ghost-btn" data-ins title="在此后插入片段">+ 插入</button>
-          <button type="button" class="plan-ghost-btn plan-ghost-btn--danger" data-del title="删除片段">删除</button>
+          <button type="button" class="plan-icon-btn" data-move="up" title="${t('plan.move_up')}" ${i === 0 ? 'disabled' : ''}>↑</button>
+          <button type="button" class="plan-icon-btn" data-move="down" title="${t('plan.move_down')}" ${i === p.sequence.length - 1 ? 'disabled' : ''}>↓</button>
+          <button type="button" class="plan-ghost-btn" data-ins title="${t('plan.insert_after')}">${t('plan.insert_button')}</button>
+          <button type="button" class="plan-ghost-btn plan-ghost-btn--danger" data-del title="${t('plan.delete_segment')}">${t('common.delete')}</button>
         </div>
       </div>` : ''}
     `;
@@ -596,7 +602,7 @@ export function renderPlan() {
       _expandedSegIndex = i;
       const v = state.videos.find(x => String(x.index) === String(seg.index));
       if (!v) {
-        setStatus(`找不到视频 [${seg.index}]，请重新生成规划`, 'warn');
+        setStatus(t('plan.video_not_found', { index: seg.index }), 'warn');
         renderPlan();
         return;
       }
@@ -623,15 +629,15 @@ export function renderPlan() {
         p.sequence[i] = patchSegment(p.sequence[i], { [e.target.dataset.k]: e.target.value });
         // Keep collapsed header title/timeline in sync without full re-render on every keystroke
         if (e.target.dataset.k === 'title') {
-          const t = li.querySelector('.plan-seg-title-text');
-          if (t) {
+          const titleEl = li.querySelector('.plan-seg-title-text');
+          if (titleEl) {
             const val = e.target.value || '';
-            t.textContent = val || '(无标题)';
-            t.title = val;
+            titleEl.textContent = val || t('plan.untitled');
+            titleEl.title = val;
           }
         } else if (e.target.dataset.k === 'use_timeline') {
-          const t = li.querySelector('.plan-seg-tl');
-          if (t) t.textContent = e.target.value || '—';
+          const tlEl = li.querySelector('.plan-seg-tl');
+          if (tlEl) tlEl.textContent = e.target.value || '—';
           _refreshPreviewTimeline();
         }
         markDirty();
@@ -661,7 +667,7 @@ export function renderPlan() {
     });
     li.querySelector('[data-del]')?.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (!confirm(`删除第 ${i + 1} 段「${seg.title || seg.index || ''}」？`)) return;
+      if (!confirm(t('plan.delete_confirm', { index: i + 1, title: seg.title || seg.index || '' }))) return;
       const nextSeq = removeSegment(p.sequence, i);
       _expandedSegIndex = nextExpandedAfterDelete(_expandedSegIndex, i, nextSeq.length);
       applySequence(nextSeq);
@@ -738,7 +744,7 @@ export function renderPlan() {
   // Prepend control when sequence empty or for first insert
   const insertBar = document.createElement('div');
   insertBar.className = 'plan-insert-bar';
-  insertBar.innerHTML = `<button type="button" id="btn-plan-insert-end" class="btn-secondary">在末尾插入片段</button>`;
+  insertBar.innerHTML = `<button type="button" id="btn-plan-insert-end" class="btn-secondary">${t('plan.insert_end_button')}</button>`;
   ol.parentNode?.insertBefore(insertBar, ol.nextSibling);
   insertBar.querySelector('#btn-plan-insert-end')?.addEventListener('click', () => {
     const n = p.sequence?.length || 0;
@@ -748,20 +754,20 @@ export function renderPlan() {
   const cutSection = document.createElement('div');
   cutSection.className = 'cut-section';
   cutSection.innerHTML = `
-    <h3>裁剪此分集</h3>
-    <p class="hint">基于规划 ${escapeHtml(state.currentDay)} 裁剪所有片段</p>
-    <label>视频来源
+    <h3>${t('plan.cut_title')}</h3>
+    <p class="hint">${t('plan.cut_hint', { day: escapeHtml(state.currentDay) })}</p>
+    <label>${t('plan.cut_source_label')}
       <select id="cut-source">
-        <option value="compressed" selected>压缩版 (compressed)</option>
-        <option value="original">原片 (original)</option>
+        <option value="compressed" selected>${t('plan.cut_source_compressed')}</option>
+        <option value="original">${t('plan.cut_source_original')}</option>
       </select>
     </label>
-    <label><input type="checkbox" id="cut-reencode"> 重新编码 (默认 -c copy 快速)</label>
-    <label>输出目录 (留空则 output/cuts/&lt;day&gt;)
-      <span class="input-with-browse"><input id="cut-outdir" placeholder="例如 E:/剪辑素材/第一天"><button class="browse-btn" data-target="cut-outdir" type="button">浏览</button></span></label>
+    <label><input type="checkbox" id="cut-reencode"> ${t('plan.cut_reencode')}</label>
+    <label>${t('plan.cut_outdir_label')}
+      <span class="input-with-browse"><input id="cut-outdir" placeholder="${t('plan.cut_outdir_placeholder')}"><button class="browse-btn" data-target="cut-outdir" type="button">${t('settings.browse')}</button></span></label>
     <div class="cut-actions" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:center;">
-      <button id="btn-cut-exec" class="btn-primary" type="button">${icon('cut', 16)} 执行裁剪</button>
-      <button id="btn-cut-open-dir" class="btn-secondary" type="button" title="在资源管理器中打开裁剪输出目录">${icon('folder', 16)} 打开目录</button>
+      <button id="btn-cut-exec" class="btn-primary" type="button">${icon('cut', 16)} ${t('plan.cut_exec')}</button>
+      <button id="btn-cut-open-dir" class="btn-secondary" type="button" title="${t('plan.cut_open_dir_title')}">${icon('folder', 16)} ${t('plan.cut_open_dir')}</button>
     </div>
     <div id="cut-result" style="margin-top:12px"></div>
   `;
@@ -771,9 +777,9 @@ export function renderPlan() {
   exportSection.className = 'cut-section';
   exportSection.style.marginTop = '16px';
   exportSection.innerHTML = `
-    <h3>导出到剪映</h3>
-    <p class="hint">生成剪映专业版可直接打开的草稿文件</p>
-    <button id="btn-jianying-export" class="btn-primary">${icon('export', 16)} 导出到剪映</button>
+    <h3>${t('plan.export_title')}</h3>
+    <p class="hint">${t('plan.export_hint')}</p>
+    <button id="btn-jianying-export" class="btn-primary">${icon('export', 16)} ${t('plan.export_button')}</button>
     <div id="export-result" style="margin-top:8px;font-size:var(--text-sm)"></div>
   `;
   pane.appendChild(exportSection);
@@ -787,17 +793,17 @@ export function renderPlan() {
       const base = state.config?.output_dir || '';
       const day = state.currentDay || 'day1';
       if (!base) {
-        setStatus('无法解析默认裁剪目录（output_dir 未知）', 'warn');
+        setStatus(t('plan.cut_dir_unknown'), 'warn');
         return;
       }
       path = `${String(base).replace(/[\\/]+$/, '')}/cuts/${day}`;
     }
     try {
       const r = await api('POST', '/api/fs/reveal', { path });
-      if (r.ok) setStatus(`已打开: ${r.path || path}`, 'ok');
-      else throw new Error(r.error || '打开失败');
+      if (r.ok) setStatus(t('shell.revealed', { path: r.path || path }), 'ok');
+      else throw new Error(r.error || t('project.open_failed_bare'));
     } catch (e) {
-      setStatus('打开目录失败: ' + e.message, 'err');
+      setStatus(t('project.reveal_failed', { detail: e.message }), 'err');
     }
   });
 
@@ -809,23 +815,23 @@ export function renderPlan() {
     if (!confirmWarningsIfNeeded()) return;
     const force = (_lastReadiness.warnings || []).length > 0;
     const resultDiv = $('export-result');
-    resultDiv.innerHTML = '<span class="muted">导出中…</span>';
+    resultDiv.innerHTML = `<span class="muted">${t('plan.exporting')}</span>`;
     if (btn) {
       btn.disabled = true;
       btn.dataset.prevLabel = btn.innerHTML;
-      btn.textContent = '导出中...';
+      btn.textContent = t('plan.exporting_dots');
     }
     try {
       const { artifact } = await exportJianyingDraft(state.currentDay || 'day1', { force });
-      resultDiv.innerHTML = `<span style="color:var(--ok,#484)">✓ 已导出到 ${escapeHtml(artifact)}</span>`;
-      addToast('已导出到剪映', 'success', undefined, { persist: false });
+      resultDiv.innerHTML = `<span style="color:var(--ok,#484)">${t('plan.exported', { path: escapeHtml(artifact) })}</span>`;
+      addToast(t('plan.exported_toast'), 'success', undefined, { persist: false });
     } catch (e) {
-      resultDiv.innerHTML = `<span style="color:var(--err,#c44)">✗ 导出失败: ${escapeHtml(e.message || e)}</span>`;
-      addToast('导出失败: ' + (e.message || e), 'error', 6000, { persist: !e.taskBacked, title: '导出剪映草稿失败' });
+      resultDiv.innerHTML = `<span style="color:var(--err,#c44)">${t('plan.export_failed', { detail: escapeHtml(e.message || e) })}</span>`;
+      addToast(t('plan.export_failed_prefix', { detail: e.message || e }), 'error', 6000, { persist: !e.taskBacked, title: t('plan.export_failed_title') });
     } finally {
       if (btn) {
         btn.disabled = false;
-        btn.innerHTML = btn.dataset.prevLabel || `${icon('export', 16)} 导出到剪映`;
+        btn.innerHTML = btn.dataset.prevLabel || `${icon('export', 16)} ${t('plan.export_button')}`;
       }
       updateActionButtonsGate();
     }
@@ -844,17 +850,17 @@ export async function executeCut() {
   if (!confirmWarningsIfNeeded()) return;
   const force = (_lastReadiness.warnings || []).length > 0;
   btn.disabled = true;
-  btn.textContent = '裁剪中...';
-  result.innerHTML = '<p class="muted">请等待，正在裁剪视频片段...</p>';
+  btn.textContent = t('plan.cutting');
+  result.innerHTML = `<p class="muted">${t('plan.cutting_wait')}</p>`;
   try {
     const dayLabel = state.currentDay;
     try {
       await api('GET', `/api/plan?day=${dayLabel}`);
     } catch (e) {
-      result.innerHTML = `<p class="err">规划文件不存在: 请先运行 CLI 命令 <code>python main.py plan --day ${escapeHtml(dayLabel)}</code> 生成规划。</p>`;
-      setStatus('裁剪失败: 规划文件不存在', 'err');
+      result.innerHTML = `<p class="err">${t('plan.cut_no_plan', { day: escapeHtml(dayLabel) })}</p>`;
+      setStatus(t('plan.cut_failed_no_plan'), 'err');
       btn.disabled = false;
-      btn.textContent = '执行裁剪';
+      btn.textContent = t('plan.cut_exec');
       updateActionButtonsGate();
       return;
     }
@@ -874,15 +880,14 @@ export async function executeCut() {
         const count = e.body.count || e.body.files?.length || '?';
         const dir = e.body.output_dir || body.output_dir || '';
         const preview = e.body.preview || (e.body.files || []).slice(0, 8).join('、') || '';
-        const ok = confirm(
-          `输出目录已有 ${count} 个裁剪视频，是否覆盖重剪？\n\n` +
-          `目录: ${dir}\n` +
-          (preview ? `示例: ${preview}\n\n` : '\n') +
-          '将先备份旧文件，生成新裁剪成功后再删除备份。'
-        );
+        const ok = confirm(t('plan.cut_overwrite_confirm', {
+          count,
+          dir,
+          preview: preview ? t('plan.cut_overwrite_preview', { preview }) : '',
+        }));
         if (!ok) {
-          result.innerHTML = '<p class="muted">已取消覆盖裁剪</p>';
-          setStatus('已取消裁剪', 'warn');
+          result.innerHTML = `<p class="muted">${t('plan.cut_overwrite_canceled')}</p>`;
+          setStatus(t('plan.cut_canceled'), 'warn');
           return;
         }
         r = await api('POST', '/api/cut', { ...body, overwrite: true });
@@ -894,9 +899,9 @@ export async function executeCut() {
     if (taskId) {
       await waitForTask(taskId);
     }
-    result.innerHTML = `<p class="ok">裁剪完成</p><p>输出目录: ${escapeHtml(r.output_dir)}</p>`;
-    setStatus('裁剪完成', 'ok', { persist: !taskId });
-    addToast('裁剪完成', 'success', undefined, { persist: false });
+    result.innerHTML = `<p class="ok">${t('plan.cut_done')}</p><p>${t('plan.cut_output_dir', { path: escapeHtml(r.output_dir) })}</p>`;
+    setStatus(t('plan.cut_done'), 'ok', { persist: !taskId });
+    addToast(t('plan.cut_done'), 'success', undefined, { persist: false });
     if (!body.output_dir) {
       const { loadPlanPreviewMedia } = await import('./plan-preview-media.js');
       state.planPreviewMedia = await loadPlanPreviewMedia(dayLabel);
@@ -905,13 +910,13 @@ export async function executeCut() {
     }
     import('./sidebar.js').then(mod => mod.saveProject());
   } catch (e) {
-    result.innerHTML = `<p class="err">错误: ${escapeHtml(e.message)}</p>`;
-    const msg = '裁剪失败: ' + e.message;
+    result.innerHTML = `<p class="err">${t('plan.cut_error', { detail: escapeHtml(e.message) })}</p>`;
+    const msg = t('plan.cut_failed', { detail: e.message });
     setStatus(msg, 'err', { persist: !e.taskBacked });
-    addToast(msg, 'error', 6000, { persist: !e.taskBacked, title: '裁剪失败' });
+    addToast(msg, 'error', 6000, { persist: !e.taskBacked, title: t('plan.cut_failed_title') });
   } finally {
     btn.disabled = false;
-    btn.textContent = '执行裁剪';
+    btn.textContent = t('plan.cut_exec');
     updateActionButtonsGate();
   }
 }
@@ -925,7 +930,7 @@ function _bumpSaveGeneration() {
 }
 
 export async function save() {
-  if (!state.dirty) { setStatus('没有改动需要保存', 'warn'); return; }
+  if (!state.dirty) { setStatus(t('plan.nothing_to_save'), 'warn'); return; }
   const generation = _bumpSaveGeneration();
   const entity = state.currentEntity;
   const day = state.currentDay;
@@ -940,7 +945,7 @@ export async function save() {
     configTab: state.configTab,
   });
   if (target.action === 'noop') {
-    setStatus(target.reason || '当前页无可保存内容', 'warn');
+    setStatus(target.reason || t('plan.no_save_target'), 'warn');
     return;
   }
   try {
@@ -974,24 +979,24 @@ export async function save() {
       await api('PUT', `/api/plan?day=${day}`, planData);
     } else if (target.action === 'texts') {
       const v = state.videos.find(x => x.file === videoFile);
-      if (!v || !v.text_json) throw new Error('当前视频没有 texts JSON');
+      if (!v || !v.text_json) throw new Error(t('plan.no_texts_json'));
       await api('PUT', `/api/texts?file=${encodeURIComponent(v.text_json)}`, textsData);
     } else if (target.action === 'voiceover') {
       const v = state.videos.find(x => x.file === videoFile);
-      if (!v || !v.script_json) throw new Error('当前视频没有 voiceover JSON');
+      if (!v || !v.script_json) throw new Error(t('plan.no_voiceover_json'));
       await api('PUT', `/api/voiceover?file=${encodeURIComponent(v.script_json)}`, voiceoverData);
     } else {
-      setStatus('当前页无可保存内容', 'warn');
+      setStatus(t('plan.no_save_target'), 'warn');
       return;
     }
     if (generation !== _saveGeneration) return;
     clearDirty();
-    setStatus('已保存', 'ok');
-    addToast('已保存', 'success', undefined, { persist: false });
+    setStatus(t('plan.saved'), 'ok');
+    addToast(t('plan.saved'), 'success', undefined, { persist: false });
     if (target.action === 'plan') scheduleReadinessCheck();
   } catch (e) {
-    const msg = '保存失败: ' + e.message;
+    const msg = t('plan.save_failed', { detail: e.message });
     setStatus(msg, 'err');
-    addToast(msg, 'error', 6000, { title: '保存失败' });
+    addToast(msg, 'error', 6000, { title: t('plan.save_failed_title') });
   }
 }

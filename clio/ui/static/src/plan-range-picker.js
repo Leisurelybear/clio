@@ -1,5 +1,6 @@
 import { state } from './state.js';
 import { $ } from './utils.js';
+import { t } from './i18n.js';
 import {
   formatTimelineSec,
   selectionFromUseTimeline,
@@ -94,7 +95,7 @@ function paintHandles() {
     if (_offsetSec > 0) {
       const ps = planSecFromPlayer(_startSec, _offsetSec) ?? 0;
       const pe = planSecFromPlayer(_endSec, _offsetSec) ?? ps;
-      pl.textContent = `· 规划 ${formatTimelineSec(ps)}–${formatTimelineSec(pe)}`;
+      pl.textContent = t('plan.range.plan_offset', { start: formatTimelineSec(ps), end: formatTimelineSec(pe) });
     } else {
       pl.textContent = '';
     }
@@ -142,7 +143,7 @@ function syncPlayButton() {
   const btn = $('plan-range-play');
   if (!btn) return;
   const playing = video && !video.paused && !video.ended;
-  btn.textContent = playing ? '暂停' : '播放';
+  btn.textContent = playing ? t('plan.range.pause') : t('plan.range.play');
 }
 
 function togglePlay() {
@@ -288,13 +289,13 @@ export function openPlanRangePicker(opts) {
   if (heading) {
     const idx = opts.video.index != null ? String(opts.video.index) : '?';
     const name = opts.title || opts.video.title || opts.video.file || '';
-    heading.textContent = `选区 — 第 ${_segIndex + 1} 段 · [${idx}] ${name}`;
+    heading.textContent = t('plan.range.heading', { index: _segIndex + 1, vid: idx, name });
   }
 
   const onMeta = () => {
     _duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
     if (_duration <= 0) {
-      setError('无法读取视频时长');
+      setError(t('plan.range.no_duration'));
       setApplyEnabled(false);
       return;
     }
@@ -306,7 +307,7 @@ export function openPlanRangePicker(opts) {
     setApplyEnabled(true);
   };
   const onErr = () => {
-    setError('视频加载失败（文件可能离线）');
+    setError(t('plan.range.load_failed'));
     setApplyEnabled(false);
   };
 

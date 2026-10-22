@@ -3,6 +3,7 @@
 import { api } from './api.js';
 import { state } from './state.js';
 import { buildTimeline } from './plan-timeline.js';
+import { t } from './i18n.js';
 
 const SENTENCE_BREAKS = '。！？；…!?;';
 const BREAK_SET = new Set(SENTENCE_BREAKS.split(''));
@@ -475,7 +476,7 @@ export function initSubtitleDrag({ handle, stage, onCommit }) {
   if (!handle.getAttribute('role')) handle.setAttribute('role', 'button');
   if (!handle.hasAttribute('tabindex')) handle.setAttribute('tabindex', '0');
   if (!handle.getAttribute('aria-label')) {
-    handle.setAttribute('aria-label', '调整字幕位置，方向键微调，Shift 加速');
+    handle.setAttribute('aria-label', t('shell.subtitle_handle_aria'));
   }
 
   const readPos = () => {
