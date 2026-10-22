@@ -43,8 +43,8 @@ def _prepare_config(config_path: Path, args: argparse.Namespace):
     raw_project = getattr(args, "project", None)
     raw_input = getattr(args, "input", None)
     project_dir = raw_project or raw_input
-    if not project_dir or not project_dir.is_dir():
-        project_dir = Path.cwd()
+    if project_dir is not None and not project_dir.is_dir():
+        project_dir = None
     config = load_config(config_path, project_dir=project_dir)
     output_override = getattr(args, "output", None)
     if output_override:

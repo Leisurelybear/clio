@@ -141,6 +141,26 @@ def test_input_file_rejected_for_directory_command(cli_runner, config_path, tmp_
     assert "需要目录" in capsys.readouterr().err
 
 
+def test_custom_config_uses_sibling_project(cli_runner, tmp_path, capsys):
+    config_root = tmp_path / "configs"
+    config_root.mkdir()
+    config_path = config_root / "config.yaml"
+    config_path.write_text(MINIMAL_CONFIG, encoding="utf-8")
+    config_root.joinpath("project.yaml").write_text("paths:\n  output_dir: side-output\n", encoding="utf-8")
+    side_output = config_root / "side-output"
+    side_output.mkdir()
+    side_output.joinpath(".token_usage.json").write_text(
+        '{"total": {"prompt_tokens": 2, "completion_tokens": 5, "total_tokens": 7}, '
+        '"by_model": {}, "by_task": {}, "history": []}',
+        encoding="utf-8",
+    )
+
+    result = cli_runner(["--config", str(config_path), "tokens"])
+
+    assert result == 0
+    assert '"total_tokens": 7' in capsys.readouterr().out
+
+
 @patch("clio.plan_readiness.collect_project_indices", return_value=({"001"}, set()))
 @patch("clio.export.export_plan")
 def test_export_resolves_ffprobe(mock_export, _mock_indices, cli_runner, config_path, tmp_path):
