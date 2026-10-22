@@ -35,6 +35,22 @@ def _find_original_for_stem(stem: str, project_dir: Path | None = None) -> Path 
     return None
 
 
+def _group_stem(path: Path, project_dir: Path | None) -> str:
+    """Resolve the source stem without mistaking natural ``_partNN`` names for splits."""
+    if "_" not in path.stem:
+        return path.stem
+    _, source_stem = path.stem.split("_", 1)
+    meta = VideoMeta.read(path)
+    if meta is not None:
+        source = meta.source_path_obj()
+        if source.is_file():
+            return source.stem
+    exact = _find_original_for_stem(source_stem, project_dir)
+    if exact is not None:
+        return exact.stem
+    return SEGMENT_SUFFIX_RE.sub("", source_stem)
+
+
 def auto_reindex_if_needed(config: AppConfig, ffprobe: str | None = None) -> bool:
     """检测 compressed_dir 是否有压缩视频缺少 .vindex，自动补全。
 
@@ -55,7 +71,7 @@ def auto_reindex_if_needed(config: AppConfig, ffprobe: str | None = None) -> boo
         prefix, stem_part = p.stem.split("_", 1)
         if not prefix.isdigit():
             continue
-        orig_stem = SEGMENT_SUFFIX_RE.sub("", stem_part)
+        orig_stem = _group_stem(p, config.project_dir)
         groups.setdefault(orig_stem, []).append(p)
 
     # 检查哪些没有 .vindex
@@ -112,7 +128,7 @@ def run_reindex(config: AppConfig, ffprobe: str | None = None) -> int:
         prefix, stem_part = p.stem.split("_", 1)
         if not prefix.isdigit():
             continue
-        orig_stem = SEGMENT_SUFFIX_RE.sub("", stem_part)
+        orig_stem = _group_stem(p, config.project_dir)
         groups[orig_stem].append(p)
 
     written_index = 0

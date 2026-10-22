@@ -151,6 +151,31 @@ class TestRunReindex:
         assert mock_build.call_count == 2
         assert VideoIndex.read("GL010683", compressed_dir) is not None
 
+    def test_natural_part_names_group_by_exact_source(
+        self, config: AppConfig, compressed_dir: Path, input_dir: Path
+    ) -> None:
+        for prefix, stem in (("001", "holiday_part01"), ("002", "holiday_part02")):
+            (compressed_dir / f"{prefix}_{stem}.mp4").write_text("fake")
+            (input_dir / f"{stem}.mov").write_text("fake")
+
+        with (
+            patch("clio.tasks.reindex.VideoMeta.read", return_value=None),
+            patch("clio.tasks.reindex.VideoMeta.build") as mock_build,
+            patch("clio.tasks.reindex.get_duration_sec", return_value=60.0),
+            patch("clio.tasks.reindex.resolve_binary", return_value="ffprobe"),
+        ):
+            mock_meta = MagicMock()
+            mock_meta.target_duration_sec = 30.0
+            mock_meta.split_info = None
+            mock_build.return_value = mock_meta
+
+            result = run_reindex(config)
+
+        assert result == 2
+        assert VideoIndex.read("holiday_part01", compressed_dir) is not None
+        assert VideoIndex.read("holiday_part02", compressed_dir) is not None
+        assert VideoIndex.read("holiday", compressed_dir) is None
+
     def test_fallback_to_find_original(self, config: AppConfig, compressed_dir: Path, input_dir: Path) -> None:
         (compressed_dir / "001_GL010683.mp4").write_text("fake")
         (input_dir / "GL010683.mp4").write_text("fake")
@@ -171,7 +196,7 @@ class TestRunReindex:
             result = run_reindex(config)
 
         assert result == 1
-        mock_find.assert_called_once_with("GL010683", config.project_dir)
+        mock_find.assert_any_call("GL010683", config.project_dir)
 
     def test_whole_files_do_not_get_average_offsets(
         self, config: AppConfig, compressed_dir: Path, input_dir: Path
