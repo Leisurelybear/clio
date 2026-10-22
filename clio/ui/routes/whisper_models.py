@@ -104,7 +104,8 @@ def handle_get_whisper_models(handler: HandlerProtocol, qs: dict[str, Any]) -> N
 
 
 def handle_post_whisper_model_delete(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
-    model_name = (obj.get("name") or "").strip()
+    name_value = obj.get("name")
+    model_name = name_value.strip() if isinstance(name_value, str) else ""
     if not model_name:
         handler._send_json({"ok": False, "error": "missing model name"}, 400)
         return
@@ -148,7 +149,8 @@ def handle_post_whisper_model_delete(handler: HandlerProtocol, qs: dict[str, Any
 
 
 def handle_put_whisper_model(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
-    model_name = (obj.get("model_size") or "").strip()
+    model_value = obj.get("model_size")
+    model_name = model_value.strip() if isinstance(model_value, str) else ""
     if not model_name:
         handler._send_json({"ok": False, "error": "missing model_size"}, 400)
         return

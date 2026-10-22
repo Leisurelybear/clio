@@ -732,6 +732,12 @@ class TestHandleGetWhisperModels:
 
 
 class TestHandlePostWhisperModelDelete:
+    def test_non_string_name_returns_400(self):
+        handler = MagicMock()
+        handler._send_json = MagicMock()
+        handle_post_whisper_model_delete(handler, {}, {"name": 123})
+        handler._send_json.assert_called_once_with({"ok": False, "error": "missing model name"}, 400)
+
     def test_missing_name(self):
         handler = MagicMock()
         handler._send_json = MagicMock()
@@ -833,6 +839,12 @@ class TestHandlePostWhisperModelDelete:
 
 
 class TestHandlePutWhisperModel:
+    def test_non_string_model_size_returns_400(self):
+        handler = MagicMock()
+        handler._send_json = MagicMock()
+        handle_put_whisper_model(handler, {}, {"model_size": 123})
+        handler._send_json.assert_called_once_with({"ok": False, "error": "missing model_size"}, 400)
+
     def test_missing_model_size(self):
         handler = MagicMock()
         handler._send_json = MagicMock()
