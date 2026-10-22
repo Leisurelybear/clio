@@ -8,6 +8,7 @@ from pathlib import Path
 
 from clio._constants import VIDEO_EXTS
 from clio.config import AppConfig
+from clio.i18n import t
 from clio.identity import SEGMENT_SUFFIX_RE
 from clio.utils import get_duration_sec, resolve_binary
 from clio.vmeta import SegmentEntry, VideoIndex, VideoMeta
@@ -86,9 +87,9 @@ def auto_reindex_if_needed(config: AppConfig, ffprobe: str | None = None) -> boo
     _W = 60
     print()
     print("=" * _W)
-    print("  视频索引重建中...".center(_W))
-    print(f"  检测到 {len(missing)}/{len(groups)} 个原视频缺少索引文件".center(_W))
-    print(f"  扫描耗时 {scan_ms:.0f}ms — 请勿中断".center(_W))
+    print(t("task.reindex.rebuilding").center(_W))
+    print(t("task.reindex.missing_header", {"missing": len(missing), "total": len(groups)}).center(_W))
+    print(t("task.reindex.scan_time", {"ms": f"{scan_ms:.0f}"}).center(_W))
     print("=" * _W)
     print()
     t_rebuild = _time.perf_counter()
@@ -96,7 +97,7 @@ def auto_reindex_if_needed(config: AppConfig, ffprobe: str | None = None) -> boo
     rebuild_s = _time.perf_counter() - t_rebuild
     print()
     print("=" * _W)
-    print(f"  ✅ 索引重建完成 ({rebuild_s:.1f}s)，继续执行...".center(_W))
+    print(t("task.reindex.rebuild_done", {"seconds": f"{rebuild_s:.1f}"}).center(_W))
     print("=" * _W)
     # Brief pause so the banner is readable in interactive terminals
     _time.sleep(0.4)
@@ -114,7 +115,7 @@ def run_reindex(config: AppConfig, ffprobe: str | None = None) -> int:
 
     compressed_dir = config.compressed_dir
     if not compressed_dir.is_dir():
-        print(f"[reindex] compressed_dir 不存在: {compressed_dir}")
+        print(t("task.reindex.compressed_dir_missing", {"path": compressed_dir}))
         return 0
 
     # Group compressed files by original stem (strip _segNN suffix)
@@ -148,7 +149,7 @@ def run_reindex(config: AppConfig, ffprobe: str | None = None) -> int:
             source_path = _find_original_for_stem(orig_stem, config.project_dir)
 
         if source_path is None:
-            print(f"  [跳过] {orig_stem}: 找不到原始视频")
+            print(t("task.reindex.skip_no_source", {"name": orig_stem}))
             continue
 
         # Sort compressed files by prefix index
@@ -217,7 +218,7 @@ def run_reindex(config: AppConfig, ffprobe: str | None = None) -> int:
         )
         vindex.write(compressed_dir)
         written_index += 1
-        print(f"  [OK] {orig_stem}: {len(comp_files)} 个分段 → .vindex")
+        print(t("task.reindex.ok", {"name": orig_stem, "count": len(comp_files)}))
 
-    print(f"\n[reindex] 完成: 写入 {written_index} 个 .vindex 文件")
+    print(t("task.reindex.done", {"count": written_index}))
     return written_index

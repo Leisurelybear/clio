@@ -9,6 +9,7 @@ from pathlib import Path
 from clio.ai.token_usage import FileTokenUsageStore
 from clio.analyze import refine_script, refine_text
 from clio.config import AppConfig
+from clio.i18n import t
 from clio.log import timed
 from clio.tasks._helpers import (
     _eta_line,
@@ -24,10 +25,10 @@ def _collect_target_files(path: Path | None, default_dir: Path, pattern: str = "
     """把 -i 参数或默认目录解析为要处理的文件列表。"""
     target = path or default_dir
     if not target.exists():
-        raise FileNotFoundError(f"路径不存在: {target}")
+        raise FileNotFoundError(t("task.refine.path_missing", {"path": target}))
     if target.is_file():
         if target.suffix.lower() != ".json":
-            raise ValueError(f"仅支持 .json 文件: {target}")
+            raise ValueError(t("task.refine.json_only", {"path": target}))
         return [target]
     return sorted(target.glob(pattern))
 
@@ -59,22 +60,22 @@ def run_refine_texts(
     fix 非空时：仅处理 -i 指定的单文件，prompt 切换为「按用户意见定向修正」。
     """
     if fix and (path is None or path.is_dir()):
-        raise ValueError("--fix 必须配合 -i 指定单个 json 文件，不能用于目录")
+        raise ValueError(t("task.refine.fix_requires_file"))
     target_files = _collect_target_files(path, config.texts_dir)
     if files is not None:
         selected = _selected_stems(files)
         target_files = [f for f in target_files if _matches_selected_artifact(f, selected)]
     token_store = FileTokenUsageStore(str(config.paths.output_dir))
     if not target_files:
-        print(f"未找到 json 文件: {path or config.texts_dir}")
+        print(t("task.refine.no_json_files", {"path": path or config.texts_dir}))
         return 0
     label = "refine:fix:texts" if fix else "refine:texts"
-    print(f"[{label}] 目标 {len(target_files)} 个文件")
+    print(t("task.refine.target_files", {"label": label, "count": len(target_files)}))
     if fix:
-        print(f"  修改意见: {fix}")
+        print(t("task.refine.fix_note", {"fix": fix}))
     completed = 0
     elapsed_total = 0.0
-    with timed(f"{label}（{len(target_files)} 个）"):
+    with timed(t("task.refine.timed_label", {"label": label, "count": len(target_files)})):
         for i, json_file in enumerate(target_files, start=1):
             print(_eta_line("refine", i, len(target_files), json_file.name, completed, elapsed_total))
             t0 = time.monotonic()
@@ -89,7 +90,7 @@ def run_refine_texts(
                     task_prompts=task_prompts,
                 )
             except Exception as e:
-                print(f"  失败: {e}")
+                print(t("task.refine.failed", {"detail": e}))
                 continue
             finally:
                 elapsed_total += time.monotonic() - t0
@@ -99,9 +100,9 @@ def run_refine_texts(
             _rewrite_text_file(txt_path, refined)
             changelog = refined.get("_changelog") or []
             if changelog:
-                print(f"  改动 ({len(changelog)}): {'; '.join(changelog)[:120]}")
+                print(t("task.refine.changes", {"count": len(changelog), "detail": "; ".join(changelog)[:120]}))
             else:
-                print("  无改动")
+                print(t("task.refine.no_changes"))
     return completed
 
 
@@ -119,22 +120,22 @@ def run_refine_scripts(
     fix 非空时：仅处理 -i 指定的单文件。
     """
     if fix and (path is None or path.is_dir()):
-        raise ValueError("--fix 必须配合 -i 指定单个 json 文件，不能用于目录")
+        raise ValueError(t("task.refine.fix_requires_file"))
     target_files = _collect_target_files(path, config.scripts_dir, pattern="*_voiceover.json")
     if files is not None:
         selected = _selected_stems(files)
         target_files = [f for f in target_files if _matches_selected_artifact(f, selected)]
     token_store = FileTokenUsageStore(str(config.paths.output_dir))
     if not target_files:
-        print(f"未找到 voiceover json 文件: {path or config.scripts_dir}")
+        print(t("task.refine.no_voiceover_files", {"path": path or config.scripts_dir}))
         return 0
     label = "refine:fix:scripts" if fix else "refine:scripts"
-    print(f"[{label}] 目标 {len(target_files)} 个文件")
+    print(t("task.refine.target_files", {"label": label, "count": len(target_files)}))
     if fix:
-        print(f"  修改意见: {fix}")
+        print(t("task.refine.fix_note", {"fix": fix}))
     completed = 0
     elapsed_total = 0.0
-    with timed(f"{label}（{len(target_files)} 个）"):
+    with timed(t("task.refine.timed_label", {"label": label, "count": len(target_files)})):
         for i, json_file in enumerate(target_files, start=1):
             print(_eta_line("refine", i, len(target_files), json_file.name, completed, elapsed_total))
             t0 = time.monotonic()
@@ -151,7 +152,7 @@ def run_refine_scripts(
                     task_prompts=task_prompts,
                 )
             except Exception as e:
-                print(f"  失败: {e}")
+                print(t("task.refine.failed", {"detail": e}))
                 continue
             finally:
                 elapsed_total += time.monotonic() - t0
@@ -161,7 +162,7 @@ def run_refine_scripts(
             _rewrite_script_md(md_path, refined)
             changelog = refined.get("_changelog") or []
             if changelog:
-                print(f"  改动 ({len(changelog)}): {'; '.join(changelog)[:120]}")
+                print(t("task.refine.changes", {"count": len(changelog), "detail": "; ".join(changelog)[:120]}))
             else:
-                print("  无改动")
+                print(t("task.refine.no_changes"))
     return completed

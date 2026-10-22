@@ -318,7 +318,7 @@ def handle_post_project_remove(handler: HandlerProtocol, obj: dict) -> None:
 
 def handle_post_project_migrate(handler: HandlerProtocol, obj: dict) -> None:
     """Handle POST /api/project/migrate — migrate one legacy project to videos.json."""
-    from clio.tasks.migrate import run_migrate
+    from clio.tasks.migrate import is_already_new_structure, run_migrate
 
     config_path = handler.config_path
     if not config_path:
@@ -335,7 +335,7 @@ def handle_post_project_migrate(handler: HandlerProtocol, obj: dict) -> None:
 
     updated, errors = run_migrate(Path(config_path), from_path=project_path)
     if updated <= 0:
-        if any("已是新结构" in e for e in errors):
+        if any(is_already_new_structure(e) for e in errors):
             return handler._send_json(
                 {
                     "ok": True,

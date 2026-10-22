@@ -10,6 +10,7 @@ from clio.ai.base import TaskName
 from clio.analyze import analyze_video
 from clio.config import AppConfig
 from clio.config.models import ProjectConfig, TaskConfig
+from clio.i18n import t
 from clio.utils import sanitize_name, write_json_atomic, write_text_atomic
 
 
@@ -37,19 +38,19 @@ def parse_model_specs(raw_specs: list[str], config: AppConfig) -> list[ModelSpec
             else:
                 provider_cfg = config.ai.providers.get(text)
                 if provider_cfg is None:
-                    raise ValueError(f"未知 provider: {text}")
+                    raise ValueError(t("task.compare.unknown_provider", {"provider": text}))
                 if not provider_cfg.models:
-                    raise ValueError(f"provider '{text}' 未配置 models，请使用 provider:model 显式指定模型")
+                    raise ValueError(t("task.compare.provider_no_models", {"provider": text}))
                 provider, model = text, provider_cfg.models[0]
             provider = provider.strip()
             model = model.strip()
             if not provider or not model:
-                raise ValueError(f"模型格式无效: {text}，应为 provider:model")
+                raise ValueError(t("task.compare.invalid_model_format", {"text": text}))
             if provider not in config.ai.providers:
-                raise ValueError(f"未知 provider: {provider}")
+                raise ValueError(t("task.compare.unknown_provider", {"provider": provider}))
             specs.append(ModelSpec(provider=provider, model=model))
     if len(specs) < 2:
-        raise ValueError("至少需要指定两个模型用于对比")
+        raise ValueError(t("task.compare.need_two_models"))
     return specs
 
 
@@ -131,7 +132,7 @@ def run_compare_models(
     context_override: str | None = None,
 ) -> int:
     if not video_path.is_file():
-        raise FileNotFoundError(f"视频文件不存在: {video_path}")
+        raise FileNotFoundError(t("task.compare.video_missing", {"path": video_path}))
     specs = parse_model_specs(raw_specs, config)
     out_dir = output_dir or config.paths.output_dir / "model_compare"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -155,7 +156,7 @@ def run_compare_models(
             )
         except Exception as e:
             results.append({"model": spec.label, "ok": False, "error": str(e)})
-            print(f"  [错误] {spec.label}: {e}")
+            print(t("task.compare.model_error", {"label": spec.label, "detail": e}))
 
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     stem = sanitize_name(video_path.stem, max_len=80)
@@ -168,6 +169,6 @@ def run_compare_models(
     md_path = out_dir / f"{stem}_{timestamp}.md"
     write_json_atomic(json_path, payload)
     write_text_atomic(md_path, _render_report(video_path, results))
-    print(f"\n对比 JSON: {json_path}")
-    print(f"对比报告: {md_path}")
+    print(t("task.compare.json_path", {"path": json_path}))
+    print(t("task.compare.md_path", {"path": md_path}))
     return 0 if any(item["ok"] for item in results) else 1

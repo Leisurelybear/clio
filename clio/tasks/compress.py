@@ -10,6 +10,7 @@ from typing import Any
 from clio._constants import VIDEO_EXTS
 from clio.compress import compress_video
 from clio.config import AppConfig
+from clio.i18n import t
 from clio.log import timed
 from clio.processing_state import ProcessingState
 from clio.progress import ProgressTracker
@@ -76,16 +77,16 @@ def _find_reusable(
             reason: str | None = None
             if meta is not None:
                 if meta.is_stale(source, use_out):
-                    reason = f"源文件已变更，忽略旧压缩 {use_out.name}"
+                    reason = t("task.compress.reject_source_changed", {"name": use_out.name})
                 elif not _meta_matches_settings(meta, config):
-                    reason = f"压缩参数已变更，忽略旧压缩 {use_out.name}"
+                    reason = t("task.compress.reject_settings_changed", {"name": use_out.name})
             # No sidecar: legacy file, only trust it if ffprobe can still read it.
             if reason is None:
                 try:
                     if get_duration_sec(use_out, ffprobe) <= 0:
-                        reason = f"{use_out.name} 无法读取时长，忽略旧压缩"
+                        reason = t("task.compress.reject_duration_unreadable", {"name": use_out.name})
                 except Exception:
-                    reason = f"{use_out.name} 无法读取时长，忽略旧压缩"
+                    reason = t("task.compress.reject_duration_unreadable", {"name": use_out.name})
             if reason is None:
                 return use_idx, use_out, meta, None
             if first_reason is None:
@@ -126,12 +127,12 @@ def _prune_stale_siblings(
                     and Path(meta.source_path).resolve() == Path(resolved)
                 )
                 if same_source:
-                    print(f"[清理] 移除旧压缩 {path.name}（overwrite 已重新生成）")
+                    print(t("task.compress.prune_overwrite", {"name": path.name}))
                     path.unlink(missing_ok=True)
                     path.with_suffix(VMETA_EXT).unlink(missing_ok=True)
                     continue
             elif meta is not None and (meta.is_stale(source, path) or not _meta_matches_settings(meta, config)):
-                print(f"[清理] 移除旧压缩 {path.name}（已被新压缩替代）")
+                print(t("task.compress.prune_replaced", {"name": path.name}))
                 path.unlink(missing_ok=True)
                 path.with_suffix(VMETA_EXT).unlink(missing_ok=True)
                 continue
@@ -217,11 +218,11 @@ def run_compress_all(
         videos = source_videos(config)
         offline = [v for v in videos if not v.is_file()]
         if offline:
-            print(f"[跳过] {len(offline)} 个离线/缺失视频（仍保留在 videos.json，可用 relink 修复）")
+            print(t("task.compress.skip_offline", {"count": len(offline)}))
             for v in offline[:5]:
                 print(f"  - {v}")
             if len(offline) > 5:
-                print(f"  ... 另有 {len(offline) - 5} 个")
+                print(t("task.compress.offline_more", {"count": len(offline) - 5}))
         videos = [v for v in videos if v.is_file()]
     if files is not None:
         selected = _selected_stems(files)
@@ -255,7 +256,7 @@ def run_compress_all(
                 meta = VideoMeta.read(f)
                 if meta and meta.source_path:
                     unverifiable.setdefault(str(Path(meta.source_path).resolve()), []).append(f)
-                print(f"[保留] {f.name} 无法验证（ffprobe 异常），等新压缩成功后再清理")
+                print(t("task.compress.keep_unverifiable", {"name": f.name}))
                 continue
             if "_" in f.stem:
                 prefix, stem_part = f.stem.split("_", 1)
@@ -269,7 +270,7 @@ def run_compress_all(
     next_idx = _next_index(config.compressed_dir, config.naming.index_width)
     records: list[ClipRecord] = []
     state = ProcessingState(config.paths.output_dir)
-    comp_label = f"run_compress_all（{len(items)} 个）"
+    comp_label = t("task.compress.phase_title", {"count": len(items)})
     with timed(comp_label):
         completed = 0
         elapsed_total = 0.0
@@ -282,16 +283,21 @@ def run_compress_all(
                 use_idx, use_out, use_meta, reject_reason = _find_reusable(source, existing_map, config, ffprobe)
                 if use_out is not None:
                     if tracker:
-                        tracker.update(phase="compress", current=i, total=len(items), message=f"压缩 {source.name}...")
-                        tracker.log(f"⏭️ 跳过 {label_name}（已存在 {use_out.name}）")
+                        tracker.update(
+                            phase="compress",
+                            current=i,
+                            total=len(items),
+                            message=t("task.compress.progress", {"name": source.name}),
+                        )
+                        tracker.log(t("task.compress.skip_log", {"label": label_name, "name": use_out.name}))
                     state.mark(original.stem, "compress", "skipped")
-                    print(f"[跳过压缩] {label_name} (已存在: {use_out.name})")
+                    print(t("task.compress.skip_exists", {"label": label_name, "name": use_out.name}))
                     records.append(
                         ClipRecord(index=use_idx, stem=use_out.stem, source_path=original, compressed_path=use_out)
                     )
                     continue
             else:
-                reject_reason = "overwrite 模式强制重新压缩"
+                reject_reason = t("task.compress.reject_overwrite")
 
             # Leftover *_segNN files do NOT satisfy whole-file compress; continue to create
             # a new non-segment compressed file so the project can migrate forward.
@@ -305,11 +311,16 @@ def run_compress_all(
                     config.compressed_dir / f"{format_index(use_idx, config.naming.index_width)}_{source.stem}.mp4"
                 )
             if reject_reason:
-                print(f"[重新压缩] {source.stem} {reject_reason}")
+                print(t("task.compress.recompress", {"name": source.stem, "reason": reject_reason}))
             if tracker:
-                tracker.update(phase="compress", current=i, total=len(items), message=f"压缩 {source.name}...")
-                tracker.log(f"▶ 压缩 {label_name}")
-            print(_eta_line("压缩", i, len(items), label_name, completed, elapsed_total))
+                tracker.update(
+                    phase="compress",
+                    current=i,
+                    total=len(items),
+                    message=t("task.compress.progress", {"name": source.name}),
+                )
+                tracker.log(t("task.compress.start_log", {"label": label_name}))
+            print(_eta_line(t("task.compress.eta_label"), i, len(items), label_name, completed, elapsed_total))
             t0 = time.monotonic()
             target_pre_existed = use_out.exists()
             try:
@@ -317,7 +328,12 @@ def run_compress_all(
 
                     def _on_progress(_sec: float, total_dur: float, _i: int = i, _name: str = label_name):
                         pct = int(_sec / total_dur * 100) if total_dur > 0 else 0
-                        tracker.update(phase="compress", current=_i, total=len(items), message=f"压缩 {_name} ({pct}%)")
+                        tracker.update(
+                            phase="compress",
+                            current=_i,
+                            total=len(items),
+                            message=t("task.compress.progress_pct", {"name": _name, "pct": pct}),
+                        )
 
                     compress_video(source, use_out, config, progress_callback=_on_progress, cancel_event=cancel_event)
                 else:
@@ -359,7 +375,7 @@ def run_compress_all(
             resolved_src = str(source.resolve())
             for stale in unverifiable.pop(resolved_src, []):
                 if stale.resolve() != use_out.resolve():
-                    print(f"[清理] 移除旧压缩 {stale.name}（新压缩已成功提交）")
+                    print(t("task.compress.prune_committed", {"name": stale.name}))
                     stale.unlink(missing_ok=True)
                     stale.with_suffix(VMETA_EXT).unlink(missing_ok=True)
 

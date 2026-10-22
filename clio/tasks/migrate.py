@@ -9,8 +9,18 @@ from typing import Any
 
 import yaml
 
+from clio.i18n import SUPPORTED_LOCALES, t
 from clio.tasks._video_loader import load_selected_videos, save_selected_videos
 from clio.utils import find_videos
+
+
+def is_already_new_structure(message: str) -> bool:
+    """True when a migrate error means the project already uses the new layout.
+
+    The check is locale-independent: the marker is looked up in every supported
+    catalog, so the caller never has to hard-code Chinese copy.
+    """
+    return any(t("task.migrate.already_new_suffix", locale=locale) in message for locale in SUPPORTED_LOCALES)
 
 
 def run_migrate(config_path: Path, from_path: Path | None = None) -> tuple[int, list[str]]:
@@ -37,14 +47,14 @@ def run_migrate(config_path: Path, from_path: Path | None = None) -> tuple[int, 
                 if p.is_dir() and (p / "project.yaml").is_file():
                     projects_to_migrate.append(p.resolve())
         except Exception as e:
-            errors.append(f"读取注册表失败: {e}")
+            errors.append(t("task.migrate.registry_read_failed", {"detail": e}))
 
     # 2. From --from flag
     if from_path:
         if from_path.is_dir() and (from_path / "project.yaml").is_file():
             projects_to_migrate.append(from_path.resolve())
         else:
-            errors.append(f"--from 路径无效或不含 project.yaml: {from_path}")
+            errors.append(t("task.migrate.invalid_from_path", {"path": from_path}))
 
     # Dedup while preserving order
     seen: set[Path] = set()
@@ -56,7 +66,7 @@ def run_migrate(config_path: Path, from_path: Path | None = None) -> tuple[int, 
     projects_to_migrate = unique
 
     if not projects_to_migrate:
-        return 0, errors or ["未发现可迁移项目"]
+        return 0, errors or [t("task.migrate.nothing_to_migrate")]
 
     # Backup registry once
     if registry_file.is_file():
@@ -64,7 +74,7 @@ def run_migrate(config_path: Path, from_path: Path | None = None) -> tuple[int, 
         try:
             shutil.copy2(registry_file, bak)
         except OSError as e:
-            errors.append(f"备份 projects.json 失败: {e}")
+            errors.append(t("task.migrate.backup_projects_failed", {"detail": e}))
 
     updated = 0
     for old_dir in projects_to_migrate:
@@ -76,7 +86,7 @@ def run_migrate(config_path: Path, from_path: Path | None = None) -> tuple[int, 
             else:
                 errors.append(msg)
         except Exception as e:
-            errors.append(f"{old_dir}: 迁移异常: {e}")
+            errors.append(t("task.migrate.migrate_error", {"dir": old_dir, "detail": e}))
 
     return updated, errors
 
@@ -107,19 +117,19 @@ def _migrate_one(old_dir: Path, config_path: Path, registry_file: Path) -> tuple
     """Migrate a single project directory. Returns (ok, message)."""
     old_yaml = old_dir / "project.yaml"
     if not old_yaml.is_file():
-        return False, f"{old_dir}: 无 project.yaml"
+        return False, t("task.migrate.no_project_yaml", {"dir": old_dir})
 
     videos_json = old_dir / "videos.json"
     try:
         with old_yaml.open(encoding="utf-8") as f:
             old_raw: dict[str, Any] = yaml.safe_load(f) or {}
     except Exception as e:
-        return False, f"{old_dir}: 读取 project.yaml 失败: {e}"
+        return False, t("task.migrate.read_yaml_failed", {"dir": old_dir, "detail": e})
 
     paths_raw = dict(old_raw.get("paths") or {})
     has_input = bool(paths_raw.get("input_dir"))
     if videos_json.is_file() and not has_input:
-        return False, f"{old_dir}: 已是新结构，跳过"
+        return False, f"{old_dir}: " + t("task.migrate.already_new_suffix")
 
     # Resolve old input_dir for video discovery
     old_input_raw = paths_raw.get("input_dir", ".")
@@ -144,7 +154,10 @@ def _migrate_one(old_dir: Path, config_path: Path, registry_file: Path) -> tuple
         new_dir = (config_path.parent / "projects" / name).resolve()
         in_place = False
 
-    print(f"迁移: {old_dir} → {new_dir}" + (" (原地)" if in_place else ""))
+    print(
+        t("task.migrate.migrating", {"src": old_dir, "dst": new_dir})
+        + (t("task.migrate.in_place_suffix") if in_place else "")
+    )
     new_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Backup old yaml
@@ -153,7 +166,7 @@ def _migrate_one(old_dir: Path, config_path: Path, registry_file: Path) -> tuple
         try:
             shutil.copy2(old_yaml, bak_yaml)
         except OSError as e:
-            return False, f"{old_dir}: 备份 project.yaml 失败: {e}"
+            return False, t("task.migrate.backup_yaml_failed", {"dir": old_dir, "detail": e})
 
     # 2. Write new project.yaml without input_dir/recursive (atomic via tmp+rename)
     new_raw = dict(old_raw)
@@ -173,7 +186,7 @@ def _migrate_one(old_dir: Path, config_path: Path, registry_file: Path) -> tuple
         tmp_yaml.replace(new_yaml)
     except Exception as e:
         tmp_yaml.unlink(missing_ok=True)
-        return False, f"{old_dir}: 写入 project.yaml 失败: {e}"
+        return False, t("task.migrate.write_yaml_failed", {"dir": old_dir, "detail": e})
 
     # 3. project.json (atomic via tmp+rename)
     new_json = new_dir / "project.json"
@@ -194,20 +207,20 @@ def _migrate_one(old_dir: Path, config_path: Path, registry_file: Path) -> tuple
         tmp_json.replace(new_json)
     except OSError as e:
         tmp_json.unlink(missing_ok=True)
-        return False, f"{old_dir}: 写入 project.json 失败: {e}"
+        return False, t("task.migrate.write_json_failed", {"dir": old_dir, "detail": e})
 
     # Verify writes succeeded before proceeding
     if not new_yaml.is_file() or not new_json.is_file():
-        return False, f"{old_dir}: 写入验证失败（文件未生成）"
+        return False, t("task.migrate.write_verify_failed", {"dir": old_dir})
     try:
         verify_raw = yaml.safe_load(new_yaml.read_text(encoding="utf-8"))
         if not verify_raw or "paths" not in verify_raw:
-            return False, f"{old_dir}: project.yaml 内容验证失败"
+            return False, t("task.migrate.yaml_verify_failed", {"dir": old_dir})
         verify_data = json.loads(new_json.read_text(encoding="utf-8"))
         if verify_data.get("version") != 2:
-            return False, f"{old_dir}: project.json 版本验证失败"
+            return False, t("task.migrate.json_version_verify_failed", {"dir": old_dir})
     except Exception as e:
-        return False, f"{old_dir}: 写入验证失败: {e}"
+        return False, t("task.migrate.write_verify_error", {"dir": old_dir, "detail": e})
 
     # 4. videos.json — preserve curated list if the file already exists
     # (including intentional empty []). Only scan when the file is absent.
@@ -219,7 +232,7 @@ def _migrate_one(old_dir: Path, config_path: Path, registry_file: Path) -> tuple
             existing = load_selected_videos(old_dir)
             save_selected_videos(new_dir, existing)
         videos = existing
-        print(f"  保留已有 videos.json ({len(videos)} 个视频)")
+        print(t("task.migrate.keep_videos_json", {"count": len(videos)}))
     else:
         if old_input_path.is_dir():
             videos = find_videos(old_input_path, recursive=True)
@@ -229,7 +242,7 @@ def _migrate_one(old_dir: Path, config_path: Path, registry_file: Path) -> tuple
         else:
             videos = []
         save_selected_videos(new_dir, videos)
-        print(f"  发现 {len(videos)} 个视频")
+        print(t("task.migrate.found_videos", {"count": len(videos)}))
 
     # 5. Update registry
     _update_registry(registry_file, old_dir, new_dir, name)
@@ -244,7 +257,10 @@ def _migrate_one(old_dir: Path, config_path: Path, registry_file: Path) -> tuple
         except OSError:
             pass
 
-    return True, f"已迁移 {name}: {new_dir} ({len(videos)} 视频, output={abs_output})"
+    return True, t(
+        "task.migrate.migrated",
+        {"name": name, "dir": new_dir, "count": len(videos), "output": abs_output},
+    )
 
 
 def _update_registry(registry_file: Path, old_dir: Path, new_dir: Path, name: str) -> None:

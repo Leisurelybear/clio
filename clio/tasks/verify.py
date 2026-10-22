@@ -5,18 +5,19 @@ from __future__ import annotations
 from pathlib import Path
 
 from clio.config import AppConfig
+from clio.i18n import t
 from clio.vmeta import VideoIndex, VideoMeta, _quick_hash
 
 
 def run_verify(config: AppConfig) -> int:
     compressed_dir = config.compressed_dir
     if not compressed_dir.is_dir():
-        print(f"压缩目录不存在: {compressed_dir}")
+        print(t("task.verify.compressed_dir_missing", {"path": compressed_dir}))
         return 1
 
     vindex_files = sorted(compressed_dir.glob("*.vindex"))
     if not vindex_files:
-        print(f"没有找到 .vindex 文件（{compressed_dir}）")
+        print(t("task.verify.no_vindex", {"path": compressed_dir}))
         return 0
 
     total = len(vindex_files)
@@ -79,6 +80,15 @@ def run_verify(config: AppConfig) -> int:
             ok_count += 1
 
     print(
-        f"\n结果: {total} 个文件, {ok_count} OK, {stale_count} 过期, {missing_count} 缺失, {hash_fail_count} 哈希不匹配"
+        t(
+            "task.verify.summary",
+            {
+                "total": total,
+                "ok": ok_count,
+                "stale": stale_count,
+                "missing": missing_count,
+                "hash_fail": hash_fail_count,
+            },
+        )
     )
     return 0 if ok_count == total else 1

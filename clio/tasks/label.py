@@ -12,6 +12,7 @@ from typing import Any
 
 from clio._constants import VIDEO_EXTS
 from clio.config import AppConfig
+from clio.i18n import t
 from clio.log import timed
 from clio.processing_state import ProcessingState
 from clio.progress import ProgressTracker
@@ -60,16 +61,14 @@ def resolve_drawtext_font() -> Path:
     for c in candidates:
         if c.is_file():
             return c
-    raise FileNotFoundError(
-        "找不到可用于 drawtext 的字体文件。Windows 请确认 C:\\Windows\\Fonts\\arial.ttf（或 segoeui.ttf）存在。"
-    )
+    raise FileNotFoundError(t("task.label.font_missing"))
 
 
 def build_label_drawtext_vf(label: str, font_path: str | Path | None = None) -> str:
     """Build drawtext filter that burns an index watermark with an explicit font."""
     font = Path(font_path) if font_path is not None else resolve_drawtext_font()
     if not font.is_file():
-        raise FileNotFoundError(f"字体文件不存在: {font}")
+        raise FileNotFoundError(t("task.label.font_not_found", {"font": font}))
     safe_label = str(label).replace("\\", r"\\").replace("'", r"\'").replace(":", r"\:")
     font_esc = escape_drawtext_path(font)
     return (
@@ -98,13 +97,18 @@ def run_label_videos(
         selected = _selected_stems(files)
         json_files = [f for f in json_files if _matches_selected_artifact(f, selected)]
     if tracker:
-        tracker.update(phase="label", total=len(json_files), current=0, message=f"烧录序号（{len(json_files)} 个）...")
+        tracker.update(
+            phase="label",
+            total=len(json_files),
+            current=0,
+            message=t("task.label.phase_title", {"count": len(json_files)}),
+        )
     with timed(f"run_label_videos（{len(json_files)} 个）"):
         completed = 0
         elapsed_total = 0.0
         for i, json_file in enumerate(json_files, start=1):
             if cancel_event and cancel_event.is_set():
-                print("[取消] label 步骤被用户终止")
+                print(t("task.label.cancelled"))
                 break
             data = json.loads(json_file.read_text(encoding="utf-8"))
             raw_idx = data.get("index")
@@ -122,23 +126,23 @@ def run_label_videos(
                 break
             orig_stem = Path(data.get("source_file") or data.get("compressed_file") or json_file.stem).stem
             if not compressed or not compressed.exists():
-                print(f"[跳过] 找不到压缩文件: {idx}")
+                print(t("task.label.skip_no_compressed", {"index": idx}))
                 state.mark(orig_stem, "label", "skipped")
                 if tracker:
-                    tracker.next(message=f"跳过 {idx}（无压缩文件）")
+                    tracker.next(message=t("task.label.skip_no_compressed_tracker", {"index": idx}))
                 continue
 
             out = labeled_dir / f"{json_file.stem}_labeled.mp4"
             if not overwrite and config.analyze.skip_existing and out.exists():
-                print(f"[跳过标注] {out.name} (已存在)")
+                print(t("task.label.skip_exists", {"name": out.name}))
                 state.mark(orig_stem, "label", "skipped")
                 if tracker:
-                    tracker.next(message=f"跳过 {out.name}")
+                    tracker.next(message=t("task.label.skip_exists_tracker", {"name": out.name}))
                 continue
 
-            print(_eta_line("标注", i, len(json_files), json_file.stem, completed, elapsed_total))
+            print(_eta_line(t("task.label.eta_label"), i, len(json_files), json_file.stem, completed, elapsed_total))
             if tracker:
-                tracker.next(message=f"标注 {json_file.stem}")
+                tracker.next(message=t("task.label.progress", {"name": json_file.stem}))
             t0 = time.monotonic()
             label = idx.replace("'", "")
             vf = build_label_drawtext_vf(label, font_path)
@@ -153,5 +157,5 @@ def run_label_videos(
             elapsed_total += time.monotonic() - t0
             completed += 1
             if tracker:
-                tracker.log(f"标号 {json_file.stem} ✓")
+                tracker.log(t("task.label.done_log", {"name": json_file.stem}))
             print(f"  -> {out.name}")

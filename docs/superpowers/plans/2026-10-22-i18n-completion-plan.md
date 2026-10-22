@@ -89,7 +89,8 @@ Each row is one commit; focused tests must pass before the next row starts.
 | 8d | feat(ui) | Localize `editor-plan.js` and plan editing helpers |
 | 8e | feat(ui) | Localize `editor-texts.js` and the remaining editor modules |
 | 9a | feat(i18n) | Localize `clio/ui/**` Web UI API payloads |
-| 9b | feat(i18n) | Localize `clio/tasks/**` progress and error messages |
+| 9b1 | feat(i18n) | Localize `clio/tasks/**` helpers, label, verify, cover, waveform, reindex, compare, migrate, compress, refine |
+| 9b2 | feat(i18n) | Localize `clio/tasks/**` analyze, plan, cut, scripts |
 | 9c | feat(i18n) | Localize core modules (analyze, transcribe, cut, plan, export, ai, asr) |
 | 9d | feat(i18n) | Localize infra copy (log, progress, ratelimit, shutdown, desktop) |
 | 10 | test(i18n) | Remaining-string inventory + parity guards (Python + Vitest) |
@@ -114,7 +115,8 @@ Each row is one commit; focused tests must pass before the next row starts.
 | 2026-10-22 | 8d plan editor / range picker | Done |
 | 2026-10-22 | 8e editor texts / voiceover / refine | Done |
 | 2026-10-22 | 9a UI API payloads | Done |
-| 2026-10-22 | 9b, 9c, 9d, 10, 11 | Pending |
+| 2026-10-22 | 9b1 task copy (helpers/label/verify/cover/waveform/reindex/compare/migrate/compress/refine) | Done |
+| 2026-10-22 | 9b2, 9c, 9d, 10, 11 | Pending |
 
 ## Remaining-String Baseline (2026-10-22)
 
@@ -152,9 +154,12 @@ was replaced by `_step_label()`, which reads `run.step.<name>.label` from the sh
 renamed the preview rows for `compress` (压缩视频 -> 压缩原视频) and `transcribe`/`label`, and
 `clio/tests/test_run_preview.py` was updated to the catalog copy.
 
-Still open for 9b/9c: `clio/tasks/migrate.py` emits 已是新结构 and `clio/ui/routes/projects.py`
-matches that substring, and `clio/pipeline.py` keeps its own `_STEP_LABELS`; both need the same
-treatment (catalog key + code or shared label helper).
+Milestone 9b1 resolved the migrate marker: `clio/tasks/migrate.py` renders
+`task.migrate.already_new_suffix` and exposes `is_already_new_structure()`, which checks every
+supported locale instead of a hard-coded Chinese substring; `clio/ui/routes/projects.py` calls it.
+
+`clio/pipeline.py` still keeps its own `_STEP_LABELS`; milestone 9d must switch it to the shared
+`run.step.<name>.label` keys used by `run_preview._step_label()`.
 
 ## Verification
 

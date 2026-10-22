@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from clio.config import AppConfig
+from clio.i18n import t
 from clio.identity import SEGMENT_SUFFIX_RE, MediaIdentity
 from clio.log import format_duration
 from clio.utils import (
@@ -128,7 +129,17 @@ def _eta_line(label: str, i: int, total: int, name: str, completed: int, elapsed
     if completed > 0:
         avg = elapsed_total / completed
         remaining = avg * (total - i)
-        return f"[{label} {i}/{total}] {name}（平均 {format_duration(avg)}，剩余 ~{format_duration(remaining)}）"
+        return t(
+            "task.eta_line",
+            {
+                "label": label,
+                "i": i,
+                "total": total,
+                "name": name,
+                "avg": format_duration(avg),
+                "remaining": format_duration(remaining),
+            },
+        )
     return f"[{label} {i}/{total}] {name}"
 
 

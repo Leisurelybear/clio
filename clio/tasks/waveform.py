@@ -18,6 +18,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 
+from clio.i18n import t
 from clio.task_center.manager import TaskManager
 from clio.task_center.models import TaskKind, TaskVisibility
 
@@ -419,7 +420,7 @@ def ensure_waveform(
         if not deps["ok"]:
             return {
                 "status": "error",
-                "error": deps["detail"] or "找不到 ffmpeg/ffprobe",
+                "error": deps["detail"] or t("task.waveform.missing_binary"),
                 "code": "missing_binary",
                 "key": key,
             }
@@ -449,7 +450,7 @@ def ensure_waveform(
             try:
                 task = task_manager.submit(
                     TaskKind.WAVEFORM,
-                    f"生成波形: {source_path.name}",
+                    t("task.waveform.task_title", {"name": source_path.name}),
                     project_id=project_id,
                     project_name=Path(project_path).name if project_path else None,
                     project_path=project_path,

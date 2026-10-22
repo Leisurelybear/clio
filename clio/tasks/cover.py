@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from clio.config import AppConfig
+from clio.i18n import t
 from clio.utils import resolve_binary, run_ffmpeg
 
 
@@ -56,7 +57,7 @@ def extract_cover_frame(config: AppConfig, video_path: Path, analysis: dict, ste
             ffmpeg,
         )
     except Exception as e:
-        print(f"  [封面] 抽帧失败 {video_path.name} @ {timestamp}: {e}")
+        print(t("task.cover.extract_failed", {"name": video_path.name, "timestamp": timestamp, "detail": e}))
         out_path.unlink(missing_ok=True)
         return None
     return out_path
