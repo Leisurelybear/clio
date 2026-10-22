@@ -29,6 +29,7 @@ vlog-video-analysis/
 │   ├── pipeline.py            High-level pipeline orchestration
 │   ├── analyze.py             AI interaction functions
 │   ├── compress.py            ffmpeg wrapper
+│   ├── ffmpeg_install.py      Verified cross-platform ffmpeg downloader (R-028b/c)
 │   ├── prompts.py             All prompt templates
 │   ├── transcribe.py          Whisper ASR core
 │   ├── whisper_cli.py         Whisper CLI
@@ -56,7 +57,7 @@ vlog-video-analysis/
 │   │   │   └── notifications.py Persistent inbox API and SSE
 │   │   └── static/            Frontend (no build step, ES modules)
 │   │       └── src/           ES modules: editor-plan.js, plan-edit.js,
-│   │                           task-center.js,
+│   │                           task-center.js, ffmpeg-install.js,
 │   │                           notification-center.js,
 │   │                           logs-history.js, logs-filter.js, logs-buffer.js,
 │   │                          sidebar.js, sidebar-data.js, sidebar-video-filter.js,
@@ -166,6 +167,21 @@ Provider management is a frontend-only experience - no new backend APIs needed:
 - Historical mode pauses live polling and disables clear; returning to `当前会话` resumes from the
   retained session offset. Keep the live and historical buffers separate.
 - Endpoint changes must cover traversal, symlink escape, unreadable/missing files, and truncation.
+
+### 4.10 FFmpeg Installer (R-028b/c)
+
+- `clio/ffmpeg_install.py` is the only supported automatic installer. Setup scripts and the Web UI
+  call it; do not add a second download path.
+- Assets are fixed to the BtbN `n9.0` release names for Windows x64/arm64 and Linux x86_64/aarch64.
+  macOS intentionally returns manual guidance because no reliable checked static build is used.
+- The checksum is read from the same release. Reject non-HTTPS redirects, oversized/empty
+  downloads, corrupt archives, path traversal, links, devices, duplicates, and failed `-version`.
+- Install to `%LOCALAPPDATA%/clio/ffmpeg` on Windows and `~/.local/share/clio/ffmpeg` elsewhere;
+  `CLIO_FFMPEG_DIR` overrides the root. Never rewrite `paths.ffmpeg` / `paths.ffprobe`.
+- `POST /api/deps/ffmpeg/install` creates one cancellable `ffmpeg_install` Task Center job;
+  `GET /api/deps/ffmpeg/install/status` reports capability, platform, task id, and progress.
+- `ffmpeg-install.js` owns the dialog and manual fallback. Keep extraction, checksum, and archive
+  safety tests with any installer change; UI progress/cancel tests live in Vitest.
 
 ## 5. User Preferences
 

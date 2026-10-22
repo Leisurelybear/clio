@@ -9,8 +9,6 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
 
 - R-047-FU Optional Baidu ASR provider (deferred; Aliyun cloud transcription is complete)
 - R-043 Frontend module decomposition and remaining legacy mypy debt
-- R-028b ffmpeg setup zip fallback after package-manager installation fails
-- R-028c UI one-click ffmpeg installation with progress reporting
 - R-031b Plan preview: prefer cut/concat media on the global timeline
 - R-032e Optional ffmpeg bundling and signed desktop installer
 - R-025 Multi-language / i18n for UI and CLI user-facing copy (large)
@@ -19,6 +17,19 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
 - Release gate: run the Python 3.11/3.12 CI matrix for the 2026-10-21/22 batches after an approved push
 
 Detailed sections and historical delivery notes remain below.
+
+### R-028b/c verified ffmpeg installer
+
+**Status:** Complete locally (2026-10-22). Setup and UI share one verified installer.
+
+- [x] Fixed BtbN `n9.0` assets for Windows x64/arm64 and Linux x86_64/aarch64
+- [x] HTTPS-only download, same-release SHA256, size limits, archive-entry validation, and `-version` verification
+- [x] Atomic managed-directory install without rewriting explicit `paths.*` configuration
+- [x] `setup.ps1`/`setup.sh` fallback, including Windows PATH refresh and macOS Homebrew failure fallthrough
+- [x] Cancellable Task Center job, status/progress API, one-click dialog, manual platform guidance
+- [x] Focused Python and Vitest coverage for platform selection, corrupt archives, routes, progress, cancel, and fallback
+
+Summary: `docs/analysis/2026-10-22-ffmpeg-installer-summary.md`
 
 ## Recently completed (2026-10-22)
 
@@ -606,8 +617,8 @@ Spec/plan: `docs/superpowers/specs|plans/2026-07-23-r033-hardening-and-pipeline-
 | --- | --- | --- | --- |
 | A | R-028a | **Done** (2026-07-18) | Probe + banner + narrow soft-disable + waveform early-fail |
 | A+ | R-028a+ | **Done** (2026-08-31) | Backend preflight gates run/cut/export before task or media output |
-| B | R-028b | Open | setup.ps1/sh zip fallback after winget/apt/… fail |
-| C | R-028c | Open | Banner “安装 ffmpeg” + progress API |
+| B | R-028b | **Done** (2026-10-22) | setup.ps1/sh verified static fallback |
+| C | R-028c | **Done** (2026-10-22) | Banner “安装 ffmpeg” + cancellable progress task |
 
 **R-028a delivered:**
 - [x] `probe_ffmpeg_deps` in `clio/utils.py` (both binaries; empty config stays `""`)
@@ -626,10 +637,11 @@ Spec/plan: `docs/superpowers/specs|plans/2026-07-23-r033-hardening-and-pipeline-
 - [x] `/api/run/preview` and the Run UI display missing binaries and the blocking reason
 - [x] Structured `media_dependency_missing` responses and regression coverage
 
-**Still open:** dependency installation/distribution (R-028b/c) and bundled ffmpeg / release
-installer work (R-032e). Waveform already probes `ffmpeg`/`ffprobe` before locking or starting a
-job. Cover extraction is an optional analyze post-step that logs a warning instead of failing the
-pipeline, so it is intentionally not a blocking preflight dependency.
+**Still open:** bundled ffmpeg / signed release installer work (R-032e). R-028b/c provide verified
+user-scoped installation on Windows/Linux and explicit macOS manual guidance. Waveform already
+probes `ffmpeg`/`ffprobe` before locking or starting a job. Cover extraction is an optional analyze
+post-step that logs a warning instead of failing the pipeline, so it is intentionally not a blocking
+preflight dependency.
 
 **Recently completed (2026-07-18):** R-028a ffmpeg missing-path Phase A; video waveform lazy peaks + orphan lock recovery; cover thumbs on video list; plan reorder feedback.
 

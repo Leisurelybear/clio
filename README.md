@@ -58,6 +58,7 @@
 - 📝 **三 Tab 编辑** — 分析 / 口播 / 规划，改完 Ctrl+S 保存
 - ⚙ **图形化配置** — 所有 YAML 字段渲染为表单，全局 / 项目双模式
 - ▶ **流水线执行** — 分步跑 / 全跑，实时进度条 + ETA
+- 🧰 **ffmpeg 一键安装** — 缺少依赖时在弹窗内下载校验后的静态构建，支持进度、取消与失败回退
 - 🔄 **本地 Whisper 模型下载** — UI 内一键下载，自动重跑转录；云端引擎无需下载模型
 - 🗂️ **任务中心与通知** — 跨项目查看任务历史和实时状态，支持取消/重试；任务事件和 UI 警告进入可分页筛选的通知收件箱。可在「设置 → 全局 → 界面」开启后台系统通知（默认关闭）
 
@@ -122,7 +123,7 @@ graph LR
 ./setup.sh
 ```
 
-脚本自动：创建虚拟环境 → 安装依赖 → 安装 ffmpeg → 创建 `.env`。
+脚本自动：创建虚拟环境 → 安装依赖 → 安装 ffmpeg → 创建 `.env`。Windows/Linux 的包管理器安装失败或当前进程未刷新 PATH 时，会继续下载经过 SHA256 校验的静态构建；macOS 使用 Homebrew，失败时给出手动安装说明。
 
 ### 🔑 配置 API Key
 
@@ -313,8 +314,11 @@ npm test
 
 ### 找不到 ffmpeg
 
-1. 运行 `setup.ps1`（Windows）或 `setup.sh`（Linux/Mac）自动安装
-2. 或手动安装后在 `config.yaml` 填写路径
+1. 在 UI 的 ffmpeg 警告中点击「如何安装」→「自动安装」，可查看进度并取消
+2. 运行 `setup.ps1`（Windows）或 `setup.sh`（Linux/macOS）自动安装
+3. macOS 或不受支持的架构请按弹窗中的 Homebrew / 手动步骤安装，或在 `config.yaml` 填写 `paths.ffmpeg` / `paths.ffprobe`
+
+自动安装只写入 `~/.local/share/clio/ffmpeg`（Windows 为 `%LOCALAPPDATA%\clio\ffmpeg`），不会覆盖显式配置路径。可用 `CLIO_FFMPEG_DIR` 修改管理目录。
 
 ### socksio package is not installed
 

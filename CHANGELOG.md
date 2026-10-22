@@ -2,6 +2,19 @@
 
 ## 2026-10-22
 
+Completed the verified ffmpeg installation path (R-028b/c). Setup scripts and the Web UI now share
+one cross-platform installer with checksum verification, safe archive extraction, progress, cancel,
+and manual fallback.
+
+- feat(ffmpeg): add fixed BtbN `n9.0` assets for Windows x64/arm64 and Linux x86_64/aarch64
+- feat(setup): fall back from failed package-manager installs to the verified downloader; handle
+  Windows PATH refresh and macOS Homebrew failure without aborting the script
+- feat(ui): add an ffmpeg install dialog backed by a cancellable Task Center job, live progress,
+  success re-probe, and platform-specific manual guidance
+- fix(ffmpeg): reject corrupt archives and normalize macOS platform detection; never rewrite
+  explicit `paths.ffmpeg` / `paths.ffprobe`
+- docs: record compatibility, install locations, safety boundaries, and verification
+
 Completed global AI task defaults and loading feedback for the project/video sidebar. Existing
 projects keep their per-task overrides, while new projects inherit one global mapping and no
 longer receive a misleading missing-API-key warning before Provider/model selection.
