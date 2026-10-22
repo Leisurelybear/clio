@@ -253,6 +253,16 @@ def _resolve_found_original(orig: str | None, proj_dir: Path) -> Path | None:
     return None
 
 
+def _is_safe_video_reference(value: str) -> bool:
+    """Allow a plain filename or a safe project-relative path (nested originals)."""
+    if not value or value.startswith(("/", "\\")) or Path(value).is_absolute() or Path(value).drive:
+        return False
+    parts = [part for part in value.replace("\\", "/").split("/") if part not in ("", ".")]
+    if not parts or any(part == ".." for part in parts):
+        return False
+    return all(_is_safe_basename(part) for part in parts)
+
+
 def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
     """Handle POST /api/run/start."""
     day_label = obj.get("day_label", "day1")
@@ -436,7 +446,7 @@ def handle_post_rerun(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -
 
     video_basename = (obj.get("video") or "").strip()
     task = (obj.get("task") or "").strip()
-    if not video_basename or not _is_safe_basename(video_basename):
+    if not video_basename or not _is_safe_video_reference(video_basename):
         return handler._send_json({"ok": False, "error": "invalid video filename"}, 400)
     if task not in ("compress", "analyze", "texts", "voiceover", "transcribe", "all"):
         return handler._send_json(

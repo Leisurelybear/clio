@@ -431,6 +431,38 @@ class TestHandlePostRerun:
         handler._send_json.assert_called_once()
         assert handler._send_json.call_args[0][0]["ok"] is True
 
+    def test_nested_original_relative_path_is_accepted(self, tmp_path: Path, _handler, monkeypatch):
+        """Original videos under a project subdirectory must be rerunnable."""
+        handler = _handler
+        handler._get_task_manager = lambda: _rerun_manager(tmp_path, monkeypatch)
+        proj_dir = tmp_path / "input"
+        nested = proj_dir / "footage"
+        nested.mkdir(parents=True)
+        (nested / "GL010695.MP4").write_bytes(b"")
+        handler._resolve_project_dir.return_value = proj_dir
+        handler._get_config.return_value = SimpleNamespace(
+            compressed_dir=proj_dir / "output" / "compressed",
+        )
+
+        handle_post_rerun(
+            handler,
+            {},
+            {"video": "footage/GL010695.MP4", "task": "transcribe", "source": "original"},
+        )
+
+        handler._send_json.assert_called_once()
+        assert handler._send_json.call_args[0][0]["ok"] is True
+
+    @pytest.mark.parametrize("video", ["../escape.mp4", "/abs/escape.mp4", "footage/../../escape.mp4"])
+    def test_rejects_path_traversal(self, video: str, tmp_path: Path, _handler):
+        handler = _handler
+        handler._resolve_project_dir.return_value = tmp_path
+
+        handle_post_rerun(handler, {}, {"video": video, "task": "transcribe"})
+
+        handler._send_json.assert_called_once()
+        assert handler._send_json.call_args[0][1] == 400
+
     def test_starts_rerun(self, tmp_path: Path, _handler, monkeypatch):
         handler = _handler
         handler._get_task_manager = lambda: _rerun_manager(tmp_path, monkeypatch)
