@@ -22,4 +22,19 @@ describe('playerSrcMatchesFile', () => {
     const src = `/api/video?file=${encodeURIComponent(name)}&source=compressed`;
     expect(playerSrcMatchesFile(src, name, 'compressed')).toBe(true);
   });
+
+  it('requires the same cut day and file revision', () => {
+    const src = '/api/video?file=clip.mp4&source=cut&day=day1&rev=10-20';
+    expect(playerSrcMatchesFile(src, 'clip.mp4', 'cut', { day: 'day1', rev: '10-20' })).toBe(true);
+    expect(playerSrcMatchesFile(src, 'clip.mp4', 'cut', { day: 'day2', rev: '10-20' })).toBe(false);
+    expect(playerSrcMatchesFile(src, 'clip.mp4', 'cut', { day: 'day1', rev: '10-21' })).toBe(false);
+  });
+
+  it('requires the same project and absolute source identity', () => {
+    const src = '/api/video?file=clip.mp4&source=original&abspath=C%3A%2Fv%2Fclip.mp4&project=trip';
+    const identity = { project: 'trip', abspath: 'C:/v/clip.mp4' };
+    expect(playerSrcMatchesFile(src, 'clip.mp4', 'original', identity)).toBe(true);
+    expect(playerSrcMatchesFile(src, 'clip.mp4', 'original', { ...identity, project: 'other' })).toBe(false);
+    expect(playerSrcMatchesFile(src, 'clip.mp4', 'original', { ...identity, abspath: 'C:/v/other.mp4' })).toBe(false);
+  });
 });

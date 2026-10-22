@@ -44,7 +44,7 @@ def test_maps_standard_clips_and_partial_fallback(tmp_path: Path):
     cuts_dir = tmp_path / "cuts" / "day1"
     first = {"index": "001", "title": "开场", "use_timeline": "00:01-00:06"}
     second = {"index": "002", "title": "第二段", "use_timeline": "00:10-00:14"}
-    _add_clip(
+    first_clip = _add_clip(
         cuts_dir,
         first,
         1,
@@ -55,9 +55,11 @@ def test_maps_standard_clips_and_partial_fallback(tmp_path: Path):
             "end_sec": 6,
         },
     )
+    first_clip_stat = first_clip.stat()
     result = build_preview_media(_plan(first, second), cuts_dir, day="day1")
     assert result["available"] is True
     assert result["segments"][0]["file"] == "001_开场_seg_001.mp4"
+    assert result["segments"][0]["rev"] == f"{first_clip_stat.st_mtime_ns}-{first_clip_stat.st_size}"
     assert result["segments"][0]["duration_sec"] == 5
     assert result["segments"][1]["file"] is None
     assert result["segments"][1]["source"]["video_index"] == "002"

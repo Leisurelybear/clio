@@ -28,6 +28,7 @@ function cutPayload(overrides = {}) {
       {
         seg_index: 0,
         file: '001_A_seg_001.mp4',
+        rev: '123-456',
         duration_sec: 5,
         start_sec: 10,
         end_sec: 15,
@@ -66,6 +67,7 @@ describe('resolvePlanMedia', () => {
     expect(media.url).toContain('source=cut');
     expect(media.url).toContain('day=day1');
     expect(media.url).toContain('project=trip');
+    expect(media.url).toContain('rev=123-456');
   });
 
   it('falls back to source when a cut is missing or explicitly blocked', () => {

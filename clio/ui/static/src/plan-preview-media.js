@@ -63,6 +63,7 @@ export function resolvePlanMedia(timeline, segIndex, options = {}) {
       index: seg.videoIndex,
       source: 'cut',
       cut_day: previewMedia.day,
+      rev: item.rev || null,
     };
     return {
       mode: 'cut',
@@ -113,6 +114,7 @@ export function previewMediaKey(media) {
     media.source || '',
     media.projectName || '',
     media.video?.cut_day || media.video?.abs_path || media.video?.file || '',
+    media.video?.rev || '',
     Number(media.seekSec || 0).toFixed(3),
   ].join('\x00');
 }

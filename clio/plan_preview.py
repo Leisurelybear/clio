@@ -114,8 +114,13 @@ def _valid_clip(
         plan_mtime=plan_mtime,
     ):
         return None
+    try:
+        stat = clip_path.stat()
+    except OSError:
+        return None
     return {
         "file": clip_name,
+        "rev": f"{stat.st_mtime_ns}-{stat.st_size}",
         "duration_sec": round(end - start, 3),
         "start_sec": round(start, 3),
         "end_sec": round(end, 3),
@@ -142,6 +147,7 @@ def build_preview_media(
                 "seg_index": offset,
                 "clip_index": clip_index,
                 "file": clip["file"] if clip else None,
+                "rev": clip["rev"] if clip else None,
                 "duration_sec": clip["duration_sec"] if clip else None,
                 "start_sec": clip["start_sec"] if clip else (round(parsed[0], 3) if parsed else None),
                 "end_sec": clip["end_sec"] if clip else (round(parsed[1], 3) if parsed else None),

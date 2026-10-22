@@ -106,8 +106,8 @@ function _syncPlanExpandFromPreview() {
   }).catch(() => { /* ignore */ });
 }
 
-/** Exact match of /api/video?file=…&source=… (avoids basename substring false positives). */
-export function playerSrcMatchesFile(playerSrc, file, source) {
+/** Exact match of /api/video media identity (avoids basename and cross-day false positives). */
+export function playerSrcMatchesFile(playerSrc, file, source, identity = {}) {
   if (!playerSrc || !file) return false;
   try {
     const u = new URL(playerSrc, 'http://local.invalid');
@@ -115,6 +115,11 @@ export function playerSrcMatchesFile(playerSrc, file, source) {
     const qSource = u.searchParams.get('source') || 'compressed';
     if (qFile !== String(file)) return false;
     if (source != null && qSource !== String(source)) return false;
+    const matches = (key) => {
+      const expected = identity?.[key];
+      return (u.searchParams.get(key) || '') === (expected == null ? '' : String(expected));
+    };
+    if (!matches('day') || !matches('project') || !matches('abspath') || !matches('rev')) return false;
     return true;
   } catch {
     return false;
@@ -145,7 +150,9 @@ function _loadAndSeekSource(v, seekSec, wantPlay, media = null) {
   $('player-name').textContent = v.file;
   const same =
     player.src
-    && playerSrcMatchesFile(player.src, v.file, source)
+    && playerSrcMatchesFile(player.src, v.file, source, source === 'cut'
+      ? { day: v.cut_day, rev: v.rev, project: state.currentProjectName }
+      : { abspath: v.abs_path, project: state.currentProjectName })
     && player.readyState >= 1;
   if (same) {
     doSeek();
