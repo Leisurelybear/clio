@@ -3,6 +3,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     environment: 'jsdom',
+    setupFiles: ['clio/ui/static/src/__tests__/setup.js'],
     include: ['clio/ui/static/src/__tests__/**/*.test.js'],
     coverage: {
       provider: 'v8',

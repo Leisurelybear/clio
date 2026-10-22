@@ -123,6 +123,33 @@ def test_unreadable_catalog_is_ignored(tmp_path, monkeypatch):
     assert i18n.t("app.title", locale="en") == "app.title"
 
 
+def test_ui_catalogs_share_one_key_set():
+    ui = {
+        locale: json.loads(
+            (REPO_ROOT / "clio" / "ui" / "static" / "locales" / f"{locale}.json").read_text(encoding="utf-8")
+        )
+        for locale in i18n.SUPPORTED_LOCALES
+    }
+
+    assert set(ui["zh-CN"]) == set(ui["en"])
+
+
+def test_ui_catalog_mirrors_the_chinese_config_descriptions():
+    from clio.config.descriptions import CONFIG_DESCRIPTIONS
+
+    ui = {
+        locale: json.loads(
+            (REPO_ROOT / "clio" / "ui" / "static" / "locales" / f"{locale}.json").read_text(encoding="utf-8")
+        )
+        for locale in i18n.SUPPORTED_LOCALES
+    }
+
+    for key, value in CONFIG_DESCRIPTIONS.items():
+        catalog_key = f"settings.desc.{key}"
+        assert ui["zh-CN"][catalog_key] == value
+        assert ui["en"][catalog_key].strip()
+
+
 def test_active_locale_drives_t_without_an_explicit_locale():
     i18n.set_active_locale("en")
 

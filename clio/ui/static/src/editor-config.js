@@ -19,7 +19,7 @@ import {
   sortLogFiles,
 } from './logs-history.js';
 import { transcriptionModelManagementNotice } from './transcription-status.js';
-import { onLocaleChange } from './i18n.js';
+import { hasKey, onLocaleChange, t } from './i18n.js';
 // Dynamic import avoids static cycle: editor.js → editor-config.js → editor.js (A-006)
 
 const DEFAULT_PROVIDERS = ['gemini', 'openai', 'deepseek'];
@@ -103,7 +103,7 @@ const PROMPT_LABELS = {
 };
 
 
-const FIELD_LABELS = {
+export const FIELD_LABELS = {
   // plan
   'plan.plans_subdir': '规划子目录',
   'plan.max_clips_per_day': '每日最多片段数',
@@ -160,10 +160,12 @@ const FIELD_LABELS = {
 
 export function labelFromPath(path) {
   if (!path) return 'config';
-  if (FIELD_LABELS[path]) return FIELD_LABELS[path];
+  const key = `settings.field.${path}`;
+  if (hasKey(key)) return t(key);
   const leaf = path.split('.').pop();
-  if (FIELD_LABELS[leaf]) return FIELD_LABELS[leaf];
-  return leaf;
+  const leafKey = `settings.field.${leaf}`;
+  if (hasKey(leafKey)) return t(leafKey);
+  return FIELD_LABELS[path] || FIELD_LABELS[leaf] || leaf;
 }
 
 export function pathPickKind(path) {
@@ -192,6 +194,23 @@ function _resolveDescPath(path, descriptions) {
     if (descriptions[candidate]) return candidate;
   }
   return null;
+}
+
+
+/** Localized tooltip text: catalog first, backend-provided Chinese as fallback. */
+export function descFromPath(path, descriptions) {
+  const resolved = _resolveDescPath(path, descriptions);
+  if (!resolved) return '';
+  const key = `settings.desc.${resolved}`;
+  return hasKey(key) ? t(key) : descriptions[resolved] || '';
+}
+
+
+/** Localized label for a schema `<select>` option; falls back to the raw value. */
+export function optionLabel(path, value) {
+  const raw = String(value);
+  const key = path === 'ui.language' ? `settings.language.${raw}` : `settings.option.${path}.${raw}`;
+  return hasKey(key) ? t(key) : raw;
 }
 
 
@@ -257,15 +276,14 @@ export function _renderTagInput(container, values, onChange) {
 
 export function _renderConfigForm(obj, path, descriptions = null, layer = 'project') {
   if (obj === null || obj === undefined) {
-    return `<span class="config-null">(空)</span>`;
+    return `<span class="config-null">${t('settings.empty_value')}</span>`;
   }
-  const descPath = _resolveDescPath(path, descriptions);
-  const tip = descPath ? _renderTooltip(path, descriptions[descPath]) : '';
+  const tip = _renderTooltip(path, descFromPath(path, descriptions));
   const sf = _schemaField(path, layer);
   if (sf && sf.group === 'hidden') return '';
   if (sf && sf.group === 'advanced' && !_isAdvancedVisible()) return '';
   const advBadge = sf && sf.group === 'advanced' && _isAdvancedVisible()
-    ? '<span class="config-adv-badge" title="高级配置">ADV</span>' : '';
+    ? `<span class="config-adv-badge" title="${t('settings.adv_title')}">ADV</span>` : '';
   if (typeof obj === 'boolean') {
     return `${advBadge}<label class="config-field config-bool"><span class="config-key">${labelFromPath(path)}${tip}</span> <input type="checkbox" data-path="${path}" ${obj ? 'checked' : ''}></label>`;
   }
@@ -274,40 +292,45 @@ export function _renderConfigForm(obj, path, descriptions = null, layer = 'proje
       const isPreset = sf.choices.includes(obj);
       const opts = sf.choices.map(c => `<option value="${c}"${c === obj ? ' selected' : ''}>${c}</option>`).join('');
       const customInput = isPreset ? '' : `<input type="number" class="config-custom-num" data-path="${path}" step="any" value="${obj}" style="width:80px;margin-left:4px">`;
-      return `<label class="config-field config-num"><span class="config-key">${labelFromPath(path)}${tip}</span> <select data-path="${path}" data-schema-select="1">${isPreset ? opts : opts + '<option value="__custom__" selected>\u81ea\u5b9a\u4e49…</option>'}</select>${customInput}</label>`;
+      const customOpt = `<option value="__custom__" selected>${t('settings.custom_option')}</option>`;
+      return `<label class="config-field config-num"><span class="config-key">${labelFromPath(path)}${tip}</span> <select data-path="${path}" data-schema-select="1">${isPreset ? opts : opts + customOpt}</select>${customInput}</label>`;
     }
     const isInt = Number.isInteger(obj);
     return `${advBadge}<label class="config-field config-num"><span class="config-key">${labelFromPath(path)}${tip}</span> <input type="number" data-path="${path}" step="${isInt ? '1' : 'any'}" value="${obj}"></label>`;
   }
   if (typeof obj === 'string') {
     if (sf && sf.ui === 'select' && Array.isArray(sf.choices)) {
-      const opts = sf.choices.map(c => `<option value="${escapeHtml(String(c))}"${String(c) === String(obj) ? ' selected' : ''}>${escapeHtml(String(c))}</option>`).join('');
+      const opts = sf.choices.map(c => {
+        const value = String(c);
+        const label = optionLabel(path, value);
+        return `<option value="${escapeHtml(value)}"${value === String(obj) ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+      }).join('');
       let selectHint = '';
       if (path === 'whisper.engine' && obj && obj !== 'local') {
-        selectHint = '<br><span class="hint">使用云端引擎前，请到「全局 → 编辑 .env 文件」配置对应 API Key（aliyun 需要 <code>DASHSCOPE_API_KEY</code>），保存后重启服务生效。</span>';
+        selectHint = `<br><span class="hint">${t('settings.hint.whisper_engine')}</span>`;
       }
-      return `<label class="config-field config-str"><span class="config-key">${labelFromPath(path)}${tip}</span> <select data-path="${path}"><option value=""${!sf.choices.includes(obj) ? ' selected' : ''}>-- 选择 --</option>${opts}</select></label>${selectHint}`;
+      return `<label class="config-field config-str"><span class="config-key">${labelFromPath(path)}${tip}</span> <select data-path="${path}"><option value=""${!sf.choices.includes(obj) ? ' selected' : ''}>${t('settings.select_placeholder')}</option>${opts}</select></label>${selectHint}`;
     }
     const multiline = path === 'ai.context' || obj.length > 80 || obj.includes('\n');
     if (multiline) {
       let hint = '';
       if (path === 'ai.context') {
-        hint = '<br><span class="hint">项目特定背景（如拍摄地点、行程安排），将追加到默认模板 <code>trip_context.md</code> 之后。留空则仅使用默认模板。</span>';
+        hint = `<br><span class="hint">${t('settings.hint.ai_context')}</span>`;
       }
       return `<label class="config-field config-str"><span class="config-key">${labelFromPath(path)}${tip}</span> <textarea data-path="${path}" rows="4">${escapeHtml(obj)}</textarea>${hint}</label>`;
     }
     const isPwd = path.endsWith('api_key');
     let hint = '';
     if (path.endsWith('api_key_env')) {
-      hint = '<br><span class="hint">环境变量名称（如 <code>GEMINI_API_KEY</code>），实际密钥值写在项目根目录的 <code>.env</code> 文件中</span>';
+      hint = `<br><span class="hint">${t('settings.hint.api_key_env')}</span>`;
     } else if (path.endsWith('base_url')) {
-      hint = '<br><span class="hint">API 基础地址。Gemini 留空即可；OpenAI 兼容接口必填，如 <code>https://api.deepseek.com/v1</code></span>';
+      hint = `<br><span class="hint">${t('settings.hint.base_url')}</span>`;
     } else if (path.endsWith('api_key')) {
-      hint = '<br><span class="hint">API 密钥（直接填入）。<strong>不推荐</strong>，建议使用 <code>api_key_env</code> 配合 <code>.env</code> 文件更安全</span>';
+      hint = `<br><span class="hint">${t('settings.hint.api_key')}</span>`;
     }
     const pickKind = pathPickKind(path);
     const browseBtn = pickKind
-      ? `<button type="button" class="browse-btn" data-desktop-browse data-pick-kind="${pickKind}" data-target-path="${path}">浏览</button>`
+      ? `<button type="button" class="browse-btn" data-desktop-browse data-pick-kind="${pickKind}" data-target-path="${path}">${t('settings.browse')}</button>`
       : '';
     const fieldInput = browseBtn
       ? `<span class="input-with-browse"><input type="${isPwd ? 'password' : 'text'}" data-path="${path}" value="${escapeHtml(obj)}">${browseBtn}</span>`
@@ -317,7 +340,7 @@ export function _renderConfigForm(obj, path, descriptions = null, layer = 'proje
   if (Array.isArray(obj)) {
     const allStr = obj.every(x => typeof x === 'string');
     if (allStr) {
-      return `<fieldset class="config-fieldset"><legend>${labelFromPath(path)}</legend><label class="config-field config-str"><textarea data-path="${path}" rows="${Math.max(2, obj.length)}">${escapeHtml(obj.join('\n'))}</textarea><span class="hint">每行一项</span></label></fieldset>`;
+      return `<fieldset class="config-fieldset"><legend>${labelFromPath(path)}</legend><label class="config-field config-str"><textarea data-path="${path}" rows="${Math.max(2, obj.length)}">${escapeHtml(obj.join('\n'))}</textarea><span class="hint">${t('settings.one_per_line')}</span></label></fieldset>`;
     }
     return `<fieldset class="config-fieldset"><legend>${labelFromPath(path)}</legend>${obj.map((item, i) =>
       `<div class="config-array-item">${_renderConfigForm(item, path + '[' + i + ']', descriptions)}</div>`
@@ -338,20 +361,10 @@ export function _renderConfigForm(obj, path, descriptions = null, layer = 'proje
 
 const _collapsedCards = new Map(); // key -> boolean (explicit state) | undefined (unset)
 
-const _SECTION_LABELS = {
-  proxy: '代理',
-  server: '服务',
-  naming: '编号命名',
-  paths: '路径',
-  ui: '界面',
-  compress: '压缩',
-  whisper: 'Whisper 语音识别',
-  ai: 'AI 配置',
-  analyze: 'AI 分析',
-  script: '口播脚本',
-  plan: '剪辑规划',
-  export: '导出设置',
-};
+function _sectionLabel(key) {
+  const i18nKey = `settings.section.${key}`;
+  return hasKey(i18nKey) ? t(i18nKey) : key;
+}
 
 function _isSectionCollapsed(key, isGlobal) {
   if (isGlobal) {
@@ -361,7 +374,7 @@ function _isSectionCollapsed(key, isGlobal) {
 }
 
 function _renderSectionCard(key, val, descs, isGlobal) {
-  const label = _SECTION_LABELS[key] || key;
+  const label = _sectionLabel(key);
   const sectionKey = (isGlobal ? 'global.' : 'project.') + key;
   const wasCollapsed = _collapsedCards.get(sectionKey);
   const collapsed = wasCollapsed !== undefined ? wasCollapsed : _isSectionCollapsed(key, isGlobal);
@@ -387,10 +400,10 @@ function _renderSectionCard(key, val, descs, isGlobal) {
 export async function initProjectConfig() {
   try {
     const btn = $('btn-config-init');
-    if (btn) { btn.disabled = true; btn.textContent = '创建中...'; }
+    if (btn) { btn.disabled = true; btn.textContent = t('settings.init.creating'); }
     const r = await api('POST', '/api/config/init', {});
     if (r.ok) {
-      setStatus('项目配置文件已创建', 'ok');
+      setStatus(t('settings.init.created'), 'ok');
       const [raw, global, project] = await Promise.all([
         api('GET', '/api/config/raw'),
         api('GET', '/api/config/global'),
@@ -604,18 +617,15 @@ function _attachPromptManagementHandlers(container) {
   }
 }
 
-const TASK_LABELS = {
-  video_analyze: '视频分析',
-  voiceover: '口播文案',
-  vlog_plan: 'vlog 剪辑规划',
-  refine_text: '文本精修',
-};
-const TASK_DESCRIPTIONS = {
-  video_analyze: '分析视频内容（场景、物体、人物、动作、地点），需多模态模型',
-  voiceover: '根据分析结果生成口播文案',
-  vlog_plan: '根据所有素材生成剪辑顺序和时间轴',
-  refine_text: '对已有文案进行润色和修正（默认跟随视频分析）',
-};
+export function taskLabel(taskKey) {
+  const key = `settings.task.label.${taskKey}`;
+  return hasKey(key) ? t(key) : taskKey;
+}
+
+export function taskDescription(taskKey) {
+  const key = `settings.task.desc.${taskKey}`;
+  return hasKey(key) ? t(key) : '';
+}
 
 export function mergeTaskBindings(defaults = {}, overrides = {}) {
   const merged = { ...defaults, ...overrides };
@@ -633,23 +643,23 @@ export function _renderTaskBinding(tasks, providersObj, descs, opts = {}) {
   const overrides = tasks || {};
   const merged = scope === 'project' ? mergeTaskBindings(defaults, overrides) : overrides;
   const providerKeys = Object.keys(providersObj || {});
-  let html = '<fieldset class="config-fieldset"><legend>AI 任务绑定</legend>';
+  let html = `<fieldset class="config-fieldset"><legend>${t('settings.ai_task_binding')}</legend>`;
   if (scope === 'global') {
-    html += '<p class="hint" style="margin:0 0 8px;line-height:1.6">这里的绑定会作为所有项目的默认值。项目内可单独覆盖某个任务。</p>';
+    html += `<p class="hint" style="margin:0 0 8px;line-height:1.6">${t('settings.task_binding.global_hint')}</p>`;
   } else {
-    html += '<p class="hint" style="margin:0 0 8px;line-height:1.6">未单独覆盖的任务会沿用全局默认绑定。修改后只影响当前项目。</p>';
+    html += `<p class="hint" style="margin:0 0 8px;line-height:1.6">${t('settings.task_binding.project_hint')}</p>`;
   }
-  html += '<p class="hint" style="margin:0 0 8px;line-height:1.6">视频分析（video_analyze）<strong>必须</strong>使用 type=Gemini 的 Provider（支持多模态）；其他任务可以使用任意 Provider。<br>勾选"跟随视频分析"表示该任务复用 video_analyze 的配置；取消勾选后可独立选择。</p>';
+  html += `<p class="hint" style="margin:0 0 8px;line-height:1.6">${t('settings.task_binding.rules_hint')}</p>`;
 
   if (providerKeys.length === 0) {
-    html += '<div class="config-empty-state"><p class="muted">还没有注册任何 AI 模型</p><p class="hint">请先在"全局"标签页中添加 Provider。</p><p><a href="#" id="goto-global-providers">去添加 →</a></p></div>';
+    html += `<div class="config-empty-state"><p class="muted">${t('settings.task_binding.empty')}</p><p class="hint">${t('settings.task_binding.empty_hint')}</p><p><a href="#" id="goto-global-providers">${t('settings.task_binding.go_add')}</a></p></div>`;
     html += '</fieldset>';
     return html;
   }
 
   for (const taskKey of ['video_analyze', 'voiceover', 'vlog_plan', 'refine_text']) {
-    const label = TASK_LABELS[taskKey];
-    const desc = TASK_DESCRIPTIONS[taskKey];
+    const label = taskLabel(taskKey);
+    const desc = taskDescription(taskKey);
     const isRefine = taskKey === 'refine_text';
     const hasOverride = Boolean(tasks && tasks[taskKey]);
     const inheritedRefine = scope === 'project'
@@ -664,11 +674,11 @@ export function _renderTaskBinding(tasks, providersObj, descs, opts = {}) {
     html += '<div class="task-binding-card">';
     html += '<div class="task-binding-header">';
     html += `<span class="task-binding-name">${escapeHtml(label)}${_renderTooltip('ai.tasks.' + taskKey, desc)}</span>`;
-    if (inherited) html += '<span class="task-binding-scope inherited">继承全局</span>';
+    if (inherited) html += `<span class="task-binding-scope inherited">${t('settings.task_binding.inherited')}</span>`;
     else if (hasOverride && scope === 'project') {
-      html += '<span class="task-binding-scope override">项目覆盖</span>';
+      html += `<span class="task-binding-scope override">${t('settings.task_binding.override')}</span>`;
       if (defaults[taskKey]) {
-        html += `<button type="button" class="task-binding-reset" data-task="${taskKey}">恢复全局默认</button>`;
+        html += `<button type="button" class="task-binding-reset" data-task="${taskKey}">${t('settings.task_binding.reset')}</button>`;
       }
     }
     html += '</div>';
@@ -676,7 +686,7 @@ export function _renderTaskBinding(tasks, providersObj, descs, opts = {}) {
     if (isRefine) {
       html += '<div class="task-binding-row">';
       html += '<label class="task-binding-label refine-follow-cb">';
-      html += `<input type="checkbox" class="refine-follow-check" data-task="${taskKey}" ${isFollowing ? 'checked' : ''}> 跟随视频分析`;
+      html += `<input type="checkbox" class="refine-follow-check" data-task="${taskKey}" ${isFollowing ? 'checked' : ''}> ${t('settings.task_binding.follow')}`;
       html += '</label>';
       html += '<span class="hint" style="font-size:var(--text-xs)">勾选 = 使用 video_analyze 相同的 Provider/模型；取消 = 可独立指定其他 Provider</span>';
       html += '</div>';
@@ -1246,19 +1256,20 @@ function _tabBtn(label, tabKey, active) {
 }
 
 function _renderFallbackWarn() {
+  const link = `<a href="#" id="link-create-project-config" style="text-decoration:underline;color:var(--accent)">${t('settings.fallback_warn_link')}</a>`;
   return `<div class="config-fallback-warn" style="background:var(--warning-bg,#fff3cd);border:1px solid var(--warning-border,#ffc107);border-radius:6px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:flex-start;gap:8px;font-size:var(--text-sm);color:var(--text-primary)">
     <span style="font-size:18px;line-height:1">⚠️</span>
-    <span>当前显示的是全局配置（回退）。该项目没有专属 <code>project.yaml</code>，修改将影响所有项目。建议<a href="#" id="link-create-project-config" style="text-decoration:underline;color:var(--accent)">创建专属配置</a>。</span>
+    <span>${t('settings.fallback_warn', { link })}</span>
   </div>`;
 }
 
 function _renderEnvEditor() {
   return `<div style="margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:12px">
-    <button id="btn-env-toggle" class="btn-secondary" style="font-size:var(--text-sm)">${icon('file-text', 14)} 编辑 .env 文件</button>
+    <button id="btn-env-toggle" class="btn-secondary" style="font-size:var(--text-sm)">${icon('file-text', 14)} ${t('settings.env_edit')}</button>
     <div id="env-editor" style="display:none;margin-top:8px">
       <textarea id="env-textarea" style="width:100%;min-height:160px;font-family:var(--font-mono,monospace);font-size:var(--text-xs,12px);padding:8px;background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);border-radius:var(--radius-sm)" spellcheck="false"></textarea>
       <div style="display:flex;gap:8px;margin-top:6px">
-        <button id="btn-env-save" class="btn-primary" style="font-size:var(--text-sm)">${icon('check', 14)} 保存 .env</button>
+        <button id="btn-env-save" class="btn-primary" style="font-size:var(--text-sm)">${icon('check', 14)} ${t('settings.env.save')}</button>
         <span id="env-save-msg" class="muted" style="font-size:var(--text-xs);align-self:center"></span>
       </div>
     </div>
@@ -1276,37 +1287,37 @@ function _attachEnvEditor() {
     envToggle.onclick = async () => {
       const visible = envEditor.style.display !== 'none';
       envEditor.style.display = visible ? 'none' : 'block';
-      envToggle.innerHTML = visible ? `${icon('file-text', 14)} 编辑 .env 文件` : `${icon('x', 14)} 收起`;
+      envToggle.innerHTML = visible ? `${icon('file-text', 14)} ${t('settings.env_edit')}` : `${icon('x', 14)} ${t('settings.env.collapse')}`;
       if (!visible && !envData.content) {
         try {
           envData = await api('GET', '/api/env');
           envTextarea.value = envData.content || '';
         } catch (e) {
-          envMsg.textContent = '加载失败';
-          void setStatus('读取 .env 失败', 'err');
+          envMsg.textContent = t('settings.env.load_failed');
+          void setStatus(t('settings.env.read_failed'), 'err');
         }
       }
     };
   }
   if (envSave && envTextarea && envMsg) {
     envSave.onclick = async () => {
-      envMsg.textContent = '保存中...';
+      envMsg.textContent = t('common.saving');
       try {
         const r = await api('PUT', '/api/env', { content: envTextarea.value });
         let message;
         if (r.ok) {
-          message = `已保存到 ${r.path}`;
+          message = t('settings.env.saved_to', { path: r.path });
           envMsg.textContent = `✓ ${message}`;
           envData.content = envTextarea.value;
         } else {
-          message = r.error || '保存失败';
+          message = r.error || t('settings.env.save_failed');
           envMsg.textContent = `✗ ${message}`;
           void setStatus(message, 'err');
           return;
         }
         void setStatus(message, 'ok');
       } catch (e) {
-        const message = `保存失败: ${e.message || e}`;
+        const message = t('settings.env.save_failed_detail', { detail: e.message || e });
         envMsg.textContent = `✗ ${message}`;
         void setStatus(message, 'err');
       }
@@ -1389,17 +1400,17 @@ export function renderConfig() {
   void _loadConfigSchema();
   if (state._needsConfigInit) {
     pane.innerHTML = `
-      <h3>项目配置初始化</h3>
-      <p class="muted">该项目还没有专属配置文件。</p>
-      <p class="hint">创建后将以当前全局配置为模板，后续修改只影响本项目。</p>
-      <button id="btn-config-init" class="btn-primary" style="margin-top:12px">${icon('settings', 16)} 为该项目创建配置文件</button>
+      <h3>${t('settings.init.title')}</h3>
+      <p class="muted">${t('settings.init.body')}</p>
+      <p class="hint">${t('settings.init.hint')}</p>
+      <button id="btn-config-init" class="btn-primary" style="margin-top:12px">${icon('settings', 16)} ${t('settings.init.button')}</button>
     `;
     const btn = $('btn-config-init');
     if (btn) btn.onclick = initProjectConfig;
     return;
   }
   if (!state.configRaw || Object.keys(state.configRaw).length === 0) {
-    pane.innerHTML = '<p class="muted">配置数据不可用</p>';
+    pane.innerHTML = `<p class="muted">${t('settings.unavailable')}</p>`;
     return;
   }
 
@@ -1423,18 +1434,18 @@ export function renderConfig() {
   } else {
     // Merged tab: read-only merged view
     const { _config_source, _needsConfigInit, _descriptions, ...configData } = state.configRaw;
-    contentHtml = `<p class="hint" style="margin-bottom:8px">以下为全局 + 项目各层合并后的有效配置。只读。</p>
+    contentHtml = `<p class="hint" style="margin-bottom:8px">${t('settings.merged_hint')}</p>
       <div class="config-form config-merged">${_renderConfigForm(configData, '', descs)}</div>`;
   }
 
   pane.innerHTML = `
     <div class="config-tab-bar">
-      ${_tabBtn('项目', 'project', active === 'project')}
-      ${_tabBtn('全局', 'global', active === 'global')}
-      ${_tabBtn('Prompts', 'prompts', active === 'prompts')}
-      ${_tabBtn('合并视图', 'merged', active === 'merged')}
+      ${_tabBtn(t('settings.tabs.project'), 'project', active === 'project')}
+      ${_tabBtn(t('settings.tabs.global'), 'global', active === 'global')}
+      ${_tabBtn(t('settings.tabs.prompts'), 'prompts', active === 'prompts')}
+      ${_tabBtn(t('settings.tabs.merged'), 'merged', active === 'merged')}
       <label class="config-advanced-toggle" style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:var(--text-sm)">
-        <input type="checkbox" id="config-advanced-toggle" ${showAdvanced ? 'checked' : ''}> 显示高级配置
+        <input type="checkbox" id="config-advanced-toggle" ${showAdvanced ? 'checked' : ''}> ${t('settings.show_advanced')}
       </label>
     </div>
     ${isFallback ? _renderFallbackWarn() : ''}
@@ -1457,7 +1468,7 @@ export function renderConfig() {
   pane.querySelectorAll('.config-tab-btn').forEach(btn => {
     btn.onclick = () => {
       if (btn.dataset.configTab === state.configTab) return;
-      if (state.dirty && !confirm('设置有未保存的修改，确定切换标签吗？')) return;
+      if (state.dirty && !confirm(t('settings.dirty_switch_confirm'))) return;
       state.configTab = btn.dataset.configTab;
       clearDirty();
       renderConfig();
@@ -1503,7 +1514,7 @@ export function renderConfig() {
     wrapper.innerHTML = `
       <div class="config-card-header" tabindex="0" role="button">
         <span class="config-card-arrow">▶</span>
-        <span class="config-card-title">本地 Whisper 模型管理</span>
+        <span class="config-card-title">${t('settings.local_whisper_models')}</span>
       </div>
       <div class="config-card-body"></div>`;
     wrapper.querySelector('.config-card-body').appendChild(renderModelManagement());
