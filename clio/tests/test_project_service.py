@@ -410,6 +410,26 @@ class TestListProjects:
         projects = _list_projects(cfg, input_dir)
         assert len(projects) == 0
 
+    def test_unregistered_current_project_uses_its_own_directory(self, tmp_path: Path):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_bytes(b"")
+        input_dir = tmp_path / "current"
+        input_dir.mkdir()
+        (input_dir / "project.json").write_text(json.dumps({"name": "Current"}), encoding="utf-8")
+        (input_dir / "project.yaml").write_text(
+            "paths:\n  output_dir: output\nanalyze:\n  compressed_subdir: clips\n",
+            encoding="utf-8",
+        )
+        clips = input_dir / "output" / "clips"
+        clips.mkdir(parents=True)
+        (clips / "001.mp4").write_bytes(b"")
+
+        projects = _list_projects(cfg, input_dir, "Current")
+
+        assert len(projects) == 1
+        assert projects[0]["name"] == "Current"
+        assert projects[0]["steps"]["compress"] is True
+
     def test_from_registry(self, tmp_path: Path):
         cfg = tmp_path / "config.yaml"
         cfg.write_bytes(b"")

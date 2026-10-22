@@ -358,7 +358,7 @@ def _list_projects(
                     "output_dir": str(proj_out),
                     "currentDay": data.get("currentDay", "day1"),
                     "source": data.get("source", "compressed"),
-                    "steps": _detect_steps(proj_out, project_dir=p),
+                    "steps": _detect_steps(proj_out, project_dir=project_dir),
                     "createdAt": data.get("createdAt"),
                     "updatedAt": data.get("updatedAt"),
                     "is_current": (
