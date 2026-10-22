@@ -13,7 +13,7 @@ from clio.config import apply_run_paths, load_config
 from clio.doctor import is_virtualenv_python, run_doctor
 from clio.log import setup_logging
 from clio.shutdown import before_stop, install_hooks
-from clio.utils import discover_ffmpeg_bin, safe_basename
+from clio.utils import discover_ffmpeg_bin, resolve_binary, safe_basename
 
 PLACEHOLDER_KEYS = {"your_api_key_here", "YOUR_API_KEY", ""}
 
@@ -586,7 +586,7 @@ def main(argv: list[str] | None = None) -> int:
                 out_dir,
                 day_label=args.day,
                 project_dir=config.project_dir,
-                ffprobe=config.paths.ffprobe,
+                ffprobe=resolve_binary(config.paths.ffprobe, "ffprobe"),
                 texts_dir=config.texts_dir,
                 canvas_ratio=config.export.canvas_ratio,
                 index_width=config.naming.index_width,

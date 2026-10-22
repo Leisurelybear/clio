@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from unittest.mock import MagicMock, patch
 
@@ -108,6 +109,39 @@ def test_tokens_uses_project_output(cli_runner, config_path, tmp_path, capsys):
 
     assert result == 0
     assert '"total_tokens": 10' in capsys.readouterr().out
+
+
+@patch("clio.plan_readiness.collect_project_indices", return_value=({"001"}, set()))
+@patch("clio.export.export_plan")
+def test_export_resolves_ffprobe(mock_export, _mock_indices, cli_runner, config_path, tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    project.joinpath("project.yaml").write_text("paths:\n  output_dir: out\n", encoding="utf-8")
+    out = project / "out"
+    plan_dir = out / "plans"
+    plan_dir.mkdir(parents=True)
+    plan_dir.joinpath("day1_plan.json").write_text(
+        json.dumps(
+            {
+                "total_estimated_sec": 180,
+                "sequence": [
+                    {
+                        "index": "001",
+                        "title": "开场",
+                        "reason": "建立场景",
+                        "use_timeline": "00:00-00:02",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with patch("clio.main.resolve_binary", return_value="C:/tools/ffprobe.exe"):
+        result = cli_runner(["--config", str(config_path), "export", "-p", str(project)])
+
+    assert result == 0
+    assert mock_export.call_args.kwargs["ffprobe"] == "C:/tools/ffprobe.exe"
 
 
 @patch("clio.main.run_doctor")
