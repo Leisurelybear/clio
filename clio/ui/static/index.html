@@ -10,51 +10,51 @@
   <div class="header-left">
     <div class="brand-mark">V</div>
     <div class="project-switcher">
-      <button id="btn-project-switcher" class="project-switcher-button" type="button" aria-haspopup="menu" aria-expanded="false" title="切换项目或管理当前项目">
+      <button id="btn-project-switcher" class="project-switcher-button" type="button" aria-haspopup="menu" aria-expanded="false" title="切换项目或管理当前项目" data-i18n-title="shell.project_switcher_title">
         <span class="project-switcher-icon icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 7.5A2.5 2.5 0 015.5 5h4l2 2H18.5A2.5 2.5 0 0121 9.5v8A2.5 2.5 0 0118.5 20h-13A2.5 2.5 0 013 17.5z"/><path d="M3 9h18"/></svg></span>
         <span class="project-switcher-copy">
-          <span class="label">当前项目</span>
-          <span id="proj-name" class="value">加载中...</span>
+          <span class="label" data-i18n="shell.current_project">当前项目</span>
+          <span id="proj-name" class="value"></span>
         </span>
         <span class="project-switcher-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m7 9 5 5 5-5"/></svg></span>
       </button>
       <div id="project-menu" class="project-menu project-menu-header" role="menu" hidden>
-        <div class="project-menu-heading">项目</div>
-        <button id="btn-open-project" class="project-menu-item" type="button" role="menuitem" title="打开已有项目">
+        <div class="project-menu-heading" data-i18n="shell.projects">项目</div>
+        <button id="btn-open-project" class="project-menu-item" type="button" role="menuitem" title="打开已有项目" data-i18n-title="shell.open_project_title">
           <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 7.5A2.5 2.5 0 015.5 5h4l2 2H18.5A2.5 2.5 0 0121 9.5v8A2.5 2.5 0 0118.5 20h-13A2.5 2.5 0 013 17.5z"/><path d="M3 9h18"/></svg></span>
-          <span>切换项目…</span>
+          <span data-i18n="shell.switch_project">切换项目…</span>
           <kbd>Ctrl+O</kbd>
         </button>
-        <button id="btn-new-project" class="project-menu-item" type="button" role="menuitem" title="新建项目">
+        <button id="btn-new-project" class="project-menu-item" type="button" role="menuitem" title="新建项目" data-i18n-title="shell.new_project_title">
           <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v8m-4-4h8"/></svg></span>
-          <span>新建项目</span>
+          <span data-i18n="shell.new_project">新建项目</span>
         </button>
         <div class="project-menu-divider" role="separator"></div>
-        <button id="btn-reveal-project" class="project-menu-item" type="button" role="menuitem" title="在资源管理器中打开当前项目目录">
+        <button id="btn-reveal-project" class="project-menu-item" type="button" role="menuitem" title="在资源管理器中打开当前项目目录" data-i18n-title="shell.reveal_project_title">
           <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 7.5A2.5 2.5 0 015.5 5h4l2 2H18.5A2.5 2.5 0 0121 9.5v8A2.5 2.5 0 0118.5 20h-13A2.5 2.5 0 013 17.5z"/><path d="M3 9h18M12 12v5m-3-2 3 3 3-3"/></svg></span>
-          <span>打开项目目录</span>
+          <span data-i18n="shell.open_project_dir">打开项目目录</span>
         </button>
         <div id="project-menu-path" class="project-menu-path" aria-live="polite"></div>
       </div>
     </div>
   </div>
   <div class="source-toggle">
-    <button data-source="compressed" class="active" title="浏览 output/compressed/ 下的 640p 压缩视频">压缩</button>
-    <button data-source="original" title="浏览项目视频列表中的原始 4K 视频">原视频</button>
+    <button data-source="compressed" class="active" title="浏览 output/compressed/ 下的 640p 压缩视频" data-i18n-title="shell.source_compressed_title" data-i18n="shell.source_compressed">压缩</button>
+    <button data-source="original" title="浏览项目视频列表中的原始 4K 视频" data-i18n-title="shell.source_original_title" data-i18n="shell.source_original">原视频</button>
   </div>
   <div class="actions">
     <span id="status" class="status"></span>
     <div class="notification-shell">
-      <button id="btn-notifications" class="btn-icon notification-button" type="button" title="通知中心" aria-haspopup="dialog" aria-expanded="false" aria-label="通知中心">
+      <button id="btn-notifications" class="btn-icon notification-button" type="button" title="通知中心" aria-haspopup="dialog" aria-expanded="false" aria-label="通知中心" data-i18n-title="notifications.title" data-i18n-aria-label="notifications.title">
         <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 00-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg></span>
         <span class="notification-badge" hidden>0</span>
       </button>
-      <section id="notification-panel" class="notification-panel" role="dialog" aria-label="通知中心" hidden></section>
+      <section id="notification-panel" class="notification-panel" role="dialog" aria-label="通知中心" data-i18n-aria-label="notifications.title" hidden></section>
     </div>
-    <button id="btn-theme" class="btn-icon" title="切换浅色/暗色主题">
+    <button id="btn-theme" class="btn-icon" title="切换浅色/暗色主题" data-i18n-title="shell.toggle_theme">
       <span class="icon"><svg viewBox="0 0 24 24" width="16" height="16"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></span>
     </button>
-    <button id="btn-reload" class="btn-icon" title="重新扫描磁盘上的文件"><span class="icon"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg></span></button>
+    <button id="btn-reload" class="btn-icon" title="重新扫描磁盘上的文件" data-i18n-title="shell.rescan_files"><span class="icon"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg></span></button>
   </div>
 </header>
 
@@ -65,48 +65,47 @@
     <div class="panel-header">
       <div class="panel-header-left">
         <span class="panel-header-icon"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></span>
-        <span>视频</span>
+        <span data-i18n="shell.videos">视频</span>
       </div>
       <div class="panel-header-actions">
-        <button id="btn-collapse-sidebar" class="sidebar-btn" type="button" title="折叠侧边栏 (Ctrl+B)">‹</button>
+        <button id="btn-collapse-sidebar" class="sidebar-btn" type="button" title="折叠侧边栏 (Ctrl+B)" data-i18n-title="shell.collapse_sidebar">‹</button>
       </div>
     </div>
     <div class="sidebar-scroll">
-      <h3>视频 <span id="video-count" class="muted"></span></h3>
+      <h3><span data-i18n="shell.videos">视频</span> <span id="video-count" class="muted"></span></h3>
       <div class="video-list-actions">
-        <button id="btn-add-videos" class="sidebar-btn" title="从文件夹选择视频文件添加到项目">
+        <button id="btn-add-videos" class="sidebar-btn" title="从文件夹选择视频文件添加到项目" data-i18n-title="shell.add_videos_title">
           <span class="icon"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></span>
-          添加视频
+          <span data-i18n="sidebar.add_videos">添加视频</span>
         </button>
-        <button id="btn-select-videos" class="sidebar-btn" style="display:none" title="选择部分视频运行">
+        <button id="btn-select-videos" class="sidebar-btn" style="display:none" title="选择部分视频运行" data-i18n-title="shell.select_videos_title">
           <span class="icon"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg></span>
-          选择视频
         </button>
       </div>
       <div id="offline-summary" class="offline-summary" hidden></div>
 
       <div id="video-filter-bar" class="video-filter-bar">
-        <input id="video-filter-input" type="text" placeholder="搜索 index / 文件名 / 标题…" autocomplete="off">
+        <input id="video-filter-input" type="text" placeholder="搜索 index / 文件名 / 标题…" autocomplete="off" data-i18n-placeholder="shell.video_filter_placeholder">
         <div id="video-filter-chips" class="video-filter-chips"></div>
       </div>
 
       <ul id="video-list">
         <li class="empty-state video-loading-state" role="status" aria-live="polite">
-          <div class="loading">正在加载项目…</div>
+          <div class="loading" data-i18n="sidebar.loading_videos">正在加载视频…</div>
           <div class="video-loading-skeleton" aria-hidden="true">
             <span class="video-loading-row"></span>
             <span class="video-loading-row"></span>
             <span class="video-loading-row"></span>
           </div>
-          <p class="hint">首次扫描会读取视频信息，素材较多时可能需要几秒。</p>
+          <p class="hint" data-i18n="sidebar.scan_hint">首次扫描会读取视频信息，素材较多时可能需要几秒。</p>
         </li>
       </ul>
 
-      <div id="stage-count-bar" class="stage-count-bar" aria-label="各阶段完成计数"></div>
+      <div id="stage-count-bar" class="stage-count-bar" aria-label="各阶段完成计数" data-i18n-aria-label="shell.stage_count_aria"></div>
     </div>
   </aside>
 
-  <div class="resize-handle" data-side="sidebar" title="拖拽调整侧栏宽度 (点击折叠/展开)"></div>
+  <div class="resize-handle" data-side="sidebar" title="拖拽调整侧栏宽度 (点击折叠/展开)" data-i18n-title="shell.resize_sidebar_title"></div>
 
   <section id="player-pane">
     <div class="player-wrap">
@@ -116,9 +115,11 @@
         <span
           class="plan-subtitle-handle"
           title="拖动字幕位置（方向键微调）"
+          data-i18n-title="shell.subtitle_handle_title"
           role="button"
           tabindex="0"
           aria-label="调整字幕位置，方向键微调，Shift 加速"
+          data-i18n-aria-label="shell.subtitle_handle_aria"
         >⠿</span>
         <span class="plan-subtitle-text"></span>
       </div>
@@ -130,6 +131,7 @@
       role="slider"
       tabindex="0"
       aria-label="波形进度"
+      data-i18n-aria-label="waveform.aria_progress"
       aria-valuemin="0"
       aria-valuemax="100"
       aria-valuenow="0"
@@ -139,9 +141,9 @@
       <div class="waveform-status" id="waveform-status" aria-live="polite"></div>
     </div>
     <div id="player-info">
-      <span id="player-name">请选择左侧视频</span>
+      <span id="player-name"></span>
       <span id="player-time">00:00 / 00:00</span>
-      <select id="playback-speed" title="播放速度">
+      <select id="playback-speed" title="播放速度" data-i18n-title="shell.playback_speed">
         <option value="0.5">0.5x</option>
         <option value="0.75">0.75x</option>
         <option value="1" selected>1x</option>
@@ -153,62 +155,62 @@
     <div id="preview-bar">
       <div class="preview-bar-row">
         <div class="preview-controls">
-          <button id="btn-prev-seg" class="preview-bar-btn" title="上一个"></button>
-          <button id="btn-play-preview" class="preview-bar-btn" title="播放/暂停"></button>
-          <button id="btn-next-seg" class="preview-bar-btn" title="下一个"></button>
+          <button id="btn-prev-seg" class="preview-bar-btn" title="上一个" data-i18n-title="shell.prev_segment"></button>
+          <button id="btn-play-preview" class="preview-bar-btn" title="播放/暂停" data-i18n-title="shell.play_pause"></button>
+          <button id="btn-next-seg" class="preview-bar-btn" title="下一个" data-i18n-title="shell.next_segment"></button>
         </div>
-        <span id="preview-seg-name" class="preview-seg-name">选择 segment</span>
+        <span id="preview-seg-name" class="preview-seg-name"></span>
       </div>
       <div class="preview-seg-bar" id="preview-seg-bar"></div>
       <div id="subtitle-settings-wrap"></div>
     </div>
     <div class="player-tip">
-      提示: 点右侧 timeline/plan 的 segment 跳到对应时间。Ctrl+S 保存。
+      <span data-i18n="shell.player_tip">提示: 点右侧 timeline/plan 的 segment 跳到对应时间。Ctrl+S 保存。</span>
     </div>
   </section>
 
-  <div class="resize-handle" data-side="editor" title="拖拽调整编辑区宽度 (点击折叠/展开)"></div>
+  <div class="resize-handle" data-side="editor" title="拖拽调整编辑区宽度 (点击折叠/展开)" data-i18n-title="shell.resize_editor_title"></div>
 
   <aside id="editor">
-    <div class="editor-header-row" aria-label="工作区导航">
-      <button id="btn-collapse-editor" class="sidebar-btn editor-collapse-button" type="button" title="折叠编辑器 (Ctrl+\)" aria-label="折叠编辑器">›</button>
+    <div class="editor-header-row" aria-label="工作区导航" data-i18n-aria-label="shell.workspace_nav">
+      <button id="btn-collapse-editor" class="sidebar-btn editor-collapse-button" type="button" title="折叠编辑器 (Ctrl+\)" aria-label="折叠编辑器" data-i18n-title="shell.collapse_editor" data-i18n-aria-label="shell.collapse_editor_short">›</button>
       <ul id="project-list" class="project-list-icons">
-        <li class="project-item" data-entity="plan" title="打开编排 (plan) 面板 · Ctrl+1">
+        <li class="project-item" data-entity="plan" title="打开编排 (plan) 面板 · Ctrl+1" data-i18n-title="shell.nav_plan_title">
           <span class="icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg></span>
-          <span class="name">编排</span>
+          <span class="name" data-i18n="shell.nav_plan">编排</span>
           <span class="shortcut">1</span>
         </li>
-        <li class="project-item" data-entity="config" title="编辑 config.yaml 配置 · Ctrl+2">
+        <li class="project-item" data-entity="config" title="编辑 config.yaml 配置 · Ctrl+2" data-i18n-title="shell.nav_config_title">
           <span class="icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg></span>
-          <span class="name">设置</span>
+          <span class="name" data-i18n="shell.nav_config">设置</span>
           <span class="shortcut">2</span>
         </li>
-        <li class="project-item" data-entity="run" title="运行流水线: 压缩→分析→口播→vlog 剪辑规划→标号 · Ctrl+3">
+        <li class="project-item" data-entity="run" title="运行流水线: 压缩→分析→口播→vlog 剪辑规划→标号 · Ctrl+3" data-i18n-title="shell.nav_run_title">
           <span class="icon"><svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg></span>
-          <span class="name">运行</span>
+          <span class="name" data-i18n="shell.nav_run">运行</span>
           <span class="shortcut">3</span>
         </li>
-        <li class="project-item" data-entity="logs" title="查看服务运行日志 · Ctrl+4">
+        <li class="project-item" data-entity="logs" title="查看服务运行日志 · Ctrl+4" data-i18n-title="shell.nav_logs_title">
           <span class="icon"><svg viewBox="0 0 24 24"><polyline points="1 12 1 19 23 19 23 12"/><polyline points="22 8 12 3 2 8 2 8"/><rect x="12" y="15" width="2" height="2"/><rect x="8" y="15" width="2" height="2"/><rect x="4" y="15" width="2" height="2"/></svg></span>
-          <span class="name">日志</span>
+          <span class="name" data-i18n="shell.nav_logs">日志</span>
           <span class="shortcut">4</span>
         </li>
-        <li class="project-item" data-entity="tokens" title="AI token 使用统计 · Ctrl+5">
+        <li class="project-item" data-entity="tokens" title="AI token 使用统计 · Ctrl+5" data-i18n-title="shell.nav_tokens_title">
           <span class="icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg></span>
-          <span class="name">统计</span>
+          <span class="name" data-i18n="shell.nav_tokens">统计</span>
           <span class="shortcut">5</span>
         </li>
-        <li class="project-item" data-entity="tasks" title="统一任务管理中心 · Ctrl+6">
+        <li class="project-item" data-entity="tasks" title="统一任务管理中心 · Ctrl+6" data-i18n-title="shell.nav_tasks_title">
           <span class="icon"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="16" x2="13" y2="16"/></svg><span class="task-nav-badge" hidden>0</span></span>
-          <span class="name">任务</span>
+          <span class="name" data-i18n="shell.nav_tasks">任务</span>
           <span class="shortcut">6</span>
         </li>
       </ul>
     </div>
     <div class="tabs">
-      <button class="tab active" data-tab="texts">分析</button>
-      <button class="tab" data-tab="voiceover">口播</button>
-      <button class="tab" data-tab="transcript">转录</button>
+      <button class="tab active" data-tab="texts" data-i18n="shell.tab_texts">分析</button>
+      <button class="tab" data-tab="voiceover" data-i18n="shell.tab_voiceover">口播</button>
+      <button class="tab" data-tab="transcript" data-i18n="shell.tab_transcript">转录</button>
     </div>
 
     <div id="tab-texts" class="tab-pane active"></div>
@@ -222,7 +224,7 @@
     <div id="tab-tasks" class="tab-pane"></div>
 
     <div class="editor-actions">
-      <button id="btn-save" class="btn-primary"><span class="icon"><svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg></span> 保存</button>
+      <button id="btn-save" class="btn-primary"><span class="icon"><svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg></span> <span data-i18n="common.save">保存</span></button>
     </div>
   </aside>
 </main>
@@ -231,15 +233,15 @@
 <div id="modal-new-project" class="modal" style="display:none;">
   <div class="modal-backdrop"></div>
   <div class="modal-dialog">
-    <h3>新建项目</h3>
-    <label>项目名称 <input id="np-name" type="text" placeholder="如：2025国庆巴黎行"></label>
-    <label>项目目录 <span class="input-with-browse"><input id="np-input-dir" type="text" placeholder="如：E:\Videos\Paris2025"><button class="browse-btn" data-target="np-input-dir" data-pick-scope="config" type="button">浏览</button></span></label>
-    <p class="hint">项目配置（project.json / project.yaml / videos.json）存放的目录</p>
-    <label>输出目录（可选） <span class="input-with-browse"><input id="np-output-dir" type="text" placeholder="留空则自动创建到当前配置文件同级目录下"><button class="browse-btn" data-target="np-output-dir" data-pick-scope="config" type="button">浏览</button></span></label>
-    <p class="hint">指定存放压缩、分析结果等中间文件的目录路径</p>
+    <h3 data-i18n="shell.new_project">新建项目</h3>
+    <label><span data-i18n="shell.project_name">项目名称</span> <input id="np-name" type="text" placeholder="如：2025国庆巴黎行" data-i18n-placeholder="shell.project_name_placeholder"></label>
+    <label><span data-i18n="shell.project_dir">项目目录</span> <span class="input-with-browse"><input id="np-input-dir" type="text" placeholder="如：E:\Videos\Paris2025" data-i18n-placeholder="shell.project_dir_placeholder"><button class="browse-btn" data-target="np-input-dir" data-pick-scope="config" type="button" data-i18n="settings.browse">浏览</button></span></label>
+    <p class="hint" data-i18n="shell.project_dir_hint">项目配置（project.json / project.yaml / videos.json）存放的目录</p>
+    <label><span data-i18n="shell.output_dir">输出目录（可选）</span> <span class="input-with-browse"><input id="np-output-dir" type="text" placeholder="留空则自动创建到当前配置文件同级目录下" data-i18n-placeholder="shell.output_dir_placeholder"><button class="browse-btn" data-target="np-output-dir" data-pick-scope="config" type="button" data-i18n="settings.browse">浏览</button></span></label>
+    <p class="hint" data-i18n="shell.output_dir_hint">指定存放压缩、分析结果等中间文件的目录路径</p>
     <div class="modal-actions">
-      <button id="np-cancel" class="btn-secondary">取消</button>
-      <button id="np-create" class="btn-primary">创建并切换</button>
+      <button id="np-cancel" class="btn-secondary" data-i18n="common.cancel">取消</button>
+      <button id="np-create" class="btn-primary" data-i18n="shell.create_and_switch">创建并切换</button>
     </div>
   </div>
 </div>
@@ -248,19 +250,19 @@
 <div id="modal-open-project" class="modal" style="display:none;">
   <div class="modal-backdrop"></div>
   <div class="modal-dialog">
-    <h3>打开项目</h3>
+    <h3 data-i18n="shell.open_project">打开项目</h3>
     <div id="project-list-modal">
-      <p class="muted">正在加载项目列表...</p>
+      <p class="muted"></p>
     </div>
     <div class="modal-actions">
-      <button id="op-cancel" class="btn-secondary">取消</button>
+      <button id="op-cancel" class="btn-secondary" data-i18n="common.cancel">取消</button>
     </div>
     <hr style="margin:16px 0;border-color:var(--border);">
-    <p class="hint" style="margin-bottom:8px;">或者输入素材目录路径（需包含 project.json）</p>
+    <p class="hint" style="margin-bottom:8px;" data-i18n="shell.open_custom_hint">或者输入素材目录路径（需包含 project.json）</p>
     <div class="input-with-browse">
-      <input id="op-custom-path" type="text" placeholder="如：D:\Projects\MyVlog">
-      <button class="browse-btn" data-target="op-custom-path" data-pick-scope="config" type="button">浏览</button>
-      <button id="op-open-path" class="btn-primary">打开</button>
+      <input id="op-custom-path" type="text" placeholder="如：D:\Projects\MyVlog" data-i18n-placeholder="shell.open_custom_placeholder">
+      <button class="browse-btn" data-target="op-custom-path" data-pick-scope="config" type="button" data-i18n="settings.browse">浏览</button>
+      <button id="op-open-path" class="btn-primary" data-i18n="shell.open">打开</button>
     </div>
   </div>
 </div>
@@ -269,14 +271,14 @@
 <div id="modal-video-manage" class="modal" style="display:none;">
   <div class="modal-backdrop"></div>
   <div class="modal-dialog modal-dialog-wide">
-    <h3>添加视频文件</h3>
-    <p class="hint">文件浏览器不可用时，可在此粘贴绝对路径；每行一个视频。</p>
+    <h3 data-i18n="shell.video_manage_title">添加视频文件</h3>
+    <p class="hint" data-i18n="shell.video_manage_hint">文件浏览器不可用时，可在此粘贴绝对路径；每行一个视频。</p>
     <div id="vm-dropzone" class="vm-paste-drop">
-      <textarea id="vm-paste" rows="8" placeholder="例如：&#10;D:\Videos\clip01.mp4&#10;D:\Videos\clip02.mov"></textarea>
+      <textarea id="vm-paste" rows="8" placeholder="例如：&#10;D:\Videos\clip01.mp4&#10;D:\Videos\clip02.mov" data-i18n-placeholder="shell.video_manage_placeholder"></textarea>
     </div>
     <div class="modal-actions" style="margin-top:12px;">
-      <button id="vm-add" class="btn-primary">添加</button>
-      <button id="vm-cancel" class="btn-secondary">取消</button>
+      <button id="vm-add" class="btn-primary" data-i18n="common.add">添加</button>
+      <button id="vm-cancel" class="btn-secondary" data-i18n="common.cancel">取消</button>
     </div>
   </div>
 </div>
@@ -285,13 +287,13 @@
 <div id="modal-plan-insert" class="modal" style="display:none;">
   <div class="modal-backdrop"></div>
   <div class="modal-dialog">
-    <h3>插入片段</h3>
-    <p id="plan-insert-hint" class="hint">选择要插入的视频</p>
-    <input id="plan-insert-filter" type="text" placeholder="搜索 index / 标题 / 文件名" autocomplete="off">
-    <div id="plan-insert-list" class="plan-insert-list" role="listbox" aria-label="可选视频"></div>
+    <h3 data-i18n="shell.plan_insert_title">插入片段</h3>
+    <p id="plan-insert-hint" class="hint"></p>
+    <input id="plan-insert-filter" type="text" placeholder="搜索 index / 标题 / 文件名" autocomplete="off" data-i18n-placeholder="shell.plan_insert_filter_placeholder">
+    <div id="plan-insert-list" class="plan-insert-list" role="listbox" aria-label="可选视频" data-i18n-aria-label="shell.plan_insert_list_aria"></div>
     <div class="modal-actions">
-      <button id="plan-insert-cancel" class="btn-secondary" type="button">取消</button>
-      <button id="plan-insert-confirm" class="btn-primary" type="button" disabled>插入</button>
+      <button id="plan-insert-cancel" class="btn-secondary" type="button" data-i18n="common.cancel">取消</button>
+      <button id="plan-insert-confirm" class="btn-primary" type="button" disabled data-i18n="shell.plan_insert_confirm">插入</button>
     </div>
   </div>
 </div>
@@ -300,29 +302,29 @@
 <div id="modal-plan-range" class="modal" style="display:none;">
   <div class="modal-backdrop"></div>
   <div class="modal-dialog modal-dialog-wide">
-    <h3 id="plan-range-title">选区</h3>
-    <p id="plan-range-hint" class="hint">拖下方两端选择起止；画面随手柄 seek。应用写入规划时间轴。</p>
+    <h3 id="plan-range-title"></h3>
+    <p id="plan-range-hint" class="hint" data-i18n="shell.plan_range_hint">拖下方两端选择起止；画面随手柄 seek。应用写入规划时间轴。</p>
     <p id="plan-range-error" class="err" style="display:none;"></p>
     <div class="plan-range-video-wrap">
       <video id="plan-range-video" class="plan-range-video" playsinline preload="metadata"></video>
-      <button type="button" id="plan-range-play" class="plan-range-play btn-secondary" title="播放/暂停当前画面">播放</button>
+      <button type="button" id="plan-range-play" class="plan-range-play btn-secondary" title="播放/暂停当前画面" data-i18n-title="shell.plan_range_play_title" data-i18n="shell.play">播放</button>
     </div>
     <div class="plan-range-times">
-      <span class="muted">源片</span>
+      <span class="muted" data-i18n="shell.plan_range_source">源片</span>
       <span id="plan-range-start-label">00:00</span>
       <span class="muted">–</span>
       <span id="plan-range-end-label">00:00</span>
       <span id="plan-range-dur-label" class="muted"></span>
       <span id="plan-range-plan-label" class="muted"></span>
     </div>
-    <div id="plan-range-track" class="plan-range-track" aria-label="选区时间轴">
+    <div id="plan-range-track" class="plan-range-track" aria-label="选区时间轴" data-i18n-aria-label="shell.plan_range_track_aria">
       <div id="plan-range-fill" class="plan-range-fill"></div>
-      <button type="button" id="plan-range-handle-start" class="plan-range-handle" data-which="start" aria-label="起点"></button>
-      <button type="button" id="plan-range-handle-end" class="plan-range-handle" data-which="end" aria-label="终点"></button>
+      <button type="button" id="plan-range-handle-start" class="plan-range-handle" data-which="start" aria-label="起点" data-i18n-aria-label="shell.plan_range_start"></button>
+      <button type="button" id="plan-range-handle-end" class="plan-range-handle" data-which="end" aria-label="终点" data-i18n-aria-label="shell.plan_range_end"></button>
     </div>
     <div class="modal-actions">
-      <button id="plan-range-cancel" class="btn-secondary" type="button">取消</button>
-      <button id="plan-range-apply" class="btn-primary" type="button">应用</button>
+      <button id="plan-range-cancel" class="btn-secondary" type="button" data-i18n="common.cancel">取消</button>
+      <button id="plan-range-apply" class="btn-primary" type="button" data-i18n="shell.apply">应用</button>
     </div>
   </div>
 </div>
@@ -331,18 +333,18 @@
 <div id="modal-relink" class="modal" style="display:none;">
   <div class="modal-backdrop"></div>
   <div class="modal-dialog modal-dialog-wide">
-    <h3>重新关联视频路径</h3>
-    <p class="hint" id="relink-hint">文件已离线，请输入新路径或从下方浏览选择。</p>
-    <label style="display:block;margin:8px 0 4px;font-size:var(--text-sm);color:var(--text-secondary)">原路径</label>
+    <h3 data-i18n="shell.relink_title">重新关联视频路径</h3>
+    <p class="hint" id="relink-hint"></p>
+    <label style="display:block;margin:8px 0 4px;font-size:var(--text-sm);color:var(--text-secondary)"><span data-i18n="shell.old_path">原路径</span></label>
     <div id="relink-old-path" class="browse-path" style="user-select:all;word-break:break-all"></div>
-    <label style="display:block;margin:12px 0 4px;font-size:var(--text-sm);color:var(--text-secondary)">新路径</label>
+    <label style="display:block;margin:12px 0 4px;font-size:var(--text-sm);color:var(--text-secondary)"><span data-i18n="shell.new_path">新路径</span></label>
     <div class="input-with-browse" style="display:flex;gap:8px;align-items:center">
-      <input id="relink-new-path" type="text" placeholder="D:\Videos\GL010695.MP4" style="flex:1;box-sizing:border-box;padding:8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-input,#1e1e1e);color:var(--text-primary);font:inherit;font-size:var(--text-sm)">
-      <button type="button" class="browse-btn btn-secondary" data-target="relink-new-path" data-pick-kind="video">浏览</button>
+      <input id="relink-new-path" type="text" placeholder="D:\Videos\GL010695.MP4" data-i18n-placeholder="shell.relink_path_placeholder" style="flex:1;box-sizing:border-box;padding:8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-input,#1e1e1e);color:var(--text-primary);font:inherit;font-size:var(--text-sm)">
+      <button type="button" class="browse-btn btn-secondary" data-target="relink-new-path" data-pick-kind="video" data-i18n="settings.browse">浏览</button>
     </div>
     <div class="modal-actions" style="margin-top:12px;">
-      <button type="button" id="relink-confirm" class="btn-primary">确认关联</button>
-      <button type="button" id="relink-cancel" class="btn-secondary">取消</button>
+      <button type="button" id="relink-confirm" class="btn-primary" data-i18n="sidebar.confirm_relink">确认关联</button>
+      <button type="button" id="relink-cancel" class="btn-secondary" data-i18n="common.cancel">取消</button>
     </div>
   </div>
 </div>
@@ -351,19 +353,19 @@
 <div id="modal-batch-relink" class="modal" style="display:none;">
   <div class="modal-backdrop"></div>
   <div class="modal-dialog modal-dialog-wide">
-    <h3>批量重新关联离线视频</h3>
-    <p class="hint">选择包含新文件的目录，按文件名自动匹配离线条目（忽略 001_ 序号前缀）。</p>
+    <h3 data-i18n="shell.batch_relink_title">批量重新关联离线视频</h3>
+    <p class="hint" data-i18n="shell.batch_relink_hint">选择包含新文件的目录，按文件名自动匹配离线条目（忽略 001_ 序号前缀）。</p>
     <div class="input-with-browse" style="display:flex;gap:8px;align-items:center">
-      <input id="br-path-input" type="text" placeholder="D:\Videos\NewFiles" style="flex:1;box-sizing:border-box;padding:8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-input,#1e1e1e);color:var(--text-primary);font:inherit;font-size:var(--text-sm)">
-      <button type="button" class="browse-btn btn-secondary" data-target="br-path-input" data-pick-kind="folder">浏览</button>
+      <input id="br-path-input" type="text" placeholder="D:\Videos\NewFiles" data-i18n-placeholder="shell.batch_relink_placeholder" style="flex:1;box-sizing:border-box;padding:8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-input,#1e1e1e);color:var(--text-primary);font:inherit;font-size:var(--text-sm)">
+      <button type="button" class="browse-btn btn-secondary" data-target="br-path-input" data-pick-kind="folder" data-i18n="settings.browse">浏览</button>
     </div>
     <div class="modal-actions" style="margin-top:8px;">
-      <button type="button" id="br-scan" class="btn-primary" disabled>扫描此目录并匹配</button>
+      <button type="button" id="br-scan" class="btn-primary" disabled data-i18n="sidebar.batch_scan_button">扫描此目录并匹配</button>
     </div>
     <div id="br-result" style="margin-top:12px;font-size:var(--text-sm)"></div>
     <div class="modal-actions" style="margin-top:12px;">
-      <button type="button" id="br-apply" class="btn-primary" disabled>应用匹配</button>
-      <button type="button" id="br-cancel" class="btn-secondary">关闭</button>
+      <button type="button" id="br-apply" class="btn-primary" disabled data-i18n="sidebar.apply_match">应用匹配</button>
+      <button type="button" id="br-cancel" class="btn-secondary" data-i18n="common.close">关闭</button>
     </div>
   </div>
 </div>
@@ -371,11 +373,11 @@
 <!-- Rerun Progress Overlay -->
 <div id="rerun-overlay">
   <div class="rerun-header">
-    <span class="rerun-title">重跑</span>
+    <span class="rerun-title"></span>
     <span class="rerun-file"></span>
-    <button class="rerun-close-btn" id="rerun-close" title="隐藏">&times;</button>
+    <button class="rerun-close-btn" id="rerun-close" title="隐藏" data-i18n-title="shell.hide">&times;</button>
   </div>
-  <div class="rerun-status" id="rerun-status">启动中...</div>
+  <div class="rerun-status" id="rerun-status"></div>
   <div class="rerun-progress-wrap">
     <div class="rerun-progress-fill" id="rerun-progress-fill"></div>
   </div>
@@ -386,16 +388,16 @@
 <div id="modal-auth" class="modal" style="display:none;">
   <div class="modal-backdrop"></div>
   <div class="modal-dialog" style="max-width:400px;">
-    <h3>需要 API Token</h3>
+    <h3 data-i18n="shell.auth_title">需要 API Token</h3>
     <p style="color:var(--text-secondary);margin-bottom:var(--space-4);">
-      该服务需要身份验证。请在终端中查找启动时打印的 API Token 并粘贴到下方。
+      <span data-i18n="shell.auth_body">该服务需要身份验证。请在终端中查找启动时打印的 API Token 并粘贴到下方。</span>
     </p>
     <label>
       <span>API Token</span>
-      <input id="auth-token-input" type="text" placeholder="粘贴 API Token" style="width:100%;box-sizing:border-box;font-family:var(--font-mono);">
+      <input id="auth-token-input" type="text" placeholder="粘贴 API Token" data-i18n-placeholder="shell.auth_token_placeholder" style="width:100%;box-sizing:border-box;font-family:var(--font-mono);">
     </label>
     <div class="modal-actions">
-      <button id="auth-submit" class="btn-primary">验证</button>
+      <button id="auth-submit" class="btn-primary" data-i18n="shell.auth_verify">验证</button>
     </div>
   </div>
 </div>

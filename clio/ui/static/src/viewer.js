@@ -538,7 +538,14 @@ function renderPreviewBar() {
 
 onLocaleChange(() => {
   if (state.currentEntity === 'plan') renderPreviewBar();
+  _syncPlayerNamePlaceholder();
 });
+
+/** Keep the idle player name in the active locale when no video is loaded. */
+function _syncPlayerNamePlaceholder() {
+  const nameEl = $('player-name');
+  if (nameEl && !state.currentVideo) nameEl.textContent = t('shell.choose_video');
+}
 
 let _scrubbing = false;
 let _lastSeekTs = 0;
@@ -768,7 +775,7 @@ function _checkSegmentBoundary(player) {
 
 function setupPlayer() {
   const player = $('player');
-  // 播放速度控制
+  _syncPlayerNamePlaceholder();
   const speedSel = $('playback-speed');
   if (speedSel) {
     speedSel.onchange = () => { player.playbackRate = parseFloat(speedSel.value); };

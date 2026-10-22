@@ -81,7 +81,12 @@ Each row is one commit; focused tests must pass before the next row starts.
 | 5 | feat(ui) | Localize notification center, ffmpeg install, runtime warnings, toasts, empty states |
 | 6 | feat(ui) | Localize task center, logs, waveform |
 | 7 | feat(ui) | Localize sidebar, video menu, file browser, viewer, transcription/subtitle controls |
-| 8 | feat(ui) | Localize editor family, runner, and remaining `main.js` copy |
+| 7b | fix(ui) | Re-render sidebar copy when the locale changes |
+| 8a | feat(ui) | Bind the static `index.html` shell to `data-i18n` attributes |
+| 8b | feat(ui) | Localize `runner.js` and `main.js` |
+| 8c | feat(ui) | Localize `editor-config.js` (prompts, providers, model management) |
+| 8d | feat(ui) | Localize `editor-plan.js` and plan editing helpers |
+| 8e | feat(ui) | Localize `editor-texts.js` and the remaining editor modules |
 | 9 | feat(i18n) | Localize backend route/task user-facing messages |
 | 10 | test(i18n) | Remaining-string inventory + parity guards (Python + Vitest) |
 | 11 | docs | README language switch, AGENTS.md conventions, ROADMAP/CHANGELOG |
@@ -97,7 +102,8 @@ Each row is one commit; focused tests must pass before the next row starts.
 | 2026-10-22 | 5 notifications / warnings / ffmpeg / task center | Done |
 | 2026-10-22 | 6 logs / waveform | Done |
 | 2026-10-22 | 7 sidebar / menus / viewer / transcription | Done |
-| 2026-10-22 | 8-11 | Pending |
+| 2026-10-22 | 8a `index.html` shell | Done |
+| 2026-10-22 | 7b, 8b-8e, 9-11 | Pending |
 
 ## Remaining-String Baseline (2026-10-22)
 
