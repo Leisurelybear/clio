@@ -211,6 +211,17 @@ class TestHandlePostRunStart:
         assert payload["ok"] is True
         assert manager.wait(payload["task_id"]).status.value == "succeeded"
 
+    def test_unknown_step_is_rejected_before_submit(self, tmp_path):
+        manager = MagicMock()
+        handler, _, _ = _managed_handler(tmp_path, manager)
+
+        handle_post_run_start(handler, {}, {"steps": ["compress", "explode"]})
+
+        payload, status = handler._send_json.call_args.args
+        assert status == 400
+        assert "explode" in payload["error"]
+        manager.submit.assert_not_called()
+
     def test_pipeline_with_ephemeral_context_is_not_retryable(self, tmp_path, monkeypatch):
         from clio.task_center.manager import TaskManager
         from clio.task_center.store import TaskStore

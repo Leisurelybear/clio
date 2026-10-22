@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from clio._constants import VIDEO_EXTS
 from clio.config import load_config
-from clio.pipeline import run_analyze_all, run_compress_all, run_generate_scripts, run_pipeline_steps
+from clio.pipeline import PIPELINE_STEPS, run_analyze_all, run_compress_all, run_generate_scripts, run_pipeline_steps
 from clio.progress import ProgressTracker
 from clio.task_center.executor import project_artifact_key
 from clio.task_center.manager import TaskAlreadyRunningError, TaskManager
@@ -286,6 +286,9 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
         for s in steps:
             if not isinstance(s, str):
                 return handler._send_json({"ok": False, "error": "steps items must be strings"}, 400)
+        unknown = sorted(set(steps) - set(PIPELINE_STEPS))
+        if unknown:
+            return handler._send_json({"ok": False, "error": f"unknown pipeline step(s): {', '.join(unknown)}"}, 400)
     files_list = obj.get("files")
     if files_list is not None and not isinstance(files_list, list):
         return handler._send_json({"ok": False, "error": "files must be a list of video names"}, 400)
@@ -387,6 +390,10 @@ def handle_post_run_preview(handler: HandlerProtocol, qs: dict[str, Any], obj: d
         return handler._send_json({"ok": False, "error": "use_transcripts must be a boolean"}, 400)
     if steps is not None and (not isinstance(steps, list) or not all(isinstance(step, str) for step in steps)):
         return handler._send_json({"ok": False, "error": "steps must be a list of strings"}, 400)
+    if steps is not None:
+        unknown = sorted(set(steps) - set(PIPELINE_STEPS))
+        if unknown:
+            return handler._send_json({"ok": False, "error": f"unknown pipeline step(s): {', '.join(unknown)}"}, 400)
 
     proj_dir = handler._resolve_project_dir(qs)
     config_path = getattr(handler, "config_path", None)

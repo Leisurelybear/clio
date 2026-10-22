@@ -57,6 +57,8 @@ _STEP_FUNCS: dict[str, Callable[..., Any]] = {
     "label": run_label_videos,
 }
 
+PIPELINE_STEPS = tuple(_STEP_FUNCS)
+
 _STEP_DAY_ARG = {"plan"}
 
 
