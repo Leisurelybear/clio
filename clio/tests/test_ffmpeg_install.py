@@ -251,6 +251,30 @@ def test_install_checksum_mismatch_leaves_no_binaries(tmp_path):
     assert not (root / "ffmpeg.exe").exists()
 
 
+def test_install_corrupt_archive_returns_failure(tmp_path):
+    root = tmp_path / "managed"
+    payload = b"not-an-archive"
+    asset = "ffmpeg-n9.0-latest-win64-gpl-9.0.zip"
+
+    def download(url, dest, **kwargs):
+        if url.endswith("checksums.sha256"):
+            digest = hashlib.sha256(payload).hexdigest()
+            dest.write_text(f"{digest}  {asset}\n", encoding="utf-8")
+        else:
+            dest.write_bytes(payload)
+
+    result = installer.install_ffmpeg(
+        system="win32",
+        machine="amd64",
+        root=root,
+        runner=_fake_runner,
+        downloader=download,
+    )
+    assert result.ok is False
+    assert result.message
+    assert not (root / "ffmpeg.exe").exists()
+
+
 def test_install_cancellation_and_manual_platform(tmp_path):
     cancel = threading.Event()
     cancel.set()

@@ -92,8 +92,9 @@ def _normalized_machine(value: str | None = None, *, windows: bool = False) -> s
 
 
 def select_asset(system: str | None = None, machine: str | None = None) -> _Asset | None:
-    system_key = "win32" if (system or os.name) in {"win32", "nt", "windows"} else "linux"
-    if (system or os.name) == "darwin":
+    resolved_system = system or ("win32" if os.name == "nt" else "darwin" if platform.system() == "Darwin" else "linux")
+    system_key = "win32" if resolved_system in {"win32", "nt", "windows"} else "linux"
+    if resolved_system == "darwin":
         return None
     machine_key = _normalized_machine(machine, windows=system_key == "win32")
     return _ASSETS.get((system_key, machine_key))
@@ -402,7 +403,7 @@ def install_ffmpeg(
             return InstallResult(True, "download", str(final_ffmpeg), str(final_ffprobe), "ffmpeg installed")
     except InterruptedError:
         return InstallResult(False, "cancelled", message="ffmpeg installation cancelled")
-    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+    except (OSError, ValueError, subprocess.SubprocessError, zipfile.BadZipFile, tarfile.TarError) as exc:
         return InstallResult(False, "download", message=str(exc))
 
 
