@@ -11,6 +11,7 @@ import { addToast } from './toast.js';
 import { registerNotification } from './notification-center.js';
 import { subscribeTaskEvents, fetchTask } from './task-center.js';
 import { transcriptionFailureNotice } from './transcription-status.js';
+import { hasKey, onLocaleChange, t } from './i18n.js';
 
 let _lastRunDay = 'day1';
 let _runActive = false;
@@ -24,13 +25,26 @@ let _taskEventsUnsubscribe = null;
 const STEPS_KEY = 'vlog_ui_run_steps';
 
 const RUN_STEPS = [
-  { key: 'compress', label: '压缩原视频', hint: '将原片压缩为 640p，为 AI 分析做准备' },
-  { key: 'analyze', label: 'AI 分析', hint: '提交 Gemini 分析压缩后的视频内容' },
-  { key: 'voiceover', label: '生成口播文案', hint: '基于分析结果生成每段的口播脚本' },
-  { key: 'transcribe', label: '语音转录', hint: '用当前本地或云端 ASR 引擎将视频语音转为文字' },
-  { key: 'plan', label: 'vlog 剪辑规划', hint: '根据所有素材生成剪辑顺序和时间轴' },
-  { key: 'label', label: '烧录序号', hint: '在压缩视频左上角标上序号便于剪映对照' },
+  { key: 'compress' },
+  { key: 'analyze' },
+  { key: 'voiceover' },
+  { key: 'transcribe' },
+  { key: 'plan' },
+  { key: 'label' },
 ];
+
+/** Step order used by the processing-state table and the skipped diagnostics. */
+const STEP_KEYS = ['compress', 'analyze', 'voiceover', 'transcribe', 'plan', 'label'];
+
+function stepShortLabel(step) {
+  const key = `run.step_short.${step}`;
+  return hasKey(key) ? t(key) : step;
+}
+
+function skipReasonHint(step) {
+  const key = `run.skip_hint.${step}`;
+  return hasKey(key) ? t(key) : t('run.skip_hint.fallback');
+}
 
 const FFMPEG_RUN_STEPS = new Set(['compress', 'label', 'transcribe']);
 const MEDIA_STEP_DEPENDENCIES = {
@@ -83,18 +97,18 @@ function renderRun() {
       <div class="run-step-wrap">
         <label class="run-step ${isPlan ? 'run-step-plan' : ''}">
           <input type="checkbox" class="run-step-cb" data-step="${s.key}" ${checked ? 'checked' : ''}>
-          <span class="run-step-label">${s.label}</span>
-          <span class="run-step-hint">${s.hint}</span>
+          <span class="run-step-label">${t(`run.step.${s.key}.label`)}</span>
+          <span class="run-step-hint">${t(`run.step.${s.key}.hint`)}</span>
         </label>
         ${isPlan ? `
         <div class="run-step-sub">
           <label class="run-option">
-            <span class="run-option-label">分集</span>
+            <span class="run-option-label">${t('run.day_label')}</span>
             <input id="run-day" class="run-option-input" value="${escapeHtml(state.currentDay)}">
           </label>
           <label class="run-option run-option-check">
             <input type="checkbox" id="run-use-transcripts" ${savedUseTrans ? 'checked' : ''}>
-            <span>使用语音转录优化剪辑规划</span>
+            <span>${t('run.use_transcripts')}</span>
           </label>
         </div>
         ` : ''}
@@ -103,23 +117,23 @@ function renderRun() {
   }).join('');
 
   pane.innerHTML = `
-    <h3>运行流水线</h3>
-    <p class="hint">选择要执行的步骤后点击「运行选中步骤」</p>
-    <p class="hint">当前项目：${escapeHtml(state.currentProjectDir || state.config?.project_dir || '未设置')}</p>
+    <h3>${t('run.title')}</h3>
+    <p class="hint">${t('run.subtitle')}</p>
+    <p class="hint">${t('run.current_project', { path: escapeHtml(state.currentProjectDir || state.config?.project_dir || t('run.unset')) })}</p>
     <div class="run-step-list">${stepChecks}</div>
     <details class="run-prompt-section" style="margin:12px 0">
-      <summary style="cursor:pointer;font-size:var(--text-sm);color:var(--text-secondary);user-select:none">⌨ 高级提示词（可选）</summary>
+      <summary style="cursor:pointer;font-size:var(--text-sm);color:var(--text-secondary);user-select:none">${t('run.advanced_prompt')}</summary>
       <div style="margin-top:8px">
-        <textarea id="run-context-override" class="run-prompt-input" placeholder="在本次运行时临时向所有 AI 添加额外指令。&#10;&#10;每条指令一行，支持按步骤前缀:&#10;[analyze] 注意画面中的食物特写&#10;[voiceover] 使用更口语化的风格&#10;[plan] 优先选取运动镜头&#10;&#10;不带前缀的指令将应用于所有步骤。&#10;这些提示仅在本次运行有效，不会保存到配置中。" rows="4" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-input,#1e1e1e);color:var(--text-primary);font-size:var(--text-sm);resize:vertical;font-family:inherit"></textarea>
+        <textarea id="run-context-override" class="run-prompt-input" placeholder="${t('run.context_placeholder')}" rows="4" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-input,#1e1e1e);color:var(--text-primary);font-size:var(--text-sm);resize:vertical;font-family:inherit"></textarea>
       </div>
     </details>
     <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap">
       <button id="btn-run-start" class="btn-primary">${getRunButtonText()}</button>
       <span id="run-files-badge" class="run-files-badge" style="display:none"></span>
-      <button id="btn-run-cancel" class="btn-secondary" style="display:none">取消</button>
+      <button id="btn-run-cancel" class="btn-secondary" style="display:none">${t('common.cancel')}</button>
       <label class="run-option-check" id="option-overwrite-wrap">
         <input type="checkbox" id="run-overwrite">
-        <span>覆盖现有输出</span>
+        <span>${t('run.overwrite')}</span>
       </label>
     </div>
     <div id="run-preview" style="margin-top:12px"></div>
@@ -165,7 +179,7 @@ function renderRun() {
 
   const runBtn = $('btn-run-start');
   runBtn.onclick = startRun;
-  if (_runActive) { runBtn.disabled = true; runBtn.textContent = '运行中...'; }
+  if (_runActive) { runBtn.disabled = true; runBtn.textContent = t('run.btn.running'); }
   const cancelBtn = $('btn-run-cancel');
   if (cancelBtn) cancelBtn.onclick = cancelRun;
   _subscribeManagedRunEvents();
@@ -187,12 +201,12 @@ function togglePlanSubOptions() {
 
 function getRunButtonText() {
   if (state.selectionMode && state.selectedFiles.length > 0) {
-    return `${icon('play', 16)} 运行选中步骤 (${state.selectedFiles.length})`;
+    return `${icon('play', 16)} ${t('run.btn.start_count', { count: state.selectedFiles.length })}`;
   }
   if (state.selectionMode && state.selectedFiles.length === 0) {
-    return `${icon('play', 16)} 请先勾选视频`;
+    return `${icon('play', 16)} ${t('run.btn.pick_first')}`;
   }
-  return `${icon('play', 16)} 运行选中步骤`;
+  return `${icon('play', 16)} ${t('run.btn.start')}`;
 }
 
 function updateRunStartButtonState() {
@@ -201,7 +215,7 @@ function updateRunStartButtonState() {
   const noSelection = state.selectionMode && state.selectedFiles.length === 0;
   btn.disabled = noSelection;
   btn.innerHTML = getRunButtonText();
-  btn.title = noSelection ? '选择模式下请先勾选至少一个视频' : '';
+  btn.title = noSelection ? t('run.pick_first_title') : '';
 }
 
 function collectRunOptions() {
@@ -224,40 +238,41 @@ function collectRunOptions() {
 
 function renderRunPreviewHtml(preview) {
   if (!preview) {
-    return '<p class="muted">选择步骤后显示预览</p>';
+    return `<p class="muted">${t('run.preview.empty')}</p>`;
   }
   const input = preview.input || {};
   const totals = preview.totals || {};
   const steps = Array.isArray(preview.steps) ? preview.steps : [];
   const preflight = preview.preflight;
   const missing = Array.isArray(preflight?.missing) ? preflight.missing : [];
+  const separator = t('run.list_separator');
   const preflightLine = preflight && preflight.ok === false
-    ? `<p class="err run-preflight-error">媒体依赖未就绪：${escapeHtml(preflight.detail || '所选步骤无法运行')}\n` +
-      `${missing.length ? `缺少 ${escapeHtml(missing.join('、'))}。` : ''}</p>`
+    ? `<p class="err run-preflight-error">${t('run.preview.preflight_error', { detail: escapeHtml(preflight.detail || t('run.preview.step_unrunnable')) })}\n` +
+      `${missing.length ? t('run.preview.missing', { items: escapeHtml(missing.join(separator)) }) : ''}</p>`
     : '';
   const stepRows = steps.map(step => {
     const warnings = (step.warnings || []).map(w => `<div class="warn">${escapeHtml(w)}</div>`).join('');
     return `
       <div class="run-preview-step">
         <span class="run-preview-name">${escapeHtml(step.label || step.name || '')}</span>
-        <span>总数 ${Number(step.total || 0)}</span>
-        <span>待执行 ${Number(step.will_run || 0)}</span>
-        <span>跳过 ${Number(step.will_skip || 0)}</span>
+        <span>${t('run.preview.total', { count: Number(step.total || 0) })}</span>
+        <span>${t('run.preview.will_run', { count: Number(step.will_run || 0) })}</span>
+        <span>${t('run.preview.will_skip', { count: Number(step.will_skip || 0) })}</span>
         ${warnings}
       </div>
     `;
   }).join('');
   const warningLine = Number(totals.warnings || 0) > 0
-    ? `<p class="warn">警告 ${Number(totals.warnings || 0)} 项，请确认后再运行。</p>`
+    ? `<p class="warn">${t('run.preview.warnings', { count: Number(totals.warnings || 0) })}</p>`
     : '';
   return `
     <section class="run-preview-box">
-      <h4 style="margin:0 0 6px">运行预览</h4>
-      <p class="muted">输入：${escapeHtml(input.path || '')}（${Number(input.count || 0)} 个）</p>
+      <h4 style="margin:0 0 6px">${t('run.preview.title')}</h4>
+      <p class="muted">${t('run.preview.input', { path: escapeHtml(input.path || ''), count: Number(input.count || 0) })}</p>
       <div class="run-preview-totals">
-        <span>步骤 ${Number(totals.selected_steps || 0)}</span>
-        <span>待执行 ${Number(totals.will_run || 0)}</span>
-        <span>跳过 ${Number(totals.will_skip || 0)}</span>
+        <span>${t('run.preview.steps', { count: Number(totals.selected_steps || 0) })}</span>
+        <span>${t('run.preview.will_run', { count: Number(totals.will_run || 0) })}</span>
+        <span>${t('run.preview.will_skip', { count: Number(totals.will_skip || 0) })}</span>
       </div>
       ${preflightLine}
       ${warningLine}
@@ -268,9 +283,9 @@ function renderRunPreviewHtml(preview) {
 
 export function formatRunStartError(error) {
   const preflight = error?.body?.code === 'media_dependency_missing' ? error.body.preflight : null;
-  const detail = preflight?.detail || error?.body?.error || error?.message || '启动失败';
+  const detail = preflight?.detail || error?.body?.error || error?.message || t('run.start_failed');
   const missing = Array.isArray(preflight?.missing) && preflight.missing.length
-    ? `（缺少 ${preflight.missing.join('、')}）`
+    ? t('run.start_failed_missing', { items: preflight.missing.join(t('run.list_separator')) })
     : '';
   return `${detail}${missing}`;
 }
@@ -285,7 +300,7 @@ async function refreshRunPreview({ silent = false } = {}) {
   }
   const ac = beginLatest('run-preview');
   if (!silent) {
-    container.innerHTML = '<p class="muted">正在生成运行预览...</p>';
+    container.innerHTML = `<p class="muted">${t('run.preview.generating')}</p>`;
   }
   try {
     const response = await api('POST', '/api/run/preview', options, { signal: ac.signal });
@@ -308,10 +323,10 @@ function updateRunFilesBadge() {
   const badge = $('run-files-badge');
   if (badge) {
     if (state.selectionMode && state.selectedFiles.length > 0) {
-      badge.textContent = `(${state.selectedFiles.length} 个视频)`;
+      badge.textContent = t('run.badge.count', { count: state.selectedFiles.length });
       badge.style.display = 'inline';
     } else if (state.selectionMode) {
-      badge.textContent = '(未勾选视频)';
+      badge.textContent = t('run.badge.none');
       badge.style.display = 'inline';
     } else {
       badge.style.display = 'none';
@@ -328,21 +343,21 @@ async function startRun() {
   const btn = $('btn-run-start');
   if (btn.disabled) return;
   if (state.selectionMode && state.selectedFiles.length === 0) {
-    setStatus('选择模式下请先勾选至少一个视频', 'warn');
-    addToast('请先勾选视频', 'warning', undefined, { persist: false });
+    setStatus(t('run.pick_first_title'), 'warn');
+    addToast(t('run.btn.pick_first'), 'warning', undefined, { persist: false });
     return;
   }
   btn.disabled = true;
-  btn.textContent = '启动中...';
+  btn.textContent = t('run.starting');
   const options = collectRunOptions();
   if (!options.steps.length) {
     updateRunStartButtonState();
-    setStatus('请至少选择一个步骤', 'warn');
+    setStatus(t('run.need_steps'), 'warn');
     return;
   }
   const missingMediaDeps = missingMediaDepsForSteps(options.steps, state.deps);
   if (state.deps && state.deps.ok === false && missingMediaDeps.length > 0) {
-    const msg = state.deps.detail || `需要 ${missingMediaDeps.join('、')} 才能运行所选步骤`;
+    const msg = state.deps.detail || t('run.deps_required', { items: missingMediaDeps.join(t('run.list_separator')) });
     setStatus(msg, 'warn');
     addToast(msg, 'warning', 6000, { persist: false });
     updateRunStartButtonState();
@@ -357,23 +372,23 @@ async function startRun() {
       _managedTaskId = r.task_id || r.task?.id || null;
       renderManagedTaskLink();
       _runActive = true;
-      const msg = r.message || '流水线已启动';
+      const msg = r.message || t('run.started');
       setStatus(msg, 'ok', { persist: false });
       addToast(msg, 'success', undefined, { persist: false });
-      $('run-progress').innerHTML = '<p class="muted">流水线已启动，等待进度...</p>';
+      $('run-progress').innerHTML = `<p class="muted">${t('run.started_waiting')}</p>`;
       if (_managedTaskId) {
         _subscribeManagedRunEvents();
         _syncManagedTaskSnapshot(_managedTaskId);
       }
     } else {
-      throw new Error(r.error || '启动失败');
+      throw new Error(r.error || t('run.start_failed'));
     }
   } catch (e) {
     const display = formatRunStartError(e);
     $('run-progress').innerHTML = `<p class="err">${escapeHtml(display)}</p>`;
-    const msg = '启动失败: ' + display;
+    const msg = t('run.start_failed_prefix', { detail: display });
     setStatus(msg, 'err');
-    addToast(msg, 'error', 6000, { title: '流水线启动失败' });
+    addToast(msg, 'error', 6000, { title: t('run.start_failed_title') });
     _runActive = false;
     updateRunStartButtonState();
   }
@@ -381,17 +396,17 @@ async function startRun() {
 
 async function cancelRun() {
   const btn = $('btn-run-cancel');
-  if (btn) { btn.disabled = true; btn.innerHTML = '⏹ 正在取消...'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = t('run.cancelling'); }
   try {
     const r = await api('POST', `/api/tasks/${encodeURIComponent(_managedTaskId)}/cancel`, {});
-    const msg = r.message || '取消请求已发送';
+    const msg = r.message || t('run.cancel_requested');
     setStatus(msg, 'warn');
     addToast(msg, 'warning', undefined, { persist: false });
   } catch (e) {
-    const msg = '取消失败: ' + e.message;
+    const msg = t('run.cancel_failed', { detail: e.message });
     setStatus(msg, 'err');
-    addToast(msg, 'error', 6000, { title: '取消流水线失败' });
-    if (btn) { btn.disabled = false; btn.innerHTML = '取消'; }
+    addToast(msg, 'error', 6000, { title: t('run.cancel_failed_title') });
+    if (btn) { btn.disabled = false; btn.innerHTML = t('common.cancel'); }
   }
 }
 
@@ -399,7 +414,7 @@ function renderManagedTaskLink() {
   const el = $('run-task-link');
   if (!el || !_managedTaskId) return;
   el.hidden = false;
-  el.innerHTML = '<button type="button" class="btn-secondary">在任务中心查看</button>';
+  el.innerHTML = `<button type="button" class="btn-secondary">${t('run.view_in_tasks')}</button>`;
   el.querySelector('button').onclick = () => import('./sidebar.js').then(mod => mod.selectTasks());
 }
 
@@ -472,12 +487,13 @@ async function refreshVideosAfterRun() {
 
 /** Stale-progress warning box; ASR configuration hint only for the transcribe phase. */
 function staleWarningHtml(phase) {
+  const settingsLink = `<a href="#" id="link-stale-settings" style="text-decoration:underline;color:var(--accent)">${t('shell.nav_config')}</a>`;
   const whisperHint = phase === 'transcribe'
-    ? `<span style="color:var(--text-secondary)">可前往 <a href="#" id="link-stale-settings" style="text-decoration:underline;color:var(--accent)">设置</a> 检查 ASR 引擎、模型或 API Key 状态</span>`
+    ? `<span style="color:var(--text-secondary)">${t('run.stale_settings_hint', { link: settingsLink })}</span>`
     : '';
   return `
     <div id="stale-warn" style="display:none;margin-top:8px;padding:8px;background:var(--warning-bg,#2a2520);border:1px solid var(--warning-border,#b8860b);border-radius:6px;font-size:var(--text-sm)">
-      ⏳ 进度长时间未更新，可能仍在运行或网络连接异常<br>
+      ${t('run.stale_hint')}<br>
       ${whisperHint}
     </div>
   `;
@@ -494,7 +510,7 @@ async function _showTranscriptionFailureNotice(prog) {
     const notice = transcriptionFailureNotice(check);
     registerNotification({
       title: notice.title,
-      message: `${notice.message} 请前往${notice.settingsLabel}完成配置，再重跑「语音转录」。`,
+      message: t('run.transcribe_notice_plain', { message: notice.message, settings: notice.settingsLabel }),
       severity: 'error',
       sourceType: 'ui_status',
       sourceId: 'transcribe-failure',
@@ -507,7 +523,7 @@ async function _showTranscriptionFailureNotice(prog) {
     warn.style.cssText = 'margin-top:12px;padding:12px;background:var(--warning-bg,#2a2520);border:1px solid var(--warning-border,#b8860b);border-radius:6px';
     warn.innerHTML = `
       <p style="margin:0 0 8px;font-weight:600">❗ ${escapeHtml(notice.title)}</p>
-      <p style="margin:0 0 8px;font-size:var(--text-sm);color:var(--text-secondary)">${escapeHtml(notice.message)} 请前往 <a href="#" id="link-go-settings" style="text-decoration:underline;color:var(--accent)">${escapeHtml(notice.settingsLabel)}</a> 完成配置，再重跑「语音转录」。</p>
+      <p style="margin:0 0 8px;font-size:var(--text-sm);color:var(--text-secondary)">${t('run.transcribe_notice_link', { message: escapeHtml(notice.message), link: `<a href="#" id="link-go-settings" style="text-decoration:underline;color:var(--accent)">${escapeHtml(notice.settingsLabel)}</a>` })}</p>
     `;
     prog.appendChild(warn);
     const settingsLink = $('link-go-settings');
@@ -537,7 +553,7 @@ export async function _handleRunStatus(s) {
       const cancelBtn = $('btn-run-cancel');
       if (cancelBtn) cancelBtn.style.display = 'none';
       if (hasRunDom && !s.running) {
-        prog.innerHTML = '<p class="muted">尚未运行</p>';
+        prog.innerHTML = `<p class="muted">${t('run.no_run')}</p>`;
         renderProcessingState($('run-state-container'));
       }
       return;
@@ -552,27 +568,27 @@ export async function _handleRunStatus(s) {
         if (hasRunDom) {
           const logsHtml = s.logs?.length ? `<div class="run-logs">${s.logs.map(l => `<div class="run-log-line">${escapeHtml(l)}</div>`).join('')}</div>` : '';
           prog.innerHTML = `
-            <p class="warn">⚠ 上次运行时意外中断，以下为残留进度（已失效）</p>
-            <p><strong>阶段:</strong> ${escapeHtml(s.phase || '')}</p>
-            <p><strong>进度:</strong> ${s.current}/${s.total}</p>
-            <p><strong>状态:</strong> ${escapeHtml(s.message || '')}</p>
+            <p class="warn">${t('run.stale_interrupted')}</p>
+            <p><strong>${t('run.phase')}</strong> ${escapeHtml(s.phase || '')}</p>
+            <p><strong>${t('run.progress')}</strong> ${s.current}/${s.total}</p>
+            <p><strong>${t('run.state')}</strong> ${escapeHtml(s.message || '')}</p>
             ${logsHtml}
           `;
           renderProcessingState($('run-state-container'));
         }
       } else {
         _seenNonTerminal = true;
-        if (btn) { btn.disabled = true; btn.textContent = '运行中...'; }
+        if (btn) { btn.disabled = true; btn.textContent = t('run.btn.running'); }
         const cancelBtn = $('btn-run-cancel');
         if (cancelBtn) { cancelBtn.style.display = ''; cancelBtn.disabled = false; }
         if (hasRunDom) {
           const pct = s.total > 0 ? Math.round(s.current / s.total * 100) : 0;
-          const eta = s.eta_sec ? `，预计剩余 ${Math.round(s.eta_sec)} 秒` : '';
+          const eta = s.eta_sec ? t('run.eta', { sec: Math.round(s.eta_sec) }) : '';
           const logsHtml = s.logs?.length ? `<div class="run-logs">${s.logs.map(l => `<div class="run-log-line">${escapeHtml(l)}</div>`).join('')}</div>` : '';
           prog.innerHTML = `
-            <p><strong>阶段:</strong> ${escapeHtml(s.phase || '')}</p>
-            <p><strong>进度:</strong> ${s.current}/${s.total} (${pct}%)${eta}</p>
-            <p><strong>状态:</strong> ${escapeHtml(s.message || '')}</p>
+            <p><strong>${t('run.phase')}</strong> ${escapeHtml(s.phase || '')}</p>
+            <p><strong>${t('run.progress')}</strong> ${s.current}/${s.total} (${pct}%)${eta}</p>
+            <p><strong>${t('run.state')}</strong> ${escapeHtml(s.message || '')}</p>
             <div style="background:#333;border-radius:3px;height:8px;margin:8px 0">
               <div style="background:var(--accent);border-radius:3px;height:100%;width:${pct}%"></div>
             </div>
@@ -602,10 +618,10 @@ export async function _handleRunStatus(s) {
       if (cancelBtn) cancelBtn.style.display = 'none';
       if (hasRunDom) {
         const logsHtml = s.logs?.length ? `<div class="run-logs">${s.logs.map(l => `<div class="run-log-line">${escapeHtml(l)}</div>`).join('')}</div>` : '';
-        prog.innerHTML = `<p class="ok">✓ 流水线完成</p><p>${escapeHtml(s.message || '')}</p>${logsHtml}`;
+        prog.innerHTML = `<p class="ok">✓ ${t('run.done')}</p><p>${escapeHtml(s.message || '')}</p>${logsHtml}`;
       }
-      setStatus('流水线完成', 'ok', { persist: !_managedTaskId });
-      addToast(s.message || '流水线完成', 'success', undefined, { persist: false });
+      setStatus(t('run.done'), 'ok', { persist: !_managedTaskId });
+      addToast(s.message || t('run.done'), 'success', undefined, { persist: false });
       if (hasRunDom) renderProcessingState($('run-state-container'));
       if (hasRunDom) await _showTranscriptionFailureNotice(prog);
       state.currentDay = _lastRunDay;
@@ -631,10 +647,10 @@ export async function _handleRunStatus(s) {
       if (cancelBtn) cancelBtn.style.display = 'none';
       if (hasRunDom) {
         const logsHtml = s.logs?.length ? `<div class="run-logs">${s.logs.map(l => `<div class="run-log-line">${escapeHtml(l)}</div>`).join('')}</div>` : '';
-        prog.innerHTML = `<p class="warn">⏹ 流水线已取消</p><p>${escapeHtml(s.message || '')}</p>${logsHtml}`;
+        prog.innerHTML = `<p class="warn">⏹ ${t('run.cancelled')}</p><p>${escapeHtml(s.message || '')}</p>${logsHtml}`;
       }
-      setStatus('流水线已取消', 'warn', { persist: !_managedTaskId });
-      addToast(s.message || '流水线已取消', 'warning', undefined, { persist: false });
+      setStatus(t('run.cancelled'), 'warn', { persist: !_managedTaskId });
+      addToast(s.message || t('run.cancelled'), 'warning', undefined, { persist: false });
       if (hasRunDom) renderProcessingState($('run-state-container'));
       await refreshVideosAfterRun();
     } else if (s.status === 'error') {
@@ -645,10 +661,10 @@ export async function _handleRunStatus(s) {
       if (cancelBtn) cancelBtn.style.display = 'none';
       if (hasRunDom) {
         const logsHtml = s.logs?.length ? `<div class="run-logs">${s.logs.map(l => `<div class="run-log-line">${escapeHtml(l)}</div>`).join('')}</div>` : '';
-        prog.innerHTML = `<p class="err">✗ 流水线出错</p><p>${escapeHtml(s.message || '')}</p>${logsHtml}`;
+        prog.innerHTML = `<p class="err">✗ ${t('run.error')}</p><p>${escapeHtml(s.message || '')}</p>${logsHtml}`;
       }
-      setStatus('流水线出错', 'err', { persist: !_managedTaskId });
-      addToast(s.message || '流水线出错', 'error', 6000, { persist: false });
+      setStatus(t('run.error'), 'err', { persist: !_managedTaskId });
+      addToast(s.message || t('run.error'), 'error', 6000, { persist: false });
       if (hasRunDom) renderProcessingState($('run-state-container'));
       await refreshVideosAfterRun();
     }
@@ -685,33 +701,17 @@ async function _showRunCompletionTarget(steps) {
   }
 }
 
-const _STEP_LABELS_SHORT = {
-  compress: '压缩',
-  analyze: '分析',
-  voiceover: '口播',
-  transcribe: '转录',
-  plan: '规划',
-  label: '标号',
-};
 const _STATUS_ICON = { done: '✅', skipped: '⏭️', error: '✗', cancelled: '⏹', running: '…' };
-const _SKIP_REASON_HINTS = {
-  compress: '已找到可复用的压缩文件或分段输出。勾选"覆盖现有输出"后会重新压缩。',
-  analyze: '通常是分析 JSON 已存在；也可能是视频超过 analyze.max_analyze_duration_min 时长限制。',
-  voiceover: '口播 JSON 已存在。需要重写文案时勾选"覆盖现有输出"。',
-  transcribe: '通常是转录 JSON 已存在；也可能是找不到原始视频或音频提取失败。',
-  plan: '剪辑规划文件已存在。需要重建规划时勾选"覆盖现有输出"。',
-  label: '可能是标号视频已存在，或找不到对应的压缩视频。',
-};
 
 async function renderProcessingState(container) {
   try {
     const st = await api('GET', '/api/processing-state');
     const files = st.files;
-    const stepKeys = ['compress', 'analyze', 'voiceover', 'transcribe', 'plan', 'label'];
+    const stepKeys = STEP_KEYS;
     const entries = Object.entries(files).sort((a, b) => a[0].localeCompare(b[0]));
     if (!entries.length) { if (container) container.innerHTML = ''; return; }
-    let html = '<h4 style="margin:12px 0 4px">处理状态</h4><div class="state-table"><div class="state-row state-header"><span class="state-file">文件</span>';
-    for (const k of stepKeys) html += `<span class="state-cell">${_STEP_LABELS_SHORT[k]}</span>`;
+    let html = `<h4 style="margin:12px 0 4px">${t('run.processing_state')}</h4><div class="state-table"><div class="state-row state-header"><span class="state-file">${t('run.table.file')}</span>`;
+    for (const k of stepKeys) html += `<span class="state-cell">${stepShortLabel(k)}</span>`;
     html += '</div>';
     for (const [file, steps] of entries) {
       html += `<div class="state-row"><span class="state-file">${escapeHtml(file)}</span>`;
@@ -729,8 +729,8 @@ async function renderProcessingState(container) {
 
 function buildSkippedDiagnostics(processingState) {
   const files = processingState?.files || {};
-  const stateSteps = Array.isArray(processingState?.steps) ? processingState.steps : Object.keys(_STEP_LABELS_SHORT);
-  const stepKeys = stateSteps.filter(step => step in _STEP_LABELS_SHORT);
+  const stateSteps = Array.isArray(processingState?.steps) ? processingState.steps : STEP_KEYS;
+  const stepKeys = stateSteps.filter(step => hasKey(`run.step_short.${step}`));
   const diagnostics = [];
   for (const [file, steps] of Object.entries(files).sort((a, b) => a[0].localeCompare(b[0]))) {
     if (!steps || typeof steps !== 'object') continue;
@@ -739,8 +739,8 @@ function buildSkippedDiagnostics(processingState) {
       diagnostics.push({
         file,
         step,
-        label: _STEP_LABELS_SHORT[step] || step,
-        reason: _SKIP_REASON_HINTS[step] || '该步骤被记录为 skipped；请检查运行日志和对应输出文件。',
+        label: stepShortLabel(step),
+        reason: skipReasonHint(step),
       });
     }
   }
@@ -756,12 +756,18 @@ function renderSkippedDiagnosticsHtml(diagnostics) {
   `).join('');
   return `
     <details class="skip-panel" ${rows ? 'open' : ''}>
-      <summary>为什么被跳过</summary>
-      <p class="muted">基于 .processing.json 的 skipped 状态推断；精确原因以运行日志和实际输出文件为准。</p>
-      ${rows ? `<div class="skip-table">${rows}</div>` : '<p class="muted">当前没有 skipped 记录。</p>'}
+      <summary>${t('run.skipped.summary')}</summary>
+      <p class="muted">${t('run.skipped.hint')}</p>
+      ${rows ? `<div class="skip-table">${rows}</div>` : `<p class="muted">${t('run.skipped.empty')}</p>`}
     </details>
   `;
 }
+// The Run pane is rendered from JS strings, so re-render it on a language switch
+// instead of leaving stale copy behind. A live run keeps painting its own progress.
+onLocaleChange(() => {
+  if (!_runActive && state.currentEntity === 'run') renderRun();
+});
+
 export {
   renderRun,
   startRun,
