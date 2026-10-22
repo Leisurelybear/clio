@@ -107,7 +107,8 @@ Each row is one commit; focused tests must pass before the next row starts.
 | 2026-10-22 | 8a `index.html` shell | Done |
 | 2026-10-22 | 8b `runner.js` / `main.js` | Done |
 | 2026-10-22 | 8c `editor-config.js` providers / prompts | Done |
-| 2026-10-22 | 8c2, 8d-8e, 9-11 | Pending |
+| 2026-10-22 | 8c2 `editor-config.js` tokens / Whisper models | Done |
+| 2026-10-22 | 8d-8e, 9-11 | Pending |
 
 ## Remaining-String Baseline (2026-10-22)
 

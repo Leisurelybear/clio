@@ -1912,34 +1912,34 @@ export function renderLogs() {
 
 export async function renderTokens() {
   const pane = $('tab-tokens');
-  pane.innerHTML = '<p class="muted">加载中...</p>';
+  pane.innerHTML = `<p class="muted">${t('common.loading')}</p>`;
   try {
     const data = await api('GET', '/api/token-usage');
     if (!data || !data.total) {
-      pane.innerHTML = '<p class="muted">暂无 token 使用数据。运行流水线后会自动记录。</p>';
+      pane.innerHTML = `<p class="muted">${t('tokens.empty')}</p>`;
       return;
     }
-    const t = data.total;
+    const totals = data.total;
     const totalHtml = `
       <div style="display:flex;gap:var(--space-3);margin-bottom:var(--space-3);flex-wrap:wrap">
-        <div class="token-card"><div class="token-card-value">${t.total_tokens.toLocaleString()}</div><div class="token-card-label">总 Token</div></div>
-        <div class="token-card"><div class="token-card-value">${t.prompt_tokens.toLocaleString()}</div><div class="token-card-label">Prompt</div></div>
-        <div class="token-card"><div class="token-card-value">${t.completion_tokens.toLocaleString()}</div><div class="token-card-label">Completion</div></div>
+        <div class="token-card"><div class="token-card-value">${totals.total_tokens.toLocaleString()}</div><div class="token-card-label">${t('tokens.total_label')}</div></div>
+        <div class="token-card"><div class="token-card-value">${totals.prompt_tokens.toLocaleString()}</div><div class="token-card-label">Prompt</div></div>
+        <div class="token-card"><div class="token-card-value">${totals.completion_tokens.toLocaleString()}</div><div class="token-card-label">Completion</div></div>
       </div>`;
 
-    let modelHtml = '<h4 style="margin:var(--space-2) 0">按模型</h4><table class="token-table"><tr><th>模型</th><th>调用次数</th><th>Prompt</th><th>Completion</th><th>总计</th></tr>';
+    let modelHtml = `<h4 style="margin:var(--space-2) 0">${t('tokens.by_model')}</h4><table class="token-table"><tr><th>${t('tokens.col.model')}</th><th>${t('tokens.col.calls')}</th><th>Prompt</th><th>Completion</th><th>${t('tokens.col.total')}</th></tr>`;
     for (const [model, m] of Object.entries(data.by_model || {})) {
       modelHtml += `<tr><td>${escapeHtml(model)}</td><td>${m.calls}</td><td>${m.prompt_tokens.toLocaleString()}</td><td>${m.completion_tokens.toLocaleString()}</td><td>${m.total_tokens.toLocaleString()}</td></tr>`;
     }
     modelHtml += '</table>';
 
-    let taskHtml = '<h4 style="margin:var(--space-2) 0">按任务</h4><table class="token-table"><tr><th>任务</th><th>调用次数</th><th>Prompt</th><th>Completion</th><th>总计</th></tr>';
+    let taskHtml = `<h4 style="margin:var(--space-2) 0">${t('tokens.by_task')}</h4><table class="token-table"><tr><th>${t('tokens.col.task')}</th><th>${t('tokens.col.calls')}</th><th>Prompt</th><th>Completion</th><th>${t('tokens.col.total')}</th></tr>`;
     for (const [task, tk] of Object.entries(data.by_task || {})) {
       taskHtml += `<tr><td>${escapeHtml(task)}</td><td>${tk.calls}</td><td>${tk.prompt_tokens.toLocaleString()}</td><td>${tk.completion_tokens.toLocaleString()}</td><td>${tk.total_tokens.toLocaleString()}</td></tr>`;
     }
     taskHtml += '</table>';
 
-    let historyHtml = '<h4 style="margin:var(--space-2) 0">历史记录</h4><table class="token-table"><tr><th>时间</th><th>任务</th><th>模型</th><th>Prompt</th><th>Completion</th><th>总计</th></tr>';
+    let historyHtml = `<h4 style="margin:var(--space-2) 0">${t('tokens.history')}</h4><table class="token-table"><tr><th>${t('tokens.col.time')}</th><th>${t('tokens.col.task')}</th><th>${t('tokens.col.model')}</th><th>Prompt</th><th>Completion</th><th>${t('tokens.col.total')}</th></tr>`;
     for (const h of (data.history || []).slice().reverse().slice(0, 100)) {
       historyHtml += `<tr><td class="token-time">${escapeHtml(h.timestamp || '')}</td><td>${escapeHtml(h.task || '')}</td><td>${escapeHtml(h.model || '')}</td><td>${(h.prompt_tokens || 0).toLocaleString()}</td><td>${(h.completion_tokens || 0).toLocaleString()}</td><td>${(h.total_tokens || 0).toLocaleString()}</td></tr>`;
     }
@@ -1947,7 +1947,7 @@ export async function renderTokens() {
 
     pane.innerHTML = `<div style="padding:var(--space-2)">${totalHtml}${modelHtml}${taskHtml}${historyHtml}</div>`;
   } catch (e) {
-    const message = '加载失败: ' + (e.message || e);
+    const message = t('tokens.load_failed', { detail: e.message || e });
     pane.innerHTML = `<p class="muted">${escapeHtml(message)}</p>`;
     setStatus(message, 'err');
   }
@@ -1989,23 +1989,23 @@ function _applyWhisperTask(task, event = null) {
   const pct = Number.isFinite(task.progress_pct) ? task.progress_pct : 0;
   if (prog) prog.style.display = task.status === 'queued' || task.status === 'running' || task.status === 'cancelling' ? 'block' : 'none';
   if (bar) bar.style.width = `${Math.min(100, Math.max(0, pct))}%`;
-  if (msg) msg.textContent = event?.message || task.message || task.phase || '下载中...';
+  if (msg) msg.textContent = event?.message || task.message || task.phase || t('whisper_mgmt.downloading');
   if (cancelBtn) cancelBtn.style.display = task.status === 'queued' || task.status === 'running' || task.status === 'cancelling' ? '' : 'none';
   if (dlBtn && (task.status === 'queued' || task.status === 'running' || task.status === 'cancelling')) {
     dlBtn.disabled = true;
-    dlBtn.textContent = task.status === 'cancelling' ? '取消中...' : '下载中...';
+    dlBtn.textContent = task.status === 'cancelling' ? t('whisper_mgmt.cancelling') : t('whisper_mgmt.downloading');
   }
   if (!['succeeded', 'failed', 'cancelled', 'interrupted'].includes(task.status)) return;
   if (_installPollTimer) { clearInterval(_installPollTimer); _installPollTimer = null; }
   _clearWhisperTaskSubscription();
-  if (dlBtn) { dlBtn.disabled = false; dlBtn.innerHTML = `${icon('download', 14)} 下载模型`; }
+  if (dlBtn) { dlBtn.disabled = false; dlBtn.innerHTML = `${icon('download', 14)} ${t('whisper_mgmt.btn.download')}`; }
   if (task.status === 'succeeded') {
-    setStatus('Whisper 模型下载完成', 'ok', { persist: false });
+    setStatus(t('whisper_mgmt.download_done_status'), 'ok', { persist: false });
     _loadModelMgmt();
   } else if (task.status === 'cancelled') {
-    setStatus('Whisper 模型下载已取消', 'warn');
+    setStatus(t('whisper_mgmt.download_cancelled'), 'warn');
   } else {
-    setStatus(`Whisper 模型下载失败: ${task.error_message || task.message || '未知错误'}`, 'err');
+    setStatus(t('whisper_mgmt.download_failed', { detail: task.error_message || task.message || t('common.unknown_error') }), 'err');
   }
 }
 
@@ -2015,7 +2015,7 @@ function renderModelManagement() {
   div.style.cssText = 'padding:0;background:transparent;border:none;border-radius:0';
   div.innerHTML = `
     <div id="model-mgmt-content">
-      <p class="muted">加载中...</p>
+      <p class="muted">${t('common.loading')}</p>
     </div>
   `;
   return div;
@@ -2025,13 +2025,13 @@ function renderModelManagement() {
 async function _loadModelMgmt() {
   const container = $('model-mgmt-content');
   if (!container) {
-    setStatus('模型管理: DOM 未就绪', 'warn');
+    setStatus(t('whisper_mgmt.dom_not_ready'), 'warn');
     return;
   }
   const timeoutId = setTimeout(() => {
     if (container && container.querySelector('.muted')) {
-      container.innerHTML = '<p class="err">请求超时 — 请确认后端服务运行正常。</p>';
-      setStatus('模型列表加载超时，请确认后端服务运行正常', 'err');
+      container.innerHTML = `<p class="err">${t('whisper_mgmt.timeout_detail')}</p>`;
+      setStatus(t('whisper_mgmt.timeout_status'), 'err');
     }
   }, 10000);
   try {
@@ -2041,8 +2041,8 @@ async function _loadModelMgmt() {
     ]);
     if (!data.ok) {
       clearTimeout(timeoutId);
-      container.innerHTML = '<p class="err">加载模型列表失败</p>';
-      setStatus(data.error || '加载模型列表失败', 'err');
+      container.innerHTML = `<p class="err">${t('whisper_mgmt.list_failed')}</p>`;
+      setStatus(data.error || t('whisper_mgmt.list_failed'), 'err');
       return;
     }
 
@@ -2059,7 +2059,7 @@ async function _loadModelMgmt() {
     html += '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:end">';
 
     html += '<div style="flex:1;min-width:140px">';
-    html += '<label style="font-size:var(--text-xs);color:var(--text-secondary)">当前模型</label>';
+    html += `<label style="font-size:var(--text-xs);color:var(--text-secondary)">${t('whisper_mgmt.current_model')}</label>`;
     html += '<select id="model-size-select" style="width:100%;margin-top:2px">';
     for (const m of avail) {
       const sel = m.name === current ? ' selected' : '';
@@ -2074,40 +2074,40 @@ async function _loadModelMgmt() {
     let btnText;
     let btnDisabled;
     if (frozen) {
-      btnText = '打包版不支持安装';
+      btnText = t('whisper_mgmt.btn.frozen');
       btnDisabled = ' disabled';
     } else {
-      btnText = needsReverify ? '重新验证' : alreadyCached ? '已下载' : '下载模型';
+      btnText = needsReverify ? t('whisper_mgmt.btn.reverify') : alreadyCached ? t('whisper_mgmt.btn.cached') : t('whisper_mgmt.btn.download');
       btnDisabled = alreadyCached && !needsReverify ? ' disabled' : '';
     }
     html += `<button id="btn-model-download" class="btn-primary" style="font-size:var(--text-sm)"${btnDisabled}>${icon('download', 14)} ${btnText}</button>`;
     if (needsReverify) {
-      html += '<p style="font-size:var(--text-xs);color:var(--warn,#b8860b);margin:4px 0 0">模型文件已缓存，但 cuBLAS 环境验证未通过。点击「重新验证」重试。</p>';
+      html += `<p style="font-size:var(--text-xs);color:var(--warn,#b8860b);margin:4px 0 0">${t('whisper_mgmt.cublas_warn')}</p>`;
     }
     if (frozen) {
-      html += '<p style="font-size:var(--text-xs);color:var(--warn,#b8860b);margin:4px 0 0">faster-whisper（约 4 GB）未打包进 clio.exe。如需转录，请改用源码版运行 <code>python main.py whisper install</code>。</p>';
+      html += `<p style="font-size:var(--text-xs);color:var(--warn,#b8860b);margin:4px 0 0">${t('whisper_mgmt.frozen_warn')}</p>`;
     }
     html += '</div>';
 
     html += '<div style="font-size:var(--text-xs);color:var(--text-secondary);white-space:nowrap">';
-    html += `可用空间: ${escapeHtml(data.free_display || '?')}`;
+    html += t('whisper_mgmt.free_space', { size: escapeHtml(data.free_display || '?') });
     html += '</div>';
 
     html += '</div>';
 
     if (cached.length) {
       html += '<div style="margin-top:8px">';
-      html += '<p style="font-size:var(--text-xs);color:var(--text-secondary);margin:0 0 4px">已缓存模型:</p>';
+      html += `<p style="font-size:var(--text-xs);color:var(--text-secondary);margin:0 0 4px">${t('whisper_mgmt.cached_models')}</p>`;
       for (const m of cached) {
         const validCls = m.valid ? 'ok' : 'err';
         html += '<div style="display:flex;gap:8px;align-items:center;padding:4px 0;font-size:var(--text-xs)">';
-        html += `<span style="flex:1">${escapeHtml(m.name)} <span class="${validCls}">${m.valid ? '✓' : '✗ (不完整)'}</span> <span class="muted">${escapeHtml(m.size_display)}</span></span>`;
-        html += `<button class="btn-delete-model" data-model="${escapeHtml(m.name)}" style="background:none;border:1px solid var(--err,#c44);color:var(--err,#c44);padding:2px 8px;border-radius:3px;cursor:pointer;font-size:var(--text-xs)">删除</button>`;
+        html += `<span style="flex:1">${escapeHtml(m.name)} <span class="${validCls}">${m.valid ? '✓' : t('whisper_mgmt.incomplete')}</span> <span class="muted">${escapeHtml(m.size_display)}</span></span>`;
+        html += `<button class="btn-delete-model" data-model="${escapeHtml(m.name)}" style="background:none;border:1px solid var(--err,#c44);color:var(--err,#c44);padding:2px 8px;border-radius:3px;cursor:pointer;font-size:var(--text-xs)">${t('common.delete')}</button>`;
         html += '</div>';
       }
       html += '</div>';
     } else {
-      html += '<p class="muted" style="margin-top:8px;font-size:var(--text-xs)">尚未缓存任何模型。请先下载。</p>';
+      html += `<p class="muted" style="margin-top:8px;font-size:var(--text-xs)">${t('whisper_mgmt.no_cached')}</p>`;
     }
 
     html += '<div id="model-dl-progress" style="display:none;margin-top:8px">';
@@ -2117,7 +2117,7 @@ async function _loadModelMgmt() {
     html += '<div id="model-dl-bar" style="background:var(--accent);border-radius:3px;height:100%;width:0%"></div></div>';
     html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:2px">';
     html += '<p id="model-dl-eta" class="muted" style="font-size:var(--text-xs);margin:0"></p>';
-    html += '<button id="btn-cancel-dl" style="background:none;border:1px solid var(--err,#c44);color:var(--err,#c44);padding:2px 10px;border-radius:3px;cursor:pointer;font-size:var(--text-xs);display:none">取消下载</button>';
+    html += `<button id="btn-cancel-dl" style="background:none;border:1px solid var(--err,#c44);color:var(--err,#c44);padding:2px 10px;border-radius:3px;cursor:pointer;font-size:var(--text-xs);display:none">${t('whisper_mgmt.cancel_download')}</button>`;
     html += '</div>';
     html += '</div>';
 
@@ -2132,18 +2132,20 @@ async function _loadModelMgmt() {
         const needsReverify = isCached && !cublasOk;
         if (dlBtn) {
           dlBtn.disabled = isCached && !needsReverify;
-          dlBtn.innerHTML = isCached ? (needsReverify ? '重新验证' : '已下载') : `${icon('download', 14)} 下载模型`;
+          dlBtn.innerHTML = isCached
+            ? (needsReverify ? t('whisper_mgmt.btn.reverify') : t('whisper_mgmt.btn.cached'))
+            : `${icon('download', 14)} ${t('whisper_mgmt.btn.download')}`;
         }
         try {
           const r = await api('PUT', '/api/whisper/model', { model_size: newModel });
           if (r.ok) {
-            setStatus(`模型已切换为 ${newModel}`, 'ok');
+            setStatus(t('whisper_mgmt.switched', { model: newModel }), 'ok');
           } else {
-            setStatus('切换模型失败: ' + (r.error || ''), 'err');
+            setStatus(t('whisper_mgmt.switch_failed', { detail: r.error || '' }), 'err');
             sel.value = current;
           }
         } catch (e) {
-          setStatus('切换模型失败: ' + e.message, 'err');
+          setStatus(t('whisper_mgmt.switch_failed', { detail: e.message }), 'err');
           sel.value = current;
         }
       };
@@ -2153,19 +2155,19 @@ async function _loadModelMgmt() {
     if (dlBtn) {
       dlBtn.onclick = async () => {
         if (check.frozen === true) {
-          setStatus('打包版不支持在此安装 Whisper，请使用源码版运行 python main.py whisper install', 'warn');
+          setStatus(t('whisper_mgmt.frozen_status'), 'warn');
           return;
         }
         dlBtn.disabled = true;
-        dlBtn.textContent = '启动下载...';
+        dlBtn.textContent = t('whisper_mgmt.starting');
         const prog = $('model-dl-progress');
         if (prog) prog.style.display = 'block';
         const cancelBtn = $('btn-cancel-dl');
         if (cancelBtn) cancelBtn.style.display = '';
         try {
           const r = await api('POST', '/api/whisper/install', {});
-          if (!r.ok) throw new Error(r.error || '启动失败');
-          dlBtn.textContent = '下载中...';
+          if (!r.ok) throw new Error(r.error || t('whisper_mgmt.start_failed_bare'));
+          dlBtn.textContent = t('whisper_mgmt.downloading');
           if (r.task_id || r.task?.id) {
             if (_installPollTimer) { clearInterval(_installPollTimer); _installPollTimer = null; }
             _subscribeWhisperTask(r.task_id || r.task.id);
@@ -2176,9 +2178,9 @@ async function _loadModelMgmt() {
           }
         } catch (e) {
           dlBtn.disabled = false;
-          dlBtn.innerHTML = `${icon('download', 14)} 下载模型`;
+          dlBtn.innerHTML = `${icon('download', 14)} ${t('whisper_mgmt.btn.download')}`;
           const progMsg = $('model-dl-msg');
-          const message = '启动失败: ' + e.message;
+          const message = t('whisper_mgmt.start_failed', { detail: e.message });
           if (progMsg) progMsg.textContent = message;
           void setStatus(message, 'err');
         }
@@ -2195,7 +2197,7 @@ async function _loadModelMgmt() {
         } catch { /* ignore */ }
         if (managedCancel) {
           cancelBtn.disabled = true;
-          cancelBtn.textContent = '取消中...';
+          cancelBtn.textContent = t('whisper_mgmt.cancelling');
           return;
         }
         if (_installPollTimer) { clearInterval(_installPollTimer); _installPollTimer = null; }
@@ -2203,24 +2205,24 @@ async function _loadModelMgmt() {
         if (prog) prog.style.display = 'none';
         cancelBtn.style.display = 'none';
         const dlBtn = $('btn-model-download');
-        if (dlBtn) { dlBtn.disabled = false; dlBtn.innerHTML = `${icon('download', 14)} 下载模型`; }
+        if (dlBtn) { dlBtn.disabled = false; dlBtn.innerHTML = `${icon('download', 14)} ${t('whisper_mgmt.btn.download')}`; }
       };
     }
 
     container.querySelectorAll('.btn-delete-model').forEach(btn => {
       btn.onclick = async () => {
         const modelName = btn.dataset.model;
-        if (!confirm(`确定删除模型 ${modelName}？将释放磁盘空间。`)) return;
+        if (!confirm(t('whisper_mgmt.delete_confirm', { name: modelName }))) return;
         try {
           const r = await api('POST', '/api/whisper/models/delete', { name: modelName });
           if (r.ok) {
-            setStatus(`模型 ${modelName} 已删除`, 'ok');
+            setStatus(t('whisper_mgmt.deleted', { name: modelName }), 'ok');
             _loadModelMgmt();
           } else {
-            setStatus('删除失败: ' + (r.error || ''), 'err');
+            setStatus(t('whisper_mgmt.delete_failed', { detail: r.error || '' }), 'err');
           }
         } catch (e) {
-          setStatus('删除失败: ' + e.message, 'err');
+          setStatus(t('whisper_mgmt.delete_failed', { detail: e.message }), 'err');
         }
       };
     });
@@ -2235,7 +2237,7 @@ async function _loadModelMgmt() {
         const cancelBtn = $('btn-cancel-dl');
         if (cancelBtn) cancelBtn.style.display = '';
         const dlBtn = $('btn-model-download');
-        if (dlBtn) { dlBtn.disabled = true; dlBtn.textContent = '下载中...'; }
+        if (dlBtn) { dlBtn.disabled = true; dlBtn.textContent = t('whisper_mgmt.downloading'); }
         if (_installPollTimer) { clearInterval(_installPollTimer); _installPollTimer = null; }
         _subscribeWhisperTask(managed.id);
         _applyWhisperTask(managed);
@@ -2252,7 +2254,7 @@ async function _loadModelMgmt() {
     }
   } catch (e) {
     clearTimeout(timeoutId);
-    const message = '加载失败: ' + e.message;
+    const message = t('tokens.load_failed', { detail: e.message });
     if (container) container.innerHTML = `<p class="err">${escapeHtml(message)}</p>`;
     setStatus(message, 'err');
   }
@@ -2276,29 +2278,29 @@ async function _pollModelDl() {
     if (s.status === 'downloading') {
       if (cancelBtn) cancelBtn.style.display = '';
       if (bar) bar.style.width = (s.progress_pct || 0) + '%';
-      if (msg) msg.textContent = s.message || '下载中...';
+      if (msg) msg.textContent = s.message || t('whisper_mgmt.downloading');
       if (speed && s.speed) speed.textContent = s.speed;
       if (eta) {
         if (s.eta_sec != null) {
           const m = Math.floor(s.eta_sec / 60);
           const sec = s.eta_sec % 60;
-          eta.textContent = `预计剩余 ${m} 分 ${sec} 秒`;
+          eta.textContent = t('whisper_mgmt.eta', { min: m, sec });
         } else { eta.textContent = ''; }
       }
     } else if (s.status === 'done') {
       if (_installPollTimer) { clearInterval(_installPollTimer); _installPollTimer = null; }
       if (cancelBtn) cancelBtn.style.display = 'none';
       if (bar) bar.style.width = '100%';
-      if (msg) msg.textContent = '✔ 下载完成';
-      void setStatus('Whisper 模型下载完成', 'ok');
+      if (msg) msg.textContent = t('whisper_mgmt.done_msg');
+      void setStatus(t('whisper_mgmt.download_done_status'), 'ok');
       if (eta) eta.textContent = '';
-      if (dlBtn) { dlBtn.disabled = false; dlBtn.innerHTML = `${icon('download', 14)} 下载模型`; }
+      if (dlBtn) { dlBtn.disabled = false; dlBtn.innerHTML = `${icon('download', 14)} ${t('whisper_mgmt.btn.download')}`; }
       _loadModelMgmt();
     } else if (s.status === 'error') {
       if (_installPollTimer) { clearInterval(_installPollTimer); _installPollTimer = null; }
       if (cancelBtn) cancelBtn.style.display = 'none';
-      if (dlBtn) { dlBtn.disabled = false; dlBtn.innerHTML = `${icon('download', 14)} 重试下载`; }
-      const message = s.message || '下载失败';
+      if (dlBtn) { dlBtn.disabled = false; dlBtn.innerHTML = `${icon('download', 14)} ${t('whisper_mgmt.retry_download')}`; }
+      const message = s.message || t('whisper_mgmt.failed_bare');
       if (msg) msg.textContent = message;
       void setStatus(message, 'err');
     }
