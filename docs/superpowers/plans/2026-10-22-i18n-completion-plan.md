@@ -86,6 +86,14 @@ Each row is one commit; focused tests must pass before the next row starts.
 | 10 | test(i18n) | Remaining-string inventory + parity guards (Python + Vitest) |
 | 11 | docs | README language switch, AGENTS.md conventions, ROADMAP/CHANGELOG |
 
+## Progress Log
+
+| Date | Milestone | State |
+|---|---|---|
+| 2026-10-22 | 1 docs | Done |
+| 2026-10-22 | 2 backend locale | Done |
+| 2026-10-22 | 3-11 | Pending |
+
 ## Remaining-String Baseline (2026-10-22)
 
 Chinese string literals per file before this pass (comments excluded):

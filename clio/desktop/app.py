@@ -166,10 +166,12 @@ def main(
     from clio.config import load_config
     from clio.desktop.api import DesktopApi
     from clio.desktop.server_host import start_server, stop_server
+    from clio.i18n import set_active_locale
     from clio.log import setup_logging
 
     cfg_file = config_path if config_path.is_file() else None
     cfg = load_config(str(config_path))
+    set_active_locale(cfg.ui.language)
     # load_config auto-creates config.yaml from the bundled example when missing
     # (R-040 B-1). Re-resolve cfg_file so start_server receives the real path;
     # passing None made every /api/config/* GET return HTTP 500.

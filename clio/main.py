@@ -11,7 +11,7 @@ from pathlib import Path
 
 from clio.config import apply_run_paths, load_config
 from clio.doctor import is_virtualenv_python, run_doctor
-from clio.i18n import t
+from clio.i18n import set_active_locale, t
 from clio.log import setup_logging
 from clio.shutdown import before_stop, install_hooks
 from clio.utils import discover_ffmpeg_bin, resolve_binary, safe_basename
@@ -377,6 +377,7 @@ def main(argv: list[str] | None = None) -> int:
         print("[startup] python main.py serve — loading config…")
 
     base_config = load_config(config_path)
+    set_active_locale(base_config.ui.language)
     if _serve_t0 is not None:
         import time as _time
 

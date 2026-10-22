@@ -11,7 +11,7 @@ from typing import Literal
 
 from clio.asr.readiness import check_asr_ready
 from clio.config import AppConfig, load_config
-from clio.i18n import t
+from clio.i18n import set_active_locale, t
 from clio.utils import discover_ffmpeg_bin, no_console_kwargs
 
 DoctorStatus = Literal["OK", "WARN", "FAIL"]
@@ -245,6 +245,7 @@ def run_doctor(config_path: Path, project_dir: Path | None = None) -> int:
         config = load_config(config_path)
         if project_dir is not None:
             config = load_config(config_path, project_dir=project_dir)
+        set_active_locale(config.ui.language)
         items.append(DoctorItem(t("doctor.item.config_file"), "OK", str(config_path)))
     except Exception as exc:
         items.append(DoctorItem(t("doctor.item.config_file"), "FAIL", str(exc)))

@@ -75,8 +75,46 @@ def _interpolate(template: str, params: dict[str, Any] | None) -> str:
     return _PLACEHOLDER.sub(replace, template)
 
 
-def t(key: str, params: dict[str, Any] | None = None, *, locale: str | None = None) -> str:
-    requested = normalize_locale(locale or os.environ.get("CLIO_LANG"))
+_ACTIVE_LOCALE: str | None = None
+
+
+def set_active_locale(value: str | None) -> str | None:
+    """Set the process-wide locale used when t() receives no explicit locale.
+
+    Callers pass config.ui.language. An empty value clears the override so
+    CLIO_LANG and the default locale take over again.
+    """
+    global _ACTIVE_LOCALE
+    raw = str(value or "").strip()
+    _ACTIVE_LOCALE = normalize_locale(raw) if raw else None
+    return _ACTIVE_LOCALE
+
+
+def get_active_locale() -> str | None:
+    return _ACTIVE_LOCALE
+
+
+def _resolve_locale(locale: str | None) -> str:
+    """Explicit argument, then CLIO_LANG, then the active locale, then default."""
+    if locale:
+        return normalize_locale(locale)
+    env = os.environ.get("CLIO_LANG")
+    if env and env.strip():
+        return normalize_locale(env)
+    if _ACTIVE_LOCALE:
+        return _ACTIVE_LOCALE
+    return DEFAULT_LOCALE
+
+
+def t(
+    key: str,
+    params: dict[str, Any] | None = None,
+    *,
+    locale: str | None = None,
+    fallback: str | None = None,
+) -> str:
+    """Translate key; return fallback (else the key) when nothing matches."""
+    requested = _resolve_locale(locale)
     seen: set[str] = set()
     for candidate in (requested, *_FALLBACK_LOCALES):
         if candidate in seen:
@@ -85,7 +123,7 @@ def t(key: str, params: dict[str, Any] | None = None, *, locale: str | None = No
         value = _load_catalog(candidate).get(str(key))
         if value is not None:
             return _interpolate(value, params)
-    return str(key)
+    return str(key) if fallback is None else fallback
 
 
 def catalog_path(locale: str) -> Path | None:
@@ -95,4 +133,6 @@ def catalog_path(locale: str) -> Path | None:
 
 
 def _reset_cache_for_tests() -> None:
+    global _ACTIVE_LOCALE
     _load_catalog.cache_clear()
+    _ACTIVE_LOCALE = None

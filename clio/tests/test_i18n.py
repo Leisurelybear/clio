@@ -121,3 +121,47 @@ def test_unreadable_catalog_is_ignored(tmp_path, monkeypatch):
     monkeypatch.setattr(i18n, "find_resource", lambda relative: broken)
 
     assert i18n.t("app.title", locale="en") == "app.title"
+
+
+def test_active_locale_drives_t_without_an_explicit_locale():
+    i18n.set_active_locale("en")
+
+    assert i18n.get_active_locale() == "en"
+    assert i18n.t("app.title") == "Vlog Editing UI"
+    assert i18n.t("app.title", locale="zh-CN") == "Vlog 剪辑 UI"
+
+
+def test_clio_lang_outranks_the_active_locale(monkeypatch):
+    i18n.set_active_locale("zh-CN")
+    monkeypatch.setenv("CLIO_LANG", "en")
+
+    assert i18n.t("app.title") == "Vlog Editing UI"
+
+
+def test_clearing_the_active_locale_restores_the_default():
+    i18n.set_active_locale("en")
+    i18n.set_active_locale(None)
+
+    assert i18n.get_active_locale() is None
+    assert i18n.t("app.title") == "Vlog 剪辑 UI"
+
+
+def test_blank_active_locale_is_treated_as_unset():
+    i18n.set_active_locale("   ")
+
+    assert i18n.get_active_locale() is None
+
+
+def test_reset_cache_clears_the_active_locale():
+    i18n.set_active_locale("en")
+
+    i18n._reset_cache_for_tests()
+
+    assert i18n.get_active_locale() is None
+
+
+def test_fallback_argument_is_used_when_the_key_is_missing(monkeypatch):
+    monkeypatch.setattr(i18n, "_load_catalog", lambda locale: {})
+
+    assert i18n.t("missing.key", locale="en", fallback="Fallback") == "Fallback"
+    assert i18n.t("missing.key", locale="en") == "missing.key"

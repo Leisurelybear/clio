@@ -13,9 +13,15 @@ from pathlib import Path
 from typing import Any
 
 from clio.config import AppConfig, load_config
+from clio.i18n import set_active_locale
 
 # A change fingerprint for one config file: (st_mtime_ns, st_size).
 _Fingerprint = tuple[int, int]
+
+
+def _apply_locale(config: AppConfig) -> None:
+    """Keep the i18n active locale in sync with the effective config."""
+    set_active_locale(getattr(getattr(config, "ui", None), "language", None))
 
 
 class ConfigCache:
@@ -53,11 +59,14 @@ class ConfigCache:
                 if key in self._cache:
                     old_cfg_fp, old_proj_fp = self._meta.get(key, ((0, 0), (0, 0)))
                     if cfg_fp == old_cfg_fp and proj_fp == old_proj_fp:
-                        return copy.deepcopy(self._cache[key])
+                        cached = self._cache[key]
+                        _apply_locale(cached)
+                        return copy.deepcopy(cached)
                     del self._cache[key]
                     self._meta.pop(key, None)
 
             new_config = load_config(self._config_path or "config.yaml", project_dir=project_dir)
+            _apply_locale(new_config)
 
             with self._lock:
                 if len(self._cache) >= self._maxsize:

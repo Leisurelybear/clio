@@ -5,7 +5,18 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from clio import i18n
 from clio.ui.services.config_cache import ConfigCache
+
+
+@pytest.fixture(autouse=True)
+def _reset_i18n_state():
+    i18n._reset_cache_for_tests()
+    yield
+    i18n._reset_cache_for_tests()
+
 
 # ===========================================================================
 # __init__
@@ -412,3 +423,24 @@ class TestEdgeCases:
         assert len(cache._meta) == 1
         cache.invalidate_all()
         assert len(cache._meta) == 0
+
+
+class TestActiveLocale:
+    def test_get_applies_the_config_language(self, tmp_path: Path):
+        cfg_file = tmp_path / "config.yaml"
+        cfg_file.write_text("ui:\n  language: en\n", encoding="utf-8")
+
+        ConfigCache(cfg_file).get(None)
+
+        assert i18n.get_active_locale() == "en"
+
+    def test_cache_hit_still_reapplies_the_locale(self, tmp_path: Path):
+        cfg_file = tmp_path / "config.yaml"
+        cfg_file.write_text("ui:\n  language: en\n", encoding="utf-8")
+        cache = ConfigCache(cfg_file)
+        cache.get(None)
+
+        i18n.set_active_locale("zh-CN")
+        cache.get(None)
+
+        assert i18n.get_active_locale() == "en"

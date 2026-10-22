@@ -28,6 +28,7 @@ from clio.config.models import (
 )
 from clio.config.parsers import _infer_provider_capabilities
 from clio.config.schema import build_config_schema
+from clio.i18n import set_active_locale
 from clio.ui.services.file_service import (
     _coerce_config_types,
     _create_project_yaml,
@@ -442,7 +443,7 @@ def handle_put_config_global(handler: HandlerProtocol, qs: dict[str, Any], obj: 
         with tempfile.NamedTemporaryFile(mode="wb", suffix=".yaml", delete=False, dir=str(config_path.parent)) as tmp:
             tmp.write(yml.encode("utf-8"))
             tmp_path = Path(tmp.name)
-        load_global_config(tmp_path)
+        validated = load_global_config(tmp_path)
     except Exception as e:
         if tmp_path and tmp_path.exists():
             tmp_path.unlink()
@@ -455,6 +456,7 @@ def handle_put_config_global(handler: HandlerProtocol, qs: dict[str, Any], obj: 
     _save_atomic(config_path, yml.encode("utf-8"))
     if tmp_path and tmp_path.exists():
         tmp_path.unlink()
+    set_active_locale(getattr(getattr(validated, "ui", None), "language", None))
     handler.__class__._config_cache.invalidate_all()
     _clear_provider_cache()
     handler._send_json({"ok": True, "path": str(config_path)})

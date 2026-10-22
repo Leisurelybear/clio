@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 import yaml
 
+from clio import i18n
 from clio.ui.routes.config_routes import (
     _merge_project_with_defaults,
     handle_delete_provider,
@@ -761,6 +762,26 @@ class TestHandlePutConfigGlobal:
         handler._send_json.assert_called_once()
         args = handler._send_json.call_args
         assert args[0][1] == 400
+
+    def test_ui_language_change_updates_the_active_locale(self, tmp_path: Path):
+        from clio.ui.services.config_cache import ConfigCache
+
+        handler = MagicMock()
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(yaml.dump({"ui": {"language": "zh-CN"}}), encoding="utf-8")
+        handler.config_path = cfg
+        handler.__class__._config_cache = ConfigCache(cfg)
+        handler._send_json = MagicMock()
+        i18n.set_active_locale("zh-CN")
+
+        try:
+            handle_put_config_global(handler, {}, {"ui": {"language": "en"}})
+
+            assert handler._send_json.call_args[0][0]["ok"] is True
+            assert i18n.get_active_locale() == "en"
+        finally:
+            i18n.set_active_locale(None)
+            handler.__class__._config_cache = MagicMock()
 
     def test_writes_to_config_yaml(self, tmp_path: Path):
         handler = MagicMock()
