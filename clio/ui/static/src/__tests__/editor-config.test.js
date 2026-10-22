@@ -1,6 +1,6 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { api } from '../api.js';
-import { _attachProviderListHandlers, _renderPromptManagement, _renderTagInput, _renderProviderList, _renderTaskBinding, mergeTaskBindings, providerEnvName } from '../editor-config.js';
+import { _attachProviderListHandlers, _renderConfigGlobal, _renderPromptManagement, _renderTagInput, _renderProviderList, _renderTaskBinding, mergeTaskBindings, providerEnvName } from '../editor-config.js';
 
 vi.mock('../api.js', async () => {
   const actual = await vi.importActual('../api.js');
@@ -531,6 +531,22 @@ describe('_renderTaskBinding', () => {
     expect(html).toContain('项目覆盖');
     expect(html).toContain('task-binding-reset');
     expect(html).toContain('deepseek-chat');
+  });
+});
+
+describe('_renderConfigGlobal', () => {
+  it('renders the global UI section with language and desktop notification settings', () => {
+    const html = _renderConfigGlobal({
+      ui: { language: 'en', desktop_notifications: true },
+    }, {});
+
+    const q = String.fromCharCode(34);
+    const div = document.createElement('div');
+    div.innerHTML = html;
+    expect(div.querySelector(`[data-section-key=${q}global.ui${q}]`)).not.toBeNull();
+    expect(div.querySelector(`[data-path=${q}ui.language${q}]`)).not.toBeNull();
+    expect(div.querySelector(`[data-path=${q}ui.desktop_notifications${q}]`)).not.toBeNull();
+    expect(html).toContain('界面');
   });
 });
 

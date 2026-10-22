@@ -337,6 +337,7 @@ const _SECTION_LABELS = {
   server: '服务',
   naming: '编号命名',
   paths: '路径',
+  ui: '界面',
   compress: '压缩',
   whisper: 'Whisper 语音识别',
   ai: 'AI 配置',
@@ -406,8 +407,8 @@ export async function initProjectConfig() {
 }
 
 
-function _renderConfigGlobal(globalData, descs) {
-  const order = ['paths', 'server', 'naming', 'proxy', 'compress', 'whisper'];
+export function _renderConfigGlobal(globalData, descs) {
+  const order = ['paths', 'server', 'naming', 'proxy', 'ui', 'compress', 'whisper'];
   let html = '';
   for (const key of order) {
     if (key in globalData) {
