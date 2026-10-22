@@ -7,7 +7,7 @@
 # 全局配置项：
 #   proxy, server, naming
 #   paths: ffmpeg, ffprobe, logs_dir
-#   ai: providers, debug_print_prompt, provider_ttl_min
+#   ai: providers, default_tasks, debug_print_prompt, provider_ttl_min
 #   compress: fps, codec, crf, remove_audio
 #   whisper: cache_dir, hf_endpoint
 #
