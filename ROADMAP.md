@@ -797,6 +797,19 @@ for now.
 - Dates/numbers: start with locale string only; full ICU later if needed
 - Tests: pure `t()` fallback + at least one UI string keyed
 
+**Status (2026-10-22):**
+
+| Phase | Status | Notes |
+| --- | --- | --- |
+| R-025a | Done | `clio/i18n.py`, `ui/static/src/i18n.js`, `clio/locales/*.json`, `ui/static/locales/*.json` |
+| R-025b | Partial | `ui.language` in global config + schema + validation; dropdown applies only after reload |
+| R-025c | Not started | Web UI still hard-codes Chinese; only `app.title` is keyed |
+| R-025d | Done | CLI/doctor/deps/task-center messages go through `t()` (149 keys) |
+| R-025e | Not started | README/AGENTS language-switch docs missing |
+
+Phase 2 (backend locale from `ui.language`, instant switching, Web UI copy migration, inventory
+guards) is tracked in `docs/superpowers/plans/2026-10-22-i18n-completion-plan.md`.
+
 **Related existing pieces:**
 - `README.en.md` (docs only)
 - Project `ai.context` / `templates/trip_context.md` (content language for AI, not UI chrome)
