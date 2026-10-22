@@ -145,9 +145,10 @@ def handle_get_tasks_stream(handler: HandlerProtocol, qs: dict[str, Any]) -> Non
         while True:
             events = manager.store.events(after_seq=cursor, limit=200)
             if events:
+                tasks = manager.store.get_many(event.task_id for event in events)
                 for event in events:
                     cursor = event.seq or cursor
-                    task = manager.store.get(event.task_id)
+                    task = tasks.get(event.task_id)
                     payload = {
                         "seq": cursor,
                         "event": event.to_dict(),

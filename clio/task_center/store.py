@@ -149,6 +149,25 @@ class TaskStore:
             row = connection.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         return self._row_to_task(row) if row is not None else None
 
+    def get_many(self, task_ids: Iterable[str]) -> dict[str, TaskRecord]:
+        """Load several tasks in one read so event streams avoid N+1 queries."""
+        ids = list(dict.fromkeys(str(task_id) for task_id in task_ids))
+        if not ids:
+            return {}
+        tasks: dict[str, TaskRecord] = {}
+        for start in range(0, len(ids), 500):
+            chunk = ids[start : start + 500]
+            placeholders = ", ".join("?" for _ in chunk)
+            with self._connect() as connection:
+                rows = connection.execute(
+                    f"SELECT * FROM tasks WHERE id IN ({placeholders})",  # noqa: S608
+                    chunk,
+                ).fetchall()
+            for row in rows:
+                task = self._row_to_task(row)
+                tasks[task.id] = task
+        return tasks
+
     def require(self, task_id: str) -> TaskRecord:
         task = self.get(task_id)
         if task is None:
