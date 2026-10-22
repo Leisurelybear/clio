@@ -1,6 +1,6 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { api } from '../api.js';
-import { _attachProviderListHandlers, _renderPromptManagement, _renderTagInput, _renderProviderList, _renderTaskBinding, mergeTaskBindings } from '../editor-config.js';
+import { _attachProviderListHandlers, _renderPromptManagement, _renderTagInput, _renderProviderList, _renderTaskBinding, mergeTaskBindings, providerEnvName } from '../editor-config.js';
 
 vi.mock('../api.js', async () => {
   const actual = await vi.importActual('../api.js');
@@ -21,6 +21,17 @@ function renderTagInput(values = [], onChange = () => {}) {
   _renderTagInput(container, values, onChange);
   return { container, wrapper: container.querySelector('.tag-input-wrapper'), chips: container.querySelector('.tag-chips'), input: container.querySelector('.tag-input') };
 }
+
+describe('providerEnvName', () => {
+  it('normalizes provider names into valid environment variable names', () => {
+    expect(providerEnvName('my-gemini')).toBe('MY_GEMINI_API_KEY');
+    expect(providerEnvName(' my local.proxy ')).toBe('MY_LOCAL_PROXY_API_KEY');
+  });
+
+  it('falls back for names without ASCII letters or digits', () => {
+    expect(providerEnvName('本地')).toBe('CUSTOM_PROVIDER_API_KEY');
+  });
+});
 
 describe('_renderTagInput', () => {
   it('renders wrapper with correct class', () => {

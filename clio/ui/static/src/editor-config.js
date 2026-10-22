@@ -23,6 +23,15 @@ import { transcriptionModelManagementNotice } from './transcription-status.js';
 
 const DEFAULT_PROVIDERS = ['gemini', 'openai', 'deepseek'];
 
+export function providerEnvName(name) {
+  const slug = String(name || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return `${slug || 'CUSTOM_PROVIDER'}_API_KEY`;
+}
+
 const ADVANCED_TOGGLE_KEY = 'vlog-config-show-advanced';
 let _configSchema = null;
 
@@ -910,7 +919,7 @@ function _showProviderModal(providersObj, name, onSave) {
 
     // Save API key to .env if provided
     if (newKey) {
-      const envNameEnv = newName.toUpperCase() + '_API_KEY';
+      const envNameEnv = providerEnvName(newName);
       try {
         const existing = await api('GET', '/api/env');
         let envContent = existing.content || '';
@@ -929,7 +938,7 @@ function _showProviderModal(providersObj, name, onSave) {
       } catch (e) { setStatus('API 密钥保存失败: ' + e.message, 'err'); return; }
     }
 
-    const envName = newName.toUpperCase() + '_API_KEY';
+    const envName = providerEnvName(newName);
     const providerData = {
       type: newType,
       api_key_env: envName,
