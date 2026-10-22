@@ -120,6 +120,14 @@ class TestProviderCrud:
 
         assert handler._send_json.call_args[0][1] == 409
 
+    def test_post_non_string_name_returns_400(self, tmp_path):
+        config_path = _write_provider_config(tmp_path)
+        handler = self._handler(config_path)
+
+        handle_post_provider(handler, {}, {"name": 123})
+
+        assert handler._send_json.call_args[0][1] == 400
+
     def test_post_invalid_type_rejected(self, tmp_path):
         config_path = _write_provider_config(tmp_path)
         handler = self._handler(config_path)

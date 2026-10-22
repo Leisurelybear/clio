@@ -615,9 +615,10 @@ def handle_get_providers(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
 
 
 def handle_post_provider(handler: HandlerProtocol, qs: dict[str, Any], obj: dict[str, Any]) -> None:
-    name = (obj.get("name") or "").strip()
-    if not name:
+    name_value = obj.get("name")
+    if not isinstance(name_value, str) or not name_value.strip():
         return handler._send_json({"ok": False, "error": "provider name is required"}, 400)
+    name = name_value.strip()
     raw, error = _read_global_config_raw(handler.config_path)
     if error:
         return handler._send_json({"ok": False, "error": error}, 500)
