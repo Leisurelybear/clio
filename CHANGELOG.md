@@ -18,6 +18,8 @@ Optimized Task Center SSE delivery and closed the endpoint-level lifecycle cover
 - fix(test): patch the module-local `time` reference instead of the shared `time` module in the
   progress ETA tests, so background threads can no longer consume the scripted clock and fail
   `test_eta_computed` with `StopIteration` on CI
+- fix(test): apply the same module-local `time` patching to the Gemini file-polling, notification
+  SSE heartbeat, rate-limit, and cloud ASR retry tests
 
 Local verification: `2391 passed, 12 skipped` (Python 3.11.9, 83.95% line coverage), `679`
 Vitest tests across `62` files (42.99% statements), Ruff clean, and mypy clean across the

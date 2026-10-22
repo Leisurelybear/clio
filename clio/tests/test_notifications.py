@@ -476,16 +476,14 @@ def test_notification_stream_ignores_invalid_last_event_id(tmp_path):
     assert "id: 1" in handler.wfile.getvalue().decode("utf-8")
 
 
-def test_notification_stream_emits_heartbeat(tmp_path, monkeypatch):
+def test_notification_stream_emits_heartbeat(tmp_path, fake_time):
     handler = _Handler(_manager(tmp_path))
-    ticks = iter([0.0, 100.0, 100.0])
-
-    monkeypatch.setattr("clio.ui.routes.notifications.time.monotonic", lambda: next(ticks))
 
     def _stop(_seconds):
         raise BrokenPipeError
 
-    monkeypatch.setattr("clio.ui.routes.notifications.time.sleep", _stop)
+    fake = fake_time("clio.ui.routes.notifications", 0.0, 100.0, 100.0)
+    fake.sleep = _stop
 
     handle_get_notifications_stream(handler, {})
 

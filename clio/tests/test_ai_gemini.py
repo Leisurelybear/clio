@@ -176,7 +176,7 @@ class TestWaitForFile:
         result = self._prov._wait_for_file(uploaded, timeout=10)
         assert result is uploaded
 
-    def test_processing_to_active(self):
+    def test_processing_to_active(self, fake_time):
         from google.genai import types
 
         processed = MagicMock(spec=types.File)
@@ -186,12 +186,11 @@ class TestWaitForFile:
         active.state = types.FileState.ACTIVE
 
         self._client_mock.files.get.return_value = active
-        with patch("clio.ai.gemini.time.sleep"):
-            with patch("clio.ai.gemini.time.monotonic", return_value=0):
-                result = self._prov._wait_for_file(processed, timeout=300)
+        fake_time("clio.ai.gemini", 0.0)
+        result = self._prov._wait_for_file(processed, timeout=300)
         assert result.state == types.FileState.ACTIVE
 
-    def test_processing_to_failed(self):
+    def test_processing_to_failed(self, fake_time):
         from google.genai import types
 
         uploaded = MagicMock(spec=types.File)
@@ -202,24 +201,22 @@ class TestWaitForFile:
         failed.state = types.FileState.FAILED
 
         self._client_mock.files.get.return_value = failed
-        with patch("clio.ai.gemini.time.sleep"):
-            with patch("clio.ai.gemini.time.monotonic", return_value=0):
-                with pytest.raises(RuntimeError, match="视频处理失败"):
-                    self._prov._wait_for_file(uploaded, timeout=300)
+        fake_time("clio.ai.gemini", 0.0)
+        with pytest.raises(RuntimeError, match="视频处理失败"):
+            self._prov._wait_for_file(uploaded, timeout=300)
 
-    def test_timeout(self):
+    def test_timeout(self, fake_time):
         from google.genai import types
 
         uploaded = MagicMock(spec=types.File)
         uploaded.name = "files/test123"
         uploaded.state = types.FileState.PROCESSING
 
-        with patch("clio.ai.gemini.time.sleep"):
-            with patch("clio.ai.gemini.time.monotonic", side_effect=[0, 301, 302]):
-                with pytest.raises(TimeoutError, match="视频处理超时"):
-                    self._prov._wait_for_file(uploaded, timeout=300)
+        fake_time("clio.ai.gemini", 0.0, 301.0, 302.0)
+        with pytest.raises(TimeoutError, match="视频处理超时"):
+            self._prov._wait_for_file(uploaded, timeout=300)
 
-    def test_on_progress_called(self):
+    def test_on_progress_called(self, fake_time):
         from google.genai import types
 
         uploaded = MagicMock(spec=types.File)
@@ -230,12 +227,11 @@ class TestWaitForFile:
 
         self._client_mock.files.get.return_value = active
         callback = MagicMock()
-        with patch("clio.ai.gemini.time.sleep"):
-            with patch("clio.ai.gemini.time.monotonic", return_value=0):
-                self._prov._wait_for_file(uploaded, timeout=300, on_progress=callback)
+        fake_time("clio.ai.gemini", 0.0)
+        self._prov._wait_for_file(uploaded, timeout=300, on_progress=callback)
         callback.assert_called()
 
-    def test_transient_get_failure_retries_then_succeeds(self):
+    def test_transient_get_failure_retries_then_succeeds(self, fake_time):
         from google.genai import types
 
         uploaded = MagicMock(spec=types.File)
@@ -246,18 +242,15 @@ class TestWaitForFile:
         active.state = types.FileState.ACTIVE
 
         self._client_mock.files.get.side_effect = [OSError("temporary reset"), active]
-        with (
-            patch("clio.ai.gemini.time.sleep") as sleep,
-            patch("clio.ai.gemini.time.monotonic", return_value=0),
-        ):
-            result = self._prov._wait_for_file(uploaded, timeout=300)
+        sleep = fake_time("clio.ai.gemini", 0.0).sleep
+        result = self._prov._wait_for_file(uploaded, timeout=300)
 
         assert result is active
         assert self._client_mock.files.get.call_count == 2
         sleep.assert_any_call(5)
         sleep.assert_any_call(2.0)
 
-    def test_non_retryable_get_failure_propagates_immediately(self):
+    def test_non_retryable_get_failure_propagates_immediately(self, fake_time):
         from google.genai import types
 
         uploaded = MagicMock(spec=types.File)
@@ -265,16 +258,13 @@ class TestWaitForFile:
         uploaded.state = types.FileState.PROCESSING
         self._client_mock.files.get.side_effect = ValueError("permanent failure")
 
-        with (
-            patch("clio.ai.gemini.time.sleep"),
-            patch("clio.ai.gemini.time.monotonic", return_value=0),
-        ):
-            with pytest.raises(ValueError, match="permanent failure"):
-                self._prov._wait_for_file(uploaded, timeout=300)
+        fake_time("clio.ai.gemini", 0.0)
+        with pytest.raises(ValueError, match="permanent failure"):
+            self._prov._wait_for_file(uploaded, timeout=300)
 
         assert self._client_mock.files.get.call_count == 1
 
-    def test_timeout_is_not_extended_by_retries(self):
+    def test_timeout_is_not_extended_by_retries(self, fake_time):
         from google.genai import types
 
         uploaded = MagicMock(spec=types.File)
@@ -282,17 +272,14 @@ class TestWaitForFile:
         uploaded.state = types.FileState.PROCESSING
         self._client_mock.files.get.side_effect = OSError("temporary reset")
 
-        with (
-            patch("clio.ai.gemini.time.sleep") as sleep,
-            patch("clio.ai.gemini.time.monotonic", side_effect=[0, 0, 0, 0, 2]),
-        ):
-            with pytest.raises(TimeoutError, match="视频处理超时"):
-                self._prov._wait_for_file(uploaded, timeout=1)
+        sleep = fake_time("clio.ai.gemini", 0.0, 0.0, 0.0, 0.0, 2.0).sleep
+        with pytest.raises(TimeoutError, match="视频处理超时"):
+            self._prov._wait_for_file(uploaded, timeout=1)
 
         assert self._client_mock.files.get.call_count == 1
         sleep.assert_called_once_with(5)
 
-    def test_cancelled_before_poll_does_not_call_get(self):
+    def test_cancelled_before_poll_does_not_call_get(self, fake_time):
         from google.genai import types
 
         uploaded = MagicMock(spec=types.File)
@@ -301,13 +288,13 @@ class TestWaitForFile:
         cancel_event = threading.Event()
         cancel_event.set()
 
-        with patch("clio.ai.gemini.time.monotonic", return_value=0):
-            with pytest.raises(RuntimeError, match="视频处理被用户取消"):
-                self._prov._wait_for_file(uploaded, timeout=300, cancel_event=cancel_event)
+        fake_time("clio.ai.gemini", 0.0)
+        with pytest.raises(RuntimeError, match="视频处理被用户取消"):
+            self._prov._wait_for_file(uploaded, timeout=300, cancel_event=cancel_event)
 
         self._client_mock.files.get.assert_not_called()
 
-    def test_cancelled_during_retry_backoff(self):
+    def test_cancelled_during_retry_backoff(self, fake_time):
         from google.genai import types
 
         uploaded = MagicMock(spec=types.File)
@@ -318,12 +305,9 @@ class TestWaitForFile:
         cancel_event.is_set.return_value = False
         cancel_event.wait.return_value = True
 
-        with (
-            patch("clio.ai.gemini.time.sleep"),
-            patch("clio.ai.gemini.time.monotonic", return_value=0),
-        ):
-            with pytest.raises(RuntimeError, match="视频处理被用户取消"):
-                self._prov._wait_for_file(uploaded, timeout=300, cancel_event=cancel_event)
+        fake_time("clio.ai.gemini", 0.0)
+        with pytest.raises(RuntimeError, match="视频处理被用户取消"):
+            self._prov._wait_for_file(uploaded, timeout=300, cancel_event=cancel_event)
 
         assert self._client_mock.files.get.call_count == 1
 

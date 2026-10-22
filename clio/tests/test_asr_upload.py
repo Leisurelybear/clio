@@ -26,17 +26,17 @@ def _policy_response() -> MagicMock:
     return response
 
 
-def test_upload_retries_policy_and_file_upload(tmp_path: Path):
+def test_upload_retries_policy_and_file_upload(tmp_path: Path, fake_time):
     audio = tmp_path / "audio.wav"
     audio.write_bytes(b"audio")
     rate_limited = httpx.Response(429, request=httpx.Request("GET", "https://example.com"))
     unavailable = httpx.Response(503, request=httpx.Request("POST", "https://example.com"))
 
+    fake_time("clio.asr.retry")
     with (
         patch.dict("os.environ", {"DASHSCOPE_API_KEY": "test-key"}),
         patch("httpx.get", side_effect=[rate_limited, _policy_response()]) as get,
         patch("httpx.post", side_effect=[unavailable, MagicMock()]) as post,
-        patch("clio.asr.retry.time.sleep"),
     ):
         url = dashscope_upload(audio)
 
