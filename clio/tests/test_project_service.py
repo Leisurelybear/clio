@@ -79,6 +79,10 @@ class TestReadProjectName:
         (tmp_path / "project.json").write_text("bad", encoding="utf-8")
         assert _read_project_name(tmp_path) is None
 
+    def test_non_object_json_returns_none(self, tmp_path):
+        (tmp_path / "project.json").write_text("[]", encoding="utf-8")
+        assert _read_project_name(tmp_path) is None
+
 
 class TestRegistryEntryHelpers:
     def test_dict_entry_with_project_dir(self):
@@ -215,6 +219,11 @@ class TestProjectOutputDir:
     def test_corrupted_json_falls_back(self, tmp_path: Path):
         proj_file = tmp_path / "project.json"
         proj_file.write_text("{invalid", encoding="utf-8")
+        result = _project_output_dir(tmp_path)
+        assert result == (tmp_path / "output").resolve()
+
+    def test_non_object_json_falls_back(self, tmp_path: Path):
+        (tmp_path / "project.json").write_text("[]", encoding="utf-8")
         result = _project_output_dir(tmp_path)
         assert result == (tmp_path / "output").resolve()
 
@@ -441,6 +450,19 @@ class TestListProjects:
         projects = _list_projects(cfg, tmp_path / "other")
         names = [p["name"] for p in projects]
         assert "Paris Trip" in names
+
+    def test_registered_project_with_non_object_json_uses_directory_name(self, tmp_path: Path):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_bytes(b"")
+        reg = tmp_path / "projects.json"
+        proj_dir = tmp_path / "paris"
+        proj_dir.mkdir()
+        (proj_dir / "project.json").write_text("[]", encoding="utf-8")
+        reg.write_text(json.dumps({"projects": [str(proj_dir.resolve())]}), encoding="utf-8")
+
+        projects = _list_projects(cfg, tmp_path / "other")
+
+        assert [p["name"] for p in projects] == ["paris"]
 
     def test_does_not_auto_discover_sibling(self, tmp_path: Path):
         cfg = tmp_path / "config.yaml"

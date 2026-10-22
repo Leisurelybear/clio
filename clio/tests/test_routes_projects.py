@@ -43,6 +43,20 @@ class TestHandleGetProject:
         assert payload["name"] == "Tokyo"
         assert payload["currentDay"] == "day3"
 
+    def test_non_object_project_json_falls_back_to_defaults(self, tmp_path: Path):
+        handler = MagicMock()
+        proj_dir = tmp_path / "project"
+        proj_dir.mkdir()
+        (proj_dir / "project.json").write_text("[]", encoding="utf-8")
+        handler._resolve_project_dir.return_value = proj_dir
+        handler.DEFAULT_PROJECT = {"name": "Unnamed", "currentDay": "day1", "source": "compressed"}
+        handler._send_json = MagicMock()
+
+        handle_get_project(handler, {})
+
+        payload = handler._send_json.call_args[0][0]
+        assert payload["name"] == "Unnamed"
+
 
 class TestHandleGetProjects:
     def test_empty(self, tmp_path: Path):
@@ -120,6 +134,24 @@ class TestHandlePutProject:
         assert data["name"] == "Updated"
         assert data["currentDay"] == "day2"
         assert "updatedAt" in data
+
+    def test_replaces_non_object_project_json(self, tmp_path: Path):
+        handler = MagicMock()
+        proj_dir = tmp_path / "project"
+        proj_dir.mkdir()
+        (proj_dir / "project.json").write_text("[]", encoding="utf-8")
+        cfg = tmp_path / "config.yaml"
+        cfg.write_bytes(b"")
+        handler._resolve_project_dir.return_value = proj_dir
+        handler.config_path = cfg
+        handler.DEFAULT_PROJECT = {"name": "Unnamed", "currentDay": "day1", "source": "compressed"}
+        handler._send_json = MagicMock()
+
+        handle_put_project(handler, {}, {"name": "Updated"})
+
+        data = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+        assert data["name"] == "Updated"
+        assert data["currentDay"] == "day1"
 
 
 class TestHandlePostProjectCreate:

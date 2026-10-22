@@ -12,6 +12,7 @@ from clio.ui.services.project_service import (
     _add_to_registry,
     _detect_steps,
     _list_projects,
+    _load_project_json,
     _project_output_dir,
     _registry_path,
     _registry_project_paths,
@@ -30,13 +31,7 @@ def _clean_text(value: object) -> str:
 def handle_get_project(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     """Handle GET /api/project. Read-only: does NOT modify the registry."""
     proj_dir = handler._resolve_project_dir(qs)
-    proj_file = proj_dir / "project.json"
-    data = {}
-    if proj_file.is_file():
-        try:
-            data = json.loads(proj_file.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            data = {}
+    data = _load_project_json(proj_dir)
     merged = {**handler.DEFAULT_PROJECT, **data}
     proj_out = _project_output_dir(proj_dir)
     merged["steps"] = _detect_steps(proj_out, project_dir=proj_dir)
@@ -98,12 +93,7 @@ def handle_put_project(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) 
     """Handle PUT /api/project."""
     proj_dir = handler._resolve_project_dir(qs)
     proj_file = proj_dir / "project.json"
-    data = {}
-    if proj_file.is_file():
-        try:
-            data = json.loads(proj_file.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            data = {}
+    data = _load_project_json(proj_dir)
     merged = {**handler.DEFAULT_PROJECT, **data, **obj}
     merged["updatedAt"] = datetime.datetime.now().isoformat(timespec="seconds")
     if not proj_file.is_file():
@@ -211,6 +201,8 @@ def handle_post_project_add(handler: HandlerProtocol, obj: dict) -> None:
     else:
         try:
             data = json.loads(proj_file.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                return handler._send_json({"ok": False, "error": "project.json 结构无效"}, 400)
             name = data.get("name") or input_path.name
         except (json.JSONDecodeError, OSError) as e:
             return handler._send_json({"ok": False, "error": f"无法读取 project.json: {e}"}, 400)
@@ -249,10 +241,7 @@ def handle_post_project_remove(handler: HandlerProtocol, obj: dict) -> None:
         display = project_name or Path(normalized).name
         proj_file = Path(normalized) / "project.json"
         if proj_file.is_file():
-            try:
-                display = json.loads(proj_file.read_text(encoding="utf-8")).get("name") or display
-            except (json.JSONDecodeError, OSError):
-                pass
+            display = _load_project_json(Path(normalized)).get("name") or display
         targets.append((normalized, display))
     else:
         reg_file = _registry_path(config_path)
@@ -269,7 +258,7 @@ def handle_post_project_remove(handler: HandlerProtocol, obj: dict) -> None:
                 if proj_file.is_file():
                     try:
                         name = json.loads(proj_file.read_text(encoding="utf-8")).get("name") or name
-                    except (json.JSONDecodeError, OSError):
+                    except (json.JSONDecodeError, OSError, AttributeError):
                         continue
                 if name == project_name:
                     try:

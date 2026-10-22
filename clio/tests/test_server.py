@@ -235,6 +235,22 @@ class TestMigration:
         new_proj = input_dir / "project.json"
         assert new_proj.read_text(encoding="utf-8") == "not valid json"
 
+    def test_migration_non_object_json_ignored(self, tmp_path: Path):
+        output_dir = tmp_path / "output"
+        input_dir = tmp_path / "videos"
+        output_dir.mkdir()
+        input_dir.mkdir()
+        (output_dir / "project.json").write_text("[]", encoding="utf-8")
+
+        cfg = MagicMock()
+        cfg.paths.output_dir = output_dir
+        cfg.project_dir = input_dir
+        with patch("clio.ui.server.ConfigCache"):
+            make_handler(cfg, None)
+
+        new_proj = input_dir / "project.json"
+        assert new_proj.read_text(encoding="utf-8") == "[]"
+
 
 # ===========================================================================
 # _send_json / _send_bytes / _send_static

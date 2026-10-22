@@ -42,6 +42,18 @@ def _resolve_project_output_path(project_dir: Path, value: str | Path | None) ->
     return out_path
 
 
+def _load_project_json(project_dir: Path) -> dict[str, Any]:
+    """Load project.json defensively; malformed roots fall back to an empty mapping."""
+    proj_file = project_dir / "project.json"
+    if not proj_file.is_file():
+        return {}
+    try:
+        data = json.loads(proj_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def _project_output_dir(project_dir: Path) -> Path:
     """Return the project's output directory.
 
@@ -59,15 +71,8 @@ def _project_output_dir(project_dir: Path) -> Path:
         except (AttributeError, OSError, yaml.YAMLError):
             pass
 
-    proj_file = project_dir / "project.json"
-    if proj_file.is_file():
-        try:
-            data = json.loads(proj_file.read_text(encoding="utf-8"))
-            out = data.get("output_dir") or "output"
-        except (json.JSONDecodeError, OSError):
-            out = "output"
-    else:
-        out = "output"
+    data = _load_project_json(project_dir)
+    out = data.get("output_dir") or "output"
     return _resolve_project_output_path(project_dir, out) or (project_dir / "output").resolve()
 
 
@@ -300,10 +305,7 @@ def _list_projects(
         proj_file = p / "project.json"
         if not proj_file.is_file():
             continue
-        try:
-            data = json.loads(proj_file.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            data = {}
+        data = _load_project_json(p)
         name = data.get("name") or p.name
         version = data.get("version", 1)
         proj_out = _project_output_dir(p)
@@ -339,14 +341,7 @@ def _list_projects(
     if current_project_name:
         cur_resolved = str(project_dir.resolve())
         if cur_resolved not in seen_dirs:
-            proj_file = project_dir / "project.json"
-            if proj_file.is_file():
-                try:
-                    data = json.loads(proj_file.read_text(encoding="utf-8"))
-                except (json.JSONDecodeError, OSError):
-                    data = {}
-            else:
-                data = {}
+            data = _load_project_json(project_dir)
             name = data.get("name") or project_dir.name
             proj_out = _project_output_dir(project_dir)
             has_videos_json = (project_dir / "videos.json").is_file()
@@ -377,14 +372,8 @@ def _list_projects(
 
 def _read_project_name(p: Path) -> str | None:
     """Read project name from project.json."""
-    proj_file = p / "project.json"
-    if not proj_file.is_file():
-        return None
-    try:
-        data = json.loads(proj_file.read_text(encoding="utf-8"))
-        return data.get("name")
-    except (json.JSONDecodeError, OSError):
-        return None
+    name = _load_project_json(p).get("name")
+    return name if isinstance(name, str) and name else None
 
 
 def _project_yaml_has_input_dir(project_dir: Path) -> bool:

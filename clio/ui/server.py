@@ -143,6 +143,7 @@ from clio.ui.services.file_service import (
 )
 from clio.ui.services.project_service import (
     ProjectResolutionError,
+    _load_project_json,
     _project_output_dir,
     resolve_last_project_config,
     resolve_project_dir,
@@ -311,13 +312,10 @@ def make_handler(
             pass
     # Fix name after migration
     if project_path.is_file():
-        try:
-            cur = json.loads(project_path.read_text(encoding="utf-8"))
-            if cur.get("name") == output_dir.name and project_dir.name != output_dir.name:
-                cur["name"] = project_dir.name
-                write_json_atomic(project_path, cur)
-        except (json.JSONDecodeError, OSError):
-            pass
+        cur = _load_project_json(project_dir)
+        if cur.get("name") == output_dir.name and project_dir.name != output_dir.name:
+            cur["name"] = project_dir.name
+            write_json_atomic(project_path, cur)
 
     DEFAULT_PROJECT = {
         "currentDay": "day1",
