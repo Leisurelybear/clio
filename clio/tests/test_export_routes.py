@@ -62,6 +62,26 @@ class TestHandlePostExport:
         handle_post_export(handler, {}, {"day": "a/b", "format": "jianying"})
         assert handler._send_json.call_args[0][1] == 400
 
+    def test_unknown_format_rejected_before_submission(self, handler: MagicMock) -> None:
+        handler._get_task_manager = MagicMock()
+
+        handle_post_export(handler, {}, {"day": "day1", "format": "unknown"})
+
+        payload, status = handler._send_json.call_args.args
+        assert status == 400
+        assert payload["ok"] is False
+        assert "Unknown export format" in payload["error"]
+        handler._get_config.assert_not_called()
+        handler._get_task_manager.assert_not_called()
+
+    @pytest.mark.parametrize("fmt", [None, 123, ["jianying"]])
+    def test_non_string_format_rejected(self, handler: MagicMock, fmt) -> None:
+        handle_post_export(handler, {}, {"day": "day1", "format": fmt})
+
+        payload, status = handler._send_json.call_args.args
+        assert status == 400
+        assert payload["ok"] is False
+
     def test_missing_plan_returns_404(self, handler: MagicMock) -> None:
         handle_post_export(handler, {}, {"day": "day1", "format": "jianying"})
 

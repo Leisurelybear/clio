@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from clio.config import load_config
-from clio.export import export_plan
+from clio.export import FORMAT_REGISTRY, export_plan
 from clio.plan_model import Plan
 from clio.plan_readiness import (
     check_plan_export_readiness,
@@ -135,6 +135,12 @@ def handle_post_export(
     force = obj.get("force", False)
     if not isinstance(force, bool):
         return handler._send_json({"ok": False, "error": "force must be a boolean"}, 400)
+    if not isinstance(fmt, str) or fmt not in FORMAT_REGISTRY:
+        available = ", ".join(sorted(FORMAT_REGISTRY))
+        return handler._send_json(
+            {"ok": False, "error": f"Unknown export format: {fmt}. Available: {available}"},
+            400,
+        )
 
     proj_dir = handler._resolve_project_dir(qs)
     cfg = handler._get_config(proj_dir)

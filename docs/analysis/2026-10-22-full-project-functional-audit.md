@@ -71,6 +71,7 @@ mypy --check-untyped-defs --show-error-codes
 | A-09 | 中 | 已修复 | 选片、转录、规划仍只剥离 `_segNN`，其他 legacy 分段会错配或丢失转录 | 任务层统一复用 `SEGMENT_SUFFIX_RE`，移除重复死代码 |
 | A-10 | 中 | 已修复 | UI 原始视频解析、运行预览和字幕查找仍只识别 `_segNN` | UI 层统一复用 `SEGMENT_SUFFIX_RE` |
 | A-11 | 中 | 修复中 | 裁剪任务仍只识别 `_segNN`，legacy `_part/_pt/_chunk` 无法计算偏移、反解原始视频或记录正确状态 | 统一复用 `SEGMENT_SUFFIX_RE`，补充别名与大小写回归测试 |
+| A-12 | 中 | 修复中 | 导出接口未校验格式，未知或非字符串格式会先创建异步任务再失败 | 在读取配置和提交任务前校验 `FORMAT_REGISTRY` |
 
 ## 5. 优化 backlog
 
@@ -99,6 +100,7 @@ mypy --check-untyped-defs --show-error-codes
 | `540d056` | `fix(tasks): strip all legacy split suffixes` | 65 related tests passed；Ruff 通过 |
 | `dd8b9e2` | `fix(ui): match all legacy split suffixes` | 154 related tests passed；Ruff 通过 |
 | 待填 | `fix(cut): recognize all legacy split suffixes` | `test_tasks_cut.py` 44 passed；Ruff 通过 |
+| 待填 | `fix(export): reject unknown formats before submission` | `test_export*.py` 41 passed；Ruff 通过 |
 
 ## 7. 未实机验证项
 
