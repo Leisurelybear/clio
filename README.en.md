@@ -273,8 +273,8 @@ python -m pytest clio/tests/ -v
 | 🧪 vmeta | 13 | Sidecar meta / index / staleness |
 | Others | ~96 | Pipeline / plan / log / ratelimit / main entry etc. |
 
-> Full-suite baseline (2026-10-22, local Python 3.11.9): 2171 pytest passed / 12 skipped and
-> 561 Vitest passed across 54 files. The project declares Python 3.11+, so the Python 3.11 / 3.12 CI matrix
+> Full-suite baseline (2026-10-22, local Python 3.11.9): 2182 pytest passed / 12 skipped and
+> 562 Vitest passed across 54 files. The project declares Python 3.11+, so the Python 3.11 / 3.12 CI matrix
 > remains authoritative.
 
 ---

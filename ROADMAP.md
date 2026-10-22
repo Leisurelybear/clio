@@ -37,7 +37,7 @@ separately from missing keys, and keep the sidebar responsive while project/vide
 - [x] Show a startup spinner, video-list skeleton, elapsed wait time, and retry state
 - [x] Auto-upgrade incomplete task entries in existing config files
 
-**Verification:** latest full-suite run (2026-10-22): `2171 passed, 12 skipped`; `561` Vitest tests across `54` files; Ruff and mypy clean.
+**Verification:** latest full-suite run (2026-10-22): `2182 passed, 12 skipped`; `562` Vitest tests across `54` files; Ruff and mypy clean.
 
 ### R-027e Historical session logs
 

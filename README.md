@@ -291,8 +291,8 @@ npm test
 | 🧪 vmeta | 13 | 侧边栏元数据 / 索引 / 过期检测 |
 | 其他 | ~96 | pipeline / plan / log / ratelimit / 主入口等 |
 
-> 全量套件基线（2026-10-22，本机 Python 3.11.9）：2171 pytest passed / 12 skipped，
-> 561 Vitest passed（54 files）。项目声明 Python 3.11+，最终以 CI 的 Python 3.11 / 3.12 矩阵为准。
+> 全量套件基线（2026-10-22，本机 Python 3.11.9）：2182 pytest passed / 12 skipped，
+> 562 Vitest passed（54 files）。项目声明 Python 3.11+，最终以 CI 的 Python 3.11 / 3.12 矩阵为准。
 
 ---
 
