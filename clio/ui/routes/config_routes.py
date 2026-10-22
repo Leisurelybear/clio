@@ -28,7 +28,7 @@ from clio.config.models import (
 )
 from clio.config.parsers import _infer_provider_capabilities
 from clio.config.schema import build_config_schema
-from clio.i18n import set_active_locale
+from clio.i18n import set_active_locale, t
 from clio.ui.services.file_service import (
     _coerce_config_types,
     _create_project_yaml,
@@ -175,7 +175,10 @@ def handle_put_config_raw(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
     if affected:
         if tmp_path and tmp_path.exists():
             tmp_path.unlink()
-        return handler._send_json({"ok": False, "error": "全局配置变更会影响以下已注册项目", "affected": affected}, 409)
+        return handler._send_json(
+            {"ok": False, "error": t("api.config_global_affects_projects"), "affected": affected},
+            409,
+        )
     _save_atomic(config_path, yml.encode("utf-8"))
     if tmp_path and tmp_path.exists():
         tmp_path.unlink()
@@ -297,7 +300,7 @@ def _validate_no_foreign_fields(obj: dict, layer: str) -> str | None:
         if isinstance(value, dict):
             for key in value:
                 if key in fields:
-                    return f"'{section}.{key}' 已废弃，不能写入配置"
+                    return t("api.config_deprecated_key", {"key": f"{section}.{key}"})
 
     split_sections = set(_SPLIT_GLOBAL.keys()) & set(_SPLIT_PROJECT.keys())
 
@@ -310,19 +313,22 @@ def _validate_no_foreign_fields(obj: dict, layer: str) -> str | None:
     for section in foreign - split_sections:
         if section in obj:
             if layer == "global":
-                return f"'{section}' 属于项目配置，不能写入全局 config.yaml"
+                return t("api.config_section_project_only", {"section": section})
             else:
-                return f"'{section}' 属于全局配置，不能写入 project.yaml"
+                return t("api.config_section_global_only", {"section": section})
 
     # Check split-section field-level violations
     split_table = _SPLIT_PROJECT if layer == "global" else _SPLIT_GLOBAL
-    split_label = "项目" if layer == "global" else "全局"
+    split_layer = t("api.layer.project") if layer == "global" else t("api.layer.global")
     for section, fields in split_table.items():
         val = obj.get(section)
         if isinstance(val, dict):
             for k in val:
                 if k in fields:
-                    return f"'{section}.{k}' 属于{split_label}配置，不能写入该文件"
+                    return t(
+                        "api.config_section_layer_mismatch",
+                        {"section": f"{section}.{k}", "layer": split_layer},
+                    )
 
     return None
 
@@ -452,7 +458,10 @@ def handle_put_config_global(handler: HandlerProtocol, qs: dict[str, Any], obj: 
     if affected:
         if tmp_path and tmp_path.exists():
             tmp_path.unlink()
-        return handler._send_json({"ok": False, "error": "全局配置变更会影响以下已注册项目", "affected": affected}, 409)
+        return handler._send_json(
+            {"ok": False, "error": t("api.config_global_affects_projects"), "affected": affected},
+            409,
+        )
     _save_atomic(config_path, yml.encode("utf-8"))
     if tmp_path and tmp_path.exists():
         tmp_path.unlink()
@@ -666,7 +675,10 @@ def handle_delete_provider(handler: HandlerProtocol, qs: dict[str, Any], name: s
     if error := _provider_name_error(name):
         return handler._send_json({"ok": False, "error": error}, 400)
     if name in _DEFAULT_PROVIDERS:
-        return handler._send_json({"ok": False, "error": f"内置 provider 不能删除: {name}"}, 409)
+        return handler._send_json(
+            {"ok": False, "error": t("api.config_builtin_provider_undeletable", {"name": name})},
+            409,
+        )
     raw, error = _read_global_config_raw(handler.config_path)
     if error:
         return handler._send_json({"ok": False, "error": error}, 500)

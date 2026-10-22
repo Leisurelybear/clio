@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
+from clio.i18n import t
 from clio.ui.services.file_service import _save_atomic
 
 if TYPE_CHECKING:
@@ -71,7 +72,7 @@ def handle_get_cover(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     basename = Path(str(raw).replace("\\", "/")).name
     suffix = Path(basename).suffix.lower()
     if suffix not in _COVER_EXTS or not _SAFE_COVER_NAME.match(basename):
-        return handler._send_json({"ok": False, "error": "仅允许 jpg/png/webp 封面文件"}, 403)
+        return handler._send_json({"ok": False, "error": t("api.cover_extension_not_allowed")}, 403)
     proj_out = handler._get_project_output(qs)
     p = handler._resolve_in("covers", basename, proj_out)
     if p is None:
@@ -79,7 +80,7 @@ def handle_get_cover(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     data = p.read_bytes()
     ct = _detect_cover_content_type(data)
     if ct is None:
-        return handler._send_json({"ok": False, "error": "封面不是有效图片"}, 403)
+        return handler._send_json({"ok": False, "error": t("api.cover_not_an_image")}, 403)
     handler._send_bytes(
         data,
         ct,

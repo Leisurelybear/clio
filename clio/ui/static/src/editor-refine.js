@@ -52,7 +52,7 @@ export async function refineCurrentFile(type) {
     setStatus(t('editor.refine.done', { label }), 'ok');
   } catch (e) {
     if (state.refining?.file === refineFile) {
-      if (e.message.includes('正在 AI 审阅')) {
+      if (e.body?.code === 'refine_busy' || e.message.includes('正在 AI 审阅')) {
         state._refineError = t('editor.refine.busy');
       } else {
         state._refineError = t('editor.refine.failed', { detail: e.message });

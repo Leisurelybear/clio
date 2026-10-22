@@ -23,6 +23,7 @@ from typing import Any, ClassVar
 from urllib.parse import parse_qs, urlparse
 
 from clio.config import AppConfig
+from clio.i18n import t
 from clio.log_history import DEFAULT_READ_BYTES, MAX_READ_BYTES, list_log_files, read_log_file
 from clio.session_log import clear as clear_session_log
 from clio.session_log import read as read_session_log
@@ -416,7 +417,7 @@ def make_handler(
             provided = qs.get("token", [None])[0]
             if isinstance(provided, str) and len(provided) == len(token) and hmac.compare_digest(provided, token):
                 return True
-            self._send_json({"error": "未授权访问，需要有效的 API Token"}, 401)
+            self._send_json({"error": t("api.unauthorized")}, 401)
             return False
 
         def _require_local_session(self) -> bool:
@@ -432,7 +433,7 @@ def make_handler(
             expected = self.__class__._allowed_hosts
             hostname = _hostname_no_port(self.headers.get("Host", ""))
             if hostname and hostname not in expected and hostname != "localhost":
-                self._send_json({"error": "非法主机名"}, 403)
+                self._send_json({"error": t("api.invalid_host")}, 403)
                 return False
             origin = self.headers.get("Origin", "") or self.headers.get("Referer", "")
             if origin:
@@ -442,7 +443,7 @@ def make_handler(
                     o = urlparse("")
                 oh = (o.hostname or "").lower()
                 if oh and oh not in expected and oh != "localhost":
-                    self._send_json({"error": "非法来源"}, 403)
+                    self._send_json({"error": t("api.invalid_origin")}, 403)
                     return False
             return True
 

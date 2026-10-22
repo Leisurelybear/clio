@@ -9,6 +9,7 @@ from typing import Any
 
 from clio.config import load_config
 from clio.export import FORMAT_REGISTRY, export_plan
+from clio.i18n import t
 from clio.plan_model import Plan
 from clio.plan_readiness import (
     check_plan_export_readiness,
@@ -69,7 +70,7 @@ def _run_export_task(context) -> dict[str, Any]:
     fmt = str(data.get("format", "jianying"))
     plan_path = cfg.plans_dir / f"{day}_plan.json"
     out_dir = cfg.paths.output_dir / "export" / f"{day}_{fmt}"
-    context.reporter.progress(phase="export", current=0, total=1, message="正在生成剪映草稿…")
+    context.reporter.progress(phase="export", current=0, total=1, message=t("api.export_generating"))
     context.reporter.raise_if_cancelled()
     result_path = export_plan(
         fmt,
@@ -87,8 +88,8 @@ def _run_export_task(context) -> dict[str, Any]:
     if cfg.export.auto_copy_draft and cfg.export.jianying_draft_dir:
         copied = _copy_draft_to_jianying(result_path, cfg.export.jianying_draft_dir, day)
     if context.cancel_event.is_set():
-        raise TaskCancelled("草稿导出已取消")
-    context.reporter.progress(phase="export", current=1, total=1, message="剪映草稿已生成")
+        raise TaskCancelled(t("api.export_cancelled"))
+    context.reporter.progress(phase="export", current=1, total=1, message=t("api.export_done"))
     result: dict[str, Any] = {"day": day, "format": fmt, "artifact": f"export/{day}_{fmt}"}
     if copied is not None:
         result["copied_to_jianying"] = copied.name
@@ -147,7 +148,7 @@ def handle_post_export(
 
     plan_path = cfg.plans_dir / f"{day}_plan.json"
     if not plan_path.is_file():
-        handler._send_json({"ok": False, "error": f"plan 文件不存在: {plan_path}"}, 404)
+        handler._send_json({"ok": False, "error": t("api.plan_missing", {"path": plan_path})}, 404)
         return
 
     try:
@@ -173,12 +174,12 @@ def handle_post_export(
         _ensure_export_handler(manager)
         project_id = str(Path(proj_dir).resolve())
         if _active_export_task(manager, project_id, day, fmt) is not None:
-            return handler._send_json({"ok": False, "error": "同一草稿导出任务正在运行"}, 409)
+            return handler._send_json({"ok": False, "error": t("api.export_already_running")}, 409)
         config_path = getattr(handler, "config_path", None)
         try:
             task = manager.submit(
                 TaskKind.EXPORT,
-                f"导出剪映草稿: {day}",
+                t("api.export_task_title", {"day": day}),
                 project_id=project_id,
                 project_name=Path(proj_dir).name,
                 project_path=project_id,
@@ -192,7 +193,7 @@ def handle_post_export(
                 reject_if_active=True,
             )
         except TaskAlreadyRunningError:
-            return handler._send_json({"ok": False, "error": "该项目已有任务正在运行"}, 409)
+            return handler._send_json({"ok": False, "error": t("api.project_task_running")}, 409)
         return handler._send_json(
             {
                 "ok": True,
@@ -207,7 +208,7 @@ def handle_post_export(
     state = handler._get_state(str(Path(proj_dir).resolve()))
     with state.job_lock:
         if state.job_thread is not None and state.job_thread.is_alive():
-            return handler._send_json({"ok": False, "error": "另一个任务正在运行"}, 409)
+            return handler._send_json({"ok": False, "error": t("api.task_already_running")}, 409)
 
         out_dir = cfg.paths.output_dir / "export" / f"{day}_{fmt}"
         try:

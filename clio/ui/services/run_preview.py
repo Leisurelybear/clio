@@ -7,18 +7,15 @@ from typing import Any
 
 from clio._constants import VIDEO_EXTENSIONS
 from clio.config.models import AppConfig
+from clio.i18n import t
 from clio.identity import SEGMENT_SUFFIX_RE
 from clio.index import ArtifactIndex
 from clio.tasks._helpers import _matches_selected_artifact, _matches_selected_stem, _selected_stems
 
-STEP_LABELS = {
-    "compress": "压缩视频",
-    "analyze": "AI 分析",
-    "voiceover": "生成口播文案",
-    "transcribe": "字幕转录",
-    "plan": "vlog 剪辑规划",
-    "label": "标记镜头",
-}
+
+def _step_label(name: str) -> str:
+    """Step label for the run preview, resolved from the active locale."""
+    return t(f"run.step.{name}.label", fallback=name)
 
 
 def build_run_preview(
@@ -82,9 +79,7 @@ def build_run_preview(
     if input_info.get("mode") == "videos" and input_info.get("count", 0) == 0 and config.project_dir is not None:
         vjson = config.project_dir / "videos.json"
         empty_selection_note = (
-            "videos.json 不存在，请运行 python main.py migrate 或在 UI 中添加视频"
-            if not vjson.is_file()
-            else "videos.json 为空，请在 UI「添加视频」选择素材"
+            t("api.preview_no_videos_json") if not vjson.is_file() else t("api.preview_empty_videos_json")
         )
         input_info = {**input_info, "hint": empty_selection_note}
 
@@ -147,7 +142,7 @@ def _step_preview(
         return _analyze_step(config, compressed_videos, all_recursive_source_videos, force=force, index=index)
     if step == "transcribe":
         if not use_transcripts:
-            return _warning_step(step, "字幕开关未启用，转录步骤不会在本次运行中执行。")
+            return _warning_step(step, t("api.preview_transcribe_disabled"))
         return _transcribe_step(config, compressed_videos, all_recursive_source_videos, force=force, index=index)
     if step == "voiceover":
         return _voiceover_step(config, analysis_jsons, force=force)
@@ -212,7 +207,7 @@ def _voiceover_step(
 ) -> dict[str, Any]:
     total = len(analysis_jsons)
     if total == 0:
-        return _warning_step("voiceover", "未找到分析 JSON，口播步骤可能没有输入。")
+        return _warning_step("voiceover", t("api.preview_missing_analyze_voiceover"))
     skipped = (
         0
         if force
@@ -227,7 +222,7 @@ def _voiceover_step(
 
 def _plan_step(config: AppConfig, analysis_jsons: list[Path], *, day_label: str, force: bool) -> dict[str, Any]:
     if not analysis_jsons:
-        return _warning_step("plan", "未找到分析 JSON，规划步骤可能没有输入。")
+        return _warning_step("plan", t("api.preview_missing_analyze_plan"))
     total = 1
     plan_json = config.plans_dir / f"{day_label}_plan.json"
     plan_md = config.plans_dir / f"{day_label}_plan.md"
@@ -238,7 +233,7 @@ def _plan_step(config: AppConfig, analysis_jsons: list[Path], *, day_label: str,
 def _label_step(config: AppConfig, analysis_jsons: list[Path], *, force: bool) -> dict[str, Any]:
     total = len(analysis_jsons)
     if total == 0:
-        return _warning_step("label", "未找到分析 JSON，标记步骤可能没有输入。")
+        return _warning_step("label", t("api.preview_missing_analyze_label"))
     labeled_dir = config.paths.output_dir / "labeled"
     skipped = (
         0
@@ -253,7 +248,7 @@ def _warning_step(step: str, warning: str) -> dict[str, Any]:
 
 
 def _unknown_step(step: str) -> dict[str, Any]:
-    return _step(step, total=0, will_run=0, will_skip=0, warnings=[f"未知步骤：{step}"])
+    return _step(step, total=0, will_run=0, will_skip=0, warnings=[t("api.preview_unknown_step", {"step": step})])
 
 
 def _step(
@@ -266,7 +261,7 @@ def _step(
 ) -> dict[str, Any]:
     return {
         "name": name,
-        "label": STEP_LABELS.get(name, name),
+        "label": _step_label(name),
         "total": total,
         "will_run": will_run,
         "will_skip": will_skip,

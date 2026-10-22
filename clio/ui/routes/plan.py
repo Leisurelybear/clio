@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from clio.config import load_config
+from clio.i18n import t
 from clio.pipeline import run_cut_all
 from clio.plan_model import Plan
 from clio.plan_preview import build_preview_media
@@ -61,7 +62,7 @@ def _run_cut_task(context) -> dict[str, Any]:
         tracker=tracker,
     )
     if context.cancel_event.is_set():
-        raise TaskCancelled("剪辑导出已取消")
+        raise TaskCancelled(t("api.cut_export_cancelled"))
     return {"clip_count": len(clips), "artifact": "cuts"}
 
 
@@ -117,7 +118,7 @@ def handle_get_plan(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     except (OSError, ValueError):
         return handler._send_json({"error": "forbidden"}, 403)
     if not p.is_file():
-        return handler._send_json({"error": f"规划文件不存在: {p}"}, 404)
+        return handler._send_json({"error": t("api.plan_missing", {"path": p})}, 404)
     handler._send_bytes(p.read_bytes(), "application/json; charset=utf-8")
 
 
@@ -133,7 +134,7 @@ def handle_get_plan_preview_media(handler: HandlerProtocol, qs: dict[str, Any]) 
     except (OSError, ValueError):
         return handler._send_json({"ok": False, "error": "forbidden"}, 403)
     if not plan_path.is_file():
-        return handler._send_json({"ok": False, "error": f"规划文件不存在: {plan_path}"}, 404)
+        return handler._send_json({"ok": False, "error": t("api.plan_missing", {"path": plan_path})}, 404)
     try:
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
         plan_mtime = plan_path.stat().st_mtime
@@ -206,7 +207,7 @@ def handle_post_plan_readiness(handler: HandlerProtocol, qs: dict[str, Any], obj
                         {
                             "level": "error",
                             "code": "plan_missing",
-                            "message": f"规划文件不存在: {path}",
+                            "message": t("api.plan_missing", {"path": path}),
                         }
                     ],
                     "warnings": [],
@@ -256,7 +257,7 @@ def handle_post_cut(handler: HandlerProtocol, qs: dict[str, list[str]], obj: dic
 
     plan_path = cfg.plans_dir / f"{day_label}_plan.json"
     if not plan_path.is_file():
-        return handler._send_json({"ok": False, "error": f"规划文件不存在: {plan_path}"}, 404)
+        return handler._send_json({"ok": False, "error": t("api.plan_missing", {"path": plan_path})}, 404)
     try:
         plan = Plan.from_dict(json.loads(plan_path.read_text(encoding="utf-8")))
     except (json.JSONDecodeError, OSError) as e:
@@ -275,11 +276,11 @@ def handle_post_cut(handler: HandlerProtocol, qs: dict[str, list[str]], obj: dic
     if existing and not overwrite:
         preview = existing[:12]
         more = len(existing) - len(preview)
-        hint = "、".join(preview) + (f" 等 {more} 个" if more > 0 else "")
+        hint = t("common.list_separator").join(preview) + (t("api.cut_more_items", {"count": more}) if more > 0 else "")
         return handler._send_json(
             {
                 "ok": False,
-                "error": f"输出目录已有 {len(existing)} 个裁剪视频，确认覆盖后重试",
+                "error": t("api.cut_output_exists", {"count": len(existing)}),
                 "code": "cut_output_exists",
                 "count": len(existing),
                 "files": existing,
@@ -294,12 +295,12 @@ def handle_post_cut(handler: HandlerProtocol, qs: dict[str, list[str]], obj: dic
         _ensure_cut_handler(manager)
         project_id = str(proj_dir.resolve())
         if _active_cut_task(manager, project_id) is not None:
-            return handler._send_json({"ok": False, "error": "另一个剪辑任务正在运行"}, 409)
+            return handler._send_json({"ok": False, "error": t("api.cut_task_running")}, 409)
         config_path = getattr(handler, "config_path", None)
         try:
             task = manager.submit(
                 TaskKind.CUT_EXPORT,
-                f"导出剪辑片段: {day_label}",
+                t("api.cut_task_title", {"day": day_label}),
                 project_id=project_id,
                 project_name=proj_dir.name,
                 project_path=project_id,
@@ -320,7 +321,7 @@ def handle_post_cut(handler: HandlerProtocol, qs: dict[str, list[str]], obj: dic
                 reject_if_active=True,
             )
         except TaskAlreadyRunningError:
-            return handler._send_json({"ok": False, "error": "该项目已有任务正在运行"}, 409)
+            return handler._send_json({"ok": False, "error": t("api.project_task_running")}, 409)
         return handler._send_json(
             {
                 "ok": True,
@@ -335,7 +336,7 @@ def handle_post_cut(handler: HandlerProtocol, qs: dict[str, list[str]], obj: dic
     state = handler._get_state(str(proj_dir.resolve()))
     with state.job_lock:
         if state.job_thread is not None and state.job_thread.is_alive():
-            return handler._send_json({"ok": False, "error": "另一个任务正在运行"}, 409)
+            return handler._send_json({"ok": False, "error": t("api.task_already_running")}, 409)
         state.job_cancel_event.clear()
 
         def _cut_job():
@@ -350,7 +351,7 @@ def handle_post_cut(handler: HandlerProtocol, qs: dict[str, list[str]], obj: dic
                     cancel_event=state.job_cancel_event,
                 )
             except Exception as e:
-                print(f"[cut] 失败: {e}")
+                print(t("api.cut_failed_log", {"detail": e}))
             finally:
                 with state.job_lock:
                     state.job_thread = None
@@ -394,7 +395,7 @@ def handle_post_cut_restore_backups(handler: HandlerProtocol, qs: dict[str, list
         return handler._send_json(
             {
                 "ok": False,
-                "error": "目标与备份共存，需明确选择保留新版或恢复旧版",
+                "error": t("api.cut_backup_conflict"),
                 "conflicts": result["conflicts"],
             },
             409,

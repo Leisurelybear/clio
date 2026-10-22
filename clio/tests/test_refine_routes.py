@@ -148,7 +148,10 @@ class TestHandlePostRefineBusy:
             handler._get_project_output.return_value = Path("/proj_out")
             handler._resolve_texts.return_value = p
             handle_post_refine(handler, {}, {"file": "test.json", "type": "texts"})
-            handler._send_json.assert_called_once_with({"ok": False, "error": "该文件正在 AI 审阅中，请等待完成"}, 409)
+            handler._send_json.assert_called_once_with(
+                {"ok": False, "error": "该文件正在 AI 审阅中，请等待完成", "code": "refine_busy"},
+                409,
+            )
         finally:
             _mark_busy(abs_path, False)
 
@@ -166,7 +169,10 @@ class TestHandlePostRefineBusy:
             handler._get_project_output.return_value = Path("/proj_out")
             handler._resolve_in.return_value = p
             handle_post_refine(handler, {}, {"file": "test.json", "type": "scripts"})
-            handler._send_json.assert_called_once_with({"ok": False, "error": "该文件正在 AI 审阅中，请等待完成"}, 409)
+            handler._send_json.assert_called_once_with(
+                {"ok": False, "error": "该文件正在 AI 审阅中，请等待完成", "code": "refine_busy"},
+                409,
+            )
         finally:
             _mark_busy(abs_path, False)
 

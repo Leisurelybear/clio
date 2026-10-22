@@ -26,6 +26,7 @@ from typing import Any
 import yaml
 
 from clio.config import AppConfig, load_config
+from clio.i18n import t
 from clio.ui.services.file_service import _normalized_relative_subdir, _save_atomic
 
 logger = logging.getLogger(__name__)
@@ -182,10 +183,10 @@ def _read_registry(registry_file: Path) -> dict[str, Any]:
         reg = json.loads(registry_file.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError, UnicodeError) as exc:
         quarantine()
-        raise ValueError("projects.json 已损坏，已隔离；拒绝覆盖") from exc
+        raise ValueError(t("api.projects_json_corrupted")) from exc
     if not isinstance(reg, dict):
         quarantine()
-        raise ValueError("projects.json 结构无效；拒绝覆盖")
+        raise ValueError(t("api.projects_json_invalid"))
     return reg
 
 

@@ -88,7 +88,10 @@ Each row is one commit; focused tests must pass before the next row starts.
 | 8c2 | feat(ui) | Localize `editor-config.js` token stats and Whisper model management |
 | 8d | feat(ui) | Localize `editor-plan.js` and plan editing helpers |
 | 8e | feat(ui) | Localize `editor-texts.js` and the remaining editor modules |
-| 9 | feat(i18n) | Localize backend route/task user-facing messages |
+| 9a | feat(i18n) | Localize `clio/ui/**` Web UI API payloads |
+| 9b | feat(i18n) | Localize `clio/tasks/**` progress and error messages |
+| 9c | feat(i18n) | Localize core modules (analyze, transcribe, cut, plan, export, ai, asr) |
+| 9d | feat(i18n) | Localize infra copy (log, progress, ratelimit, shutdown, desktop) |
 | 10 | test(i18n) | Remaining-string inventory + parity guards (Python + Vitest) |
 | 11 | docs | README language switch, AGENTS.md conventions, ROADMAP/CHANGELOG |
 
@@ -110,7 +113,8 @@ Each row is one commit; focused tests must pass before the next row starts.
 | 2026-10-22 | 8c2 `editor-config.js` tokens / Whisper models | Done |
 | 2026-10-22 | 8d plan editor / range picker | Done |
 | 2026-10-22 | 8e editor texts / voiceover / refine | Done |
-| 2026-10-22 | 9-11 | Pending |
+| 2026-10-22 | 9a UI API payloads | Done |
+| 2026-10-22 | 9b, 9c, 9d, 10, 11 | Pending |
 
 ## Remaining-String Baseline (2026-10-22)
 
@@ -139,6 +143,18 @@ must whitelist rather than flag:
 `editor-refine.js` compares `e.message.includes('正在 AI 审阅')` against the backend error text, so
 milestone 9 must keep that specific backend message stable or move the check to a machine-readable
 error code.
+
+Milestone 9a resolved that by returning `"code": "refine_busy"` alongside the message; the frontend
+prefers `e.body.code` and keeps the message match only as a fallback for older servers.
+
+Milestone 9a also unified the run-preview step labels with the run pane: `run_preview.STEP_LABELS`
+was replaced by `_step_label()`, which reads `run.step.<name>.label` from the shared catalog. That
+renamed the preview rows for `compress` (压缩视频 -> 压缩原视频) and `transcribe`/`label`, and
+`clio/tests/test_run_preview.py` was updated to the catalog copy.
+
+Still open for 9b/9c: `clio/tasks/migrate.py` emits 已是新结构 and `clio/ui/routes/projects.py`
+matches that substring, and `clio/pipeline.py` keeps its own `_STEP_LABELS`; both need the same
+treatment (catalog key + code or shared label helper).
 
 ## Verification
 

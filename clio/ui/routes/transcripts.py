@@ -7,6 +7,7 @@ import math
 from pathlib import Path
 from typing import Any
 
+from clio.i18n import t
 from clio.identity import SEGMENT_SUFFIX_RE
 from clio.ui.handler_protocol import HandlerProtocol
 from clio.ui.services.file_service import _is_safe_basename, _save_atomic
@@ -58,7 +59,7 @@ def _require_revision(obj: dict[str, Any], current_rev: int, handler: HandlerPro
         handler._send_json(
             {
                 "ok": False,
-                "error": f"资源已更改 (revision {current_rev} != {client_rev})，请刷新后重试",
+                "error": t("api.revision_conflict", {"current": current_rev, "client": client_rev}),
                 "revision": current_rev,
             },
             409,

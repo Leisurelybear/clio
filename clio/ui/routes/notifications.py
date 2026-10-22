@@ -8,6 +8,7 @@ import uuid
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
+from clio.i18n import t
 from clio.task_center.models import Notification, NotificationSeverity, notification_data, utc_now_iso
 from clio.task_center.store import NotificationQuery
 
@@ -159,7 +160,7 @@ def handle_post_notification(handler: HandlerProtocol, qs: dict[str, Any], obj: 
         return handler._send_json(
             {"ok": False, "error": "message must be a non-empty string up to 4000 characters"}, 400
         )
-    title = obj.get("title", "通知")
+    title = obj.get("title", t("notifications.default_title"))
     if not isinstance(title, str) or not title.strip() or len(title) > 200:
         return handler._send_json({"ok": False, "error": "title must be a non-empty string up to 200 characters"}, 400)
     link = obj.get("link")

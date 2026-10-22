@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from clio.ai.token_usage import FileTokenUsageStore
 from clio.analyze import refine_script, refine_text
+from clio.i18n import t
 from clio.tasks.refine import _load_analysis_for_script
 from clio.ui.services.file_service import _save_atomic
 
@@ -59,7 +60,10 @@ def handle_post_refine(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) 
 
     abs_path = str(p.resolve())
     if _is_file_busy(abs_path):
-        return handler._send_json({"ok": False, "error": "该文件正在 AI 审阅中，请等待完成"}, 409)
+        return handler._send_json(
+            {"ok": False, "error": t("api.refine_busy"), "code": "refine_busy"},
+            409,
+        )
 
     try:
         data = json.loads(p.read_text(encoding="utf-8"))

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from clio.ai.factory import _clear_provider_cache
 from clio.config import _load_dotenv  # noqa: F401 — kept for test mocks
+from clio.i18n import t
 from clio.utils import write_secret_atomic
 
 if TYPE_CHECKING:
@@ -31,14 +32,7 @@ def handle_get_env(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
         if template_path and template_path.is_file():
             text = template_path.read_text(encoding="utf-8")
         else:
-            text = (
-                "# 在此设置环境变量，每行 KEY=VALUE\n"
-                "# GEMINI_API_KEY=your_api_key_here\n"
-                "# OPENAI_API_KEY=sk-...\n"
-                "# DEEPSEEK_API_KEY=sk-...\n"
-                "# 云端 ASR（whisper.engine 设为云端引擎时需要）\n"
-                "# DASHSCOPE_API_KEY=sk-...\n"
-            )
+            text = t("api.env_template_header")
     handler._send_json({"path": str(env_path) if env_path else "", "content": text})
 
 

@@ -6,6 +6,7 @@ import sys
 from typing import Any
 
 from clio.asr.readiness import check_asr_ready
+from clio.i18n import t
 from clio.transcribe import _resolve_cache_dir, check_cublas, check_whisper
 from clio.ui.handler_protocol import HandlerProtocol
 from clio.whisper_cache import is_model_cache_complete
@@ -14,7 +15,7 @@ from clio.whisper_cache import is_model_cache_complete
 def handle_get_whisper_check(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     frozen = bool(getattr(sys, "frozen", False))
     engine = "local"
-    display_name = "本地 faster-whisper"
+    display_name = t("transcription.engine_local")
     ready = False
     readiness_error = None
     readiness = None
@@ -35,11 +36,7 @@ def handle_get_whisper_check(handler: HandlerProtocol, qs: dict[str, Any]) -> No
     installed = check_whisper() if engine == "local" else False
     if readiness is None:
         ready = installed
-        readiness_error = (
-            None
-            if installed
-            else "本地 faster-whisper 不可用。请执行 `python main.py whisper install`，并检查 CUDA/cuBLAS。"
-        )
+        readiness_error = None if installed else t("api.whisper_local_unavailable")
     cuda = False
     if engine == "local" and installed:
         try:

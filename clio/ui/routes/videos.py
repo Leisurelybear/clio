@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from clio._constants import VIDEO_EXTENSIONS, VIDEO_EXTS
+from clio.i18n import t
 from clio.identity import prefer_canonical_compressed
 from clio.index import ArtifactIndex
 from clio.tasks._video_loader import load_selected_videos, save_selected_videos
@@ -801,18 +802,18 @@ def handle_put_videos_relink(handler: HandlerProtocol, qs: dict[str, Any], obj: 
     old_path = obj.get("old_path")
     new_path = obj.get("new_path")
     if not isinstance(old_path, str) or not isinstance(new_path, str):
-        return handler._send_json({"ok": False, "error": "需要提供 old_path 和 new_path"}, 400)
+        return handler._send_json({"ok": False, "error": t("api.relink_missing_paths")}, 400)
     old_path = old_path.strip()
     new_path = new_path.strip()
     if not old_path or not new_path:
-        return handler._send_json({"ok": False, "error": "需要提供 old_path 和 new_path"}, 400)
+        return handler._send_json({"ok": False, "error": t("api.relink_missing_paths")}, 400)
     new = Path(new_path).expanduser()
     try:
         resolved = new.resolve()
     except (OSError, ValueError):
-        return handler._send_json({"ok": False, "error": f"无法解析新路径: {new_path}"}, 400)
+        return handler._send_json({"ok": False, "error": t("api.relink_unresolvable", {"path": new_path})}, 400)
     if not resolved.is_file() or resolved.suffix.lower() not in VIDEO_EXTS:
-        return handler._send_json({"ok": False, "error": f"新路径不是有效的视频文件: {new_path}"}, 400)
+        return handler._send_json({"ok": False, "error": t("api.relink_invalid_video", {"path": new_path})}, 400)
     videos = load_selected_videos(proj_dir)
     try:
         old_str = str(Path(old_path).expanduser().resolve())
@@ -834,9 +835,12 @@ def handle_put_videos_relink(handler: HandlerProtocol, qs: dict[str, Any], obj: 
         if len(matches) == 1:
             matched_idx = matches[0][0]
         elif len(matches) > 1:
-            return handler._send_json({"ok": False, "error": f"找到多个同名文件 ({old_name})，请指定完整路径"}, 400)
+            return handler._send_json(
+                {"ok": False, "error": t("api.relink_ambiguous", {"name": old_name})},
+                400,
+            )
         else:
-            return handler._send_json({"ok": False, "error": f"未在项目视频列表中找到: {old_path}"}, 404)
+            return handler._send_json({"ok": False, "error": t("api.video_not_in_project", {"path": old_path})}, 404)
     new_key = str(resolved).lower()
     for idx, video in enumerate(videos):
         if idx == matched_idx:
@@ -847,7 +851,7 @@ def handle_put_videos_relink(handler: HandlerProtocol, qs: dict[str, Any], obj: 
             existing_key = str(video).lower()
         if existing_key == new_key:
             return handler._send_json(
-                {"ok": False, "error": f"该视频已在项目视频列表中: {resolved}"},
+                {"ok": False, "error": t("api.video_already_in_project", {"path": resolved})},
                 409,
             )
     videos[matched_idx] = resolved

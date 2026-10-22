@@ -58,7 +58,7 @@ def test_preview_compress_counts_existing_output_as_skip(tmp_path: Path) -> None
     assert preview["steps"] == [
         {
             "name": "compress",
-            "label": "压缩视频",
+            "label": "压缩原视频",
             "total": 2,
             "will_run": 1,
             "will_skip": 1,

@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from clio.i18n import t
 from clio.ui.services.file_service import _create_project_yaml, _save_atomic
 from clio.ui.services.project_service import (
     _add_to_registry,
@@ -125,7 +126,10 @@ def handle_post_project_create(handler: HandlerProtocol, obj: dict) -> None:
         return handler._send_json({"ok": False, "error": f"project_dir not found: {project_dir_raw}"}, 400)
     proj_file = input_path / "project.json"
     if proj_file.is_file():
-        return handler._send_json({"ok": False, "error": f"目录已存在项目，请改用“打开项目”：{project_dir_raw}"}, 409)
+        return handler._send_json(
+            {"ok": False, "error": t("api.project_dir_has_project", {"path": project_dir_raw})},
+            409,
+        )
     if output_dir_raw:
         proj_out = Path(output_dir_raw)
     else:
@@ -147,7 +151,10 @@ def handle_post_project_create(handler: HandlerProtocol, obj: dict) -> None:
     # silently fall through to registry registration (P1-29).
     yaml_path = _create_project_yaml(input_path, config_path, proj_out)
     if config_path and config_path.is_file() and yaml_path is None:
-        return handler._send_json({"ok": False, "error": f"创建 project.yaml 失败：{project_dir_raw}"}, 500)
+        return handler._send_json(
+            {"ok": False, "error": t("api.project_yaml_create_failed", {"path": project_dir_raw})},
+            500,
+        )
     # New projects start with an empty selection (videos.json)
     from clio.tasks._video_loader import save_selected_videos
 
@@ -172,7 +179,10 @@ def handle_post_project_add(handler: HandlerProtocol, obj: dict) -> None:
         return handler._send_json({"ok": False, "error": "project_dir is required"}, 400)
     input_path = Path(project_dir_raw)
     if not input_path.is_dir():
-        return handler._send_json({"ok": False, "error": f"目录不存在: {project_dir_raw}"}, 400)
+        return handler._send_json(
+            {"ok": False, "error": t("api.project_dir_missing", {"path": project_dir_raw})},
+            400,
+        )
     proj_file = input_path / "project.json"
     if not proj_file.is_file():
         # Auto-create project.json + project.yaml (similar to create project)
@@ -192,7 +202,10 @@ def handle_post_project_add(handler: HandlerProtocol, obj: dict) -> None:
         _save_atomic(proj_file, json.dumps(proj_data, ensure_ascii=False, indent=2).encode("utf-8"))
         # P1-29: don't proceed when a configured global exists but project.yaml can't be written.
         if _create_project_yaml(input_path, config_path, proj_out) is None and config_path and config_path.is_file():
-            return handler._send_json({"ok": False, "error": f"创建 project.yaml 失败：{project_dir_raw}"}, 500)
+            return handler._send_json(
+                {"ok": False, "error": t("api.project_yaml_create_failed", {"path": project_dir_raw})},
+                500,
+            )
         from clio.tasks._video_loader import save_selected_videos
 
         if not (input_path / "videos.json").is_file():
@@ -203,10 +216,13 @@ def handle_post_project_add(handler: HandlerProtocol, obj: dict) -> None:
         try:
             data = json.loads(proj_file.read_text(encoding="utf-8"))
             if not isinstance(data, dict):
-                return handler._send_json({"ok": False, "error": "project.json 结构无效"}, 400)
+                return handler._send_json({"ok": False, "error": t("api.project_json_invalid")}, 400)
             name = data.get("name") or input_path.name
         except (json.JSONDecodeError, OSError) as e:
-            return handler._send_json({"ok": False, "error": f"无法读取 project.json: {e}"}, 400)
+            return handler._send_json(
+                {"ok": False, "error": t("api.project_json_read_failed", {"detail": e})},
+                400,
+            )
         # Opening an existing dir: ensure videos.json exists so project is non-legacy
         from clio.tasks._video_loader import save_selected_videos
 
@@ -230,7 +246,7 @@ def handle_post_project_remove(handler: HandlerProtocol, obj: dict) -> None:
     project_name = _clean_text(obj.get("name"))
     input_dir_raw = _clean_text(obj.get("project_dir")) or _clean_text(obj.get("input_dir"))
     if not project_name and not input_dir_raw:
-        return handler._send_json({"ok": False, "error": "需要 project_dir 或唯一的 name"}, 400)
+        return handler._send_json({"ok": False, "error": t("api.project_lookup_needs_dir_or_name")}, 400)
 
     targets: list[tuple[str, str]] = []  # (path, display_name)
 
@@ -268,14 +284,18 @@ def handle_post_project_remove(handler: HandlerProtocol, obj: dict) -> None:
                         matches.append((p_str, name))
         if not matches:
             return handler._send_json(
-                {"ok": False, "error": f"未找到名为 {project_name!r} 的项目", "removed_count": 0},
+                {
+                    "ok": False,
+                    "error": t("api.project_name_not_found", {"name": repr(project_name)}),
+                    "removed_count": 0,
+                },
                 404,
             )
         if len(matches) > 1:
             return handler._send_json(
                 {
                     "ok": False,
-                    "error": f"存在 {len(matches)} 个同名项目，请使用 project_dir 精确删除",
+                    "error": t("api.project_name_ambiguous", {"count": len(matches)}),
                     "matches": [{"name": n, "project_dir": d} for d, n in matches],
                     "count": len(matches),
                 },
@@ -290,7 +310,7 @@ def handle_post_project_remove(handler: HandlerProtocol, obj: dict) -> None:
 
     if not removed:
         return handler._send_json(
-            {"ok": False, "error": "项目不在注册表中", "removed_count": 0},
+            {"ok": False, "error": t("api.project_not_registered"), "removed_count": 0},
             404,
         )
     handler._send_json({"ok": True, "removed": removed, "removed_count": len(removed)})
@@ -321,7 +341,7 @@ def handle_post_project_migrate(handler: HandlerProtocol, obj: dict) -> None:
                     "ok": True,
                     "migrated": False,
                     "project_dir": str(project_path.resolve()),
-                    "message": "项目已是新结构",
+                    "message": t("api.project_already_new_structure"),
                 }
             )
         msg = errors[0] if errors else "nothing to migrate"

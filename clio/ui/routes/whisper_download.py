@@ -17,6 +17,7 @@ from typing import Any
 import requests as _req
 
 from clio.config import load_config
+from clio.i18n import t
 from clio.task_center.manager import TaskAlreadyRunningError, TaskManager, TaskNotCancellableError
 from clio.task_center.models import TaskKind, TaskStatus
 from clio.task_center.reporter import TaskCancelled
@@ -58,13 +59,6 @@ _INSTALL_REPORTER: contextvars.ContextVar[Any | None] = contextvars.ContextVar(
 def _is_frozen() -> bool:
     """True when running from a PyInstaller bundle (clio.exe)."""
     return bool(getattr(_sys, "frozen", False))
-
-
-_FROZEN_INSTALL_ERROR = (
-    "打包版（clio.exe）不内置 Whisper 依赖，无法在应用内安装。"
-    "请使用源码版：进入项目目录运行 `python main.py whisper install`，"
-    "或将 faster-whisper 安装到外部 Python 后手动下载模型缓存。"
-)
 
 
 def _install_progress_path(handler: HandlerProtocol, qs: dict[str, Any]) -> Path:
@@ -121,7 +115,7 @@ def _pip_install_streaming(
     (pip buffers its progress bar when stdout is a pipe, not a TTY).
     """
     if _is_frozen():
-        return False, _FROZEN_INSTALL_ERROR
+        return False, t("api.whisper_frozen_install")
     cmd = [_sys.executable, "-m", "pip", "install", "--no-input"]
     if pip_index:
         cmd += ["-i", pip_index]
@@ -151,7 +145,7 @@ def _pip_install_streaming(
                 proc.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 proc.kill()
-            return False, "已取消"
+            return False, t("api.whisper_cancelled")
         chunk = proc.stdout.read(4096)
         if not chunk:
             break
@@ -183,7 +177,7 @@ def _pip_install_streaming(
                 {
                     "status": "downloading",
                     "progress_pct": 0,
-                    "message": f"{label}: 下载中... 已等待 {elapsed}s",
+                    "message": t("api.whisper_download_waiting", {"label": label, "elapsed": elapsed}),
                 },
             )
     proc.wait()
@@ -226,19 +220,23 @@ def _run_whisper_install_task(context) -> dict[str, Any]:
         except Exception as e:
             _write_install_progress(
                 progress_path,
-                {"status": "error", "progress_pct": 0, "message": f"安装失败: {e}"},
+                {
+                    "status": "error",
+                    "progress_pct": 0,
+                    "message": t("api.whisper_install_failed_detail", {"detail": e}),
+                },
             )
             raise
         if context.cancel_event.is_set():
-            raise TaskCancelled("下载已取消")
+            raise TaskCancelled(t("api.whisper_download_cancelled"))
         try:
             data = json.loads(progress_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError) as e:
-            raise RuntimeError(f"无法读取 Whisper 安装状态: {e}") from e
+            raise RuntimeError(t("api.whisper_status_read_failed", {"detail": e})) from e
         if data.get("status") == "error":
-            raise RuntimeError(str(data.get("message") or "Whisper 安装失败"))
+            raise RuntimeError(str(data.get("message") or t("api.whisper_install_failed")))
         if data.get("status") != "done":
-            raise RuntimeError(str(data.get("message") or "Whisper 安装未完成"))
+            raise RuntimeError(str(data.get("message") or t("api.whisper_install_incomplete")))
         return {"model": context.input_data.get("model"), "artifact": "whisper-install"}
     finally:
         _INSTALL_REPORTER.reset(token)
@@ -294,7 +292,7 @@ def handle_get_whisper_install_status(handler: HandlerProtocol, qs: dict[str, An
         task = _PROJECT_TASKS.get(proj_id)
         running = task is not None and task.thread.is_alive()
     if data.get("status") in ("downloading",) and not running:
-        data = {"status": "idle", "message": "上次下载中断，可重新开始"}
+        data = {"status": "idle", "message": t("api.whisper_download_interrupted")}
     data["running"] = running
     handler._send_json(data)
 
@@ -314,7 +312,7 @@ def handle_post_whisper_install(handler: HandlerProtocol, qs: dict[str, Any]) ->
         try:
             task = manager.submit(
                 TaskKind.WHISPER_INSTALL,
-                "安装 Whisper 依赖和模型",
+                t("api.whisper_install_task_title"),
                 project_id=proj_id,
                 project_name=proj_dir.name,
                 project_path=proj_id,
@@ -350,7 +348,7 @@ def handle_post_whisper_install(handler: HandlerProtocol, qs: dict[str, Any]) ->
                     {
                         "status": "error",
                         "progress_pct": 0,
-                        "message": f"安装失败: {e}",
+                        "message": t("api.whisper_install_failed_detail", {"detail": e}),
                     },
                 )
 
@@ -367,7 +365,7 @@ def handle_post_whisper_install_cancel(handler: HandlerProtocol, qs: dict[str, A
     if manager is not None:
         task = _active_whisper_task(manager, proj_id)
         if task is None:
-            return handler._send_json({"ok": True, "message": "当前没有运行中的 Whisper 安装任务"})
+            return handler._send_json({"ok": True, "message": t("api.whisper_no_install_task")})
         try:
             cancelled = manager.request_cancel(task.id)
         except (TaskNotFoundError, TaskNotCancellableError) as e:
@@ -386,7 +384,7 @@ def handle_post_whisper_install_cancel(handler: HandlerProtocol, qs: dict[str, A
             if data.get("status") == "downloading":
                 _write_install_progress(
                     path,
-                    {"status": "idle", "progress_pct": 0, "message": "下载已取消"},
+                    {"status": "idle", "progress_pct": 0, "message": t("api.whisper_download_cancelled")},
                 )
         except (json.JSONDecodeError, OSError):
             pass
@@ -454,23 +452,23 @@ def _sanitize_url(url: str | None) -> str:
 def _download_error_detail(e: Exception, cfg: Any) -> str:
     raw_proxy_url = cfg.proxy.url if (cfg.proxy.enabled and cfg.proxy.url) else None
     proxy_url = _sanitize_url(raw_proxy_url)
-    endpoint = _sanitize_url(cfg.whisper.hf_endpoint) or "https://huggingface.co（未设置镜像）"
-    msg = [f"模型下载失败: {e}"]
+    endpoint = _sanitize_url(cfg.whisper.hf_endpoint) or t("api.whisper_hf_endpoint_default")
+    msg = [t("api.whisper_download_failed", {"detail": e})]
     msg.append(f"  Endpoint: {endpoint}")
-    msg.append(f"  Proxy: {proxy_url or '无'}")
+    msg.append(f"  Proxy: {proxy_url or t('api.whisper_proxy_none')}")
     if "10061" in str(e) or "refused" in str(e).lower():
-        msg.append("  提示: 连接被拒绝。请检查:")
-        msg.append("    - hf-mirror.com 是否可访问（试试浏览器打开）")
-        msg.append("    - 配置文件中 ai.proxy.url 是否正确设置")
-        msg.append("    - 如果不需要镜像，删除 config.yaml 中的 ai.whisper.hf_endpoint")
-        msg.append("    - 若需代理，在 config.yaml 中配置 proxy: { enabled: true, url: http://127.0.0.1:7890 }")
+        msg.append(t("api.whisper_hint_refused_title"))
+        msg.append(t("api.whisper_hint_refused_1"))
+        msg.append(t("api.whisper_hint_refused_2"))
+        msg.append(t("api.whisper_hint_refused_3"))
+        msg.append(t("api.whisper_hint_refused_4"))
     if "Read timed out" in str(e):
-        msg.append("  提示: 读取超时，常见原因:")
-        msg.append("    - 当前 endpoint 是 HuggingFace 官方地址，国内访问不稳定")
-        msg.append("    - 建议在 config.yaml 中设置:")
+        msg.append(t("api.whisper_hint_timeout_title"))
+        msg.append(t("api.whisper_hint_timeout_1"))
+        msg.append(t("api.whisper_hint_timeout_2"))
         msg.append("      whisper:")
         msg.append("        hf_endpoint: https://hf-mirror.com")
-        msg.append("    - 如果已设置镜像但仍超时，可尝试在 config.yaml 中配置代理:")
+        msg.append(t("api.whisper_hint_timeout_3"))
         msg.append("      proxy:")
         msg.append("        enabled: true")
         msg.append("        url: http://127.0.0.1:7890")
@@ -488,7 +486,7 @@ def _verify_install(cfg: Any, progress_path: Path, model_name: str) -> bool:
         {
             "status": "downloading",
             "progress_pct": 100,
-            "message": "验证安装（加载模型以确认依赖完整）...",
+            "message": t("api.whisper_verify_install"),
         },
     )
     if not check_cublas():
@@ -497,7 +495,7 @@ def _verify_install(cfg: Any, progress_path: Path, model_name: str) -> bool:
             {
                 "status": "error",
                 "progress_pct": 100,
-                "message": "cuBLAS 仍未就绪，转录将失败。请手动: pip install nvidia-cublas-cu12",
+                "message": t("api.whisper_cublas_not_ready"),
             },
         )
         return False
@@ -509,7 +507,7 @@ def _verify_install(cfg: Any, progress_path: Path, model_name: str) -> bool:
             {
                 "status": "error",
                 "progress_pct": 100,
-                "message": f"模型加载验证失败: {e}",
+                "message": t("api.whisper_model_verify_failed", {"detail": e}),
             },
         )
         return False
@@ -520,7 +518,7 @@ def _verify_install(cfg: Any, progress_path: Path, model_name: str) -> bool:
         {
             "status": "done",
             "progress_pct": 100,
-            "message": f"模型 {model_name} 下载完成，验证通过 ✔",
+            "message": t("api.whisper_model_downloaded_ok", {"model": model_name}),
         },
     )
     return True
@@ -538,7 +536,7 @@ def _run_install(
             {
                 "status": "error",
                 "progress_pct": 0,
-                "message": _FROZEN_INSTALL_ERROR,
+                "message": t("api.whisper_frozen_install"),
             },
         )
         return
@@ -551,7 +549,7 @@ def _run_install(
         {
             "status": "downloading",
             "progress_pct": 0,
-            "message": "检查 huggingface_hub 依赖...",
+            "message": t("api.whisper_check_hf_hub"),
         },
     )
     try:
@@ -563,26 +561,28 @@ def _run_install(
             text=True,
         )
         if r.returncode != 0:
-            raise RuntimeError(f"安装 huggingface_hub 失败: {r.stderr}")
+            raise RuntimeError(t("api.whisper_install_hf_hub_failed", {"detail": r.stderr}))
 
     _write_install_progress(
         progress_path,
         {
             "status": "downloading",
             "progress_pct": 0,
-            "message": "安装 faster-whisper...",
+            "message": t("api.whisper_install_faster_whisper"),
         },
     )
     req_txt = PROJECT_ROOT / "requirements-whisper.txt"
     if req_txt.is_file():
-        ok, err = _pip_install_streaming(["-r", str(req_txt)], progress_path, "安装 faster-whisper", cancel, pip_index)
+        ok, err = _pip_install_streaming(
+            ["-r", str(req_txt)], progress_path, t("api.whisper_install_faster_whisper_label"), cancel, pip_index
+        )
         if not ok:
             _write_install_progress(
                 progress_path,
                 {
                     "status": "error",
                     "progress_pct": 0,
-                    "message": f"安装 faster-whisper 失败: {err[:200]}",
+                    "message": t("api.whisper_install_faster_whisper_failed", {"detail": err[:200]}),
                 },
             )
             return
@@ -593,7 +593,7 @@ def _run_install(
         {
             "status": "downloading",
             "progress_pct": 0,
-            "message": "安装 cuBLAS 库...",
+            "message": t("api.whisper_install_cublas"),
         },
     )
     cublas_pkgs = ["nvidia-cublas-cu12"]
@@ -605,14 +605,16 @@ def _run_install(
     except (ImportError, OSError):
         pass
     if cublas_pkgs:
-        ok, err = _pip_install_streaming(cublas_pkgs, progress_path, "安装 cuBLAS", cancel, pip_index)
+        ok, err = _pip_install_streaming(
+            cublas_pkgs, progress_path, t("api.whisper_install_cublas_label"), cancel, pip_index
+        )
         if not ok:
             _write_install_progress(
                 progress_path,
                 {
                     "status": "downloading",
                     "progress_pct": 0,
-                    "message": f"cuBLAS 安装失败（{err[:100]}），继续下载模型...",
+                    "message": t("api.whisper_cublas_install_failed", {"detail": err[:100]}),
                 },
             )
 
@@ -632,7 +634,10 @@ def _run_install(
         {
             "status": "downloading",
             "progress_pct": 0,
-            "message": f"正在下载模型 {model_name} ({_format_bytes(total_size) if total_size else '...'})...",
+            "message": t(
+                "api.whisper_downloading_model",
+                {"model": model_name, "size": _format_bytes(total_size) if total_size else "..."},
+            ),
         },
     )
 
@@ -699,7 +704,10 @@ def _run_install(
                         {
                             "status": "downloading",
                             "progress_pct": pct,
-                            "message": f"下载模型 {model_name}: {filename} ({pct}%)",
+                            "message": t(
+                                "api.whisper_download_model_progress",
+                                {"model": model_name, "file": filename, "pct": pct},
+                            ),
                             "speed": speed_str,
                             "eta_sec": eta_sec,
                         },
@@ -720,7 +728,7 @@ def _run_install(
             tmp_path.unlink(missing_ok=True)
             _write_install_progress(
                 progress_path,
-                {"status": "idle", "progress_pct": 0, "message": "下载已取消"},
+                {"status": "idle", "progress_pct": 0, "message": t("api.whisper_download_cancelled")},
             )
             return
 
