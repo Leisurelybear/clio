@@ -26,7 +26,7 @@ from typing import Any
 import yaml
 
 from clio.config import AppConfig, load_config
-from clio.ui.services.file_service import _save_atomic
+from clio.ui.services.file_service import _normalized_relative_subdir, _save_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -102,9 +102,9 @@ def _artifact_subdir_names(project_dir: Path | None = None) -> dict[str, str]:
         raw = section.get(field) if isinstance(section, dict) else None
         if raw is None or str(raw).strip() == "":
             continue
-        name = Path(str(raw)).name
-        if name and name not in (".", ".."):
-            names[key] = name
+        normalized = _normalized_relative_subdir(str(raw))
+        if normalized:
+            names[key] = normalized
     return names
 
 

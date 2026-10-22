@@ -27,6 +27,22 @@ from clio.config.loader import _filter_project_only
 from clio.vmeta import VideoIndex, VideoMeta
 
 
+def _normalized_relative_subdir(value: str | Path | None) -> str | None:
+    """Return a safe output-relative subdir, or None when invalid/empty."""
+    from pathlib import PurePosixPath
+
+    from clio.config.validators import _require_relative_subdir
+
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        _require_relative_subdir("subdir", raw)
+    except ValueError:
+        return None
+    return PurePosixPath(raw.replace("\\", "/")).as_posix()
+
+
 def _is_safe_basename(name: str) -> bool:
     if not name or len(name) > 200:
         return False
@@ -57,9 +73,9 @@ def _find_texts_dirs(output_dir: Path, *, preferred_subdir: str | None = None) -
         found.append(d)
 
     if preferred_subdir:
-        name = Path(str(preferred_subdir)).name
-        if name and name not in (".", ".."):
-            _add(output_dir / name)
+        normalized = _normalized_relative_subdir(preferred_subdir)
+        if normalized:
+            _add(output_dir / normalized)
 
     try:
         entries = sorted(output_dir.iterdir())

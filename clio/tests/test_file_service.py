@@ -79,6 +79,21 @@ class TestFindTextsDirs:
         result = _find_texts_dirs(out, preferred_subdir="notes")
         assert result == [notes]
 
+    def test_finds_nested_preferred_subdir(self, tmp_path: Path):
+        out = tmp_path / "output"
+        out.mkdir()
+        notes = out / "nested" / "deep"
+        notes.mkdir(parents=True)
+        result = _find_texts_dirs(out, preferred_subdir="nested/deep")
+        assert result == [notes]
+
+    def test_rejects_escaping_preferred_subdir(self, tmp_path: Path):
+        out = tmp_path / "output"
+        outside = tmp_path / "outside"
+        out.mkdir()
+        outside.mkdir()
+        assert _find_texts_dirs(out, preferred_subdir="../outside") == []
+
     def test_preferred_plus_legacy_texts(self, tmp_path: Path):
         out = tmp_path / "output"
         out.mkdir()
