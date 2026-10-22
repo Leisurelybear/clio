@@ -79,6 +79,10 @@ class TestResolveStem:
     def test_seg_suffix_stripped(self):
         assert _resolve_stem("001_GL_seg01.mp4") == "001_GL"
 
+    def test_all_legacy_suffixes_stripped(self):
+        for suffix in ("seg01", "part02", "pt03", "chunk04"):
+            assert _resolve_stem(f"001_GL_{suffix}.mp4") == "001_GL"
+
     def test_unsafe_name_returns_none(self):
         assert _resolve_stem("../etc/passwd") is None
 
@@ -123,6 +127,16 @@ class TestTranscriptPathFallback:
         (tdir / "001_A_transcript.json").write_text(json.dumps({"segments": [], "_rev": 1}), encoding="utf-8")
 
         handle_get_transcripts(handler, {"video": ["001_A_seg02.mp4"]})
+
+        assert handler._send_json.call_args[0][0]["ok"] is True
+
+    def test_stem_fallback_when_legacy_part_missing(self, tmp_path: Path):
+        handler = _handler_with_config(tmp_path)
+        tdir = tmp_path / "transcripts"
+        tdir.mkdir()
+        (tdir / "001_A_transcript.json").write_text(json.dumps({"segments": []}), encoding="utf-8")
+
+        handle_get_transcripts(handler, {"video": ["001_A_part02.mp4"]})
 
         assert handler._send_json.call_args[0][0]["ok"] is True
 

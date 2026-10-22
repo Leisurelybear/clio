@@ -4,17 +4,15 @@ from __future__ import annotations
 
 import json
 import math
-import re
 from pathlib import Path
 from typing import Any
 
+from clio.identity import SEGMENT_SUFFIX_RE
 from clio.ui.handler_protocol import HandlerProtocol
 from clio.ui.services.file_service import _is_safe_basename, _save_atomic
 
 _MAX_SEGMENT_TEXT_LENGTH = 5000
 _MAX_TIME_SEC = 86400  # 24h
-
-_SEG_SUFFIX_RE = re.compile(r"_seg\d+$")
 
 
 def _sanitize_segment(seg: dict) -> dict:
@@ -74,7 +72,7 @@ def _resolve_stem(file: str) -> str | None:
     if not safe:
         return None
     name = file.rsplit(".", 1)[0]
-    stem = _SEG_SUFFIX_RE.sub("", name)
+    stem = SEGMENT_SUFFIX_RE.sub("", name)
     return stem
 
 
@@ -97,7 +95,7 @@ def _transcript_path(handler: HandlerProtocol, qs: dict[str, Any], video: str) -
     if not safe:
         return None
     name = video.rsplit(".", 1)[0]  # full name, preserving _segNN
-    stem = _SEG_SUFFIX_RE.sub("", name)  # _segNN stripped
+    stem = SEGMENT_SUFFIX_RE.sub("", name)  # legacy split suffix stripped
 
     proj_out = handler._get_project_output(qs)
     if not proj_out:
@@ -120,7 +118,7 @@ def _transcript_path(handler: HandlerProtocol, qs: dict[str, Any], video: str) -
     orig_stem = stem
     if "_" in stem:
         _, orig_stem = stem.split("_", 1)
-        orig_stem = _SEG_SUFFIX_RE.sub("", orig_stem)
+        orig_stem = SEGMENT_SUFFIX_RE.sub("", orig_stem)
         orig_path = transcripts_dir / f"{orig_stem}_transcript.json"
         if orig_path.is_file():
             return orig_path
@@ -134,7 +132,7 @@ def _transcript_path(handler: HandlerProtocol, qs: dict[str, Any], video: str) -
             if not (p.is_file() and p.name.endswith("_transcript.json")):
                 continue
             base = p.stem[: -len("_transcript")]  # "001_GL010695_seg01"
-            base_clean = _SEG_SUFFIX_RE.sub("", base)  # "001_GL010695"
+            base_clean = SEGMENT_SUFFIX_RE.sub("", base)  # "001_GL010695"
             if base_clean == stem:
                 return p
             if fallback is None and "_" in base_clean:

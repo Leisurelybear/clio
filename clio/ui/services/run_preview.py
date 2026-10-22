@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
 from clio._constants import VIDEO_EXTENSIONS
 from clio.config.models import AppConfig
+from clio.identity import SEGMENT_SUFFIX_RE
 from clio.index import ArtifactIndex
 from clio.tasks._helpers import _matches_selected_artifact, _matches_selected_stem, _selected_stems
 
@@ -352,8 +352,7 @@ def _indexed_stem_parts(stem: str) -> tuple[str, str]:
 
 
 def _original_stem_for_compressed_part(stem_part: str) -> str:
-    match = re.match(r"^(.+?)_seg\d+$", stem_part)
-    return match.group(1) if match else stem_part
+    return SEGMENT_SUFFIX_RE.sub("", stem_part)
 
 
 def _is_video(path: Path) -> bool:

@@ -251,6 +251,11 @@ class TestFindOriginalForCompressed:
         result = _find_original_for_compressed("001_GL010695_seg01", tmp_path)
         assert result is None
 
+    def test_legacy_part_suffix_fallback(self, tmp_path: Path):
+        (tmp_path / "GL010695.MP4").write_bytes(b"")
+        result = _find_original_for_compressed("001_GL010695_part02", tmp_path)
+        assert result is not None and Path(result).name == "GL010695.MP4"
+
     def test_first_underscore_suffix(self, tmp_path: Path):
         # Does the split use the thing after the FIRST underscore?
         (tmp_path / "bar.MP4").write_bytes(b"")

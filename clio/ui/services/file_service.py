@@ -24,6 +24,7 @@ import yaml
 
 from clio._constants import VIDEO_EXTS
 from clio.config.loader import _filter_project_only
+from clio.identity import SEGMENT_SUFFIX_RE
 from clio.vmeta import VideoIndex, VideoMeta
 
 
@@ -304,9 +305,9 @@ def _find_original_for_compressed(
                     return str(hit.resolve()) if hit.is_file() else str(hit)
                 except OSError:
                     return str(hit)
-            m = re.match(r"^(.+)_seg\d+$", suffix)
-            if m:
-                hit = _unique_stem_match(m.group(1))
+            base = SEGMENT_SUFFIX_RE.sub("", suffix)
+            if base != suffix:
+                hit = _unique_stem_match(base)
                 if hit is not None:
                     try:
                         return str(hit.resolve()) if hit.is_file() else str(hit)
@@ -328,9 +329,8 @@ def _find_original_for_compressed(
         return str(stem_hits[0].resolve())
     if len(stem_hits) > 1:
         return None
-    m = re.match(r"^(.+)_seg\d+$", suffix)
-    if m:
-        base = m.group(1)
+    base = SEGMENT_SUFFIX_RE.sub("", suffix)
+    if base != suffix:
         base_hits = [p for p in sorted(scan_dir.iterdir()) if p.is_file() and p.stem.lower() == base]
         if len(base_hits) == 1:
             return str(base_hits[0].resolve())

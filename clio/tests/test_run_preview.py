@@ -119,6 +119,29 @@ def test_preview_compress_counts_existing_segment_output_as_skip(tmp_path: Path)
     assert preview["steps"][0]["will_skip"] == 1
 
 
+def test_preview_compress_counts_legacy_part_output_as_skip(tmp_path: Path) -> None:
+    input_dir = tmp_path / "videos"
+    output_dir = tmp_path / "output"
+    compressed_dir = output_dir / "compressed"
+    input_dir.mkdir()
+    compressed_dir.mkdir(parents=True)
+    (input_dir / "A.mp4").write_bytes(b"video")
+    (compressed_dir / "001_A_part02.mp4").write_bytes(b"compressed segment")
+
+    from clio.tasks._video_loader import save_selected_videos
+
+    save_selected_videos(input_dir, [input_dir / "A.mp4"])
+    preview = build_run_preview(
+        _config(input_dir, output_dir),
+        steps=["compress"],
+        force=False,
+        use_transcripts=True,
+    )
+
+    assert preview["steps"][0]["will_run"] == 0
+    assert preview["steps"][0]["will_skip"] == 1
+
+
 def test_preview_force_disables_skip_counts(tmp_path: Path) -> None:
     input_dir = tmp_path / "videos"
     output_dir = tmp_path / "output"
