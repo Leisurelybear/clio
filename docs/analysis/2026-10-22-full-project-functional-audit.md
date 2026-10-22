@@ -1,6 +1,6 @@
 # 2026-10-22 全域功能审计与增量修复记录
 
-> 状态：已完成（自动化审计范围）。外部服务、真实媒体和桌面窗口仍保留实机验证项。
+> 状态：已完成（本地自动化审计 + 远端 CI 验证）。外部服务、真实媒体和桌面窗口仍保留实机验证项。
 >
 > 范围：CLI、配置、媒体处理、AI/ASR、任务中心、HTTP/Web UI、桌面壳、导出、日志/通知、打包与发布文档。
 >
@@ -100,6 +100,7 @@ mypy --check-untyped-defs --show-error-codes
 | A-38 | 中 | 已修复 | `projects.json` 根节点为非对象时，项目列表/名称解析返回 500 | 统一走注册表校验并隔离，读取失败降级为空注册表 |
 | A-39 | 中 | 已修复 | V1→V2 配置迁移读取非对象 `projects.json` 时中断 | 迁移读取增加结构校验并跳过无效条目 |
 | A-40 | 低 | 已修复 | 选片任务匹配遇到非对象分析 JSON 时抛 `AttributeError`，拖垮流水线 | 非对象分析产物按不匹配处理 |
+| A-41 | 低 | 已修复 | 自定义 Key 清理测试在 POSIX 上创建 `0644` 的 `.env`，被安全写入保护拒绝，导致 Linux/macOS CI 失败 | 测试夹具在 POSIX 上设置 `0600`，与真实安全前提一致 |
 
 ## 5. 优化 backlog
 
@@ -169,6 +170,7 @@ mypy --check-untyped-defs --show-error-codes
 | `38be846` | `fix(tasks): ignore non-object analysis artifacts` | `test_helpers.py` 33 passed |
 | `e1bcb1a` | `fix(config): tolerate malformed registry during migration` | `test_config_v2.py` 44 passed |
 | `a423ee8` | `docs: refresh test suite baselines` | 文档检查 |
+| `e901150` | `test(env): make custom key removal test POSIX-safe` | Linux/macOS/Windows × Python 3.11/3.12 CI 全部通过 |
 
 ## 7. 未实机验证项
 
@@ -193,6 +195,7 @@ mypy --check-untyped-defs --show-error-codes
 | Ruff format check | 通过（236 files） |
 | mypy subset | 通过（39 source files） |
 | CLI 冒烟 | `check` 与 `doctor` 正常退出，输出符合文档 |
-| 工作区 | 所有修复均已本地提交；用户已授权推送 |
+| GitHub Actions | CI `39718605407` 全部成功；Linux/macOS/Windows、Python 3.11/3.12、Vitest、打包与质量检查均通过 |
+| 工作区 | 所有修复均已提交并推送；最终文档提交后保持干净 |
 
 真实 Gemini/DeepSeek/阿里云调用、真实剪映导入、pywebview 窗口交互和真实长视频处理仍属于实机验证范围；对应风险已列入第 7 节。
