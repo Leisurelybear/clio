@@ -38,6 +38,15 @@ _REFINEMENT_IMMUTABLE_FIELDS = {
 }
 
 
+def _store_trip_context(project_dir: str, key: str, text: str) -> None:
+    """Keep at most one cached trip context for each project directory."""
+    prefix = f"{project_dir}@"
+    for cached_key in list(_trip_context_cache):
+        if cached_key.startswith(prefix):
+            del _trip_context_cache[cached_key]
+    _trip_context_cache[key] = text
+
+
 def _refinement_value_compatible(original: Any, candidate: Any) -> bool:
     if original is None:
         return True
@@ -71,7 +80,7 @@ def _read_trip_context(project_dir: str) -> str:
             return _trip_context_cache[key]
         text = project_path.read_text(encoding="utf-8").strip()
         if text:
-            _trip_context_cache[key] = text
+            _store_trip_context(project_dir, key, text)
             return text
     default_path = find_resource("templates/trip_context.md")
     if default_path is not None:
@@ -81,9 +90,9 @@ def _read_trip_context(project_dir: str) -> str:
             return _trip_context_cache[key]
         text = default_path.read_text(encoding="utf-8").strip()
         if text:
-            _trip_context_cache[key] = text
+            _store_trip_context(project_dir, key, text)
             return text
-    _trip_context_cache[f"{project_dir}@empty"] = ""
+    _store_trip_context(project_dir, f"{project_dir}@empty", "")
     return ""
 
 

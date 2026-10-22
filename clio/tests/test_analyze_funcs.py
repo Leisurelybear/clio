@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -105,6 +106,77 @@ class TestWrapWithContext:
         assert "Trip: Paris" in result
         assert "user context" in result
         assert "prompt" in result
+
+    def test_trip_context_cache_evicts_stale_versions(self, tmp_path: Path):
+        import clio.analyze as analyze_mod
+
+        analyze_mod._trip_context_cache.clear()
+        templates = tmp_path / "templates"
+        templates.mkdir()
+        ctx_file = templates / "trip_context.md"
+        ctx_file.write_text("first version", encoding="utf-8")
+        os.utime(ctx_file, (1_000_000_000, 1_000_000_000))
+        project_dir = str(tmp_path)
+
+        assert analyze_mod._read_trip_context(project_dir) == "first version"
+        assert list(analyze_mod._trip_context_cache) == [f"{project_dir}@{ctx_file.stat().st_mtime}"]
+
+        ctx_file.write_text("second version", encoding="utf-8")
+        os.utime(ctx_file, (1_000_000_100, 1_000_000_100))
+
+        assert analyze_mod._read_trip_context(project_dir) == "second version"
+        assert list(analyze_mod._trip_context_cache) == [f"{project_dir}@{ctx_file.stat().st_mtime}"]
+
+    def test_trip_context_cache_switches_projects_without_stale_entries(self, tmp_path: Path):
+        import clio.analyze as analyze_mod
+
+        analyze_mod._trip_context_cache.clear()
+        project_a = tmp_path / "project-a"
+        project_b = tmp_path / "project-b"
+        for project, text in ((project_a, "context A"), (project_b, "context B")):
+            templates = project / "templates"
+            templates.mkdir(parents=True)
+            ctx_file = templates / "trip_context.md"
+            ctx_file.write_text(text, encoding="utf-8")
+            os.utime(ctx_file, (1_000_000_000, 1_000_000_000))
+
+        assert analyze_mod._read_trip_context(str(project_a)) == "context A"
+        assert analyze_mod._read_trip_context(str(project_b)) == "context B"
+
+        ctx_a = project_a / "templates" / "trip_context.md"
+        ctx_a.write_text("context A updated", encoding="utf-8")
+        os.utime(ctx_a, (1_000_000_100, 1_000_000_100))
+
+        assert analyze_mod._read_trip_context(str(project_a)) == "context A updated"
+        assert analyze_mod._trip_context_cache == {
+            f"{project_a}@{ctx_a.stat().st_mtime}": "context A updated",
+            f"{project_b}@{project_b.joinpath('templates', 'trip_context.md').stat().st_mtime}": "context B",
+        }
+
+    def test_trip_context_cache_replaces_default_and_empty_entries(self, tmp_path: Path, monkeypatch):
+        import clio.analyze as analyze_mod
+
+        analyze_mod._trip_context_cache.clear()
+        project_dir = str(tmp_path / "project")
+        templates = tmp_path / "project" / "templates"
+        templates.mkdir(parents=True)
+        project_ctx = templates / "trip_context.md"
+        project_ctx.write_text("project context", encoding="utf-8")
+        default_ctx = tmp_path / "default-trip-context.md"
+        default_ctx.write_text("default context", encoding="utf-8")
+        monkeypatch.setattr(
+            "clio.resources.find_resource",
+            lambda relative: default_ctx if default_ctx.is_file() else None,
+        )
+
+        assert analyze_mod._read_trip_context(project_dir) == "project context"
+        project_ctx.unlink()
+        assert analyze_mod._read_trip_context(project_dir) == "default context"
+        assert list(analyze_mod._trip_context_cache) == [f"{project_dir}@default@{default_ctx.stat().st_mtime}"]
+
+        default_ctx.unlink()
+        assert analyze_mod._read_trip_context(project_dir) == ""
+        assert analyze_mod._trip_context_cache == {f"{project_dir}@empty": ""}
 
 
 def test_analyze_video_uses_prompt_override(tmp_path, monkeypatch):
