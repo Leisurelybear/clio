@@ -261,6 +261,20 @@ def test_force_flag_after_subcommand(mock_reindex, mock_analyze, cli_runner, con
     assert cfg_arg.analyze.skip_existing is False
 
 
+@patch("clio.pipeline.run_refine_scripts")
+@patch("clio.pipeline.run_refine_texts")
+def test_refine_accepts_project_directory(mock_texts, mock_scripts, cli_runner, config_path, tmp_path):
+    project = tmp_path / "refine-project"
+    project.mkdir()
+
+    result = cli_runner(["--config", str(config_path), "refine", "-p", str(project), "--target", "texts"])
+
+    assert result == 0
+    cfg_arg = mock_texts.call_args[0][0]
+    assert cfg_arg.project_dir == project.resolve()
+    mock_scripts.assert_not_called()
+
+
 @patch("clio.main.load_config")
 @patch("clio.tasks.transcribe.run_transcribe_all")
 def test_transcribe_with_input(mock_run, mock_load, cli_runner, config_path, tmp_path):

@@ -232,6 +232,8 @@ def main(argv: list[str] | None = None) -> int:
         help="视频来源（compressed: 从压缩版裁剪 / original: 从原片裁剪）",
     )
     p_refine = sub.add_parser("refine", help="用 AI + trip 上下文 审阅并修正已有分析/口播")
+    p_refine.add_argument("-p", "--project", type=Path, help="项目目录（包含 project.yaml）")
+    p_refine.add_argument("-o", "--output", type=Path, help="输出文件夹覆盖")
     p_refine.add_argument(
         "--target",
         "-t",
