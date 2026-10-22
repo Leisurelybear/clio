@@ -161,14 +161,6 @@ function showFfmpegHelp() {
 
 async function init() {
   await initI18n(readStoredLocale());
-  showVideoListLoading('正在加载项目…');
-  initLayout();
-  initTheme();
-  initDesktopPickers(document);
-  initNotificationCenter();
-  window.addEventListener('clio:notification-action', (event) => {
-    void handleRuntimeWarningAction(event.detail?.id);
-  });
 
   // 从 URL 读取 project + project_dir 参数
   const urlParams = new URLSearchParams(window.location.search);
@@ -192,6 +184,15 @@ async function init() {
     const cleaned = stripQueryParams(location.search, ['token']);
     history.replaceState(null, '', location.pathname + cleaned + (location.hash || ''));
   }
+
+  showVideoListLoading('正在加载项目…');
+  initLayout();
+  initTheme();
+  initDesktopPickers(document);
+  initNotificationCenter();
+  window.addEventListener('clio:notification-action', (event) => {
+    void handleRuntimeWarningAction(event.detail?.id);
+  });
 
   // 新建/打开项目模态框（必须在 try 之前绑定，空状态时也会用到）
   const newModal = $('modal-new-project');

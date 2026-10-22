@@ -5,6 +5,7 @@ import { initDesktopNotificationBridge } from './desktop-notify.js';
 
 const SEVERITY_LABELS = { info: '信息', success: '完成', warning: '警告', error: '错误' };
 const PAGE_SIZE = 100;
+const _seenNotificationIds = new Set();
 let _stream = null;
 let _streamRetry = null;
 let _streamCursor = 0;
@@ -67,8 +68,8 @@ function _time(value) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
-function _query(offset) {
-  const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset) });
+function _query(offset, limit = PAGE_SIZE) {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
   if (_filter === 'unread') params.set('unread', '1');
   if (_filter === 'attention') params.set('severity', 'warning,error');
   return `/api/notifications?${params.toString()}`;
@@ -82,26 +83,38 @@ function _recordRevision(value, { advanceCursor = true } = {}) {
   return revision;
 }
 
-function _mergePage(result, append) {
+function _mergePage(result, { append = false, refresh = false } = {}) {
   const items = Array.isArray(result?.notifications) ? result.notifications : [];
   const revision = Number(result?.latest_seq);
   // A mutation or SSE refresh may have advanced the local state while this
   // request was in flight. Never let an older snapshot overwrite it.
-  if (Number.isFinite(revision) && revision < state.notificationLatestSeq) return;
-  const merged = append ? new Map(state.notifications.map(item => [item.id, item])) : new Map();
+  if (Number.isFinite(revision) && revision < state.notificationLatestSeq) return [];
+  const newItems = items.filter(item => item?.id && !_seenNotificationIds.has(item.id));
+  const previousIds = new Set(state.notifications.map(item => item.id));
+  const merged = append || refresh ? new Map(state.notifications.map(item => [item.id, item])) : new Map();
   items.forEach(item => merged.set(item.id, item));
   state.notifications = [...merged.values()].filter(_matchesFilter);
   state.notifications.sort((a, b) => (Number(b.seq) || 0) - (Number(a.seq) || 0));
+  const nextIds = new Set(state.notifications.map(item => item.id));
+  const removedCount = refresh ? [...previousIds].filter(id => !nextIds.has(id)).length : 0;
+  items.forEach(item => { if (item?.id) _seenNotificationIds.add(item.id); });
   const unread = Number(result?.unread_count);
   if (Number.isFinite(unread)) state.notificationUnread = Math.max(0, unread);
   _recordRevision(revision);
   const total = Number(result?.total_count);
   _totalKnown = Number.isFinite(total);
   _totalCount = _totalKnown ? Math.max(0, total) : state.notifications.length;
-  // Use the number currently present rather than the number returned by the
-  // previous page. Read-state changes and live inserts can shift OFFSET rows.
-  _loadedServerCount = state.notifications.length;
+  if (append) _loadedServerCount += items.length;
+  else if (refresh) {
+    const frontier = items.length && newItems.length === items.length
+      ? items.length
+      : _loadedServerCount + newItems.length - removedCount;
+    _loadedServerCount = Math.max(items.length, frontier);
+  }
+  else _loadedServerCount = items.length;
+  if (_totalKnown) _loadedServerCount = Math.min(_loadedServerCount, _totalCount);
   _hasMore = _totalKnown && _loadedServerCount < _totalCount;
+  return newItems;
 }
 
 function _render() {
@@ -170,16 +183,23 @@ function _row(notification) {
     ${readBtn}</div>`;
 }
 
-export async function loadNotifications({ append = false } = {}) {
-  if (_loading || (_loadingMore && append)) return;
+export async function loadNotifications({ append = false, refresh = false, emitNew = false } = {}) {
+  if (_loading || _loadingMore) return;
   const generation = ++_loadGeneration;
   if (append) _loadingMore = true;
   else _loading = true;
   _render();
   try {
-    const result = await api('GET', _query(append ? _loadedServerCount : 0));
+    const offset = append ? _loadedServerCount : 0;
+    const limit = refresh ? Math.max(PAGE_SIZE, Math.min(_loadedServerCount, 200)) : PAGE_SIZE;
+    const result = await api('GET', _query(offset, limit));
     if (generation !== _loadGeneration) return;
-    _mergePage(result, append);
+    const newItems = _mergePage(result, { append, refresh });
+    if (emitNew && refresh) {
+      newItems.forEach(notification => {
+        window.dispatchEvent(new CustomEvent('clio:notification-created', { detail: notification }));
+      });
+    }
   } catch {
     // The inbox is auxiliary; keep the rest of the editor available when it is unavailable.
   } finally {
@@ -189,7 +209,7 @@ export async function loadNotifications({ append = false } = {}) {
       _render();
       if (_refreshPending) {
         _refreshPending = false;
-        void loadNotifications();
+        void loadNotifications({ refresh: true, emitNew: true });
       }
     }
   }
@@ -209,11 +229,14 @@ function _startStream() {
       _recordRevision(revision);
       if (payload.refresh) {
         if (_loading || _loadingMore) _refreshPending = true;
-        else void loadNotifications();
+        else void loadNotifications({ refresh: true, emitNew: true });
       }
       else if (payload.notification) {
+        const isNew = payload.notification.id && !_seenNotificationIds.has(payload.notification.id);
+        if (isNew) _seenNotificationIds.add(payload.notification.id);
         _upsert(payload.notification);
         _render();
+        if (isNew) window.dispatchEvent(new CustomEvent('clio:notification-created', { detail: payload.notification }));
       }
     } catch { /* ignore malformed events */ }
   };
@@ -270,6 +293,7 @@ export async function registerNotification({
     const endpoint = params.toString() ? `/api/notifications?${params.toString()}` : '/api/notifications';
     const result = await api('POST', endpoint, payload);
     if (result?.notification) {
+      _seenNotificationIds.add(result.notification.id);
       _upsert(result.notification);
       _recordRevision(result.latest_seq ?? result.notification.seq, { advanceCursor: false });
       if (Number.isFinite(Number(result.unread_count))) state.notificationUnread = Math.max(0, Number(result.unread_count));
@@ -340,7 +364,7 @@ export function initNotificationCenter() {
   button.addEventListener('click', event => {
     event.stopPropagation();
     panel.hidden = !panel.hidden;
-    if (!panel.hidden) { void loadNotifications(); _render(); }
+    if (!panel.hidden) { void loadNotifications(state.notifications.length ? { refresh: true } : {}); _render(); }
   });
   document.addEventListener('click', event => {
     const path = event.composedPath?.() || [];

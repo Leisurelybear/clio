@@ -51,6 +51,19 @@ describe('desktop notifications', () => {
     expect(notify).toHaveBeenCalledTimes(1);
   });
 
+  it('retries the same notification after the desktop bridge reports failure', async () => {
+    const notify = vi.fn()
+      .mockResolvedValueOnce({ ok: false, delivered: false })
+      .mockResolvedValueOnce({ ok: true, delivered: true });
+    window.pywebview = { api: { notify } };
+    const item = { id: 'retry-me', title: 'Export', message: 'done' };
+
+    expect(await maybeDeliverDesktopNotification(item, { enabled: true, hidden: true })).toBe(false);
+    expect(await maybeDeliverDesktopNotification(item, { enabled: true, hidden: true })).toBe(true);
+
+    expect(notify).toHaveBeenCalledTimes(2);
+  });
+
   it('uses the browser Notification API only when permission is granted', async () => {
     const notify = vi.fn();
     globalThis.Notification = class {

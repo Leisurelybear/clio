@@ -419,11 +419,21 @@ class TaskStore:
             ).fetchall()
         return [self._row_to_notification(row) for row in rows]
 
-    def mark_notification_read(self, notification_id_value: str, *, read: bool = True) -> Notification | None:
+    def mark_notification_read(
+        self, notification_id_value: str, *, read: bool = True, project_id: str | None = None
+    ) -> Notification | None:
         read_at = utc_now_iso() if read else None
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute("SELECT * FROM notifications WHERE id = ?", (notification_id_value,)).fetchone()
+            where = ["id = ?"]
+            params: builtins.list[Any] = [notification_id_value]
+            if project_id is not None:
+                where.append("project_id = ?")
+                params.append(project_id)
+            row = connection.execute(
+                f"SELECT * FROM notifications WHERE {' AND '.join(where)}",  # noqa: S608
+                params,
+            ).fetchone()
             if row is not None and (row["read_at"] is not None) != read:
                 connection.execute(
                     "UPDATE notifications SET read_at = ? WHERE id = ?",
@@ -681,7 +691,9 @@ class TaskStore:
         ).fetchone()
         if row is None:
             return None
-        title = str(row[0] or "任务")
+        label_text = f"：{label}"
+        title = f"{str(row[0] or '任务').strip()[: 200 - len(label_text)] or '任务'}{label_text}"
+        message = str(event.message or label).strip()[:4000] or label
         link_params = ["entity=tasks", "task_id=" + quote(event.task_id, safe="")]
         if row[1]:
             link_params.append(f"project_dir={quote(str(row[1]), safe='')}")
@@ -690,8 +702,8 @@ class TaskStore:
         return Notification(
             id=notification_id(f"task-event:{event.seq}"),
             severity=severity,
-            title=f"{title}：{label}",
-            message=event.message or label,
+            title=title,
+            message=message,
             created_at=event.created_at,
             source_type="task_event",
             source_id=str(event.seq),
@@ -705,6 +717,7 @@ class TaskStore:
 
     @classmethod
     def _insert_notification(cls, connection: sqlite3.Connection, notification: Notification) -> Notification:
+        dedupe_key = (notification.dedupe_key or "").strip() or None
         cursor = connection.execute(
             """
             INSERT OR IGNORE INTO notifications
@@ -725,16 +738,14 @@ class TaskStore:
                 notification.project_id,
                 notification.project_name,
                 notification.link,
-                notification.dedupe_key,
+                dedupe_key,
                 cls._json(notification_data(notification.data)),
             ),
         )
         if cursor.rowcount:
             cls._bump_notification_revision(connection)
-        if notification.dedupe_key:
-            row = connection.execute(
-                "SELECT * FROM notifications WHERE dedupe_key = ?", (notification.dedupe_key,)
-            ).fetchone()
+        if dedupe_key:
+            row = connection.execute("SELECT * FROM notifications WHERE dedupe_key = ?", (dedupe_key,)).fetchone()
         else:
             row = connection.execute("SELECT * FROM notifications WHERE id = ?", (notification.id,)).fetchone()
         if row is None:

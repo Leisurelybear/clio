@@ -38,9 +38,10 @@ async function _deliver(notification) {
 
 export async function maybeDeliverDesktopNotification(notification, options = {}) {
   if (!shouldDeliverNativeNotification(notification, options)) return false;
-  _delivered.add(_notificationId(notification));
   try {
-    return await _deliver(notification);
+    const delivered = await _deliver(notification);
+    if (delivered) _delivered.add(_notificationId(notification));
+    return delivered;
   } catch {
     return false;
   }

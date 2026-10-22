@@ -131,6 +131,125 @@ describe('notification center', () => {
     expect(document.querySelector('.notification-badge').textContent).toBe('99+');
   });
 
+  it('does not dispatch creation events for the initial history load', async () => {
+    api.mockResolvedValueOnce({
+      notifications: [{ id: 'n1', seq: 1, severity: 'success', title: '完成', message: '旧记录', read_at: null }],
+      unread_count: 1, latest_seq: 1, total_count: 1,
+    });
+    const created = vi.fn();
+    window.addEventListener('clio:notification-created', created);
+    const { initNotificationCenter } = await import('../notification-center.js');
+
+    initNotificationCenter();
+    await vi.waitFor(() => expect(state.notifications).toHaveLength(1));
+
+    expect(created).not.toHaveBeenCalled();
+    window.removeEventListener('clio:notification-created', created);
+  });
+
+  it('dispatches each notification created by an SSE refresh exactly once', async () => {
+    api.mockResolvedValueOnce({
+      notifications: [{ id: 'n1', seq: 1, severity: 'success', title: '完成', message: '旧记录', read_at: null }],
+      unread_count: 1, latest_seq: 1, total_count: 1,
+    }).mockResolvedValueOnce({
+      notifications: [
+        { id: 'n2', seq: 2, severity: 'success', title: '完成', message: '新记录', read_at: null },
+        { id: 'n1', seq: 1, severity: 'success', title: '完成', message: '旧记录', read_at: null },
+      ],
+      unread_count: 2, latest_seq: 2, total_count: 2,
+    }).mockResolvedValueOnce({
+      notifications: [
+        { id: 'n2', seq: 2, severity: 'success', title: '完成', message: '新记录', read_at: null },
+        { id: 'n1', seq: 1, severity: 'success', title: '完成', message: '旧记录', read_at: null },
+      ],
+      unread_count: 2, latest_seq: 3, total_count: 2,
+    });
+    const created = vi.fn();
+    window.addEventListener('clio:notification-created', created);
+    const { initNotificationCenter } = await import('../notification-center.js');
+    initNotificationCenter();
+    await vi.waitFor(() => expect(state.notifications).toHaveLength(1));
+
+    eventSource.onmessage({ data: JSON.stringify({ seq: 2, refresh: true }) });
+    await vi.waitFor(() => expect(state.notifications).toHaveLength(2));
+    await vi.waitFor(() => expect(created).toHaveBeenCalledTimes(1));
+    expect(created.mock.calls[0][0].detail.id).toBe('n2');
+
+    eventSource.onmessage({ data: JSON.stringify({ seq: 3, refresh: true }) });
+    await vi.waitFor(() => expect(state.notificationLatestSeq).toBe(3));
+    await vi.waitFor(() => expect(api).toHaveBeenCalledTimes(3));
+    expect(created).toHaveBeenCalledTimes(1);
+    window.removeEventListener('clio:notification-created', created);
+  });
+
+  it('preserves loaded pages when an SSE refresh reloads the newest page', async () => {
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      id: `n${index}`, seq: 100 - index, severity: 'warning', title: '提醒', message: `m${index}`, read_at: null,
+    }));
+    let firstPageLoads = 0;
+    api.mockImplementation(async (method, url) => {
+      if (method !== 'GET') return {};
+      const params = new URL(url, 'http://127.0.0.1').searchParams;
+      if (params.get('offset') === '100') {
+        return { notifications: [{ id: 'n-old', seq: 0, severity: 'warning', title: '旧', message: 'old', read_at: null }], unread_count: 101, latest_seq: 1, total_count: 101 };
+      }
+      firstPageLoads += 1;
+      return firstPageLoads === 1
+        ? { notifications: firstPage, unread_count: 101, latest_seq: 1, total_count: 101 }
+        : {
+          notifications: [{ id: 'n-new', seq: 101, severity: 'warning', title: '新', message: 'new', read_at: null }, ...firstPage],
+          unread_count: 102, latest_seq: 2, total_count: 102,
+        };
+    });
+    const { initNotificationCenter, loadNotifications } = await import('../notification-center.js');
+    initNotificationCenter();
+    await vi.waitFor(() => expect(state.notifications).toHaveLength(100));
+    await loadNotifications({ append: true });
+    expect(state.notifications).toHaveLength(101);
+
+    eventSource.onmessage({ data: JSON.stringify({ seq: 2, refresh: true }) });
+
+    await vi.waitFor(() => expect(state.notifications).toHaveLength(102));
+    expect(state.notifications.some(item => item.id === 'n-old')).toBe(true);
+    expect(api).toHaveBeenCalledWith('GET', expect.stringContaining('limit=101&offset=0'));
+  });
+
+  it('advances the offset by returned rows when append dedupes an older page row', async () => {
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      id: `n${index}`, seq: 102 - index, severity: 'warning', title: '提醒', message: `m${index}`, read_at: null,
+    }));
+    api.mockImplementation(async (method, url) => {
+      if (method !== 'GET') return {};
+      const offset = new URL(url, 'http://127.0.0.1').searchParams.get('offset');
+      if (offset === '100') {
+        return {
+          notifications: [
+            { id: 'n0', seq: 102, severity: 'warning', title: '提醒', message: 'duplicate', read_at: null },
+            { id: 'n100', seq: 2, severity: 'warning', title: '提醒', message: 'new row', read_at: null },
+          ],
+          unread_count: 102, latest_seq: 1, total_count: 102,
+        };
+      }
+      if (offset === '102') {
+        return {
+          notifications: [{ id: 'n101', seq: 1, severity: 'warning', title: '提醒', message: 'last row', read_at: null }],
+          unread_count: 102, latest_seq: 1, total_count: 102,
+        };
+      }
+      return { notifications: firstPage, unread_count: 102, latest_seq: 1, total_count: 102 };
+    });
+    const { initNotificationCenter, loadNotifications } = await import('../notification-center.js');
+    initNotificationCenter();
+    await vi.waitFor(() => expect(state.notifications).toHaveLength(100));
+
+    await loadNotifications({ append: true });
+    expect(state.notifications).toHaveLength(101);
+    await loadNotifications({ append: true });
+
+    expect(api.mock.calls.at(-1)[1]).toContain('offset=102');
+    expect(state.notifications).toHaveLength(102);
+  });
+
   it('refreshes after an SSE revision instead of applying stale row data', async () => {
     api.mockResolvedValueOnce({
       notifications: [{ id: 'n1', seq: 1, severity: 'error', title: '失败', message: 'boom', read_at: null }],

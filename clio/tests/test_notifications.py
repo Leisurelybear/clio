@@ -50,6 +50,18 @@ class _ResolvingHandler(_Handler):
         return Path(qs["project_dir"][0])
 
 
+class _ProjectMapHandler(_Handler):
+    def __init__(self, manager: TaskManager, projects: dict[str, Path]):
+        super().__init__(manager)
+        self.projects = projects
+
+    def _resolve_project_dir(self, qs):
+        project_dir = qs.get("project_dir", [None])[0]
+        if project_dir:
+            return Path(project_dir)
+        return self.projects[qs["project"][0]]
+
+
 class _DisconnectOnFlush(io.BytesIO):
     def flush(self):
         raise BrokenPipeError
@@ -131,6 +143,24 @@ def test_ui_notification_dedup_and_read_state(tmp_path):
     assert store.latest_notification_seq() == created_revision + 2
 
 
+def test_empty_dedupe_key_is_stored_as_null_without_colliding(tmp_path):
+    manager = _manager(tmp_path)
+    handler = _Handler(manager)
+
+    for _ in range(2):
+        handle_post_notification(
+            handler,
+            {},
+            {"severity": "info", "message": "重复注册", "dedupe_key": "   "},
+        )
+        assert handler.responses[-1][1] == 201
+
+    notifications = manager.store.list_notifications(NotificationQuery(limit=20))
+    assert len(notifications) == 2
+    assert len({item.id for item in notifications}) == 2
+    assert all(item.dedupe_key is None for item in notifications)
+
+
 def test_notification_routes_create_list_read_and_mark_all(tmp_path):
     manager = _manager(tmp_path)
     handler = _Handler(manager)
@@ -197,6 +227,84 @@ def test_notification_route_uses_project_dir_and_rejects_backslash_links(tmp_pat
         {"severity": "warning", "message": "非法链接", "link": "//[invalid"},
     )
     assert handler.responses[-1][1] == 400
+
+
+def test_notification_project_scope_is_consistent_across_routes(tmp_path):
+    manager = _manager(tmp_path)
+    project_a = tmp_path / "project-a"
+    project_b = tmp_path / "project-b"
+    project_a.mkdir()
+    project_b.mkdir()
+    handler = _ProjectMapHandler(manager, {"A": project_a, "B": project_b})
+
+    handle_post_notification(
+        handler,
+        {"project_name": ["A"]},
+        {"severity": "warning", "message": "A warning"},
+    )
+    assert handler.responses[-1][1] == 201
+    assert handler.responses[-1][0]["notification"]["project_id"] == str(project_a.resolve())
+    handle_post_notification(
+        handler,
+        {"project": ["B"]},
+        {"severity": "error", "message": "B error"},
+    )
+    b_notification_id = handler.responses[-1][0]["notification"]["id"]
+
+    handle_post_notification(
+        handler,
+        {"project_name": ["B"]},
+        {"severity": "info", "message": "B info"},
+    )
+    assert handler.responses[-1][0]["unread_count"] == 2
+
+    scope_queries = (
+        {"project_id": [str(project_a.resolve())]},
+        {"project_dir": [str(project_a)]},
+        {"project": ["A"]},
+        {"project_name": ["A"]},
+    )
+    for scope in scope_queries:
+        handle_get_notifications(handler, {**scope, "limit": ["20"]})
+        listed, status = handler.responses[-1]
+        assert status == 200
+        assert listed["total_count"] == 1
+        assert listed["unread_count"] == 1
+        assert listed["notifications"][0]["project_id"] == str(project_a.resolve())
+
+    handle_post_notifications_read_all(handler, {"project_name": ["A"]}, {})
+    assert handler.responses[-1][0]["marked"] == 1
+    assert handler.responses[-1][0]["unread_count"] == 0
+
+    handle_get_notifications(handler, {"project": ["B"], "limit": ["20"]})
+    assert handler.responses[-1][0]["unread_count"] == 2
+
+    handle_post_notification_read(handler, {"project": ["A"]}, {}, b_notification_id)
+    assert handler.responses[-1][1] == 404
+
+    handle_post_notification_read(handler, {"project": ["B"]}, {}, b_notification_id)
+    assert handler.responses[-1][0]["unread_count"] == 1
+
+
+def test_task_event_notification_text_is_truncated(tmp_path):
+    manager = _manager(tmp_path)
+    task = create_task(TaskKind.PIPELINE, "T" * 400, task_id="long-task")
+    manager.store.create(task)
+    manager.store.append_event(
+        TaskEvent(
+            task_id=task.id,
+            type=TaskEventType.LOG,
+            created_at="2026-08-17T00:00:02.000Z",
+            message="E" * 5_000,
+            level=TaskEventLevel.ERROR,
+        )
+    )
+
+    notification = manager.store.list_notifications(NotificationQuery(limit=1))[0]
+
+    assert len(notification.title) == 200
+    assert notification.title.endswith("：发生错误")
+    assert notification.message == "E" * 4_000
 
 
 def test_notification_stream_uses_cursor(tmp_path):
