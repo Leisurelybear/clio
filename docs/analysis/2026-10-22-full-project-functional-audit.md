@@ -72,6 +72,7 @@ mypy --check-untyped-defs --show-error-codes
 | A-10 | 中 | 已修复 | UI 原始视频解析、运行预览和字幕查找仍只识别 `_segNN` | UI 层统一复用 `SEGMENT_SUFFIX_RE` |
 | A-11 | 中 | 修复中 | 裁剪任务仍只识别 `_segNN`，legacy `_part/_pt/_chunk` 无法计算偏移、反解原始视频或记录正确状态 | 统一复用 `SEGMENT_SUFFIX_RE`，补充别名与大小写回归测试 |
 | A-12 | 中 | 修复中 | 导出接口未校验格式，未知或非字符串格式会先创建异步任务再失败 | 在读取配置和提交任务前校验 `FORMAT_REGISTRY` |
+| A-13 | 中 | 修复中 | 裁剪接口未校验 `output_dir` 类型，JSON 数字/对象会触发未捕获 `TypeError` | 仅接受 `null`、空字符串或字符串路径，否则返回 400 |
 
 ## 5. 优化 backlog
 
@@ -101,6 +102,7 @@ mypy --check-untyped-defs --show-error-codes
 | `dd8b9e2` | `fix(ui): match all legacy split suffixes` | 154 related tests passed；Ruff 通过 |
 | 待填 | `fix(cut): recognize all legacy split suffixes` | `test_tasks_cut.py` 44 passed；Ruff 通过 |
 | 待填 | `fix(export): reject unknown formats before submission` | `test_export*.py` 41 passed；Ruff 通过 |
+| 待填 | `fix(cut): validate output directory type` | `test_routes_plan.py` 25 passed；Ruff 通过 |
 
 ## 7. 未实机验证项
 

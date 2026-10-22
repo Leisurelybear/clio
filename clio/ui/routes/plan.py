@@ -192,6 +192,8 @@ def handle_post_cut(handler: HandlerProtocol, qs: dict[str, list[str]], obj: dic
     if not isinstance(reencode, bool):
         return handler._send_json({"ok": False, "error": "reencode must be a boolean"}, 400)
     out_dir_raw = obj.get("output_dir", None)
+    if out_dir_raw is not None and not isinstance(out_dir_raw, str):
+        return handler._send_json({"ok": False, "error": "output_dir must be a string"}, 400)
     force = obj.get("force", False)
     if not isinstance(force, bool):
         return handler._send_json({"ok": False, "error": "force must be a boolean"}, 400)

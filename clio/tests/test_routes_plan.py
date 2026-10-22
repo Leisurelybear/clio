@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 from clio.ui.routes.plan import (
     handle_get_cut_orphaned_backups,
     handle_get_plan,
@@ -246,6 +248,22 @@ class TestHandlePostCut:
         assert status == 400
         assert payload.get("ok") is False
         assert "day_label" in payload.get("error", "")
+
+    @pytest.mark.parametrize("output_dir", [123, {"path": "cuts"}, ["cuts"], True])
+    def test_non_string_output_dir_returns_400(self, output_dir):
+        handler = MagicMock()
+        handler._send_json = MagicMock()
+
+        handle_post_cut(
+            handler,
+            {},
+            {"day_label": "day1", "source": "compressed", "output_dir": output_dir},
+        )
+
+        payload, status = handler._send_json.call_args.args
+        assert status == 400
+        assert payload == {"ok": False, "error": "output_dir must be a string"}
+        handler._get_config.assert_not_called()
 
     def test_existing_output_returns_409_without_overwrite(self, tmp_path: Path):
         from clio.config import AppConfig
