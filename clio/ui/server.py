@@ -78,6 +78,7 @@ from clio.ui.routes.notifications import (
 from clio.ui.routes.plan import (
     handle_get_cut_orphaned_backups,
     handle_get_plan,
+    handle_get_plan_preview_media,
     handle_get_plans,
     handle_post_cut,
     handle_post_cut_restore_backups,
@@ -712,6 +713,7 @@ def make_handler(
             Route("GET", "/api/cut/orphaned-backups", "handle_get_cut_orphaned_backups"),
             Route("GET", "/api/plans", "handle_get_plans"),
             Route("GET", "/api/plan", "handle_get_plan"),
+            Route("GET", "/api/plan/preview-media", "handle_get_plan_preview_media"),
             Route("GET", "/api/processing-state", "handle_get_processing_state"),
             Route("GET", "/api/fs/dirs", "handle_get_fs_dirs"),
             Route("GET", "/api/fs/entries", "handle_get_fs_entries"),

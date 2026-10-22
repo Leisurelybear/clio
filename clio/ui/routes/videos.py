@@ -674,7 +674,18 @@ def handle_get_video(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     proj_out = handler._get_project_output(proj_dir)
     fname = qs.get("file", [""])[0]
     source = qs.get("source", ["compressed"])[0]
-    if source == "original":
+    if source == "cut":
+        day = qs.get("day", [""])[0]
+        if not _is_safe_basename(day) or not _is_safe_basename(fname):
+            return handler.send_error(HTTPStatus.FORBIDDEN)
+        cuts_dir = proj_out / "cuts" / day
+        try:
+            vp = validate_within_root(cuts_dir / fname, proj_out)
+        except (OSError, ValueError):
+            return handler.send_error(HTTPStatus.FORBIDDEN)
+        if vp.parent != cuts_dir.resolve():
+            return handler.send_error(HTTPStatus.FORBIDDEN)
+    elif source == "original":
         abspath = qs.get("abspath", [None])[0]
         if abspath:
             vp = Path(abspath).resolve()

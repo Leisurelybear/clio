@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 from clio.config import load_config
 from clio.pipeline import run_cut_all
 from clio.plan_model import Plan
+from clio.plan_preview import build_preview_media
 from clio.plan_readiness import (
     check_plan_export_readiness,
     collect_project_indices,
@@ -28,7 +29,7 @@ from clio.tasks.cut import (
     restore_orphaned_cut_backups,
 )
 from clio.ui.services.file_service import _is_safe_basename, _save_atomic
-from clio.utils import media_dependency_error, preflight_config_media_deps
+from clio.utils import media_dependency_error, preflight_config_media_deps, validate_within_root
 
 if TYPE_CHECKING:
     from clio.ui.handler_protocol import HandlerProtocol
@@ -114,6 +115,28 @@ def handle_get_plan(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     if not p.is_file():
         return handler._send_json({"error": f"规划文件不存在: {p}"}, 404)
     handler._send_bytes(p.read_bytes(), "application/json; charset=utf-8")
+
+
+def handle_get_plan_preview_media(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
+    """GET /api/plan/preview-media — map saved plan entries to standard cut clips."""
+    day = qs.get("day", [""])[0]
+    if not _is_safe_basename(day) or not day:
+        return handler._send_json({"ok": False, "error": "forbidden"}, 403)
+    proj_dir = handler._resolve_project_dir(qs)
+    cfg = handler._get_config(proj_dir)
+    plan_path = cfg.plans_dir / f"{day}_plan.json"
+    if not plan_path.is_file():
+        return handler._send_json({"ok": False, "error": f"规划文件不存在: {plan_path}"}, 404)
+    try:
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return handler._send_json({"ok": False, "error": str(exc)}, 400)
+    output_root = Path(cfg.paths.output_dir).expanduser()
+    try:
+        cuts_dir = validate_within_root(output_root / "cuts" / day, output_root)
+    except (OSError, ValueError):
+        return handler._send_json({"ok": False, "error": "forbidden"}, 403)
+    handler._send_json(build_preview_media(plan if isinstance(plan, dict) else {}, cuts_dir, day=day))
 
 
 def handle_put_plan(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
