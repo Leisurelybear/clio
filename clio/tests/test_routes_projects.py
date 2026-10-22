@@ -112,6 +112,25 @@ class TestHandleGetProjects:
         assert last["name"] == "Beta"
         assert last["project_dir"] == str(proj_b)
 
+    def test_non_object_registry_returns_empty_projects(self, tmp_path: Path):
+        handler = MagicMock()
+        cfg = tmp_path / "config.yaml"
+        cfg.write_bytes(b"")
+        (tmp_path / "projects.json").write_text("[]", encoding="utf-8")
+        handler.config_path = cfg
+        handler.project_dir = tmp_path / "default"
+        handler.project_dir.mkdir()
+        handler._send_json = MagicMock()
+        handler.__class__._config_cache = MagicMock()
+        handler.__class__._config_cache.keys.return_value = []
+
+        handle_get_projects(handler, {})
+
+        payload = handler._send_json.call_args[0][0]
+        assert payload["projects"] == []
+        assert payload["last_project"] is None
+        assert any(p.name.startswith("projects.json.corrupt.") for p in tmp_path.iterdir())
+
 
 class TestHandlePutProject:
     def test_updates_project_json(self, tmp_path: Path):

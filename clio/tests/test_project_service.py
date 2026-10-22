@@ -464,6 +464,16 @@ class TestListProjects:
 
         assert [p["name"] for p in projects] == ["paris"]
 
+    def test_non_object_registry_is_quarantined_and_ignored(self, tmp_path: Path):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_bytes(b"")
+        (tmp_path / "projects.json").write_text("[]", encoding="utf-8")
+
+        projects = _list_projects(cfg, tmp_path / "current")
+
+        assert projects == []
+        assert any(p.name.startswith("projects.json.corrupt.") for p in tmp_path.iterdir())
+
     def test_does_not_auto_discover_sibling(self, tmp_path: Path):
         cfg = tmp_path / "config.yaml"
         cfg.write_bytes(b"")

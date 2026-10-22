@@ -170,16 +170,21 @@ def _read_registry(registry_file: Path) -> dict[str, Any]:
     """
     if not registry_file.is_file():
         return {"projects": []}
+
+    def quarantine() -> None:
+        target = registry_file.with_name(registry_file.name + f".corrupt.{os.urandom(4).hex()}")
+        try:
+            shutil.copy2(registry_file, target)
+        except OSError:
+            pass
+
     try:
         reg = json.loads(registry_file.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError, UnicodeError) as exc:
-        quarantine = registry_file.with_name(registry_file.name + f".corrupt.{os.urandom(4).hex()}")
-        try:
-            shutil.copy2(registry_file, quarantine)
-        except OSError:
-            pass
-        raise ValueError(f"projects.json 已损坏，已隔离为 {quarantine.name}；拒绝覆盖") from exc
+        quarantine()
+        raise ValueError("projects.json 已损坏，已隔离；拒绝覆盖") from exc
     if not isinstance(reg, dict):
+        quarantine()
         raise ValueError("projects.json 结构无效；拒绝覆盖")
     return reg
 
@@ -296,9 +301,8 @@ def _list_projects(
     registered_paths: list[str] = []
     if registry_file.is_file():
         try:
-            reg = json.loads(registry_file.read_text(encoding="utf-8"))
-            registered_paths = _registry_project_paths(reg)
-        except (json.JSONDecodeError, OSError):
+            registered_paths = _registry_project_paths(_read_registry(registry_file))
+        except ValueError:
             registered_paths = []
     for p_str in registered_paths:
         p = Path(p_str)
@@ -398,11 +402,10 @@ def collect_allowed_project_paths(default_input: Path, config_path: Path | None)
     if not registry_file.is_file():
         return allowed
     try:
-        text = registry_file.read_text(encoding="utf-8")
-        reg = json.loads(text) if isinstance(text, str) else {}
-    except (json.JSONDecodeError, OSError, TypeError):
+        reg = _read_registry(registry_file)
+    except ValueError:
         return allowed
-    for p in _registry_project_paths(reg if isinstance(reg, dict) else {}):
+    for p in _registry_project_paths(reg):
         try:
             allowed.add(str(Path(p).resolve()))
         except OSError:
@@ -477,8 +480,8 @@ def resolve_project_input(qs: dict, input_dir: Path, config_path: Path | None) -
     registry_file = _registry_path(config_path)
     if registry_file.is_file():
         try:
-            reg = json.loads(registry_file.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
+            reg = _read_registry(registry_file)
+        except ValueError:
             reg = {}
         for p_str in _registry_project_paths(reg):
             p = Path(p_str)
@@ -523,7 +526,7 @@ def resolve_last_project_config(config: AppConfig, config_path: Path | None) -> 
     if not reg_file.is_file():
         return config
     try:
-        reg = json.loads(reg_file.read_text(encoding="utf-8"))
+        reg = _read_registry(reg_file)
         last_project = reg.get("last_project")
         if not last_project:
             return config

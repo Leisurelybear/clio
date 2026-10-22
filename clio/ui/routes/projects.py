@@ -14,6 +14,7 @@ from clio.ui.services.project_service import (
     _list_projects,
     _load_project_json,
     _project_output_dir,
+    _read_registry,
     _registry_path,
     _registry_project_paths,
     _remove_from_registry,
@@ -63,7 +64,7 @@ def handle_get_projects(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     last_project_payload: dict[str, str | None] | None = None
     if reg_file.is_file():
         try:
-            reg = json.loads(reg_file.read_text(encoding="utf-8"))
+            reg = _read_registry(reg_file)
             last_project = reg.get("last_project")
             if isinstance(last_project, dict):
                 last_project_payload = {
@@ -72,8 +73,8 @@ def handle_get_projects(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
                 }
             elif last_project:
                 last_project_payload = {"name": str(last_project), "project_dir": None}
-        except (json.JSONDecodeError, OSError):
-            pass
+        except ValueError:
+            reg = {"projects": []}
     projects = _list_projects(config_path, project_dir, req_project, req_project_dir)
     # Prune stale _config_cache entries for projects that no longer exist
     cache = handler.__class__._config_cache
@@ -248,8 +249,8 @@ def handle_post_project_remove(handler: HandlerProtocol, obj: dict) -> None:
         matches: list[tuple[str, str]] = []
         if reg_file.is_file():
             try:
-                reg = json.loads(reg_file.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
+                reg = _read_registry(reg_file)
+            except ValueError:
                 reg = {"projects": []}
             for p_str in _registry_project_paths(reg):
                 p = Path(p_str)
