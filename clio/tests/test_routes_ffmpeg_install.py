@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 from clio.ffmpeg_install import InstallResult
 from clio.task_center.manager import TaskManager
 from clio.task_center.models import TaskKind
+from clio.task_center.reporter import TaskCancelled
 from clio.task_center.store import TaskStore
 from clio.ui.routes.deps import (
     _run_ffmpeg_install_task,
@@ -57,6 +58,34 @@ def test_ffmpeg_task_raises_install_failure(monkeypatch):
         assert "checksum mismatch" in str(exc)
     else:
         raise AssertionError("expected RuntimeError")
+
+
+def test_ffmpeg_task_raises_when_installer_reports_cancellation(monkeypatch):
+    monkeypatch.setattr(
+        "clio.ui.routes.deps.install_ffmpeg",
+        lambda **kwargs: InstallResult(False, "cancelled", message="cancelled"),
+    )
+    context = _Context()
+    try:
+        _run_ffmpeg_install_task(context)
+    except TaskCancelled:
+        pass
+    else:
+        raise AssertionError("expected TaskCancelled")
+
+
+def test_ffmpeg_task_keeps_success_if_cancel_arrives_after_promotion(monkeypatch):
+    context = _Context()
+
+    def fake_install(**kwargs):
+        context.cancel_event.set()
+        return InstallResult(True, "download", "/managed/ffmpeg", "/managed/ffprobe", "installed")
+
+    monkeypatch.setattr("clio.ui.routes.deps.install_ffmpeg", fake_install)
+
+    result = _run_ffmpeg_install_task(context)
+
+    assert result["method"] == "download"
 
 
 def _handler(manager: TaskManager) -> MagicMock:

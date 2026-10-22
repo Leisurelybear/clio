@@ -48,7 +48,17 @@ def test_select_asset_platform_matrix():
     assert installer.select_asset("linux", "x86_64").archive.endswith("linux64-gpl-9.0.tar.xz")
     assert installer.select_asset("linux", "aarch64").archive.endswith("linuxarm64-gpl-9.0.tar.xz")
     assert installer.select_asset("darwin", "arm64") is None
+    assert installer.select_asset("freebsd", "amd64") is None
+    assert installer.select_asset("unsupported", "amd64") is None
     assert installer.select_asset("linux", "i686") is None
+
+
+def test_platform_aliases_share_one_normalizer(tmp_path):
+    assert installer.normalize_system("windows") == "win32"
+    assert installer.normalize_system("linux") == "linux"
+    assert installer.normalize_system("freebsd") == "unsupported"
+    assert installer.managed_binary("ffmpeg", tmp_path, system="windows").name == "ffmpeg.exe"
+    assert installer.select_asset("windows", "amd64") is not None
 
 
 def test_managed_root_env_override(monkeypatch, tmp_path):
@@ -124,6 +134,94 @@ def test_extract_rejects_duplicate_binaries(tmp_path):
         archive.writestr("two/bin/ffmpeg.exe", b"c")
     with pytest.raises(ValueError, match="exactly one bin/ffmpeg.exe"):
         installer.extract_binaries(tmp_path / "ffmpeg.zip", tmp_path / "out", exe_name="ffmpeg.exe")
+
+
+def test_sha256_and_extract_observe_cancellation(tmp_path):
+    archive = _zip(
+        tmp_path / "ffmpeg.zip",
+        {"build/bin/ffmpeg.exe": b"ffmpeg", "build/bin/ffprobe.exe": b"ffprobe"},
+    )
+    cancel = threading.Event()
+    cancel.set()
+
+    with pytest.raises(InterruptedError):
+        installer._sha256(archive, cancel)
+    with pytest.raises(InterruptedError):
+        installer.extract_binaries(archive, tmp_path / "out", exe_name="ffmpeg.exe", cancel_event=cancel)
+    assert not (tmp_path / "out" / "ffmpeg.exe").exists()
+
+
+def test_promote_rolls_back_both_binaries_when_second_replace_fails(tmp_path, monkeypatch):
+    root = tmp_path / "managed"
+    root.mkdir()
+    target_ffmpeg = root / "ffmpeg.exe"
+    target_ffprobe = root / "ffprobe.exe"
+    target_ffmpeg.write_bytes(b"old-ffmpeg")
+    target_ffprobe.write_bytes(b"old-ffprobe")
+    staged_dir = tmp_path / "staged"
+    staged_dir.mkdir()
+    staged_ffmpeg = staged_dir / "ffmpeg.exe"
+    staged_ffprobe = staged_dir / "ffprobe.exe"
+    staged_ffmpeg.write_bytes(b"new-ffmpeg")
+    staged_ffprobe.write_bytes(b"new-ffprobe")
+
+    real_replace = installer.os.replace
+
+    def failing_replace(source, destination):
+        if Path(destination) == target_ffprobe:
+            raise OSError("simulated replace failure")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(installer.os, "replace", failing_replace)
+    with pytest.raises(OSError, match="simulated replace failure"):
+        installer._promote(staged_ffmpeg, staged_ffprobe, root)
+
+    assert target_ffmpeg.read_bytes() == b"old-ffmpeg"
+    assert target_ffprobe.read_bytes() == b"old-ffprobe"
+
+
+def test_promote_rolls_back_when_final_verification_fails(tmp_path):
+    root = tmp_path / "managed"
+    root.mkdir()
+    target_ffmpeg = root / "ffmpeg.exe"
+    target_ffprobe = root / "ffprobe.exe"
+    target_ffmpeg.write_bytes(b"old-ffmpeg")
+    target_ffprobe.write_bytes(b"old-ffprobe")
+    staged_dir = tmp_path / "staged"
+    staged_dir.mkdir()
+    staged_ffmpeg = staged_dir / "ffmpeg.exe"
+    staged_ffprobe = staged_dir / "ffprobe.exe"
+    staged_ffmpeg.write_bytes(b"new-ffmpeg")
+    staged_ffprobe.write_bytes(b"new-ffprobe")
+
+    with pytest.raises(ValueError, match="failed verification"):
+        installer._promote(staged_ffmpeg, staged_ffprobe, root, verify=lambda _ffmpeg, _ffprobe: False)
+
+    assert target_ffmpeg.read_bytes() == b"old-ffmpeg"
+    assert target_ffprobe.read_bytes() == b"old-ffprobe"
+
+
+def test_promote_cancellation_before_replace_keeps_old_binaries(tmp_path):
+    root = tmp_path / "managed"
+    root.mkdir()
+    target_ffmpeg = root / "ffmpeg.exe"
+    target_ffprobe = root / "ffprobe.exe"
+    target_ffmpeg.write_bytes(b"old-ffmpeg")
+    target_ffprobe.write_bytes(b"old-ffprobe")
+    staged_dir = tmp_path / "staged"
+    staged_dir.mkdir()
+    staged_ffmpeg = staged_dir / "ffmpeg.exe"
+    staged_ffprobe = staged_dir / "ffprobe.exe"
+    staged_ffmpeg.write_bytes(b"new-ffmpeg")
+    staged_ffprobe.write_bytes(b"new-ffprobe")
+    cancel = threading.Event()
+    cancel.set()
+
+    with pytest.raises(InterruptedError):
+        installer._promote(staged_ffmpeg, staged_ffprobe, root, cancel_event=cancel)
+
+    assert target_ffmpeg.read_bytes() == b"old-ffmpeg"
+    assert target_ffprobe.read_bytes() == b"old-ffprobe"
 
 
 def test_download_requires_https():

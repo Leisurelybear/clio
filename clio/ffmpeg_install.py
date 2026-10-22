@@ -76,8 +76,26 @@ def managed_install_root() -> Path:
     return Path.home() / ".local" / "share" / "clio" / "ffmpeg"
 
 
+def normalize_system(value: str | None = None) -> str:
+    """Normalize platform aliases; unsupported systems never become Linux."""
+    raw = str(value or "").strip().lower()
+    if not raw:
+        if os.name == "nt":
+            return "win32"
+        if platform.system() == "Darwin":
+            return "darwin"
+        return "linux" if platform.system().lower() == "linux" else "unsupported"
+    if raw in {"win32", "nt", "windows"}:
+        return "win32"
+    if raw in {"darwin", "mac", "macos", "osx"}:
+        return "darwin"
+    if raw == "linux" or raw.startswith("linux"):
+        return "linux"
+    return "unsupported"
+
+
 def managed_binary(name: str, root: Path | None = None, *, system: str | None = None) -> Path:
-    is_windows = (system or ("win32" if os.name == "nt" else "linux")) == "win32"
+    is_windows = normalize_system(system) == "win32"
     suffix = ".exe" if is_windows and not name.lower().endswith(".exe") else ""
     return (root or managed_install_root()) / f"{name}{suffix}"
 
@@ -92,9 +110,8 @@ def _normalized_machine(value: str | None = None, *, windows: bool = False) -> s
 
 
 def select_asset(system: str | None = None, machine: str | None = None) -> _Asset | None:
-    resolved_system = system or ("win32" if os.name == "nt" else "darwin" if platform.system() == "Darwin" else "linux")
-    system_key = "win32" if resolved_system in {"win32", "nt", "windows"} else "linux"
-    if resolved_system == "darwin":
+    system_key = normalize_system(system)
+    if system_key not in {"win32", "linux"}:
         return None
     machine_key = _normalized_machine(machine, windows=system_key == "win32")
     return _ASSETS.get((system_key, machine_key))
@@ -209,23 +226,41 @@ def _tar_entries(archive: tarfile.TarFile) -> list[tuple[str, str | None]]:
     return entries
 
 
-def extract_binaries(archive_path: Path, dest_dir: Path, *, exe_name: str | None = None) -> tuple[Path, Path]:
+def _copy_stream(src, out, cancel_event: threading.Event | None) -> None:
+    while True:
+        _check_cancel(cancel_event)
+        chunk = src.read(1024 * 1024)
+        if not chunk:
+            return
+        out.write(chunk)
+
+
+def extract_binaries(
+    archive_path: Path,
+    dest_dir: Path,
+    *,
+    exe_name: str | None = None,
+    cancel_event: threading.Event | None = None,
+) -> tuple[Path, Path]:
     exe_name = exe_name or ("ffmpeg.exe" if os.name == "nt" else "ffmpeg")
     dest_dir.mkdir(parents=True, exist_ok=True)
+    _check_cancel(cancel_event)
     if zipfile.is_zipfile(archive_path):
         with zipfile.ZipFile(archive_path) as archive:
             entries = _zip_entries(archive)
             _validate_entries(entries)
             ffmpeg_name, ffprobe_name = _find_binaries([name for name, _ in entries], exe_name)
             for source_name, target in ((ffmpeg_name, exe_name), (ffprobe_name, "ffprobe" + Path(exe_name).suffix)):
+                _check_cancel(cancel_event)
                 with archive.open(source_name) as src, (dest_dir / target).open("wb") as out:
-                    shutil.copyfileobj(src, out)
+                    _copy_stream(src, out, cancel_event)
     else:
         with tarfile.open(archive_path, "r:*") as archive:
             entries = _tar_entries(archive)
             _validate_entries(entries)
             ffmpeg_name, ffprobe_name = _find_binaries([name for name, _ in entries], exe_name)
             for source_name, target in ((ffmpeg_name, exe_name), (ffprobe_name, "ffprobe" + Path(exe_name).suffix)):
+                _check_cancel(cancel_event)
                 member = archive.getmember(source_name)
                 if not member.isfile():
                     raise ValueError(f"archive binary is not a regular file: {source_name!r}")
@@ -233,7 +268,7 @@ def extract_binaries(archive_path: Path, dest_dir: Path, *, exe_name: str | None
                 if src is None:
                     raise ValueError(f"cannot read archive binary: {source_name!r}")
                 with src, (dest_dir / target).open("wb") as out:
-                    shutil.copyfileobj(src, out)
+                    _copy_stream(src, out, cancel_event)
     ffmpeg_path = dest_dir / exe_name
     ffprobe_path = dest_dir / ("ffprobe" + Path(exe_name).suffix)
     for path in (ffmpeg_path, ffprobe_path):
@@ -263,15 +298,17 @@ def verify_binaries(ffmpeg: Path, ffprobe: Path, *, runner: Callable[..., object
     return True
 
 
-def _sha256(path: Path) -> str:
+def _sha256(path: Path, cancel_event: threading.Event | None = None) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as source:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            _check_cancel(cancel_event)
             digest.update(chunk)
     return digest.hexdigest()
 
 
 def _package_manager_commands(system: str) -> list[list[str]]:
+    system = normalize_system(system)
     if system == "win32":
         return [
             [
@@ -304,21 +341,52 @@ def _try_package_manager(system: str, reporter: _PROGRESS | None, runner: Callab
             return
 
 
-def _promote(staged_ffmpeg: Path, staged_ffprobe: Path, root: Path) -> tuple[Path, Path]:
+def _promote(
+    staged_ffmpeg: Path,
+    staged_ffprobe: Path,
+    root: Path,
+    *,
+    cancel_event: threading.Event | None = None,
+    verify: Callable[[Path, Path], bool] | None = None,
+) -> tuple[Path, Path]:
     root.mkdir(parents=True, exist_ok=True)
     target_ffmpeg = root / staged_ffmpeg.name
     target_ffprobe = root / staged_ffprobe.name
     token = uuid.uuid4().hex
     temp_ffmpeg = root / f".{target_ffmpeg.name}.{token}.tmp"
     temp_ffprobe = root / f".{target_ffprobe.name}.{token}.tmp"
+    backups = {
+        target_ffmpeg: root / f".{target_ffmpeg.name}.{token}.bak",
+        target_ffprobe: root / f".{target_ffprobe.name}.{token}.bak",
+    }
+    replaced: set[Path] = set()
     try:
+        _check_cancel(cancel_event)
         shutil.copy2(staged_ffmpeg, temp_ffmpeg)
         shutil.copy2(staged_ffprobe, temp_ffprobe)
+        _check_cancel(cancel_event)
+        for target, backup in backups.items():
+            if target.exists():
+                shutil.copy2(target, backup)
         os.replace(temp_ffmpeg, target_ffmpeg)
+        replaced.add(target_ffmpeg)
         os.replace(temp_ffprobe, target_ffprobe)
+        replaced.add(target_ffprobe)
+        if verify is not None and not verify(target_ffmpeg, target_ffprobe):
+            raise ValueError("installed FFmpeg binaries failed verification")
+    except Exception:
+        for target in replaced:
+            backup = backups[target]
+            if backup.exists():
+                os.replace(backup, target)
+            else:
+                target.unlink(missing_ok=True)
+        raise
     finally:
         temp_ffmpeg.unlink(missing_ok=True)
         temp_ffprobe.unlink(missing_ok=True)
+        for backup in backups.values():
+            backup.unlink(missing_ok=True)
     return target_ffmpeg, target_ffprobe
 
 
@@ -335,7 +403,7 @@ def install_ffmpeg(
     downloader: Callable[..., None] | None = None,
 ) -> InstallResult:
     """Install FFmpeg into the managed user directory; never raises for expected failures."""
-    system_name = system or ("win32" if os.name == "nt" else "darwin" if platform.system() == "Darwin" else "linux")
+    system_name = normalize_system(system)
     run = runner or run_subprocess
     asset = select_asset(system_name, machine)
     install_root = root or managed_install_root()
@@ -361,6 +429,12 @@ def install_ffmpeg(
         if asset is None:
             if system_name == "darwin":
                 return InstallResult(False, "manual", message="Install Homebrew and run: brew install ffmpeg")
+            if system_name == "unsupported":
+                return InstallResult(
+                    False,
+                    "manual",
+                    message="Automatic FFmpeg installation is not supported on this platform; install ffmpeg manually",
+                )
             return InstallResult(
                 False, "manual", message=f"No verified FFmpeg build for {system_name} {machine or platform.machine()}"
             )
@@ -389,16 +463,25 @@ def install_ffmpeg(
                 cancel_event=cancel_event,
             )
             _check_cancel(cancel_event)
-            actual = _sha256(archive_file)
+            actual = _sha256(archive_file, cancel_event)
             if actual != expected:
                 return InstallResult(False, "download", message="FFmpeg archive checksum mismatch")
             _emit(reporter, 82, "Extracting binaries")
             staged_dir = temp / "staged"
-            staged_ffmpeg, staged_ffprobe = extract_binaries(archive_file, staged_dir, exe_name=asset.name)
+            staged_ffmpeg, staged_ffprobe = extract_binaries(
+                archive_file, staged_dir, exe_name=asset.name, cancel_event=cancel_event
+            )
             if not verify_binaries(staged_ffmpeg, staged_ffprobe, runner=run):
                 return InstallResult(False, "download", message="downloaded FFmpeg binaries failed verification")
+            _check_cancel(cancel_event)
             _emit(reporter, 94, "Installing")
-            final_ffmpeg, final_ffprobe = _promote(staged_ffmpeg, staged_ffprobe, install_root)
+            final_ffmpeg, final_ffprobe = _promote(
+                staged_ffmpeg,
+                staged_ffprobe,
+                install_root,
+                cancel_event=cancel_event,
+                verify=lambda ffmpeg, ffprobe: verify_binaries(ffmpeg, ffprobe, runner=run),
+            )
             _emit(reporter, 100, "FFmpeg installed")
             return InstallResult(True, "download", str(final_ffmpeg), str(final_ffprobe), "ffmpeg installed")
     except InterruptedError:

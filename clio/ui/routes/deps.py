@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from clio.ai.base import TaskName
 from clio.doctor import provider_key_missing
-from clio.ffmpeg_install import install_ffmpeg, select_asset
+from clio.ffmpeg_install import install_ffmpeg, normalize_system, select_asset
 from clio.task_center.manager import TaskAlreadyRunningError, TaskManager
 from clio.task_center.models import TaskKind, TaskStatus
 from clio.task_center.reporter import TaskCancelled
@@ -37,7 +37,7 @@ def _run_ffmpeg_install_task(context) -> dict[str, Any]:
         context.reporter.progress(phase="ffmpeg_install", current=pct, total=100, message=message)
 
     result = install_ffmpeg(mode="download", reporter=report, cancel_event=context.cancel_event)
-    if context.cancel_event.is_set():
+    if result.method == "cancelled":
         raise TaskCancelled("ffmpeg 安装已取消")
     if not result.ok:
         raise RuntimeError(result.message or "ffmpeg 安装失败")
@@ -69,11 +69,7 @@ def _active_ffmpeg_task(manager: TaskManager):
 def _ffmpeg_install_capabilities() -> dict[str, Any]:
     import platform as platform_module
 
-    system = (
-        "win32"
-        if platform_module.system() == "Windows"
-        else ("darwin" if platform_module.system() == "Darwin" else "linux")
-    )
+    system = normalize_system()
     return {
         "platform": system,
         "automatic": select_asset(system, platform_module.machine()) is not None,
