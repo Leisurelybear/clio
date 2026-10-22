@@ -28,8 +28,15 @@ describe('providerEnvName', () => {
     expect(providerEnvName(' my local.proxy ')).toBe('MY_LOCAL_PROXY_API_KEY');
   });
 
-  it('falls back for names without ASCII letters or digits', () => {
-    expect(providerEnvName('本地')).toBe('CUSTOM_PROVIDER_API_KEY');
+  it('adds a stable, distinct hash suffix to non-ASCII provider names', () => {
+    expect(providerEnvName('本地')).toBe('CUSTOM_PROVIDER_7fc8bc21_API_KEY');
+    expect(providerEnvName('云端')).toBe('CUSTOM_PROVIDER_6773c129_API_KEY');
+    expect(providerEnvName('  本地  ')).toBe(providerEnvName('本地'));
+  });
+
+  it('keeps mixed ASCII and non-ASCII provider names distinct', () => {
+    expect(providerEnvName('gemini-本地')).toBe('GEMINI_8c72a00d_API_KEY');
+    expect(providerEnvName('gemini-云端')).toBe('GEMINI_319e0255_API_KEY');
   });
 });
 

@@ -22,14 +22,30 @@ import { transcriptionModelManagementNotice } from './transcription-status.js';
 // Dynamic import avoids static cycle: editor.js → editor-config.js → editor.js (A-006)
 
 const DEFAULT_PROVIDERS = ['gemini', 'openai', 'deepseek'];
+const FNV_OFFSET_BASIS = 0x811c9dc5;
+const FNV_PRIME = 0x01000193;
+const NON_ASCII_RE = /[^\x00-\x7F]/;
+
+function _fnv1aCodePoints(value) {
+  let hash = FNV_OFFSET_BASIS;
+  for (const char of value) {
+    hash ^= char.codePointAt(0);
+    hash = Math.imul(hash, FNV_PRIME);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
 
 export function providerEnvName(name) {
-  const slug = String(name || '')
-    .trim()
+  const trimmed = String(name || '').trim();
+  const slug = trimmed
     .toUpperCase()
     .replace(/[^A-Z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '');
-  return `${slug || 'CUSTOM_PROVIDER'}_API_KEY`;
+  const base = slug || 'CUSTOM_PROVIDER';
+  if (NON_ASCII_RE.test(trimmed)) {
+    return `${base}_${_fnv1aCodePoints(trimmed)}_API_KEY`;
+  }
+  return `${base}_API_KEY`;
 }
 
 const ADVANCED_TOGGLE_KEY = 'vlog-config-show-advanced';
