@@ -96,7 +96,7 @@ export function mergeSubtitleSettings(project, updates) {
  */
 export function serializeLatestWrites(onWrite) {
   let tail = Promise.resolve();
-  let queued = null; // { payload, waiters: [resolve] }
+  let queued = null; // { payload, waiters: [{ resolve, reject }] }
   let running = false;
 
   const drain = () => {
@@ -107,8 +107,8 @@ export function serializeLatestWrites(onWrite) {
     const run = Promise.resolve()
       .then(() => onWrite(entry.payload))
       .then(
-        () => entry.waiters.forEach((r) => r()),
-        () => entry.waiters.forEach((r) => r()),
+        () => entry.waiters.forEach(({ resolve }) => resolve()),
+        (error) => entry.waiters.forEach(({ reject }) => reject(error)),
       );
     tail = tail
       .then(() => run)
@@ -118,13 +118,13 @@ export function serializeLatestWrites(onWrite) {
       });
   };
 
-  return (payload) => new Promise((resolve) => {
+  return (payload) => new Promise((resolve, reject) => {
     if (queued) {
       // Coalesce a burst: supersede the pending payload, keep every waiter.
       queued.payload = payload;
-      queued.waiters.push(resolve);
+      queued.waiters.push({ resolve, reject });
     } else {
-      queued = { payload, waiters: [resolve] };
+      queued = { payload, waiters: [{ resolve, reject }] };
     }
     drain();
   });

@@ -138,6 +138,31 @@ describe('serializeLatestWrites', () => {
     await enqueue('c');
     expect(writes).toEqual(['a', 'c']);
   });
+
+  it('rejects waiters on write failure and keeps the queue usable', async () => {
+    const writes = [];
+    const write = (payload) => {
+      writes.push(payload);
+      if (payload === 'bad') return Promise.reject(new Error('save failed'));
+      return undefined;
+    };
+    const enqueue = serializeLatestWrites(write);
+
+    await expect(enqueue('bad')).rejects.toThrow('save failed');
+    await expect(enqueue('good')).resolves.toBeUndefined();
+    expect(writes).toEqual(['bad', 'good']);
+  });
+
+  it('rejects every coalesced waiter when the flushed write fails', async () => {
+    const write = () => Promise.reject(new Error('save failed'));
+    const enqueue = serializeLatestWrites(write);
+
+    const first = enqueue('first');
+    const second = enqueue('second');
+    const results = await Promise.allSettled([first, second]);
+    expect(results.map((r) => r.status)).toEqual(['rejected', 'rejected']);
+    expect(results.map((r) => r.reason.message)).toEqual(['save failed', 'save failed']);
+  });
 });
 
 describe('renderSubtitleSettingsPanel', () => {
