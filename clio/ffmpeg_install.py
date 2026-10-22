@@ -292,8 +292,8 @@ def extract_binaries(
             for source_name, target in ((ffmpeg_name, exe_name), (ffprobe_name, "ffprobe" + Path(exe_name).suffix)):
                 _check_cancel(cancel_event)
                 _check_extracted_size(source_name, archive.getinfo(source_name).file_size)
-                with archive.open(source_name) as src, (dest_dir / target).open("wb") as out:
-                    _copy_stream(src, out, cancel_event)
+                with archive.open(source_name) as zip_src, (dest_dir / target).open("wb") as out:
+                    _copy_stream(zip_src, out, cancel_event)
     else:
         with tarfile.open(archive_path, "r:*") as archive:
             entries = _tar_entries(archive)
@@ -305,11 +305,11 @@ def extract_binaries(
                 _check_extracted_size(source_name, member.size)
                 if not member.isfile():
                     raise ValueError(f"archive binary is not a regular file: {source_name!r}")
-                src = archive.extractfile(member)
-                if src is None:
+                tar_src = archive.extractfile(member)
+                if tar_src is None:
                     raise ValueError(f"cannot read archive binary: {source_name!r}")
-                with src, (dest_dir / target).open("wb") as out:
-                    _copy_stream(src, out, cancel_event)
+                with tar_src, (dest_dir / target).open("wb") as out:
+                    _copy_stream(tar_src, out, cancel_event)
     ffmpeg_path = dest_dir / exe_name
     ffprobe_path = dest_dir / ("ffprobe" + Path(exe_name).suffix)
     for path in (ffmpeg_path, ffprobe_path):
