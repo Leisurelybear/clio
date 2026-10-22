@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import time as _real_time
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -11,6 +12,50 @@ import pytest
 from clio import session_log
 from clio.ai.factory import _clear_provider_cache
 from clio.config import AppConfig, ProviderConfig, ProxyConfig, load_config
+
+
+class FakeTime:
+    """Scripted stand-in for a module-local ``time`` reference.
+
+    Patching ``clio.x.time.monotonic`` mutates the shared ``time`` module, so
+    unrelated background threads consume the scripted values and the patched test
+    dies with ``StopIteration``. Patch the module-local attribute instead
+    (``fake_time('clio.x', ...)``) so only the module under test sees the fake.
+
+    Scripted values are consumed in order and the last one repeats afterwards, so a
+    single value acts as a constant clock. With no values, ``monotonic`` falls back
+    to the real clock and only ``sleep`` is mocked.
+    """
+
+    def __init__(self, *monotonic_values: float) -> None:
+        self._values = list(monotonic_values)
+        self._calls = 0
+        self.sleep = MagicMock()
+
+    def monotonic(self) -> float:
+        if not self._values:
+            return _real_time.monotonic()
+        value = self._values[min(self._calls, len(self._values) - 1)]
+        self._calls += 1
+        return value
+
+    def __getattr__(self, name: str):
+        return getattr(_real_time, name)
+
+
+@pytest.fixture
+def fake_time(monkeypatch: pytest.MonkeyPatch):
+    """Install a :class:`FakeTime` on a module-local ``time`` reference.
+
+    Usage: ``fake_time('clio.progress', 0.0, 2.0)``.
+    """
+
+    def _install(module: str, *monotonic_values: float) -> FakeTime:
+        fake = FakeTime(*monotonic_values)
+        monkeypatch.setattr(f"{module}.time", fake)
+        return fake
+
+    return _install
 
 
 @pytest.fixture(autouse=True)

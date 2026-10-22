@@ -15,6 +15,9 @@ Optimized Task Center SSE delivery and closed the endpoint-level lifecycle cover
 - docs: record the SSE delivery contract, missing-task behavior, and verification scope
 - fix(test): make the `check` and ffmpeg-install route tests platform-independent so CI is green
   on macOS and on non-virtualenv runners
+- fix(test): patch the module-local `time` reference instead of the shared `time` module in the
+  progress ETA tests, so background threads can no longer consume the scripted clock and fail
+  `test_eta_computed` with `StopIteration` on CI
 
 Local verification: `2391 passed, 12 skipped` (Python 3.11.9, 83.95% line coverage), `679`
 Vitest tests across `62` files (42.99% statements), Ruff clean, and mypy clean across the

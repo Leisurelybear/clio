@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from unittest import mock
 
 import pytest
 
@@ -55,21 +54,21 @@ class TestProgressTracker:
         assert data["status"] == "error"
         assert data["message"] == "something went wrong"
 
-    def test_eta_computed(self, tmp_path):
+    def test_eta_computed(self, tmp_path, fake_time):
         # monotonic: __init__, phase-change reset, current=1 compute, current=2 compute
-        with mock.patch("clio.progress.time.monotonic", side_effect=[0, 0, 2, 4]):
-            t = ProgressTracker(tmp_path)
-            t.update(phase="compress", total=10, current=1)
-            t.update(current=2)
+        fake_time("clio.progress", 0.0, 0.0, 2.0, 4.0)
+        t = ProgressTracker(tmp_path)
+        t.update(phase="compress", total=10, current=1)
+        t.update(current=2)
         data = json.loads(t._path.read_text(encoding="utf-8"))
-        assert data["eta_sec"] is not None
-        assert data["eta_sec"] >= 0
+        # elapsed 4s, rate 0.5/s, 8 items left
+        assert data["eta_sec"] == 16
 
-    def test_eta_is_none_when_no_progress(self, tmp_path):
-        with mock.patch("clio.progress.time.monotonic", return_value=42.0):
-            t = ProgressTracker(tmp_path)
-            t.update(phase="compress", total=10)
-            t.next()
+    def test_eta_is_none_when_no_progress(self, tmp_path, fake_time):
+        fake_time("clio.progress", 42.0)  # constant clock
+        t = ProgressTracker(tmp_path)
+        t.update(phase="compress", total=10)
+        t.next()
         data = json.loads(t._path.read_text(encoding="utf-8"))
         assert data.get("eta_sec") is None  # elapsed = 0 → rate = 0 → eta = None
 
@@ -134,32 +133,16 @@ class TestProgressTracker:
         assert data["logs"][0] == "line 5"  # first 5 were dropped
         assert data["logs"][-1] == "line 104"
 
-    def test_phase_change_resets_eta_clock(self, tmp_path):
-        times = [100.0]  # __init__
-        # update phase a: change from "" -> a resets start
-        times += [100.0, 110.0]  # reset + compute current=5
-        # update phase b: reset start
-        times += [200.0]
-        # update current=2: compute with start=200
-        times += [202.0]
-        it = iter(times)
-        import time as _real_time
-
-        class _FakeTime:
-            def monotonic(self):
-                return next(it)
-
-            def __getattr__(self, name):
-                return getattr(_real_time, name)
-
-        with mock.patch("clio.progress.time", _FakeTime()):
-            t = ProgressTracker(tmp_path)
-            t.update(phase="a", total=10, current=5)
-            t.update(phase="b", total=10)
-            t.update(current=2)
-            data = json.loads(t._path.read_text(encoding="utf-8"))
-            # elapsed 2, rate=1, remaining 8
-            assert data["eta_sec"] == 8
+    def test_phase_change_resets_eta_clock(self, tmp_path, fake_time):
+        # __init__, phase-a reset, phase-a compute, phase-b reset, current=2 compute
+        fake_time("clio.progress", 100.0, 100.0, 110.0, 200.0, 202.0)
+        t = ProgressTracker(tmp_path)
+        t.update(phase="a", total=10, current=5)
+        t.update(phase="b", total=10)
+        t.update(current=2)
+        data = json.loads(t._path.read_text(encoding="utf-8"))
+        # elapsed 2, rate=1, remaining 8
+        assert data["eta_sec"] == 8
 
     def test_same_phase_message_update_preserves_current(self, tmp_path):
         """Re-issuing phase with only a message must NOT reset current (regression)."""
