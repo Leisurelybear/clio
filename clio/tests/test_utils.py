@@ -10,6 +10,7 @@ import pytest
 
 from clio.utils import (
     _secret_has_insecure_perms,
+    discover_ffmpeg_bin,
     extract_json,
     find_videos,
     format_index,
@@ -291,6 +292,13 @@ class TestResolveBinary:
     def test_empty_config_falls_back(self):
         with pytest.raises(FileNotFoundError):
             resolve_binary("", "ffmpeg_nonexistent_tool_xyz")
+
+    def test_discovers_managed_install_without_path(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("clio.utils.shutil.which", lambda name: None)
+        monkeypatch.setenv("CLIO_FFMPEG_DIR", str(tmp_path))
+        name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+        (tmp_path / name).write_text("fake")
+        assert discover_ffmpeg_bin("ffmpeg") == str(tmp_path / name)
 
 
 # ── write_secret_atomic (GAP-P1-11) ────────────────────────────────

@@ -240,6 +240,15 @@ def discover_ffmpeg_bin(name: str) -> str | None:
     if found:
         return found
 
+    try:
+        from clio.ffmpeg_install import managed_binary
+
+        managed = managed_binary(name)
+        if managed.is_file():
+            return str(managed)
+    except Exception:  # noqa: BLE001 - managed lookup must not break legacy discovery
+        pass
+
     local_app = Path(os.environ.get("LOCALAPPDATA", ""))
     user_home = Path(os.environ.get("USERPROFILE", ""))
     search_roots = [
