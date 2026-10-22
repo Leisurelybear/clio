@@ -234,6 +234,8 @@ class TestHandleGetConfig:
         cfg.scripts_dir = proj_out / "scripts"
         cfg.plans_dir = proj_out / "plans"
         cfg.analyze = MagicMock(texts_subdir="texts")
+        cfg.ui.language = "zh-CN"
+        cfg.ui.desktop_notifications = False
         handler._get_config.return_value = cfg
         handler._send_json = MagicMock()
 
@@ -248,6 +250,7 @@ class TestHandleGetConfig:
         assert "compressed_dir" in payload
         assert payload["scripts_dir"] == str(cfg.scripts_dir)
         assert payload["plans_dir"] == str(cfg.plans_dir)
+        assert payload["ui"] == {"language": "zh-CN", "desktop_notifications": False}
 
     def test_honors_custom_subdirs(self, tmp_path: Path):
         handler = MagicMock()

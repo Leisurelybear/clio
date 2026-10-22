@@ -1,6 +1,7 @@
 import { state } from './state.js';
 import { api } from './api.js';
 import { escapeHtml } from './utils.js';
+import { initDesktopNotificationBridge } from './desktop-notify.js';
 
 const SEVERITY_LABELS = { info: '信息', success: '完成', warning: '警告', error: '错误' };
 const PAGE_SIZE = 100;
@@ -348,6 +349,7 @@ export function initNotificationCenter() {
     _render();
   });
   window.addEventListener('clio:notification-created', _render);
+  initDesktopNotificationBridge();
   void loadNotifications().finally(_startStream);
 }
 

@@ -67,6 +67,10 @@ def handle_get_config(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
             "texts_dirs": [str(d) for d in texts],
             "scripts_dir": str(cfg.scripts_dir),
             "plans_dir": str(cfg.plans_dir),
+            "ui": {
+                "language": cfg.ui.language,
+                "desktop_notifications": cfg.ui.desktop_notifications,
+            },
         }
     )
 
