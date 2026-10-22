@@ -48,6 +48,30 @@ beforeEach(() => {
   vi.resetModules();
 });
 
+describe('videoDisplayName', () => {
+  it.each(['seg', 'part', 'pt', 'chunk', 'PART'])('strips legacy %s suffix when segment label exists', async alias => {
+    const { videoDisplayName } = await import('../sidebar-data.js');
+
+    expect(videoDisplayName({ file: `001_GX010456_${alias}07.mp4`, segment_label: '7/2' })).toBe(
+      'GX010456.mp4 [seg 7/2]',
+    );
+  });
+
+  it('keeps a natural part suffix when the backend marks the file as whole', async () => {
+    const { videoDisplayName } = await import('../sidebar-data.js');
+
+    expect(videoDisplayName({ file: '001_holiday_part01.mp4', segment_label: null })).toBe('holiday_part01.mp4');
+  });
+
+  it('appends offline state after formatting', async () => {
+    const { videoDisplayName } = await import('../sidebar-data.js');
+
+    expect(videoDisplayName({ file: '001_GL_part02.mov', segment_label: '2/3', missing: true })).toBe(
+      'GL.mov [seg 2/3] (离线)',
+    );
+  });
+});
+
 describe('updateSelectBtnVisibility', () => {
   beforeEach(async () => {
     document.body.innerHTML = `

@@ -356,6 +356,14 @@ function bindCoverThumbFallback(root) {
   }, { once: true });
 }
 
+export function videoDisplayName(v) {
+  let display = v.file.replace(/^\d+_/, '');
+  if (v.segment_label) {
+    display = display.replace(/_(?:seg|part|pt|chunk)\d+(?=\.[^.]+$)/i, '') + ` [seg ${v.segment_label}]`;
+  }
+  return v.missing ? `${display} (离线)` : display;
+}
+
 function renderVideoItem(v) {
   const li = document.createElement('li');
   let checkboxHtml = '';
@@ -371,13 +379,7 @@ function renderVideoItem(v) {
   if (!v.match) li.classList.add('no-match');
   if (v.missing) li.classList.add('missing');
 
-  let display = v.file.replace(/^\d+_/, '');
-  if (v.segment_label) {
-    display = display.replace(/_seg\d+$/i, '') + ` [seg ${v.segment_label}]`;
-  }
-  if (v.missing) {
-    display = display + ' (离线)';
-  }
+  const display = videoDisplayName(v);
 
   const tCls = v.text_json ? 'has' : 'miss';
   const sCls = v.script_json ? 'has' : 'miss';
