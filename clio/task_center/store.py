@@ -426,18 +426,6 @@ class TaskStore:
         with self._connect() as connection:
             return self._notification_revision(connection)
 
-    def notification_events(self, *, after_seq: int = 0, limit: int = 200) -> builtins.list[Notification]:
-        if after_seq < 0:
-            raise ValueError("after_seq must be non-negative")
-        if not 1 <= limit <= 1000:
-            raise ValueError("notification event limit must be between 1 and 1000")
-        with self._connect() as connection:
-            rows = connection.execute(
-                "SELECT * FROM notifications WHERE seq > ? ORDER BY seq ASC LIMIT ?",
-                (after_seq, limit),
-            ).fetchall()
-        return [self._row_to_notification(row) for row in rows]
-
     def mark_notification_read(
         self, notification_id_value: str, *, read: bool = True, project_id: str | None = None
     ) -> Notification | None:
