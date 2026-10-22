@@ -183,8 +183,12 @@ def handle_get_fs_entries(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
 
 def handle_post_fs_mkdir(handler: HandlerProtocol, obj: dict) -> None:
     """Handle POST /api/fs/mkdir — create a new directory."""
-    parent_raw = (obj.get("parent") or "").strip()
-    name = (obj.get("name") or "").strip()
+    parent_value = obj.get("parent")
+    name_value = obj.get("name")
+    if not isinstance(parent_value, str) or not isinstance(name_value, str):
+        return handler._send_json({"ok": False, "error": "parent and name required"}, 400)
+    parent_raw = parent_value.strip()
+    name = name_value.strip()
     if not parent_raw or not name:
         return handler._send_json({"ok": False, "error": "parent and name required"}, 400)
     if "/" in name or "\\" in name or ".." in name:
@@ -236,7 +240,10 @@ def reveal_path_in_file_manager(path: Path) -> Path:
 
 def handle_post_fs_reveal(handler: HandlerProtocol, obj: dict) -> None:
     """Handle POST /api/fs/reveal for either a directory or a file."""
-    raw = (obj.get("path") or "").strip()
+    path_value = obj.get("path")
+    if not isinstance(path_value, str):
+        return handler._send_json({"ok": False, "error": "path is required"}, 400)
+    raw = path_value.strip()
     if not raw:
         return handler._send_json({"ok": False, "error": "path is required"}, 400)
     try:

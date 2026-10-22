@@ -319,6 +319,11 @@ class TestHandleGetFsEntries:
 
 
 class TestHandlePostFsMkdir:
+    def test_non_string_fields_return_400(self):
+        handler = MagicMock()
+        handle_post_fs_mkdir(handler, {"parent": 123, "name": "newdir"})
+        handler._send_json.assert_called_once_with({"ok": False, "error": "parent and name required"}, 400)
+
     def test_missing_parent_returns_400(self):
         handler = MagicMock()
         handle_post_fs_mkdir(handler, {"name": "newdir"})
@@ -392,6 +397,11 @@ class TestBuildRevealCommand:
 
 
 class TestHandlePostFsReveal:
+    def test_non_string_path_returns_400(self):
+        handler = MagicMock()
+        handle_post_fs_reveal(handler, {"path": {"value": "x"}})
+        handler._send_json.assert_called_once_with({"ok": False, "error": "path is required"}, 400)
+
     def test_missing_path_returns_400(self):
         handler = MagicMock()
         handle_post_fs_reveal(handler, {})
