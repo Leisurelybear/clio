@@ -25,13 +25,18 @@ hard-coded Chinese from creeping back in.
   buried in Settings > Global
 - fix(ui): always render the global `ui` settings card - `renderConfig()` skips sections that are
   missing from the loaded config, so a `config.yaml` without a `ui:` block never showed 界面语言
+- fix(ui): the ffmpeg install dialog tracks the start button's action in a flag instead of
+  comparing its localized label, so a language switch can no longer turn a re-probe click into a
+  real install; the duplicated re-probe logic is now shared with the dedicated button
+- refactor(ui): `language-switcher.js` imports `SUPPORTED_LOCALES` from `i18n.js` instead of
+  re-declaring the shipped locale list
 
 Catalog growth: backend `clio/locales/*.json` 149 -> 746 keys, Web UI `ui/static/locales/*.json`
 1198 keys, all with zh/en parity. Remaining Python literals: 84 in 3 files, all allow-listed
 (`config/descriptions.py` source of truth, `prompts.py`, the persisted-data sentinel in
 `analyze.py`).
 
-Local verification: `2409 passed, 12 skipped` pytest and `741` Vitest tests across `73` files, ruff
+Local verification: `2409 passed, 12 skipped` pytest and `742` Vitest tests across `73` files, ruff
 and mypy clean.
 
 ## 2026-10-22

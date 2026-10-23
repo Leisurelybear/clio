@@ -104,12 +104,15 @@ they are dead weight. Safe to delete manually.
 - `CHANGELOG.md`: corrected the 2026-10-23 verification line (738/72 -> 741/73 Vitest) and the Web
   UI catalog key count (1196 -> 1198).
 
-## 5. Suggested Follow-Ups
+## 5. Follow-Ups
 
 Ordered by value, not by size:
 
-1. Replace the `ffmpeg-install.js` label comparison with an explicit mode flag (F1).
-2. Import `SUPPORTED_LOCALES` in `language-switcher.js` from `i18n.js` (F2).
+1. **Done** (`b280ed5`): the `ffmpeg-install.js` label comparison became an explicit mode flag
+   (F1). The new test switches the locale after a successful install and fails against the old
+   source, which proves the comparison really did start a second install.
+2. **Done** (`b6f9afe`): `language-switcher.js` now imports `SUPPORTED_LOCALES` from `i18n.js`
+   and re-exports it (F2).
 3. Add a short comment (or an assertion) documenting why the global locale is safe under the
    threaded server, and what would have to change if `ui` became project-scoped (F3).
 4. Delete the stray `.pytest-*` directories and consider a `.gitignore` entry for `.pytest-*` so a
@@ -118,3 +121,7 @@ Ordered by value, not by size:
 6. Unrelated but still open from earlier reviews: R-043 frontend coverage for the large legacy
    modules (`editor-plan.js`, `viewer.js`, `main.js`, `runner.js`), and R-027c server-side log
    search (`?q=`).
+
+Still open from F1: the ffmpeg install dialog does not re-render its copy on a language switch, so
+its labels can go stale while it is open. The action is now locale-independent, so this is cosmetic
+only, and the modal blocks the switcher anyway.
