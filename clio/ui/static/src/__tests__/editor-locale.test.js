@@ -115,6 +115,25 @@ describe('shell copy follows the active locale', () => {
     expect(document.getElementById('btn-save').textContent).toBe('Save');
   });
 
+  it('keeps the save icon and re-translates the dirty label on a language switch', () => {
+    const save = document.getElementById('btn-save');
+    save.innerHTML = '<span class="icon"></span> <span id="btn-save-label" data-i18n="common.save">\u4fdd\u5b58</span>';
+
+    applyLocale('zh-CN');
+    state.dirty = true;
+    updateSaveBtn();
+
+    const label = document.getElementById('btn-save-label');
+    expect(label.textContent).toBe('\u4fdd\u5b58 (\u6709\u6539\u52a8)');
+    expect(label.getAttribute('data-i18n')).toBe('common.save_dirty');
+    expect(save.querySelector('.icon')).not.toBeNull();
+
+    applyLocale('en');
+
+    expect(document.getElementById('btn-save-label').textContent).toBe('Save (unsaved changes)');
+    expect(save.querySelector('.icon')).not.toBeNull();
+  });
+
   it('localizes the project switcher empty state', () => {
     applyLocale('en');
 

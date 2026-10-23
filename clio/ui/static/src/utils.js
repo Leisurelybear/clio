@@ -77,7 +77,12 @@ function updateSaveBtn() {
   const btn = $('btn-save');
   if (!btn) return;
   btn.classList.toggle('dirty', state.dirty);
-  btn.textContent = state.dirty ? t('common.save_dirty') : t('common.save');
+  // Keep the icon and the label span intact: rewriting the whole button
+  // destroyed both, so the label stopped following language switches.
+  const label = $('btn-save-label') || btn;
+  const key = state.dirty ? 'common.save_dirty' : 'common.save';
+  if (label !== btn) label.setAttribute('data-i18n', key);
+  label.textContent = t(key);
 }
 
 function setStatus(msg, kind = '', options = {}) {
