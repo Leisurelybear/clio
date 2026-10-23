@@ -57,15 +57,17 @@ async function _loadGlobalConfig() {
  */
 export async function switchLanguage(locale = nextLocale(), options = {}) {
   const next = normalizeLocale(locale);
+  // Update the form state first: applying the locale re-renders the settings
+  // card, and that render must already see the new ui.language value.
+  if (state.configGlobal && typeof state.configGlobal === 'object') {
+    ensureGlobalUiDefaults(state.configGlobal, next).ui.language = next;
+  }
   applyLocale(next);
   try {
     const reused = options.global || (!state.dirty ? state.configGlobal : null);
     const source = reused && typeof reused === 'object' ? reused : await _loadGlobalConfig();
     const payload = ensureGlobalUiDefaults(source, next);
     payload.ui.language = next;
-    if (state.configGlobal && typeof state.configGlobal === 'object') {
-      ensureGlobalUiDefaults(state.configGlobal, next).ui.language = next;
-    }
     const result = await api('PUT', '/api/config/global', payload);
     if (result?.error) throw new Error(result.error);
     return { ok: true, locale: next, persisted: true };

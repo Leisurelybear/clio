@@ -6,7 +6,7 @@ vi.mock('../toast.js', () => ({ addToast: vi.fn() }));
 import { api } from '../api.js';
 import { addToast } from '../toast.js';
 import { state } from '../state.js';
-import { _resetI18nForTests, applyLocale, getLocale } from '../i18n.js';
+import { _resetI18nForTests, applyLocale, getLocale, onLocaleChange } from '../i18n.js';
 import { seedCatalogs } from './catalogs.js';
 import {
   DEFAULT_DESKTOP_NOTIFICATIONS,
@@ -128,6 +128,18 @@ describe('switchLanguage', () => {
       naming: { prefix: 'trip' },
       ui: { language: 'en', desktop_notifications: DEFAULT_DESKTOP_NOTIFICATIONS },
     });
+  });
+
+  it('updates the form state before the locale change re-renders the settings card', async () => {
+    state.configGlobal = { ui: { language: 'zh-CN', desktop_notifications: false } };
+    stubConfigApi();
+    let seenDuringSwitch = null;
+    onLocaleChange(() => { seenDuringSwitch = state.configGlobal?.ui?.language; });
+
+    await switchLanguage('en');
+
+    expect(seenDuringSwitch).toBe('en');
+    expect(state.configGlobal.ui.language).toBe('en');
   });
 
   it('reads the on-disk config instead of unsaved form state', async () => {
