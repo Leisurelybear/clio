@@ -151,7 +151,7 @@ cp config.example.yaml config.yaml
 
 界面支持**中文 / English**，三种切换方式（优先级从低到高）：
 
-1. **Web UI**：设置 → 全局配置 → 「界面语言」，保存后**立即生效，无需刷新**
+1. **Web UI**：点击顶栏的 `中` / `EN` 按钮一键切换（无需刷新），或在 设置 → 全局配置 → 「界面语言」中修改后保存
 2. **配置文件**：`config.yaml` → `ui.language: zh-CN`（或 `en`）
 3. **环境变量**：`CLIO_LANG=en python main.py check`（优先级最高，适合 CLI 与一次性运行）
 

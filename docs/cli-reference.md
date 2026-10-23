@@ -12,6 +12,14 @@
 | `--force` | Most subcommands | Ignore existing output / optional readiness warnings; accepted before or after the subcommand |
 | `-i, --input <path>` | Compatibility | Legacy input path for single-file commands, `refine`, and `compare-models`; hidden from `--help` |
 
+### Environment Variables
+
+| Variable | Effect |
+|----------|--------|
+| `CLIO_LANG` | Overrides the output language for CLI/doctor/server copy (`zh-CN` or `en`). Precedence: explicit `locale=` argument > `CLIO_LANG` > `ui.language` from `config.yaml` > `zh-CN`. Example: `CLIO_LANG=en python main.py check` |
+| `CLIO_FFMPEG_DIR` | Overrides the root directory used by the automatic ffmpeg installer |
+| `CLIO_ALLOW_DESKTOP_UNDER_PYTEST` | Set to `1` to allow a real pywebview window to open while running under pytest |
+
 ## Command Overview
 
 | Command | Purpose |

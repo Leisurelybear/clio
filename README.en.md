@@ -142,7 +142,7 @@ cp config.example.yaml config.yaml
 
 The UI ships in **Chinese and English**. Three ways to switch (lowest to highest precedence):
 
-1. **Web UI**: Settings → Global → `Interface language`; applies **immediately, no reload**
+1. **Web UI**: click the `中` / `EN` button in the header for a one-click switch (no reload), or use Settings → Global → `Interface language` and save
 2. **Config file**: `config.yaml` → `ui.language: en` (or `zh-CN`)
 3. **Environment variable**: `CLIO_LANG=en python main.py check` (highest precedence; handy for CLI runs)
 
