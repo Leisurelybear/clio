@@ -27,12 +27,12 @@ hard-coded Chinese from creeping back in.
   missing from the loaded config, so a `config.yaml` without a `ui:` block never showed 界面语言
 
 Catalog growth: backend `clio/locales/*.json` 149 -> 746 keys, Web UI `ui/static/locales/*.json`
-1196 keys, all with zh/en parity. Remaining Python literals: 84 in 3 files, all allow-listed
+1198 keys, all with zh/en parity. Remaining Python literals: 84 in 3 files, all allow-listed
 (`config/descriptions.py` source of truth, `prompts.py`, the persisted-data sentinel in
 `analyze.py`).
 
-Local verification: `2409 passed, 12 skipped` pytest and `738` Vitest tests across `72` files, ruff
-clean.
+Local verification: `2409 passed, 12 skipped` pytest and `741` Vitest tests across `73` files, ruff
+and mypy clean.
 
 ## 2026-10-22
 
