@@ -6,11 +6,12 @@
  * button gives the same setting a one-click entry point.
  */
 import { api } from './api.js';
-import { applyLocale, getLocale, normalizeLocale, onLocaleChange, t } from './i18n.js';
+import { applyLocale, getLocale, normalizeLocale, onLocaleChange, SUPPORTED_LOCALES, t } from './i18n.js';
 import { state } from './state.js';
 import { addToast } from './toast.js';
 
-export const SUPPORTED_LOCALES = ['zh-CN', 'en'];
+// Re-exported: `i18n.js` owns the one definition of the shipped locale list.
+export { SUPPORTED_LOCALES };
 export const DEFAULT_DESKTOP_NOTIFICATIONS = false;
 
 const BUTTON_LABELS = { 'zh-CN': '\u4e2d', en: 'EN' };
