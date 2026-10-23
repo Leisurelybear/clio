@@ -135,13 +135,16 @@ The rows on `:8801` were verified on the patched code before the live `serve.ps1
 (started 16:07 with the pre-fix code) was restarted; the `:8800` rows above were taken after that
 restart, so the fix is what the user's browser now talks to.
 
-## 6. Side Findings (not fixed here)
+## 6. Side Findings
 
-1. **`POST /api/notifications` always 400.** `notification-center.js::_contextLink()` puts the
-   Windows `project_dir` into `link`, and `routes/notifications.py` rejects links containing a
-   backslash, so every UI toast/status notification fails to persist. The server test asserts the
-   intended format (`?project=…&entity=…`). Needs a product decision: drop `project_dir` on the
-   frontend, or relax the validation.
+1. **`POST /api/notifications` always 400** — fixed in the following commit.
+   `notification-center.js::_contextLink()` puts the Windows `project_dir` into `link`, and
+   `routes/notifications.py` rejected any link containing a backslash, so every UI toast, status
+   and runtime-warning notification failed to persist. The guard now inspects only the part before
+   `?`/`#` — the only place a backslash can collapse to `//` and leave the origin — so `/\evil` and
+   `/%5Cevil` stay rejected while a percent-encoded `project_dir` in the query is accepted.
+   Verified live: the POST that answered 400 now answers 201, and a link with `%5C` in the path
+   part still answers 400.
 2. **SSE polling cost.** Each stream wakes four times per second and queries SQLite
    (`latest_notification_seq` / `events`). 19 streams ≈ 76 queries/s; the new stream budget allows
    up to 64 streams ≈ 256 queries/s. Consider a longer poll interval or a change signal.

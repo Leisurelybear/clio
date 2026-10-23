@@ -149,6 +149,21 @@ def handle_get_notifications_stream(handler: HandlerProtocol, qs: dict[str, Any]
         return
 
 
+def _link_escapes_origin(link: str) -> bool:
+    r"""True when the link could resolve to a protocol-relative (foreign) URL.
+
+    Browsers read a backslash like a slash in the URL path, so ``/\evil`` and
+    ``/%5Cevil`` both collapse to ``//evil`` and leave the origin - only the part
+    before ``?``/``#`` can do that. A backslash inside the query is ordinary
+    data: the UI deep-links a Windows ``project_dir`` as ``%5C``, so rejecting it
+    made every toast, status, and runtime-warning notification fail to persist.
+    """
+    if "\\" in link:
+        return True
+    path_part = link.split("?", 1)[0].split("#", 1)[0]
+    return "%5c" in path_part.lower()
+
+
 def handle_post_notification(handler: HandlerProtocol, qs: dict[str, Any], obj: dict[str, Any]) -> None:
     severity_raw = obj.get("severity", "info")
     try:
@@ -173,8 +188,7 @@ def handle_post_notification(handler: HandlerProtocol, qs: dict[str, Any], obj: 
             parsed_link is None
             or not link.startswith(("/", "?"))
             or link.startswith("//")
-            or "\\" in link
-            or "%5c" in link.lower()
+            or _link_escapes_origin(link)
             or parsed_link.scheme
             or parsed_link.netloc
             or len(link) > 500

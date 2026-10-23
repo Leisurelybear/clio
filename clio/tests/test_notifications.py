@@ -215,6 +215,28 @@ def test_notification_route_uses_project_dir_and_rejects_backslash_links(tmp_pat
     assert saved["project_id"] == str(project_dir.resolve())
     assert saved["project_name"] == "同名项目"
 
+    # A Windows project_dir deep link carries "%5C" in its query, which is data
+    # rather than a path escape; rejecting it meant no UI notification persisted.
+    handle_post_notification(
+        handler,
+        {},
+        {
+            "severity": "info",
+            "message": "带路径的深链",
+            "link": "?project=%E5%90%8C%E5%90%8D%E9%A1%B9%E7%9B%AE&project_dir=D%3A%5Cclips%5Cday1&entity=video",
+        },
+    )
+    assert handler.responses[-1][1] == 201
+    assert "%5C" in handler.responses[-1][0]["notification"]["link"]
+
+    # The same escape in the path part still collapses to a foreign URL.
+    handle_post_notification(
+        handler,
+        {},
+        {"severity": "warning", "message": "编码反斜杠", "link": "/%5Cevil.example"},
+    )
+    assert handler.responses[-1][1] == 400
+
     handle_post_notification(
         handler,
         {},

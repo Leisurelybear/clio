@@ -556,6 +556,7 @@ describe('notification center', () => {
     state.currentVideo = 'v1';
     state.currentDay = 'day1';
     state.currentProjectName = 'Trip';
+    state.currentProjectDir = 'D:\\clips\\day1';
     api.mockResolvedValueOnce({
       notification: { id: 'n8', seq: 7, severity: 'info', title: 'T', message: 'm', read_at: null },
       unread_count: 1,
@@ -568,6 +569,9 @@ describe('notification center', () => {
     expect(link).toContain('video=v1');
     expect(link).toContain('entity=videos');
     expect(link).toContain('day=day1');
+    // A Windows project_dir must stay percent-encoded: the backend accepts a
+    // backslash inside the query but still rejects it in the path part.
+    expect(link).toContain('project_dir=D%3A%5Cclips%5Cday1');
 
     await markNotificationRead('');
     expect(api).toHaveBeenCalledTimes(1);
