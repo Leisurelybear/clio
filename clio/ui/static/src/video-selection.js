@@ -4,7 +4,21 @@
 import { t } from './i18n.js';
 
 export function normPath(p) {
-  return String(p || '').replace(/\\/g, '/').toLowerCase();
+  const raw = String(p || '').replace(/\\/g, '/').toLowerCase();
+  if (!raw) return '';
+  const absolute = raw.startsWith('/');
+  const parts = [];
+  for (const seg of raw.split('/')) {
+    if (!seg || seg === '.') continue;
+    if (seg === '..') {
+      if (parts.length && parts[parts.length - 1] !== '..') parts.pop();
+      else if (!absolute) parts.push('..');
+      continue;
+    }
+    parts.push(seg);
+  }
+  const joined = parts.join('/');
+  return absolute ? `/${joined}` : joined;
 }
 
 /**

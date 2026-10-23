@@ -747,49 +747,92 @@ def handle_get_videos_selected(handler: HandlerProtocol, qs: dict[str, Any]) -> 
     handler._send_json({"videos": data})
 
 
+def _video_key(path: Path) -> str:
+    """Canonical comparison key for a stored video path.
+
+    Case- and separator-insensitive so the same file added twice (different
+    slash style, letter case, or with ``.``/``..`` segments) is deduplicated.
+    """
+    try:
+        return str(path.resolve()).lower()
+    except OSError:
+        return str(path).replace("\\", "/").lower()
+
+
+def _coerce_video_path(item: Any) -> Path | None:
+    """Resolve a raw videos.json entry to the path we should store.
+
+    Returns None when the value is empty, unparseable, or has a non-video
+    extension. Offline paths are kept as-is because videos.json is an
+    allowlist (the file may live on a detached drive).
+    """
+    if item is None or str(item).strip() == "":
+        return None
+    p = Path(str(item)).expanduser()
+    try:
+        resolved = p.resolve()
+    except OSError:
+        resolved = p
+    if resolved.suffix.lower() not in VIDEO_EXTENSIONS:
+        return None
+    if resolved.is_file():
+        return resolved
+    return resolved if resolved.is_absolute() else p
+
+
 def handle_put_videos_selected(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
     """Handle PUT /api/videos/selected — save to videos.json.
 
     Offline paths are kept: videos.json is an allowlist. Only wrong extensions /
     unparseable values are rejected. Existing files are stored as resolved paths.
+
+    When the caller also sends ``candidates`` (the paths the user just picked),
+    the response carries authoritative ``added`` / ``already`` counts computed
+    against the previously stored list, so the UI never guesses.
     """
     proj_dir = handler._resolve_project_dir(qs)
     raw = obj.get("videos", [])
     if not isinstance(raw, list):
         return handler._send_json({"ok": False, "error": "videos must be a list"}, 400)
+    previous_keys = {_video_key(p) for p in load_selected_videos(proj_dir)}
     paths: list[Path] = []
     rejected: list[str] = []
     for item in raw:
-        if item is None or str(item).strip() == "":
+        stored = _coerce_video_path(item)
+        if stored is None:
             rejected.append(str(item))
-            continue
-        p = Path(str(item)).expanduser()
-        try:
-            resolved = p.resolve()
-        except OSError:
-            resolved = p
-        if resolved.suffix.lower() not in VIDEO_EXTENSIONS:
-            rejected.append(str(item))
-            continue
-        # Prefer resolved path when the file exists; otherwise keep offline path.
-        if resolved.is_file():
-            paths.append(resolved)
         else:
-            paths.append(resolved if resolved.is_absolute() else p)
-    # Dedup while preserving order (compare resolved string form)
+            paths.append(stored)
+    # Dedup while preserving order (compare the shared normalized key)
     seen: set[str] = set()
     unique: list[Path] = []
     for p in paths:
-        try:
-            key = str(p.resolve()).lower()
-        except OSError:
-            key = str(p).replace("\\", "/").lower()
+        key = _video_key(p)
         if key not in seen:
             seen.add(key)
             unique.append(p)
     save_selected_videos(proj_dir, unique)
     _invalidate_videos_cache(proj_dir)
     payload: dict[str, Any] = {"ok": True, "count": len(unique)}
+    candidates = obj.get("candidates")
+    if isinstance(candidates, list):
+        added = 0
+        already = 0
+        counted: set[str] = set()
+        for item in candidates:
+            stored = _coerce_video_path(item)
+            if stored is None:
+                continue
+            key = _video_key(stored)
+            if key in counted:
+                continue
+            counted.add(key)
+            if key in previous_keys:
+                already += 1
+            else:
+                added += 1
+        payload["added"] = added
+        payload["already"] = already
     if rejected:
         payload["rejected"] = rejected[:20]
         payload["rejected_count"] = len(rejected)
@@ -841,15 +884,11 @@ def handle_put_videos_relink(handler: HandlerProtocol, qs: dict[str, Any], obj: 
             )
         else:
             return handler._send_json({"ok": False, "error": t("api.video_not_in_project", {"path": old_path})}, 404)
-    new_key = str(resolved).lower()
+    new_key = _video_key(resolved)
     for idx, video in enumerate(videos):
         if idx == matched_idx:
             continue
-        try:
-            existing_key = str(video.resolve()).lower()
-        except OSError:
-            existing_key = str(video).lower()
-        if existing_key == new_key:
+        if _video_key(video) == new_key:
             return handler._send_json(
                 {"ok": False, "error": t("api.video_already_in_project", {"path": resolved})},
                 409,

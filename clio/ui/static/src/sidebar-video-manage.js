@@ -45,21 +45,23 @@ async function _addPaths(paths) {
     const { mergeSelectedVideos } = await import('./video-selection.js');
     const current = await api('GET', '/api/videos/selected');
     const { merged, added, already } = mergeSelectedVideos(current.videos || [], list);
-    const r = await api('PUT', '/api/videos/selected', { videos: merged });
+    const r = await api('PUT', '/api/videos/selected', { videos: merged, candidates: list });
+    const addedCount = Number.isInteger(r?.added) ? r.added : added;
+    const alreadyCount = Number.isInteger(r?.already) ? r.already : already;
     if (r && r.rejected_count) {
       const msg = t('sidebar.add_rejected', { count: r.rejected_count });
       setStatus(msg, 'warn');
       addToast(msg, 'warning', 6000, { persist: false });
-    } else if (added === 0) {
-      const msg = already
-        ? t('sidebar.add_all_exist', { count: already })
+    } else if (addedCount === 0) {
+      const msg = alreadyCount
+        ? t('sidebar.add_all_exist', { count: alreadyCount })
         : t('sidebar.add_nothing');
       setStatus(msg, 'warn');
       addToast(msg, 'warning', undefined, { persist: false });
     } else {
-      const msg = already
-        ? t('sidebar.add_with_existing', { added, existing: already })
-        : t('sidebar.add_count', { count: added });
+      const msg = alreadyCount
+        ? t('sidebar.add_with_existing', { added: addedCount, existing: alreadyCount })
+        : t('sidebar.add_count', { count: addedCount });
       setStatus(msg, 'ok');
       addToast(msg, 'success', undefined, { persist: false });
     }

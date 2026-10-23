@@ -772,6 +772,62 @@ class TestPutVideosSelectedOffline:
         assert resp.get("rejected_count") == 1
 
 
+class TestPutVideosSelectedCounts:
+    def _handler(self, proj_dir: Path) -> MagicMock:
+        handler = MagicMock()
+        handler._resolve_project_dir.return_value = proj_dir
+        handler._send_json = MagicMock()
+        return handler
+
+    def test_reports_authoritative_added_and_already(self, tmp_path: Path):
+        proj_dir = tmp_path / "proj"
+        proj_dir.mkdir()
+        handler = self._handler(proj_dir)
+        existing = tmp_path / "a.mp4"
+        existing.write_bytes(b"x")
+        fresh = tmp_path / "b.mp4"
+        fresh.write_bytes(b"x")
+        handle_put_videos_selected(handler, {}, {"videos": [str(existing)]})
+        handler._send_json.reset_mock()
+
+        handle_put_videos_selected(
+            handler,
+            {},
+            {
+                "videos": [str(existing), str(fresh)],
+                "candidates": [str(existing), str(fresh), str(fresh)],
+            },
+        )
+
+        resp = handler._send_json.call_args[0][0]
+        assert resp["added"] == 1
+        assert resp["already"] == 1
+        assert resp["count"] == 2
+
+    def test_omits_counts_without_candidates(self, tmp_path: Path):
+        proj_dir = tmp_path / "proj"
+        proj_dir.mkdir()
+        handler = self._handler(proj_dir)
+        video = tmp_path / "a.mp4"
+        video.write_bytes(b"x")
+        handle_put_videos_selected(handler, {}, {"videos": [str(video)]})
+        resp = handler._send_json.call_args[0][0]
+        assert "added" not in resp
+        assert "already" not in resp
+
+    def test_dedupes_dotdot_and_separator_spellings(self, tmp_path: Path):
+        proj_dir = tmp_path / "proj"
+        proj_dir.mkdir()
+        handler = self._handler(proj_dir)
+        real = tmp_path / "clips" / "a.mp4"
+        real.parent.mkdir()
+        real.write_bytes(b"x")
+        dotted = str(tmp_path / "clips" / ".." / "clips" / "a.mp4")
+        handle_put_videos_selected(handler, {}, {"videos": [str(real), dotted]})
+        resp = handler._send_json.call_args[0][0]
+        assert resp["count"] == 1
+
+
 class TestCompressedMatchesAfterRelink:
     def test_stem_match_keeps_compressed_visible(self, tmp_path: Path):
         """After relink, .vmeta may still point at old path; stem match must keep row."""

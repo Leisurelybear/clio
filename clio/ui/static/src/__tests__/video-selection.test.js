@@ -9,6 +9,13 @@ describe('normPath', () => {
   it('normalizes slashes and case', () => {
     expect(normPath('D:\\GoPro\\A.MP4')).toBe('d:/gopro/a.mp4');
   });
+
+  it('resolves . and .. segments and drops trailing separators', () => {
+    expect(normPath('D:\\clips\\..\\clips\\A.MP4')).toBe('d:/clips/a.mp4');
+    expect(normPath('D:/clips/./a.mp4')).toBe('d:/clips/a.mp4');
+    expect(normPath('D:/clips/')).toBe('d:/clips');
+    expect(normPath('')).toBe('');
+  });
 });
 
 describe('findSelectedVideoIndex', () => {
@@ -70,5 +77,12 @@ describe('mergeSelectedVideos', () => {
     expect(r.added).toBe(1);
     expect(r.already).toBe(1);
     expect(r.merged).toEqual(['D:/Footage/GL010695.MP4', 'D:/Footage/Other.MP4']);
+  });
+
+  it('treats .. spellings of the same file as already present', () => {
+    const r = mergeSelectedVideos(['D:/clips/a.mp4'], ['D:\\clips\\..\\clips\\a.mp4']);
+    expect(r.added).toBe(0);
+    expect(r.already).toBe(1);
+    expect(r.merged).toEqual(['D:/clips/a.mp4']);
   });
 });
