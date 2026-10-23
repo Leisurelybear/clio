@@ -32,8 +32,10 @@ from clio.task_center.manager import TaskManager
 from clio.task_center.store import TaskStore
 from clio.tasks.reindex import auto_reindex_if_needed
 from clio.ui.http_server import (
+    BUSY_ERROR,
     REQUEST_TIMEOUT_SEC,
     BoundedThreadingHTTPServer,
+    RequestBudget,
     header_bytes_too_large,
 )
 from clio.ui.router import Route, Router
@@ -355,6 +357,17 @@ def make_handler(
         _enforce_local_session: bool
         _enforce_json_ct: bool
 
+        # Injected by BoundedThreadingHTTPServer; None disables the split budget.
+        request_budget: ClassVar[RequestBudget | None] = None
+        # Path of the request holding this connection's budget slot, if any.
+        _budget_path: str | None = None
+
+        def handle_one_request(self) -> None:
+            try:
+                super().handle_one_request()
+            finally:
+                self._release_request_budget()
+
         def parse_request(self) -> bool:
             ok = super().parse_request()
             if not ok:
@@ -363,7 +376,23 @@ def make_handler(
                 self.send_error(HTTPStatus.REQUEST_HEADER_FIELDS_TOO_LARGE)
                 self.close_connection = True
                 return False
+            budget = self.__class__.request_budget
+            if budget is not None:
+                if not budget.acquire(self.path):
+                    self._send_json({"ok": False, "error": BUSY_ERROR}, 503)
+                    self.close_connection = True
+                    return False
+                self._budget_path = self.path
             return True
+
+        def _release_request_budget(self) -> None:
+            path = self._budget_path
+            if path is None:
+                return
+            self._budget_path = None
+            budget = self.__class__.request_budget
+            if budget is not None:
+                budget.release(path)
 
         def _get_state(self, project_key: str) -> _ServerState:
             states = self.__class__._project_states

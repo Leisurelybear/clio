@@ -186,3 +186,22 @@ See `clio/compress.py`.
   the real failure branch.
 - Reproduce CI locally by clearing `PATH`, `LOCALAPPDATA`, `USERPROFILE`, and `FFMPEG_HOME` before
   running pytest. `discover_ffmpeg_bin` searches those locations even when PATH is clean.
+
+### 9.26 Long-Lived Streams Must Not Share the Request Budget
+
+- `clio/ui/http_server.py` admits work through `RequestBudget`: `MAX_CONCURRENT_REQUESTS = 32` for
+  short-lived requests and `MAX_CONCURRENT_STREAMS = 64` for `STREAM_PATHS`
+  (`/api/notifications/stream`, `/api/tasks/stream`). `MAX_CONNECTION_THREADS = 96` still caps the
+  total thread count, so slow clients cannot spawn unbounded threads.
+- Every open browser tab holds two SSE streams. Charging them to the request budget let a browser
+  with ten to nineteen open streams starve every endpoint, and the old `process_request` closed
+  rejected sockets with no response at all — Chrome reported `failed to load response data` and
+  no access-log line was written. See
+  `docs/analysis/2026-10-23-ui-unreachable-concurrency-budget.md`.
+- A new streaming route must be added to `STREAM_PATHS`, otherwise it silently consumes request
+  slots for its whole lifetime. The handler charges the budget in `parse_request` (path known) and
+  releases it in `handle_one_request`.
+- Never resolve a full pool by dropping a connection: connections answer `BUSY_RESPONSE`, requests
+  answer `_send_json(..., 503)`, and both log, so the browser, `api()` and the server log agree.
+- Diagnose pool exhaustion with `py-spy dump --pid <serve pid>`; `handle_get_*_stream` frames at the
+  top of many threads plus matching `ESTABLISHED` sockets mean streams own the pool.

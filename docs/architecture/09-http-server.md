@@ -47,6 +47,23 @@ run(host, port, api_token, …)
   content-length, 415 wrong media type)` and sends the matching `{ok:false, error}` before the
   handler ever runs.
 
+### Concurrency budgets
+
+```text
+connection cap        MAX_CONNECTION_THREADS = 96   (requests + streams; 503 when reached)
+  ├─ request budget   MAX_CONCURRENT_REQUESTS = 32  (short-lived API handlers)
+  └─ stream budget    MAX_CONCURRENT_STREAMS = 64   (STREAM_PATHS: /api/notifications/stream,
+                                                     /api/tasks/stream)
+```
+
+`BoundedThreadingHTTPServer` injects a `RequestBudget` into the handler class; the handler charges it
+in `parse_request` (the path is known there, so streams are classified correctly) and releases it in
+`handle_one_request`, i.e. for exactly one request. Streams must never be charged to the request
+budget: every open browser tab holds two SSE streams, and one shared pool let a handful of tabs
+starve every endpoint while rejected sockets were closed with no response at all. An exhausted
+budget now answers `503` (`BUSY_RESPONSE` at connection level, `{"ok": false, "error": …}` for
+requests) and logs, so browsers and `api()` always see an HTTP status.
+
 ## 4. Routing
 
 ```text
@@ -80,7 +97,7 @@ client: on refresh, re-fetch GET /api/notifications + GET /api/tasks
 
 | Group | Endpoints (representative) |
 |---|---|
-| videos | `GET/PUT /api/videos`, `PUT /api/videos/relink`, `GET /api/videos/selected`, `GET /api/vmeta/{stem}` |
+| videos | `GET/PUT /api/videos`, `PUT /api/videos/relink`, `GET/PUT /api/videos/selected` (PUT takes an optional `candidates` list and returns authoritative `added`/`already`), `GET /api/vmeta/{stem}` |
 | texts / transcripts | `GET/PUT /api/texts`, `GET /api/voiceover/{stem}`, `GET /api/cover/{stem}`, `GET/PUT/POST /api/transcripts` |
 | plan | `GET /api/plans`, `GET/PUT /api/plans/{name}`, `POST /api/plans/{name}/readiness`, `POST /api/cut…` |
 | run | `POST /api/run/start|preview`, `POST /api/run/rerun` (pipeline + step runners) |
@@ -89,7 +106,7 @@ client: on refresh, re-fetch GET /api/notifications + GET /api/tasks
 | projects | select/create/add/remove/migrate; `GET /api/processing-state` |
 | whisper | install status/start/cancel, model download/delete, dependency checks |
 | export | `POST /api/export` (see `12-export.md`) |
-| fs | dirs/entries/mkdir/reveal (path-picker widgets) |
+| fs | entries/mkdir/reveal (path-picker widgets) |
 | misc | `POST /api/ai/test`, `GET /api/token-usage`, `GET/PUT /api/prompts`, `GET /api/logs`, notifications inbox |
 
 ## 7. Cross-Module Dependencies
@@ -117,3 +134,6 @@ client: on refresh, re-fetch GET /api/notifications + GET /api/tasks
 5. Large JSON bodies → 413 and big query strings stay bounded; media serving relies on the
    Host-range/HEAD support in `do_HEAD` (P2-P40) — new file-serving routes should reuse it
    instead of re-reading whole files into memory.
+6. New streaming endpoints must be registered in `STREAM_PATHS`
+   (`clio/ui/http_server.py`); an unregistered stream is charged to the 32-slot request budget for
+   its entire lifetime and can starve the UI.

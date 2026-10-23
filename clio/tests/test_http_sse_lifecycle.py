@@ -11,7 +11,7 @@ from clio.task_center.manager import TaskManager
 from clio.task_center.models import TaskEvent, TaskEventType, TaskKind, TaskStatus, create_task
 from clio.task_center.state_machine import transition_task
 from clio.task_center.store import TaskStore
-from clio.ui.http_server import BoundedThreadingHTTPServer
+from clio.ui.http_server import BUSY_ERROR, BoundedThreadingHTTPServer
 from clio.ui.server import make_handler
 
 
@@ -47,10 +47,19 @@ class _EventStream:
 
 
 class _EndpointServer:
-    def __init__(self, config: AppConfig, manager: TaskManager):
+    def __init__(
+        self,
+        config: AppConfig,
+        manager: TaskManager,
+        *,
+        max_workers: int = 16,
+        max_streams: int = 64,
+    ):
         handler = make_handler(config, None, task_manager=manager)
         self.manager = manager
-        self.server = BoundedThreadingHTTPServer(("127.0.0.1", 0), handler, max_workers=16)
+        self.server = BoundedThreadingHTTPServer(
+            ("127.0.0.1", 0), handler, max_workers=max_workers, max_streams=max_streams
+        )
         self.host, self.port = self.server.server_address[:2]
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -266,4 +275,37 @@ def test_terminal_event_between_detail_snapshot_and_stream_is_replayed(tmp_path,
     finally:
         if stream is not None:
             stream.close()
+        endpoint.close()
+
+
+def test_open_stream_does_not_starve_normal_requests(tmp_path, loaded_config: AppConfig):
+    """Every open tab holds two SSE streams; they must not eat the request budget."""
+    manager = _manager(tmp_path)
+    endpoint = _EndpointServer(loaded_config, manager, max_workers=1, max_streams=2)
+    stream = None
+    try:
+        stream = endpoint.open_stream("/api/tasks/stream?after=0")
+        snapshot, status = endpoint.request_json("GET", "/api/tasks?limit=5")
+        assert status == 200
+        assert snapshot["latest_seq"] == 0
+    finally:
+        if stream is not None:
+            stream.close()
+        endpoint.close()
+
+
+def test_request_budget_exhaustion_answers_503(tmp_path, loaded_config: AppConfig):
+    """An exhausted request budget must answer 503 instead of an empty response."""
+    manager = _manager(tmp_path)
+    endpoint = _EndpointServer(loaded_config, manager, max_workers=1, max_streams=1)
+    try:
+        budget = endpoint.server.request_budget
+        assert budget.acquire("/api/tasks") is True
+        try:
+            body, status = endpoint.request_json("GET", "/api/tasks?limit=5")
+        finally:
+            budget.release("/api/tasks")
+        assert status == 503
+        assert body == {"ok": False, "error": BUSY_ERROR}
+    finally:
         endpoint.close()
