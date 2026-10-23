@@ -57,6 +57,7 @@ let _configSchema = null;
 onLocaleChange(() => {
   if (state.currentEntity === 'config') renderConfig();
   else if (state.currentEntity === 'tokens') renderTokens();
+  else if (state.currentEntity === 'logs') renderLogs();
 });
 
 export function _isAdvancedVisible() {
