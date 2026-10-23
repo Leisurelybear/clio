@@ -152,6 +152,17 @@ export function openFfmpegInstallDialog(options = {}) {
   const automaticSection = $id('ffi-auto');
   const autoNote = $id('ffi-auto-note');
 
+  // The start button is the primary action: it installs, and once an install has
+  // succeeded it re-probes instead. Track that in a flag rather than comparing the
+  // rendered label, because the label is localized and the comparison would
+  // silently pick the wrong branch after a language switch.
+  let startMode = 'install';
+
+  const setStartLabel = (mode, label) => {
+    startMode = mode;
+    startButton.textContent = label;
+  };
+
   const setAutomatic = (automatic) => {
     startButton.disabled = !automatic;
     startButton.title = automatic ? '' : t('ffmpeg.title.manual_only');
@@ -185,7 +196,7 @@ export function openFfmpegInstallDialog(options = {}) {
       stopTask = null;
       if (typeof stop === 'function') stop();
       startButton.disabled = false;
-      startButton.textContent = t('ffmpeg.dialog.reprobe');
+      setStartLabel('reprobe', t('ffmpeg.dialog.reprobe'));
       cancelButton.style.display = 'none';
       setStatus(t('ffmpeg.status.installed_recheck'), 'ok');
       Promise.resolve(refreshDeps()).then((deps) => {
@@ -205,7 +216,7 @@ export function openFfmpegInstallDialog(options = {}) {
       stopTask = null;
       if (typeof stop === 'function') stop();
       startButton.disabled = false;
-      startButton.textContent = t('ffmpeg.status.retry_install');
+      setStartLabel('install', t('ffmpeg.status.retry_install'));
       if (task.status === 'cancelled') setStatus(t('ffmpeg.status.cancelled_msg'));
       else setStatus(task.error_message || task.message || taskStatusText(task), 'error');
     }
@@ -229,22 +240,22 @@ export function openFfmpegInstallDialog(options = {}) {
       .catch((error) => setStatus(t('ffmpeg.status.subscribe_failed', { detail: error.message }), 'error'));
   };
 
-  const startInstall = async () => {
-    if (startButton.textContent === t('ffmpeg.dialog.reprobe')) {
-      startButton.disabled = true;
-      setStatus(t('ffmpeg.status.reprobe_start'));
-      try {
-        const deps = await refreshDeps();
-        setStatus(deps?.ok === true ? t('ffmpeg.status.reprobe_ok') : t('ffmpeg.status.reprobe_missing'), deps?.ok === true ? 'ok' : 'error');
-      } catch (error) {
-        setStatus(t('ffmpeg.status.reprobe_failed', { detail: error.message }), 'error');
-      } finally {
-        startButton.disabled = false;
-      }
-      return;
+  const runReprobe = async (button) => {
+    button.disabled = true;
+    setStatus(t('ffmpeg.status.reprobe_start'));
+    try {
+      const deps = await refreshDeps();
+      setStatus(deps?.ok === true ? t('ffmpeg.status.reprobe_ok') : t('ffmpeg.status.reprobe_missing'), deps?.ok === true ? 'ok' : 'error');
+    } catch (error) {
+      setStatus(t('ffmpeg.status.reprobe_failed', { detail: error.message }), 'error');
+    } finally {
+      button.disabled = false;
     }
+  };
+
+  const startInstall = async () => {
     startButton.disabled = true;
-    startButton.textContent = t('ffmpeg.status.installing_button');
+    setStartLabel('install', t('ffmpeg.status.installing_button'));
     progressBox.style.display = 'block';
     progress.value = '0';
     percent.textContent = '0%';
@@ -267,7 +278,7 @@ export function openFfmpegInstallDialog(options = {}) {
         } catch { /* fall through to the visible error below */ }
       }
       startButton.disabled = false;
-      startButton.textContent = t('ffmpeg.status.retry_install');
+      setStartLabel('install', t('ffmpeg.status.retry_install'));
       setStatus(error.message || t('ffmpeg.status.start_failed'), 'error');
     }
   };
@@ -284,20 +295,12 @@ export function openFfmpegInstallDialog(options = {}) {
     }
   };
 
-  startButton.onclick = () => void startInstall();
-  cancelButton.onclick = () => void cancelInstall();
-  $id('ffi-reprobe').onclick = async () => {
-    $id('ffi-reprobe').disabled = true;
-    setStatus(t('ffmpeg.status.reprobe_start'));
-    try {
-      const deps = await refreshDeps();
-      setStatus(deps?.ok === true ? t('ffmpeg.status.reprobe_ok') : t('ffmpeg.status.reprobe_missing'), deps?.ok === true ? 'ok' : 'error');
-    } catch (error) {
-      setStatus(t('ffmpeg.status.reprobe_failed', { detail: error.message }), 'error');
-    } finally {
-      $id('ffi-reprobe').disabled = false;
-    }
+  startButton.onclick = () => {
+    if (startMode === 'reprobe') void runReprobe(startButton);
+    else void startInstall();
   };
+  cancelButton.onclick = () => void cancelInstall();
+  $id('ffi-reprobe').onclick = () => void runReprobe($id('ffi-reprobe'));
 
   const close = () => {
     if (closed) return;

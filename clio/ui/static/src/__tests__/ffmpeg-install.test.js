@@ -14,6 +14,7 @@ import {
   taskProgress,
   taskStatusText,
 } from '../ffmpeg-install.js';
+import { applyLocale } from '../i18n.js';
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -52,6 +53,7 @@ describe('ffmpeg install dialog', () => {
   });
 
   afterEach(() => {
+    applyLocale('zh-CN');
     document.body.replaceChildren();
   });
 
@@ -338,6 +340,35 @@ describe('ffmpeg install dialog', () => {
     await flush();
 
     expect(document.querySelector('#ffi-status').textContent).toContain('重新检测失败');
+    dialog.close();
+  });
+
+  it('re-probes from the start button after a locale switch instead of reinstalling', async () => {
+    let listener;
+    api.mockResolvedValueOnce({ status: 'idle', running: false, automatic: true, platform: 'win32' });
+    api.mockResolvedValueOnce({ ok: true, task_id: 'task-l' });
+    subscribeTask.mockImplementation((_id, callback) => { listener = callback; return () => {}; });
+    const refreshDeps = vi.fn(async () => ({ ok: true }));
+    const dialog = openFfmpegInstallDialog({ platform: 'win32', refreshDeps });
+    await dialog.ready;
+
+    document.querySelector('#ffi-start').click();
+    await flush();
+    listener({ task: { id: 'task-l', status: 'succeeded', progress_pct: 100 } });
+    await flush();
+    expect(document.querySelector('#ffi-start').textContent).toBe('重新检测');
+
+    // The button keeps the label it was rendered with; the action it triggers
+    // must not depend on that localized label.
+    applyLocale('en');
+    expect(document.querySelector('#ffi-start').textContent).toBe('重新检测');
+    const postsBefore = api.mock.calls.filter(([method]) => method === 'POST').length;
+
+    document.querySelector('#ffi-start').click();
+    await flush();
+
+    expect(api.mock.calls.filter(([method]) => method === 'POST').length).toBe(postsBefore);
+    expect(refreshDeps).toHaveBeenCalledTimes(2);
     dialog.close();
   });
 
