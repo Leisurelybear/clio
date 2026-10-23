@@ -7,9 +7,11 @@ __pycache__/
 *.pyc
 .pytest_cache/
 *.bak
+*.bak.*
 projects.json
 projects.json.bak
 projects.json.bak.*
+projects.json.corrupt.*
 *.migrate-bak
 .opencode/
 opencode_session_import.json
