@@ -496,8 +496,11 @@ async function init() {
       setProjectMenuOpen(false);
     }
   });
-  $$('.tab').forEach(t => t.onclick = () => {
-    const toTab = t.dataset.tab;
+  // The callback parameter must not be named t: that shadows the i18n t()
+  // imported above, so the dirty guard threw and the tab silently refused
+  // to switch whenever there were unsaved edits.
+  $$('.tab').forEach(tabButton => tabButton.onclick = () => {
+    const toTab = tabButton.dataset.tab;
     if (shouldConfirmDirtyTabSwitch({ dirty: state.dirty, fromTab: state.currentTab, toTab })) {
       if (!confirm(t('shell.tab_dirty_confirm'))) return;
       clearDirty();
