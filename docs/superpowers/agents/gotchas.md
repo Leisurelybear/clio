@@ -107,9 +107,12 @@ See `clio/compress.py`.
 - Keep model downloads chunked and cancellation-aware: stream downloads, check cancel flags between chunks, and clean partial files explicitly.
 - Relevant modules are split across `clio/ui/routes/whisper_check.py`, `whisper_download.py`, and `whisper_models.py`.
 
-### 9.18 `/api/fs/dirs` Security
+### 9.18 Filesystem Browse Security (`/api/fs/*`)
 
-- Path restriction and token auth are implemented. Preserve this contract when adding browse-like routes.
+- `GET /api/fs/dirs` was removed as a dead route; the picker uses `GET /api/fs/entries`
+  (plus `/api/fs/videos`, `/api/fs/mkdir`, `/api/fs/reveal`). The path allow-list (`_is_allowed_path`)
+  and token auth are implemented — preserve that contract when adding browse-like routes. Native
+  desktop dialogs (`clio/desktop/api.py`) intentionally bypass the allow-list.
 - When serving with `--host 0.0.0.0`, sensitive routes must require token auth.
 - Keep route coverage in `clio/tests/test_fs.py` and `clio/tests/test_server.py` when changing filesystem browsing.
 

@@ -42,44 +42,6 @@ def _browse_base_dir(handler: HandlerProtocol, qs: dict[str, Any], scope: str) -
     return (config_path.parent if config_path is not None else handler.project_dir).expanduser().resolve()
 
 
-def handle_get_fs_dirs(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
-    """Handle GET /api/fs/dirs."""
-    dir_path = qs.get("path", [""])[0]
-    if not dir_path:
-        if sys.platform == "win32":
-            drives = _list_drives()
-            return handler._send_json({"path": "", "dirs": drives, "parent": None, "is_drive_list": True})
-        return handler._send_json({"path": "/", "dirs": ["/"], "parent": None, "is_drive_list": True})
-    try:
-        resolved = Path(dir_path).resolve()
-        if not _is_allowed_path(resolved):
-            return handler._send_json({"error": "access denied"}, 403)
-        if not resolved.is_dir():
-            return handler._send_json({"error": "not a directory"}, 400)
-        dirs: list[str] = []
-        try:
-            with os.scandir(resolved) as it:
-                for entry in it:
-                    if entry.is_dir() and not entry.name.startswith("."):
-                        dirs.append(entry.path)
-        except PermissionError:
-            pass
-        dirs.sort(key=lambda x: Path(x).name.lower())
-        parent = str(resolved.parent) if resolved.parent != resolved else None
-        return handler._send_json(
-            {
-                "path": str(resolved),
-                "dirs": dirs,
-                "parent": parent,
-                "is_drive_list": False,
-            }
-        )
-    except PermissionError:
-        return handler._send_json({"error": "access denied"}, 403)
-    except OSError as e:
-        return handler._send_json({"error": str(e)}, 500)
-
-
 def _entry_matches_kind(path: Path, kind: str) -> bool:
     if kind == "video":
         return path.suffix.lower() in VIDEO_EXTENSIONS

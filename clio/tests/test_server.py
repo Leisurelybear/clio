@@ -559,12 +559,6 @@ class TestDoGET:
         handler.do_GET()
         mock_fn.assert_called_once()
 
-    @patch("clio.ui.server.handle_get_fs_dirs")
-    def test_api_fs_dirs(self, mock_fn, handler_cls):
-        handler = _build_handler(handler_cls, path="/api/fs/dirs")
-        handler.do_GET()
-        mock_fn.assert_called_once()
-
     @patch("clio.ui.server.handle_get_fs_entries")
     def test_api_fs_entries(self, mock_fn, handler_cls):
         handler = _build_handler(handler_cls, path="/api/fs/entries?kind=video")
@@ -1063,13 +1057,6 @@ class TestAuth:
     def test_sensitive_get_config_raw_returns_401_without_token(self, auth_cls):
         """GET /api/config/raw without token returns 401."""
         handler = _build_handler(auth_cls, path="/api/config/raw")
-        handler.do_GET()
-        handler.send_response.assert_called_once_with(401)
-
-    @patch("clio.ui.server.handle_get_fs_dirs")
-    def test_sensitive_get_fs_dirs_returns_401_without_token(self, mock_fn, auth_cls):
-        """GET /api/fs/dirs without token returns 401."""
-        handler = _build_handler(auth_cls, path="/api/fs/dirs")
         handler.do_GET()
         handler.send_response.assert_called_once_with(401)
 

@@ -68,11 +68,17 @@ joins the thread, `shutdown_task_manager`, and runs `before_stop()` hooks.
 ## 6. JS API / Pickers
 
 - The webview page calls `pywebview.api.pick_folder / pick_file / pick_files(...)`; `DesktopApi`
-  maps them onto `dialogs.py` native dialogs, constrained by config-scope allowed roots
-  (`_native_paths`) and the requested kind’s extension filter.
-- Results return `envelope_path(s)` dicts `{path: string|null, canceled: bool}` (files →
-  `{paths: []}`), or `{error: message}` — the frontend `desktop-pick.js` consumes this uniform
-  shape and `setBrowseButtonsVisible` swaps server picker vs native picker in browser mode.
+  opens the window-native dialog first (`window.create_file_dialog` via `_native_paths`) with the
+  requested kind’s extension filter, and falls back to `dialogs.py` (tkinter) only when the native
+  call is unavailable. The native dialog is **not** constrained by `_is_allowed_path`: that
+  allow-list guards only the server-side `/api/fs/*` browsing routes, so a desktop user may pick
+  any local drive or UNC path.
+- Results return uniform envelopes — `{ok: true, path}` for a folder or single file,
+  `{ok: true, paths: [...]}` for multiple files, `{ok: false, cancelled: true}` when the user
+  cancels, or `{ok: false, error}` on failure. The frontend `desktop-pick.js` consumes this shape
+  and, when `window.pywebview.api` is absent (browser/`serve` mode), opens the in-app modal picker
+  (`file-browser.js` → `/api/fs/entries`) instead. `setBrowseButtonsVisible` only retitles the
+  browse buttons; it never hides them.
 
 ## 7. Cross-Module Dependencies
 
