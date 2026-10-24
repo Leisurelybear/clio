@@ -11,6 +11,7 @@ budget and an exhausted pool answers 503.
 from __future__ import annotations
 
 import json
+import sys
 import threading
 from collections.abc import Mapping
 from http.server import ThreadingHTTPServer
@@ -84,7 +85,9 @@ class BoundedThreadingHTTPServer(ThreadingHTTPServer):
     """ThreadingHTTPServer with a worker ceiling and socket read timeouts."""
 
     daemon_threads = True
-    allow_reuse_address = True
+    # Windows SO_REUSEADDR lets a second server silently share the port, so
+    # requests land on whichever process bound it; fail with EADDRINUSE instead.
+    allow_reuse_address = sys.platform != "win32"
     request_queue_size = MAX_CONNECTION_THREADS
 
     def __init__(

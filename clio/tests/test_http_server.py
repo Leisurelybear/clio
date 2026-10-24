@@ -46,6 +46,15 @@ class TestBoundedThreadingHTTPServer:
         finally:
             server.server_close()
 
+    def test_refuses_to_double_bind_the_same_port(self):
+        first = BoundedThreadingHTTPServer(("127.0.0.1", 0), _Handler, max_workers=2)
+        port = first.server_address[1]
+        try:
+            with pytest.raises(OSError):
+                BoundedThreadingHTTPServer(("127.0.0.1", port), _Handler, max_workers=2)
+        finally:
+            first.server_close()
+
     def test_rejects_with_503_when_connection_cap_reached(self):
         """A silently closed socket reaches the browser as an empty response."""
         server = BoundedThreadingHTTPServer(("127.0.0.1", 0), _Handler, max_workers=1, max_streams=1)
