@@ -4,6 +4,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from clio.config.enums import WhisperDevice, WhisperLang, WhisperModelSize
+from clio.http_access_log import (
+    ACCESS_LOG_MODES,
+    DEFAULT_ACCESS_LOG_BODY_BYTES,
+    DEFAULT_ACCESS_LOG_MODE,
+    DEFAULT_ACCESS_LOG_SLOW_MS,
+    MAX_ACCESS_LOG_BODY_BYTES,
+)
 
 # ---------------------------------------------------------------------------
 # Shared / unchanged dataclasses
@@ -103,12 +110,27 @@ class ServerConfig:
     task_retention_days: int = 30
     task_max_terminal_tasks: int = 1000
     task_cleanup_interval_min: int = 60
+    access_log_mode: str = DEFAULT_ACCESS_LOG_MODE
+    access_log_slow_ms: int = DEFAULT_ACCESS_LOG_SLOW_MS
+    access_log_body_bytes: int = DEFAULT_ACCESS_LOG_BODY_BYTES
+    log_retention_days: int = 14
 
     def __post_init__(self) -> None:
-        for name in ("task_retention_days", "task_max_terminal_tasks", "task_cleanup_interval_min"):
+        if self.access_log_mode not in ACCESS_LOG_MODES:
+            raise ValueError(f"server.access_log_mode must be one of: {', '.join(ACCESS_LOG_MODES)}")
+        for name in (
+            "task_retention_days",
+            "task_max_terminal_tasks",
+            "task_cleanup_interval_min",
+            "access_log_slow_ms",
+            "access_log_body_bytes",
+            "log_retention_days",
+        ):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ValueError(f"server.{name} must be a non-negative integer")
+        if self.access_log_body_bytes > MAX_ACCESS_LOG_BODY_BYTES:
+            raise ValueError(f"server.access_log_body_bytes must be <= {MAX_ACCESS_LOG_BODY_BYTES}")
 
 
 @dataclass

@@ -157,6 +157,8 @@ UI 只读 / 写 `config.yaml` 里 `paths.output_dir` 下的文件：
 
 历史接口只接受 `logs_dir` 下的 `YYYY-MM-DD-HH.log` basename；越界路径、符号链接逃逸和无效小时名会被拒绝。日志行前缀 `YYYY-MM-DD HH:MM:SS` 会解析为时间列，Traceback 等无前缀续行沿用上一条时间。
 
+**HTTP 访问日志**（`clio/http_access_log.py`）：服务端按 `server.access_log_mode`（`off | errors | api | all`，默认 `api`）输出 `[http] req=… METHOD path status 耗时 响应大小`。静态文件、轮询读取、视频 Range 和 SSE 默认不记录；超过 `server.access_log_slow_ms`（默认 500ms）或返回 4xx/5xx 时一定记录。请求/响应体默认关闭，`server.access_log_body_bytes`（0-4096）开启后会脱敏、单行转义并截断；`/api/env`、配置、Provider 和日志接口永不记录 body。未处理异常输出 `[http-error]` + traceback；`server.log_retention_days`（默认 14，0=永久）自动清理过期小时文件。
+
 **等级推断**（纯客户端 `logs-filter.js`，非结构化 JSON 日志）：
 
 1. 显式 `[ERROR]` / `[WARN]` / `[INFO]` / `[DEBUG]`

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 from clio.config import load_config
@@ -411,6 +412,57 @@ class TestCombinedWrappers:
         assert cfg.proxy.url == "socks5://127.0.0.1:1080"
         assert cfg.naming.index_width == 4
         assert cfg.server.api_token == "abc"
+
+
+class TestServerLogConfig:
+    def test_defaults_keep_logs_but_reduce_noise(self):
+        server = ServerConfig()
+        assert server.access_log_mode == "api"
+        assert server.access_log_slow_ms == 500
+        assert server.access_log_body_bytes == 0
+        assert server.log_retention_days == 14
+
+    def test_loads_access_log_settings_from_config_yaml(self, tmp_path: Path):
+        cfg_path = tmp_path / "config.yaml"
+        cfg_path.write_text(
+            yaml.dump(
+                {
+                    "server": {
+                        "access_log_mode": "errors",
+                        "access_log_slow_ms": 1200,
+                        "access_log_body_bytes": 2048,
+                        "log_retention_days": 3,
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        cfg = load_config(cfg_path, project_dir=tmp_path)
+
+        assert cfg.server.access_log_mode == "errors"
+        assert cfg.server.access_log_slow_ms == 1200
+        assert cfg.server.access_log_body_bytes == 2048
+        assert cfg.server.log_retention_days == 3
+
+    @pytest.mark.parametrize("mode", ["verbose", "", "API"])
+    def test_rejects_unknown_access_log_mode(self, mode):
+        with pytest.raises(ValueError):
+            ServerConfig(access_log_mode=mode)
+
+    @pytest.mark.parametrize(
+        "field",
+        ["access_log_slow_ms", "access_log_body_bytes", "log_retention_days"],
+    )
+    def test_rejects_negative_numbers(self, field):
+        with pytest.raises(ValueError):
+            ServerConfig(**{field: -1})
+
+    def test_rejects_oversized_body_capture(self):
+        from clio.http_access_log import MAX_ACCESS_LOG_BODY_BYTES
+
+        with pytest.raises(ValueError):
+            ServerConfig(access_log_body_bytes=MAX_ACCESS_LOG_BODY_BYTES + 1)
 
 
 class TestGlobalDefaultTasks:

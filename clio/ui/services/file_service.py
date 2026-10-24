@@ -478,12 +478,14 @@ def send_video_range(handler, path: Path) -> None:
         if length <= 0:
             _send_range_not_satisfiable(handler, size)
             return
+        handler._http_response_bytes = length
         handler.send_response(206)
         handler.send_header("Content-Range", f"bytes {start}-{end}/{size}")
         handler.send_header("Content-Length", str(length))
     else:
         start = 0
         length = size
+        handler._http_response_bytes = size
         handler.send_response(200)
         handler.send_header("Content-Length", str(size))
     handler.send_header("Accept-Ranges", "bytes")

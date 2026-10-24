@@ -34,7 +34,8 @@ vlog-video-analysis/
 │   ├── transcribe.py          Whisper ASR core
 │   ├── whisper_cli.py         Whisper CLI
 │   ├── utils.py               ffmpeg discovery, file IO, extract_json
-│   ├── log.py                 Logging (hourly rotating, TeeWriter)
+│   ├── log.py                 Logging (hourly rotating, retention, TeeWriter)
+│   ├── http_access_log.py     HTTP access line, noise policy, safe body capture
 │   ├── session_log.py         In-memory live log ring buffer
 │   ├── log_history.py         Read-only hourly log listing/tail (R-027e)
 │   ├── cut.py                 Segment cutting (ffmpeg wrapper)
@@ -237,6 +238,25 @@ Provider management is a frontend-only experience - no new backend APIs needed:
   `renderConfig()` skips sections that are absent from the data, and configs written before
   `ui.language` existed have no `ui:` section, so the settings card disappeared. Call it before
   rendering the global tab; never render that tab from a raw config object.
+
+### 4.13 HTTP Access Logs
+
+- `clio/http_access_log.py` is the only supported access-log policy and formatter. It owns noise
+  classification, query redaction, body capture, and the `[http]` line shape.
+- `server.access_log_mode` (`off | errors | api | all`, default `api`) lives in global
+  `config.yaml`. Static files, polling reads (`/api/notifications`, `/api/project`,
+  `/api/plan/readiness`, `/api/tasks`), binary media, and stream connects are suppressed unless
+  slow, errored, or explicitly included by `all`.
+- `log_request()` prints one line per kept request with request id, method, sanitized path, status,
+  latency, and response size. Handler-set response bytes are authoritative; do not restore the
+  base handler's size argument.
+- Body capture is opt-in via `server.access_log_body_bytes` (0-4096). `/api/env`, `/api/config*`,
+  `/api/providers*`, and `/api/logs*` are always denied. Bodies are JSON-redacted, escaped to one
+  line, and byte-truncated with a marker.
+- Unhandled handler exceptions print `[http-error]` plus traceback and return 500 only when no
+  response has started. Client disconnects stay silent.
+- `server.log_retention_days` (default 14, 0 = forever) prunes direct-child
+  `YYYY-MM-DD-HH.log` files; never delete unrelated or symlinked entries.
 
 ## 5. User Preferences
 

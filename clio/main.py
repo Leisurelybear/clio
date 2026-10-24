@@ -400,11 +400,11 @@ def main(argv: list[str] | None = None) -> int:
 
         print(f"[startup] config loaded ({(_time.perf_counter() - _serve_t0) * 1000:.0f}ms)")
         t_log = _time.perf_counter()
-        setup_logging(base_config.paths.logs_dir)
+        setup_logging(base_config.paths.logs_dir, retention_days=base_config.server.log_retention_days)
         install_hooks()
         print(f"[startup] logging + hooks ({(_time.perf_counter() - t_log) * 1000:.0f}ms)")
     else:
-        setup_logging(base_config.paths.logs_dir)
+        setup_logging(base_config.paths.logs_dir, retention_days=base_config.server.log_retention_days)
         install_hooks()
 
     if args.command == "check":

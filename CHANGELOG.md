@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-10-24
+
+HTTP access logs now carry request ids, latency and response size, with configurable noise
+filtering, opt-in safe body capture and hourly-log retention.
+
+- feat(log): add `clio/http_access_log.py` with access-line formatting, static/polling/binary/SSE
+  noise policy, query redaction and JSON-aware body truncation
+- feat(ui): `server.access_log_mode`, `access_log_slow_ms` and `access_log_body_bytes` control the
+  new `[http]` lines; 4xx/5xx and slow requests are always kept, `/api/env` and config/provider/log
+  bodies are never captured
+- feat(ui): log unhandled handler exceptions as `[http-error]` with a traceback and return 500 only
+  before a response starts; client disconnects stay silent
+- feat(log): `server.log_retention_days` prunes direct-child `YYYY-MM-DD-HH.log` files on rotation
+- docs: AGENTS.md and `clio/ui/README.md` access-log conventions
+
 ## 2026-10-23
 
 Completed the i18n pass (R-025). `ui.language` now drives CLI, doctor, Web UI routes and every piece

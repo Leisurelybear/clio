@@ -287,6 +287,56 @@ class TestClearDiskLogs:
         assert (tmp_path / "keep.txt").exists()
 
 
+class TestHourlyRetention:
+    def _dated_log(self, base, days_ago: int):
+        from datetime import datetime, timedelta
+
+        path = base / f"{(datetime.now() - timedelta(days=days_ago)).strftime('%Y-%m-%d-%H')}.log"
+        path.write_text("old\n", encoding="utf-8")
+        return path
+
+    def test_prunes_files_older_than_retention(self, tmp_path):
+        old = self._dated_log(tmp_path, days_ago=30)
+        recent = self._dated_log(tmp_path, days_ago=1)
+
+        handler = _HourlyFileHandler(tmp_path, retention_days=14)
+        try:
+            assert not old.exists()
+            assert recent.exists()
+        finally:
+            handler.close()
+
+    def test_zero_retention_keeps_everything(self, tmp_path):
+        old = self._dated_log(tmp_path, days_ago=3650)
+
+        handler = _HourlyFileHandler(tmp_path, retention_days=0)
+        try:
+            assert old.exists()
+        finally:
+            handler.close()
+
+    def test_ignores_unrelated_or_malformed_names(self, tmp_path):
+        unrelated = tmp_path / "notes.log"
+        unrelated.write_text("keep\n", encoding="utf-8")
+        malformed = tmp_path / "2020-99-99-99.log"
+        malformed.write_text("keep\n", encoding="utf-8")
+
+        handler = _HourlyFileHandler(tmp_path, retention_days=1)
+        try:
+            assert unrelated.exists()
+            assert malformed.exists()
+        finally:
+            handler.close()
+
+    def test_setup_logging_applies_retention(self, tmp_path):
+        old = self._dated_log(tmp_path, days_ago=30)
+        try:
+            setup_logging(tmp_path, retention_days=14)
+            assert not old.exists()
+        finally:
+            teardown_logging()
+
+
 class TestTeeWriterRedaction:
     def test_session_log_masks_secrets(self):
         session_log.clear()

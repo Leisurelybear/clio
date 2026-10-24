@@ -17,6 +17,7 @@ from clio.config.models import (
     ProviderConfig,
     ProxyConfig,
     ScriptConfig,
+    ServerConfig,
     TaskConfig,
     UiConfig,
     WhisperConfig,
@@ -31,6 +32,7 @@ _EXTRA_DESCRIPTION_KEYS = {"paths.project_dir", "whisper.engine"}
 _CONFIG_DC_MAP: list[tuple[str, type]] = [
     ("paths", PathsConfig),
     ("proxy", ProxyConfig),
+    ("server", ServerConfig),
     ("ai", GlobalAIConfig),
     ("ai", ProjectAIConfig),
     ("compress", CompressConfig),

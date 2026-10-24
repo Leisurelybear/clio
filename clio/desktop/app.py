@@ -174,7 +174,7 @@ def main(
         cfg_file = config_path
     config_dir = config_path.parent.resolve()
 
-    setup_logging(cfg.paths.logs_dir)
+    setup_logging(cfg.paths.logs_dir, retention_days=cfg.server.log_retention_days)
 
     # Single instance: if another instance is already running, focus it and exit.
     # The lock payload carries a per-launch random token so only the owning

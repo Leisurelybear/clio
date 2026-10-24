@@ -390,6 +390,7 @@ def test_main_sets_up_logging_with_config_logs_dir(monkeypatch, tmp_path):
     logs_dir = tmp_path / "logs"
     cfg = MagicMock()
     cfg.paths.logs_dir = logs_dir
+    cfg.server.log_retention_days = 7
     monkeypatch.setattr("clio.config.load_config", MagicMock(return_value=cfg))
     monkeypatch.setattr("clio.desktop.server_host.start_server", MagicMock(return_value=_FakeHandle()))
     monkeypatch.setattr("clio.desktop.server_host.stop_server", MagicMock())
@@ -404,7 +405,7 @@ def test_main_sets_up_logging_with_config_logs_dir(monkeypatch, tmp_path):
     cfg_file.write_text("key: value\n", encoding="utf-8")
     rv = app_mod.main(argv=[], config_path=cfg_file)
     assert rv == 0
-    setup_mock.assert_called_once_with(logs_dir)
+    setup_mock.assert_called_once_with(logs_dir, retention_days=7)
 
 
 def _fake_webview_with_failing_start(monkeypatch):

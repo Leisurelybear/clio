@@ -72,3 +72,13 @@ class TestSendVideoRange:
         headers = {c.args[0]: c.args[1] for c in h.send_header.call_args_list}
         assert headers.get("Content-Length") == str(video.stat().st_size)
         h.wfile.write.assert_not_called()
+
+    def test_records_partial_response_bytes_for_access_log(self, video: Path):
+        h = _handler(range_hdr="bytes=0-7")
+        send_video_range(h, video)
+        assert h._http_response_bytes == 8
+
+    def test_records_full_response_bytes_for_access_log(self, video: Path):
+        h = _handler()
+        send_video_range(h, video)
+        assert h._http_response_bytes == video.stat().st_size

@@ -5,7 +5,7 @@ import sys
 import threading
 import time
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TextIO
 
@@ -31,9 +31,10 @@ def _protected_stderr() -> TextIO | None:
 class _HourlyFileHandler(logging.Handler):
     """按当前小时自动切文件：logs/YYYY-MM-DD-HH.log。"""
 
-    def __init__(self, logs_dir: Path) -> None:
+    def __init__(self, logs_dir: Path, retention_days: int = 0) -> None:
         super().__init__()
         self._logs_dir = logs_dir
+        self._retention_days = max(0, int(retention_days))
         self._current_hour: str | None = None
         self._current_file: TextIO | None = None
         self._failure_count = 0
@@ -69,6 +70,29 @@ class _HourlyFileHandler(logging.Handler):
             pass
         self._current_hour = hour_key
         self._failure_count = 0
+        self._prune_old_files(ts)
+
+    def _prune_old_files(self, now: datetime) -> None:
+        if self._retention_days <= 0:
+            return
+        cutoff = now - timedelta(days=self._retention_days)
+        try:
+            entries = list(self._logs_dir.iterdir())
+        except OSError:
+            return
+        for path in entries:
+            if not path.is_file() or path.is_symlink():
+                continue
+            try:
+                stamp = datetime.strptime(path.name, "%Y-%m-%d-%H.log")
+            except ValueError:
+                continue
+            if stamp >= cutoff:
+                continue
+            try:
+                path.unlink()
+            except OSError:
+                continue
 
     def _over_quota(self) -> bool:
         if self._current_file is None:
@@ -206,7 +230,7 @@ def _install_excepthook(logger: logging.Logger) -> None:
     sys.excepthook = hook
 
 
-def setup_logging(logs_dir: Path, level: int = logging.INFO) -> logging.Logger:
+def setup_logging(logs_dir: Path, level: int = logging.INFO, retention_days: int = 0) -> logging.Logger:
     """初始化日志：把 stdout/stderr 同时写到控制台和 logs/YYYY-MM-DD-HH.log。
 
     - 跨小时自动切到新文件，无需重启
@@ -223,7 +247,7 @@ def setup_logging(logs_dir: Path, level: int = logging.INFO) -> logging.Logger:
             return logger
 
         try:
-            logger.addHandler(_HourlyFileHandler(logs_dir))
+            logger.addHandler(_HourlyFileHandler(logs_dir, retention_days=retention_days))
         except Exception as e:
             stream = _protected_stderr()
             if stream is not None:

@@ -13,9 +13,12 @@ import errno
 import hmac
 import json
 import mimetypes
+import secrets
 import shutil
 import sys
 import threading
+import time
+import traceback
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from http import HTTPStatus
@@ -25,6 +28,18 @@ from typing import Any, ClassVar
 from urllib.parse import parse_qs, urlparse
 
 from clio.config import AppConfig
+from clio.http_access_log import (
+    DEFAULT_ACCESS_LOG_MODE,
+    DEFAULT_ACCESS_LOG_SLOW_MS,
+    MAX_ACCESS_LOG_BODY_BYTES,
+    format_access_line,
+    prepare_body,
+    sanitize_target,
+    should_log,
+)
+from clio.http_access_log import (
+    is_stream as is_stream_path,
+)
 from clio.i18n import t
 from clio.log_history import DEFAULT_READ_BYTES, MAX_READ_BYTES, list_log_files, read_log_file
 from clio.session_log import clear as clear_session_log
@@ -209,6 +224,12 @@ def handle_post_desktop_focus(handler, qs, obj) -> None:
     return handler._send_json({"ok": True})
 
 
+def _setting_int(value: Any, default: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return default
+    return max(0, value)
+
+
 def _parse_int_param(qs: dict, key: str, default: int, min_val: int = 0, max_val: int = 10_000_000) -> int:
     """Safely parse an integer query parameter with bounds checking."""
     raw = qs.get(key, [None])[0]
@@ -358,6 +379,17 @@ def make_handler(
         _allowed_hosts: tuple[str, ...]
         _enforce_local_session: bool
         _enforce_json_ct: bool
+        _access_log_mode: ClassVar[str] = DEFAULT_ACCESS_LOG_MODE
+        _access_log_slow_ms: ClassVar[int] = DEFAULT_ACCESS_LOG_SLOW_MS
+        _access_log_body_bytes: ClassVar[int] = 0
+        _http_started: float = 0.0
+        _http_req_id: str = ""
+        _http_response_bytes: int | None = None
+        _http_request_body_log: str | None = None
+        _http_response_body_log: str | None = None
+        _http_response_started: bool = False
+        _http_streaming: bool = False
+        _http_stream_status: int | None = None
 
         # Injected by BoundedThreadingHTTPServer; None disables the split budget.
         request_budget: ClassVar[RequestBudget | None] = None
@@ -365,6 +397,14 @@ def make_handler(
         _budget_path: str | None = None
 
         def handle_one_request(self) -> None:
+            self._http_started = time.perf_counter()
+            self._http_req_id = secrets.token_hex(3)
+            self._http_response_bytes = None
+            self._http_request_body_log = None
+            self._http_response_body_log = None
+            self._http_response_started = False
+            self._http_streaming = False
+            self._http_stream_status = None
             try:
                 super().handle_one_request()
             finally:
@@ -423,10 +463,79 @@ def make_handler(
             return manager
 
         def log_message(self, fmt, *args):
-            msg = fmt % args
-            if "token=" in msg:
-                msg = msg.split("token=")[0] + "token=***"
+            msg = sanitize_target(fmt % args)
             print(f"  [serve] {self.address_string()} - {msg}")
+
+        def send_response(self, code: int, message: str | None = None) -> None:
+            self._http_response_started = True
+            super().send_response(code, message)
+
+        def send_error(self, code: int, message: str | None = None, explain: str | None = None) -> None:
+            self._http_response_started = True
+            super().send_error(code, message, explain)
+
+        def _access_duration(self) -> float:
+            started = getattr(self, "_http_started", 0.0)
+            return max(0.0, time.perf_counter() - started) if started else 0.0
+
+        def _body_limit(self) -> int:
+            return max(0, min(MAX_ACCESS_LOG_BODY_BYTES, int(self.__class__._access_log_body_bytes)))
+
+        def log_request(self, code="-", size="-"):
+            del size
+            try:
+                status = int(code)
+            except (TypeError, ValueError):
+                status = 0
+            path = getattr(self, "path", "") or ""
+            method = getattr(self, "command", None) or "-"
+            if self._http_streaming:
+                self._http_stream_status = status
+                return
+            duration = self._access_duration()
+            mode = self.__class__._access_log_mode
+            slow_ms = self.__class__._access_log_slow_ms
+            if not should_log(mode, method, path, status, duration, slow_ms):
+                return
+            line = format_access_line(
+                req_id=self._http_req_id,
+                method=method,
+                path=path,
+                status=status,
+                duration_s=duration,
+                response_bytes=self._http_response_bytes,
+                slow_ms=slow_ms,
+            )
+            print(f"  {line}")
+            self._flush_body_logs()
+
+        def _flush_body_logs(self) -> None:
+            if self._http_request_body_log:
+                print(f"  [http-req] req={self._http_req_id} {self._http_request_body_log}")
+            if self._http_response_body_log:
+                print(f"  [http-resp] req={self._http_req_id} {self._http_response_body_log}")
+
+        def _log_stream_close(self) -> None:
+            status = self._http_stream_status or 200
+            if not should_log(
+                self.__class__._access_log_mode,
+                getattr(self, "command", None) or "-",
+                getattr(self, "path", "") or "",
+                status,
+                self._access_duration(),
+                self.__class__._access_log_slow_ms,
+            ):
+                return
+            line = format_access_line(
+                req_id=self._http_req_id,
+                method=getattr(self, "command", None) or "-",
+                path=getattr(self, "path", "") or "",
+                status=status,
+                duration_s=self._access_duration(),
+                response_bytes=None,
+                slow_ms=self.__class__._access_log_slow_ms,
+            )
+            print(f"  {line} STREAM")
 
         def _require_auth(self) -> bool:
             """Check Authorization header or ?token= query param against configured token.
@@ -492,6 +601,11 @@ def make_handler(
                 return None, err_status
             assert length is not None
             raw = self.rfile.read(length) if length else b""
+            self._http_request_body_log = prepare_body(
+                raw,
+                path=getattr(self, "path", ""),
+                limit=self._body_limit(),
+            )
             try:
                 obj = json.loads(raw.decode("utf-8"))
                 if not isinstance(obj, dict):
@@ -503,6 +617,13 @@ def make_handler(
 
         def _send_json(self, obj, status: int = 200) -> None:
             body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+            self._http_response_bytes = len(body)
+            self._http_response_body_log = prepare_body(
+                body,
+                path=getattr(self, "path", ""),
+                limit=self._body_limit(),
+            )
+            self._http_response_started = True
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
@@ -517,6 +638,8 @@ def make_handler(
             *,
             extra_headers: dict[str, str] | None = None,
         ) -> None:
+            self._http_response_bytes = len(data)
+            self._http_response_started = True
             self.send_response(200)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(data)))
@@ -557,6 +680,19 @@ def make_handler(
                 return handler_fn(self, *args, **kwargs)
             except ProjectResolutionError as e:
                 return self._send_json({"ok": False, "error": str(e)}, e.status)
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                return None
+            except Exception:
+                print(
+                    f"  [http-error] req={self._http_req_id} "
+                    f"{getattr(self, 'command', None) or '-'} "
+                    f"{sanitize_target(getattr(self, 'path', '') or '')}",
+                    file=sys.stderr,
+                )
+                traceback.print_exc()
+                if not self._http_response_started:
+                    return self._send_json({"ok": False, "error": "internal server error"}, 500)
+                return None
 
         def _resolve_project_dir(self, qs: dict) -> Path:
             return resolve_project_dir(qs, project_dir, config_path)
@@ -605,9 +741,14 @@ def make_handler(
             if route and route.auth_required and not self._require_auth():
                 return
 
-            if path_kwargs:
-                return self._invoke_handler(handler_fn, qs, **path_kwargs)
-            return self._invoke_handler(handler_fn, qs)
+            self._http_streaming = is_stream_path(path)
+            try:
+                if path_kwargs:
+                    return self._invoke_handler(handler_fn, qs, **path_kwargs)
+                return self._invoke_handler(handler_fn, qs)
+            finally:
+                if self._http_streaming:
+                    self._log_stream_close()
 
         def do_HEAD(self):
             """HEAD for Range-capable video (P2-P40); other paths 404."""
@@ -836,6 +977,16 @@ def make_handler(
     Handler._allowed_hosts = _loopback_hosts(bound_host, bound_port)
     Handler._enforce_local_session = enforce_local_session
     Handler._enforce_json_ct = enforce_local_session
+    access_mode = getattr(config.server, "access_log_mode", DEFAULT_ACCESS_LOG_MODE)
+    Handler._access_log_mode = access_mode if isinstance(access_mode, str) else DEFAULT_ACCESS_LOG_MODE
+    Handler._access_log_slow_ms = _setting_int(
+        getattr(config.server, "access_log_slow_ms", DEFAULT_ACCESS_LOG_SLOW_MS),
+        DEFAULT_ACCESS_LOG_SLOW_MS,
+    )
+    Handler._access_log_body_bytes = min(
+        MAX_ACCESS_LOG_BODY_BYTES,
+        _setting_int(getattr(config.server, "access_log_body_bytes", 0), 0),
+    )
     return Handler
 
 
