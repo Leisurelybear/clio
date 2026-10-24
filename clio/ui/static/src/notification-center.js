@@ -219,11 +219,13 @@ function _scheduleRefresh() {
 
 export async function loadNotifications({ append = false, refresh = false, emitNew = false } = {}) {
   if (_loading || _loadingMore) return;
+  const hadScheduledRefresh = _refreshTimer !== null;
   if (_refreshTimer) {
     clearTimeout(_refreshTimer);
     _refreshTimer = null;
   }
-  _refreshPending = false;
+  if (append) _refreshPending = _refreshPending || hadScheduledRefresh;
+  else _refreshPending = false;
   const generation = ++_loadGeneration;
   if (append) _loadingMore = true;
   else _loading = true;

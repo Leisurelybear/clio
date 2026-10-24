@@ -315,6 +315,28 @@ describe('notification center', () => {
     expect(getCalls()).toBe(before + 1);
   });
 
+  it('keeps a debounced SSE refresh when load-more starts first', async () => {
+    const n1 = { id: 'n1', seq: 1, severity: 'error', title: '失败', message: 'boom', read_at: null };
+    const n2 = { id: 'n2', seq: 2, severity: 'info', title: 'T', message: 'm', read_at: null };
+    api.mockResolvedValueOnce({
+      notifications: [n1], unread_count: 1, latest_seq: 1, total_count: 1,
+    });
+    const { initNotificationCenter, loadNotifications } = await import('../notification-center.js');
+    initNotificationCenter();
+    await vi.waitFor(() => expect(eventSource).toBeTruthy());
+    api.mockImplementation((method, url) => {
+      if (method !== 'GET') return Promise.resolve({});
+      return Promise.resolve(url.includes('offset=0')
+        ? { notifications: [n2, n1], unread_count: 2, latest_seq: 2, total_count: 2 }
+        : { notifications: [n1], unread_count: 2, latest_seq: 2, total_count: 2 });
+    });
+
+    eventSource.onmessage({ data: JSON.stringify({ seq: 2, refresh: true }) });
+    await loadNotifications({ append: true });
+
+    await vi.waitFor(() => expect(state.notifications.map(item => item.id)).toEqual(['n2', 'n1']));
+  });
+
   it('includes the canonical project directory in UI dedupe keys', async () => {
     state.currentProjectName = '同名项目';
     state.currentProjectDir = 'C:/projects/a';
