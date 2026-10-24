@@ -43,6 +43,7 @@ vlog-video-analysis/
 │   ├── plan_readiness.py      Export/cut readiness (error/warning tiers)
 │   ├── analyze_windows.py     Long-clip logical windows (slice/merge; no physical split)
 │   ├── identity.py            MediaIdentity + is_legacy_split_* gate
+│   ├── instance_probe.py      Web-port probe (clio / other / unreachable)
 │   ├── vmeta.py               .vmeta/.vindex sidecar metadata
 │   ├── progress.py            Progress tracker (used by UI + CLI)
 │   ├── task_center/            Unified task lifecycle, SQLite history, executors, and reporters

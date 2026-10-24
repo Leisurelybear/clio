@@ -12,6 +12,7 @@ from pathlib import Path
 from clio.config import apply_run_paths, load_config
 from clio.doctor import is_virtualenv_python, run_doctor
 from clio.i18n import set_active_locale, t
+from clio.instance_probe import probe_web_ui
 from clio.log import setup_logging
 from clio.shutdown import before_stop, install_hooks
 from clio.utils import discover_ffmpeg_bin, resolve_binary, safe_basename
@@ -378,6 +379,22 @@ def main(argv: list[str] | None = None) -> int:
 
     base_config = load_config(config_path)
     set_active_locale(base_config.ui.language)
+    if args.command == "serve" and args.port > 0:
+        probe_host = args.host or "127.0.0.1"
+        if probe_host in {"0.0.0.0", "::", "[::]"}:
+            probe_host = "127.0.0.1"
+        running = probe_web_ui(probe_host, args.port)
+        if running == "clio":
+            print(
+                t(
+                    "cli.serve.already_running",
+                    {"url": f"http://{probe_host}:{args.port}/"},
+                )
+            )
+            return 0
+        if running == "other":
+            print(t("cli.serve.port_in_use", {"port": args.port}), file=sys.stderr)
+            return 1
     if _serve_t0 is not None:
         import time as _time
 

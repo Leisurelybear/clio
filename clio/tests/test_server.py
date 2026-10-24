@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import io
 import json
 from http import HTTPStatus
@@ -1272,3 +1273,48 @@ class TestParseJsonContentLength:
     def test_too_large(self):
         assert _parse_json_content_length(str(MAX_JSON_BODY_BYTES + 1)) == (None, 413)
         assert _parse_json_content_length(str(MAX_JSON_BODY_BYTES)) == (MAX_JSON_BODY_BYTES, None)
+
+
+class TestRunPortErrors:
+    @staticmethod
+    def _active_config():
+        active = MagicMock()
+        active.project_dir = None
+        active.paths.output_dir = Path("output")
+        return active
+
+    def test_reports_port_in_use_instead_of_traceback(self, monkeypatch, capsys):
+        from clio.ui import server
+
+        active = self._active_config()
+        monkeypatch.setattr(server, "install_hooks", lambda: None)
+        monkeypatch.setattr(server, "resolve_last_project_config", lambda *_a, **_k: active)
+        monkeypatch.setattr(server, "auto_reindex_if_needed", lambda *_a, **_k: False)
+        monkeypatch.setattr(server, "make_handler", lambda *_a, **_k: MagicMock())
+
+        def raise_in_use(*_a, **_k):
+            raise OSError(errno.EADDRINUSE, "address already in use")
+
+        monkeypatch.setattr(server, "BoundedThreadingHTTPServer", raise_in_use)
+
+        result = server.run(active, host="127.0.0.1", port=8800, open_browser=False)
+
+        assert result == 1
+        assert "8800" in capsys.readouterr().err
+
+    def test_reraises_other_bind_errors(self, monkeypatch):
+        from clio.ui import server
+
+        active = self._active_config()
+        monkeypatch.setattr(server, "install_hooks", lambda: None)
+        monkeypatch.setattr(server, "resolve_last_project_config", lambda *_a, **_k: active)
+        monkeypatch.setattr(server, "auto_reindex_if_needed", lambda *_a, **_k: False)
+        monkeypatch.setattr(server, "make_handler", lambda *_a, **_k: MagicMock())
+
+        def raise_denied(*_a, **_k):
+            raise PermissionError(errno.EACCES, "permission denied")
+
+        monkeypatch.setattr(server, "BoundedThreadingHTTPServer", raise_denied)
+
+        with pytest.raises(PermissionError):
+            server.run(active, host="127.0.0.1", port=8800, open_browser=False)

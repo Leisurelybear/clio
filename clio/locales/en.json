@@ -272,6 +272,8 @@
   "cli.plan.not_found": "Plan file not found: {path}",
   "cli.refine.fix_requires_file": "Error: --fix requires a single .json file with -i",
   "cli.refine.no_context": "Warning: config.yaml has no ai.context or ai.context_file; refine quality will be limited (the AI lacks your trip background and rules).",
+  "cli.serve.already_running": "Clio is already running: {url}",
+  "cli.serve.port_in_use": "Port {port} is already in use by another program; choose another port with --port",
   "common.list_separator": ", ",
   "compress.duration_unreadable": "Cannot read the video duration: {path}",
   "compress.output_duration_unreadable": "Cannot read the duration of the compressed output: {name}",

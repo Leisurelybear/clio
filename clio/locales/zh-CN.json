@@ -272,6 +272,8 @@
   "cli.plan.not_found": "规划文件不存在: {path}",
   "cli.refine.fix_requires_file": "错误: --fix 必须配合 -i 指定单个 .json 文件",
   "cli.refine.no_context": "警告: config.yaml 里没有配置 ai.context 或 ai.context_file，refine 效果有限（AI 不知道你的行程背景和规范）。",
+  "cli.serve.already_running": "Clio 已在运行: {url}",
+  "cli.serve.port_in_use": "端口 {port} 已被其他程序占用，请用 --port 指定其他端口",
   "common.list_separator": "、",
   "compress.duration_unreadable": "无法读取视频时长: {path}",
   "compress.output_duration_unreadable": "压缩输出无法读取时长: {name}",

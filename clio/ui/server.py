@@ -9,10 +9,12 @@
 # ruff: noqa: F401 — all handler imports used by router resolver (lazy lookup)
 from __future__ import annotations
 
+import errno
 import hmac
 import json
 import mimetypes
 import shutil
+import sys
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -24,6 +26,7 @@ from urllib.parse import parse_qs, urlparse
 
 from clio.config import AppConfig
 from clio.i18n import t
+from clio.i18n import t as translate
 from clio.log_history import DEFAULT_READ_BYTES, MAX_READ_BYTES, list_log_files, read_log_file
 from clio.session_log import clear as clear_session_log
 from clio.session_log import read as read_session_log
@@ -938,7 +941,13 @@ def run(
     print(f"[startup] HTTP handler ready ({_startup_ms(t)})")
 
     t = time.perf_counter()
-    server = BoundedThreadingHTTPServer((host, port), handler)
+    try:
+        server = BoundedThreadingHTTPServer((host, port), handler)
+    except OSError as error:
+        if error.errno == errno.EADDRINUSE or getattr(error, "winerror", None) == 10048:
+            print(translate("cli.serve.port_in_use", {"port": port}), file=sys.stderr)
+            return 1
+        raise
     print(f"[startup] bound {host}:{port} ({_startup_ms(t)})")
 
     url = f"http://{host}:{port}/"

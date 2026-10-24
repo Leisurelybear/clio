@@ -17,9 +17,10 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from clio.instance_probe import probe_web_ui
+
 LOCK_FILENAME = "clio.lock"
 WEB_PORT = 8765
-_WEB_MARKER = b"Vlog"
 
 
 def lock_path(config_dir: Path) -> Path:
@@ -118,10 +119,4 @@ def focus_first_instance(host: str, port: int, timeout: float = 3.0) -> bool:
 
 def is_web_running(host: str = "127.0.0.1", port: int = WEB_PORT, timeout: float = 2.0) -> bool:
     """Return True when the web UI (``serve``) is already up on the default port."""
-    try:
-        with urllib.request.urlopen(f"http://{host}:{port}/", timeout=timeout) as resp:
-            if resp.status != 200:
-                return False
-            return _WEB_MARKER in resp.read(1024)
-    except OSError:
-        return False
+    return probe_web_ui(host, port, timeout) == "clio"

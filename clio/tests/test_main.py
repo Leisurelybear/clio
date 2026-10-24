@@ -512,9 +512,45 @@ def test_serve_dispatches_to_ui_server(cli_runner, config_path, monkeypatch):
         calls.update(kwargs)
         return 0
 
+    monkeypatch.setattr("clio.main.probe_web_ui", lambda *_a, **_k: "unreachable")
     monkeypatch.setattr("clio.ui.run", fake_run)
 
     result = cli_runner(["--config", str(config_path), "serve", "--no-browser"])
 
     assert result == 0
     assert calls["open_browser"] is False
+
+
+def test_serve_exits_when_clio_is_already_running(cli_runner, config_path, monkeypatch, capsys):
+    run_ui = MagicMock()
+    monkeypatch.setattr("clio.main.probe_web_ui", lambda *_a, **_k: "clio")
+    monkeypatch.setattr("clio.ui.run", run_ui)
+
+    result = cli_runner(["--config", str(config_path), "serve", "--port", "8800", "--no-browser"])
+
+    assert result == 0
+    assert "http://127.0.0.1:8800/" in capsys.readouterr().out
+    run_ui.assert_not_called()
+
+
+def test_serve_reports_port_used_by_another_program(cli_runner, config_path, monkeypatch, capsys):
+    run_ui = MagicMock()
+    monkeypatch.setattr("clio.main.probe_web_ui", lambda *_a, **_k: "other")
+    monkeypatch.setattr("clio.ui.run", run_ui)
+
+    result = cli_runner(["--config", str(config_path), "serve", "--port", "8800", "--no-browser"])
+
+    assert result == 1
+    assert "8800" in capsys.readouterr().err
+    run_ui.assert_not_called()
+
+
+def test_serve_skips_probe_for_ephemeral_port(cli_runner, config_path, monkeypatch):
+    probe = MagicMock()
+    monkeypatch.setattr("clio.main.probe_web_ui", probe)
+    monkeypatch.setattr("clio.ui.run", lambda *_a, **_k: 0)
+
+    result = cli_runner(["--config", str(config_path), "serve", "--port", "0", "--no-browser"])
+
+    assert result == 0
+    probe.assert_not_called()
