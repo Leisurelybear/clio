@@ -26,7 +26,6 @@ from urllib.parse import parse_qs, urlparse
 
 from clio.config import AppConfig
 from clio.i18n import t
-from clio.i18n import t as translate
 from clio.log_history import DEFAULT_READ_BYTES, MAX_READ_BYTES, list_log_files, read_log_file
 from clio.session_log import clear as clear_session_log
 from clio.session_log import read as read_session_log
@@ -897,9 +896,9 @@ def run(
     t_run = time.perf_counter()
     print("[startup] UI serve: begin")
 
-    t = time.perf_counter()
+    t0 = time.perf_counter()
     install_hooks()
-    print(f"[startup] hooks installed ({_startup_ms(t)})")
+    print(f"[startup] hooks installed ({_startup_ms(t0)})")
 
     TOKEN = api_token
     # A *blank* host previously bound 0.0.0.0 (all NICs) while being treated as
@@ -918,18 +917,18 @@ def run(
         print(f"  Token URL: http://{host}:{port}/?token={TOKEN}")
 
     # Try loading last used project config (may re-read project.yaml)
-    t = time.perf_counter()
+    t0 = time.perf_counter()
     active_config = resolve_last_project_config(config, config_path)
     proj = active_config.project_dir
-    print(f"[startup] last project resolved → {proj if proj else '(none)'} ({_startup_ms(t)})")
+    print(f"[startup] last project resolved → {proj if proj else '(none)'} ({_startup_ms(t0)})")
 
     # Scan compressed_dir for missing .vindex; may reindex (can be seconds+)
-    t = time.perf_counter()
+    t0 = time.perf_counter()
     print("[startup] checking video indexes…")
     did_reindex = auto_reindex_if_needed(active_config)
-    print(f"[startup] index check done ({'rebuilt' if did_reindex else 'ok'}, {_startup_ms(t)})")
+    print(f"[startup] index check done ({'rebuilt' if did_reindex else 'ok'}, {_startup_ms(t0)})")
 
-    t = time.perf_counter()
+    t0 = time.perf_counter()
     handler = make_handler(
         active_config,
         config_path,
@@ -938,17 +937,17 @@ def run(
         bound_port=port,
         enforce_local_session=_is_local,
     )
-    print(f"[startup] HTTP handler ready ({_startup_ms(t)})")
+    print(f"[startup] HTTP handler ready ({_startup_ms(t0)})")
 
-    t = time.perf_counter()
+    t0 = time.perf_counter()
     try:
         server = BoundedThreadingHTTPServer((host, port), handler)
     except OSError as error:
         if error.errno == errno.EADDRINUSE or getattr(error, "winerror", None) == 10048:
-            print(translate("cli.serve.port_in_use", {"port": port}), file=sys.stderr)
+            print(t("cli.serve.port_in_use", {"port": port}), file=sys.stderr)
             return 1
         raise
-    print(f"[startup] bound {host}:{port} ({_startup_ms(t)})")
+    print(f"[startup] bound {host}:{port} ({_startup_ms(t0)})")
 
     url = f"http://{host}:{port}/"
     print(f"  UI started: {url}")
