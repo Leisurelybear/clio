@@ -47,6 +47,7 @@ vlog-video-analysis/
     ├── resources.py            # Bundled config/template lookup for repo, wheel, PyInstaller
     ├── index.py                # Unified artifact index (compressed/texts/scripts/transcripts)
     ├── identity.py             # Canonical media identity helpers
+    ├── instance_probe.py       # Web-port probe: clio / other / unreachable
     ├── plan_model.py           # Plan/PlanSegment domain + save validation (R-026)
     ├── plan_preview.py         # Cut-clip mapping for plan preview (R-031b)
     ├── plan_readiness.py       # Export/cut readiness (error/warning tiers)

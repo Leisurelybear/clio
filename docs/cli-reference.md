@@ -381,6 +381,8 @@ python main.py serve --port 9000        # Change port
 python main.py serve --no-browser       # Don't auto-open browser (for remote machine debugging)
 ```
 
+If the same port is already serving Clio, `serve` prints that URL and exits `0` instead of starting a second server. If another program owns the port, it exits `1` and asks for a different `--port`. Different ports may run concurrently.
+
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `--host` | `127.0.0.1` | Listen address; change to `0.0.0.0` to expose to LAN (be mindful of security) |

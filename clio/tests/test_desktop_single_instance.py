@@ -184,7 +184,7 @@ def test_is_web_running_false_when_unreachable(monkeypatch):
     def _refuse(*args, **kwargs):
         raise OSError("connection refused")
 
-    monkeypatch.setattr("urllib.request.urlopen", _refuse)
+    monkeypatch.setattr("clio.instance_probe._open_url", _refuse)
     assert is_web_running("127.0.0.1", 1) is False
 
 
@@ -205,7 +205,7 @@ def test_is_web_running_true_for_clio_index(monkeypatch):
             return self._body[:n]
 
     monkeypatch.setattr(
-        "urllib.request.urlopen",
+        "clio.instance_probe._open_url",
         lambda *a, **k: _Resp(b"<title>Vlog \xe5\x89\xaa\xe8\xbe\x91 UI</title>"),
     )
     assert is_web_running("127.0.0.1", WEB_PORT) is True
@@ -227,7 +227,7 @@ def test_is_web_running_false_for_unrelated_server(monkeypatch):
         def read(self, n):
             return self._body[:n]
 
-    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: _Resp(b"<html>apache</html>"))
+    monkeypatch.setattr("clio.instance_probe._open_url", lambda *a, **k: _Resp(b"<html>apache</html>"))
     assert is_web_running("127.0.0.1", WEB_PORT) is False
 
 
@@ -244,5 +244,5 @@ def test_is_web_running_non_200_false(monkeypatch):
         def read(self, n):
             return b""
 
-    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: _Resp())
+    monkeypatch.setattr("clio.instance_probe._open_url", lambda *a, **k: _Resp())
     assert is_web_running("127.0.0.1", WEB_PORT) is False
