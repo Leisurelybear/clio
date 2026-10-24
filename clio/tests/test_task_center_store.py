@@ -252,6 +252,64 @@ def test_cleanup_keeps_task_while_notification_is_retained(tmp_path):
     assert store.get(task.id) is None
 
 
+def test_notification_indexes_cover_inbox_order_and_task_lookup(tmp_path):
+    path = tmp_path / "tasks.sqlite3"
+    TaskStore(path)
+    with sqlite3.connect(path) as connection:
+        indexes = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'notifications'"
+            )
+        }
+        plans = {}
+        for label, sql, params in (
+            ("project", "SELECT * FROM notifications WHERE project_id = ? ORDER BY seq DESC LIMIT 10", ("p",)),
+            ("unread", "SELECT * FROM notifications WHERE read_at IS NULL ORDER BY seq DESC LIMIT 10", ()),
+            (
+                "project_unread",
+                "SELECT * FROM notifications WHERE read_at IS NULL AND project_id = ? ORDER BY seq DESC LIMIT 10",
+                ("p",),
+            ),
+            ("task", "SELECT 1 FROM notifications WHERE task_id = ? LIMIT 1", ("t",)),
+        ):
+            plans[label] = " ".join(str(row[3]) for row in connection.execute("EXPLAIN QUERY PLAN " + sql, params))
+
+    assert {
+        "idx_notifications_task",
+        "idx_notifications_seq_unread",
+        "idx_notifications_project_seq",
+        "idx_notifications_project_seq_unread",
+    } <= indexes
+    assert "TEMP B-TREE" not in plans["project"]
+    assert "TEMP B-TREE" not in plans["unread"]
+    assert "TEMP B-TREE" not in plans["project_unread"]
+    assert "idx_notifications_task" in plans["task"]
+
+
+def test_notification_index_migration_replaces_legacy_indexes(tmp_path):
+    path = tmp_path / "tasks.sqlite3"
+    TaskStore(path)
+    with sqlite3.connect(path) as connection:
+        connection.execute("CREATE INDEX idx_notifications_unread ON notifications(read_at, created_at DESC, seq DESC)")
+        connection.execute(
+            "CREATE INDEX idx_notifications_project ON notifications(project_id, created_at DESC, seq DESC)"
+        )
+
+    TaskStore(path)
+
+    with sqlite3.connect(path) as connection:
+        indexes = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'notifications'"
+            )
+        }
+    assert "idx_notifications_unread" not in indexes
+    assert "idx_notifications_project" not in indexes
+    assert "idx_notifications_project_seq" in indexes
+
+
 def test_invalid_stored_json_fails_explicitly(tmp_path):
     path = tmp_path / "tasks.sqlite3"
     store = TaskStore(path)

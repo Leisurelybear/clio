@@ -288,6 +288,33 @@ describe('notification center', () => {
     expect(state.notifications[0].read_at).toBe('now');
   });
 
+  it('coalesces a burst of SSE revisions into one refresh request', async () => {
+    api.mockResolvedValueOnce({
+      notifications: [{ id: 'n1', seq: 1, severity: 'error', title: '失败', message: 'boom', read_at: null }],
+      unread_count: 1, latest_seq: 1, total_count: 1,
+    }).mockResolvedValue({
+      notifications: [
+        { id: 'n3', seq: 3, severity: 'info', title: 'T', message: 'm', read_at: null },
+        { id: 'n2', seq: 2, severity: 'info', title: 'T', message: 'm', read_at: null },
+        { id: 'n1', seq: 1, severity: 'error', title: '失败', message: 'boom', read_at: null },
+      ],
+      unread_count: 3, latest_seq: 3, total_count: 3,
+    });
+    const { initNotificationCenter } = await import('../notification-center.js');
+    initNotificationCenter();
+    await vi.waitFor(() => expect(eventSource).toBeTruthy());
+    const getCalls = () => api.mock.calls.filter(([method]) => method === 'GET').length;
+    const before = getCalls();
+
+    eventSource.onmessage({ data: JSON.stringify({ seq: 2, refresh: true }) });
+    eventSource.onmessage({ data: JSON.stringify({ seq: 3, refresh: true }) });
+
+    await vi.waitFor(() => expect(state.notifications).toHaveLength(3));
+    expect(getCalls()).toBe(before + 1);
+    await new Promise(resolve => setTimeout(resolve, 250));
+    expect(getCalls()).toBe(before + 1);
+  });
+
   it('includes the canonical project directory in UI dedupe keys', async () => {
     state.currentProjectName = '同名项目';
     state.currentProjectDir = 'C:/projects/a';

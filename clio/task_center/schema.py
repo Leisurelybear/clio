@@ -74,9 +74,14 @@ CREATE TABLE IF NOT EXISTS notifications (
     data_json TEXT NOT NULL DEFAULT '{}'
 );
 
+DROP INDEX IF EXISTS idx_notifications_unread;
+DROP INDEX IF EXISTS idx_notifications_project;
 CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at DESC, seq DESC);
-CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(read_at, created_at DESC, seq DESC);
-CREATE INDEX IF NOT EXISTS idx_notifications_project ON notifications(project_id, created_at DESC, seq DESC);
+CREATE INDEX IF NOT EXISTS idx_notifications_task ON notifications(task_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_seq_unread ON notifications(seq DESC) WHERE read_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_notifications_project_seq ON notifications(project_id, seq DESC);
+CREATE INDEX IF NOT EXISTS idx_notifications_project_seq_unread
+    ON notifications(project_id, seq DESC) WHERE read_at IS NULL;
 """
 
 

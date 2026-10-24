@@ -9,6 +9,7 @@ function severityLabel(severity) {
   return SEVERITIES.includes(severity) ? t(`notifications.severity.${severity}`) : '';
 }
 const PAGE_SIZE = 100;
+const REFRESH_DEBOUNCE_MS = 150;
 const _seenNotificationIds = new Set();
 let _stream = null;
 let _streamRetry = null;
@@ -23,6 +24,8 @@ let _loadedServerCount = 0;
 let _loadGeneration = 0;
 let _totalKnown = false;
 let _refreshPending = false;
+let _refreshTimer = null;
+let _renderQueued = false;
 
 function _notificationId() {
   return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -121,6 +124,15 @@ function _mergePage(result, { append = false, refresh = false } = {}) {
   return newItems;
 }
 
+function _scheduleRender() {
+  if (_renderQueued) return;
+  _renderQueued = true;
+  queueMicrotask(() => {
+    _renderQueued = false;
+    _render();
+  });
+}
+
 function _render() {
   const panel = document.getElementById('notification-panel');
   const button = document.getElementById('btn-notifications');
@@ -165,7 +177,7 @@ function _render() {
     _totalCount = 0;
     _hasMore = false;
     _totalKnown = false;
-    _render();
+    _scheduleRender();
     void loadNotifications();
   }));
   panel.querySelectorAll('.notification-row').forEach(item => item.addEventListener('click', () => openNotification(item.dataset.notificationId)));
@@ -189,12 +201,33 @@ function _row(notification) {
     ${readBtn}</div>`;
 }
 
+function _scheduleRefresh() {
+  if (_loading || _loadingMore) {
+    _refreshPending = true;
+    return;
+  }
+  if (_refreshTimer) return;
+  _refreshTimer = setTimeout(() => {
+    _refreshTimer = null;
+    if (_loading || _loadingMore) {
+      _refreshPending = true;
+      return;
+    }
+    void loadNotifications({ refresh: true, emitNew: true });
+  }, REFRESH_DEBOUNCE_MS);
+}
+
 export async function loadNotifications({ append = false, refresh = false, emitNew = false } = {}) {
   if (_loading || _loadingMore) return;
+  if (_refreshTimer) {
+    clearTimeout(_refreshTimer);
+    _refreshTimer = null;
+  }
+  _refreshPending = false;
   const generation = ++_loadGeneration;
   if (append) _loadingMore = true;
   else _loading = true;
-  _render();
+  _scheduleRender();
   try {
     const offset = append ? _loadedServerCount : 0;
     const limit = refresh ? Math.max(PAGE_SIZE, Math.min(_loadedServerCount, 200)) : PAGE_SIZE;
@@ -212,10 +245,10 @@ export async function loadNotifications({ append = false, refresh = false, emitN
     if (generation === _loadGeneration) {
       _loading = false;
       _loadingMore = false;
-      _render();
+      _scheduleRender();
       if (_refreshPending) {
         _refreshPending = false;
-        void loadNotifications({ refresh: true, emitNew: true });
+        _scheduleRefresh();
       }
     }
   }
@@ -234,14 +267,13 @@ function _startStream() {
       if (revision <= _streamCursor) return;
       _recordRevision(revision);
       if (payload.refresh) {
-        if (_loading || _loadingMore) _refreshPending = true;
-        else void loadNotifications({ refresh: true, emitNew: true });
+        _scheduleRefresh();
       }
       else if (payload.notification) {
         const isNew = payload.notification.id && !_seenNotificationIds.has(payload.notification.id);
         if (isNew) _seenNotificationIds.add(payload.notification.id);
         _upsert(payload.notification);
-        _render();
+        _scheduleRender();
         if (isNew) window.dispatchEvent(new CustomEvent('clio:notification-created', { detail: payload.notification }));
       }
     } catch { /* ignore malformed events */ }
@@ -304,7 +336,7 @@ export async function registerNotification({
       _upsert(result.notification);
       _recordRevision(result.latest_seq ?? result.notification.seq, { advanceCursor: false });
       if (Number.isFinite(Number(result.unread_count))) state.notificationUnread = Math.max(0, Number(result.unread_count));
-      _render();
+      _scheduleRender();
       window.dispatchEvent(new CustomEvent('clio:notification-created', { detail: result.notification }));
       return result.notification;
     }
@@ -321,7 +353,7 @@ export async function markNotificationRead(notificationId, read = true) {
     if (result?.notification) _upsert(result.notification, { adjustUnread: false });
     _recordRevision(result?.latest_seq ?? result?.notification?.seq, { advanceCursor: false });
     if (Number.isFinite(Number(result?.unread_count))) state.notificationUnread = Math.max(0, Number(result.unread_count));
-    _render();
+    _scheduleRender();
   } catch { /* ignore transient read-state failures */ }
 }
 
@@ -338,7 +370,7 @@ export async function markAllRead() {
       _hasMore = false;
       _totalKnown = false;
     }
-    _render();
+    _scheduleRender();
   } catch { /* ignore transient read-state failures */ }
 }
 
@@ -371,17 +403,17 @@ export function initNotificationCenter() {
   button.addEventListener('click', event => {
     event.stopPropagation();
     panel.hidden = !panel.hidden;
-    if (!panel.hidden) { void loadNotifications(state.notifications.length ? { refresh: true } : {}); _render(); }
+    if (!panel.hidden) { void loadNotifications(state.notifications.length ? { refresh: true } : {}); _scheduleRender(); }
   });
   document.addEventListener('click', event => {
     const path = event.composedPath?.() || [];
     if (path.includes(panel) || path.includes(button)) return;
     panel.hidden = true;
-    _render();
+    _scheduleRender();
   });
-  window.addEventListener('clio:notification-created', _render);
+  window.addEventListener('clio:notification-created', _scheduleRender);
   initDesktopNotificationBridge();
-  onLocaleChange(() => _render());
+  onLocaleChange(() => _scheduleRender());
   void loadNotifications().finally(_startStream);
 }
 
