@@ -229,6 +229,27 @@ class TestRunCutAllOverwrite:
             run_cut_all(cfg, "day1", overwrite=False)
         mock_cut.assert_not_called()
 
+    def test_reads_sanitized_plan_for_unsanitized_day(self, cfg):
+        _write_plan(
+            cfg, day_label="Ep2_-_agnes-3-flash", seq=[{"index": "001", "title": "A", "use_timeline": "00:00-00:10"}]
+        )
+        (cfg.compressed_dir / "001_src.mp4").write_bytes(b"\x00")
+
+        def fake_cut(_video_path, output_path, *_args, **_kwargs):
+            output_path.write_bytes(b"clip")
+
+        with (
+            patch("clio.tasks.cut.cut_one", side_effect=fake_cut),
+            patch("clio.tasks.cut.resolve_binary", return_value="ffmpeg"),
+            patch("clio.tasks.cut.get_duration_sec", return_value=100.0),
+        ):
+            from clio.tasks.cut import run_cut_all
+
+            clips = run_cut_all(cfg, "Ep2 - agnes-3-flash", overwrite=True)
+
+        assert clips
+        assert (cfg.paths.output_dir / "cuts" / "Ep2_-_agnes-3-flash" / "001_A_seg_001.mp4").is_file()
+
     def test_writes_sidecar_even_without_texts(self, cfg):
         _write_plan(cfg, seq=[{"index": "001", "title": "A", "use_timeline": "00:00-00:10"}])
         (cfg.compressed_dir / "001_src.mp4").write_bytes(b"\x00")

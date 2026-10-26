@@ -524,6 +524,37 @@ def test_preview_plan_skips_only_when_day_outputs_exist_and_json_valid(tmp_path:
     assert preview["steps"][0]["will_skip"] == 1
 
 
+def test_preview_plan_skips_sanitized_day_outputs(tmp_path: Path) -> None:
+    input_dir = tmp_path / "videos"
+    output_dir = tmp_path / "output"
+    texts_dir = output_dir / "texts"
+    plans_dir = output_dir / "plans"
+    input_dir.mkdir()
+    texts_dir.mkdir(parents=True)
+    plans_dir.mkdir()
+    (texts_dir / "001_A.json").write_text("{}", encoding="utf-8")
+    (plans_dir / "Ep2_-_agnes-3-flash_plan.json").write_text("{}", encoding="utf-8")
+    (plans_dir / "Ep2_-_agnes-3-flash_plan.md").write_text("# plan", encoding="utf-8")
+
+    from clio.tasks._video_loader import save_selected_videos
+
+    vids = [
+        p for p in input_dir.rglob("*") if p.is_file() and p.suffix.lower() in {".mp4", ".mov", ".webm", ".mkv", ".avi"}
+    ]
+    save_selected_videos(input_dir, vids)
+    preview = build_run_preview(
+        _config(input_dir, output_dir),
+        steps=["plan"],
+        force=False,
+        use_transcripts=True,
+        day_label="Ep2 - agnes-3-flash",
+    )
+
+    assert preview["steps"][0]["total"] == 1
+    assert preview["steps"][0]["will_run"] == 0
+    assert preview["steps"][0]["will_skip"] == 1
+
+
 def test_preview_plan_invalid_json_does_not_skip(tmp_path: Path) -> None:
     input_dir = tmp_path / "videos"
     output_dir = tmp_path / "output"

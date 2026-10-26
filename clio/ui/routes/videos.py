@@ -22,7 +22,7 @@ from clio.ui.services.file_service import (
     _find_texts_dirs,
     _is_safe_basename,
 )
-from clio.utils import get_duration_sec, resolve_binary, validate_within_root
+from clio.utils import get_duration_sec, resolve_binary, safe_basename, validate_within_root
 from clio.vmeta import VideoMeta, _meta_to_dict
 
 if TYPE_CHECKING:
@@ -679,7 +679,7 @@ def handle_get_video(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
         day = qs.get("day", [""])[0]
         if not _is_safe_basename(day) or not _is_safe_basename(fname):
             return handler.send_error(HTTPStatus.FORBIDDEN)
-        cuts_dir = proj_out / "cuts" / day
+        cuts_dir = proj_out / "cuts" / safe_basename(day)
         try:
             vp = validate_within_root(cuts_dir / fname, proj_out)
         except (OSError, ValueError):

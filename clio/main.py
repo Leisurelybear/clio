@@ -15,7 +15,7 @@ from clio.i18n import set_active_locale, t
 from clio.instance_probe import probe_web_ui
 from clio.log import setup_logging
 from clio.shutdown import before_stop, install_hooks
-from clio.utils import discover_ffmpeg_bin, resolve_binary, safe_basename
+from clio.utils import discover_ffmpeg_bin, plan_day_stem, resolve_binary
 
 PLACEHOLDER_KEYS = {"your_api_key_here", "YOUR_API_KEY", ""}
 
@@ -537,7 +537,7 @@ def main(argv: list[str] | None = None) -> int:
             from clio.tasks.reindex import auto_reindex_if_needed
 
             auto_reindex_if_needed(config)
-            plan_path = config.plans_dir / f"{safe_basename(args.day, max_len=60)}_plan.json"
+            plan_path = config.plans_dir / f"{plan_day_stem(args.day)}_plan.json"
             if not plan_path.is_file():
                 print(t("cli.error", {"detail": t("cli.plan.not_found", {"path": plan_path})}), file=sys.stderr)
                 return 1
@@ -604,7 +604,7 @@ def main(argv: list[str] | None = None) -> int:
                 readiness_block_payload,
             )
 
-            plan_path = config.plans_dir / f"{safe_basename(args.day, max_len=60)}_plan.json"
+            plan_path = config.plans_dir / f"{plan_day_stem(args.day)}_plan.json"
             if not plan_path.is_file():
                 print(t("cli.error", {"detail": t("cli.plan.not_found", {"path": plan_path})}), file=sys.stderr)
                 return 1

@@ -11,6 +11,7 @@ import pytest
 from clio.utils import (
     discover_ffmpeg_bin,
     get_duration_sec,
+    plan_day_stem,
     popen_subprocess,
     run_ffmpeg,
     run_subprocess,
@@ -302,3 +303,11 @@ class TestSafeBasename:
 
     def test_sanitizes_regular_name(self):
         assert safe_basename("my clip") == "my_clip"
+
+
+class TestPlanDayStem:
+    def test_shares_the_sanitized_plan_filename(self):
+        assert plan_day_stem("Ep2 - agnes-3-flash") == "Ep2_-_agnes-3-flash"
+
+    def test_caps_the_stem_length(self):
+        assert plan_day_stem("a" * 80) == "a" * 60

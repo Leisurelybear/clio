@@ -254,6 +254,18 @@ class TestRunPlanVlog:
         out = capsys.readouterr().out
         assert "day1_plan.md" in out
 
+    def test_sanitizes_day_label_for_plan_filename(self, loaded_config: AppConfig) -> None:
+        _write_analysis(loaded_config, _analysis("001"))
+        fake_plan = {"day_title": "Ep2", "sequence": []}
+
+        with patch("clio.tasks.plan.plan_daily_vlog", return_value=fake_plan):
+            result = run_plan_vlog(loaded_config, "Ep2 - agnes-3-flash")
+
+        assert result is not None
+        assert (loaded_config.plans_dir / "Ep2_-_agnes-3-flash_plan.json").is_file()
+        assert (loaded_config.plans_dir / "Ep2_-_agnes-3-flash_plan.md").is_file()
+        assert not (loaded_config.plans_dir / "Ep2 - agnes-3-flash_plan.json").exists()
+
     def test_skip_existing_with_same_lineage(self, loaded_config: AppConfig, capsys) -> None:
         _write_analysis(loaded_config, _analysis("001"))
         fake_plan = {"day_title": "day1", "sequence": []}

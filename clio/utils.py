@@ -704,6 +704,11 @@ def safe_basename(text: str, max_len: int = 40) -> str:
     return name
 
 
+def plan_day_stem(day_label: str) -> str:
+    """Return the sanitized stem shared by every plan writer and reader."""
+    return safe_basename(day_label, max_len=60)
+
+
 def format_index(index: int, width: int) -> str:
     return str(index).zfill(width)
 

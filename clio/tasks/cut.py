@@ -19,6 +19,7 @@ from clio.processing_state import ProcessingState
 from clio.tasks._helpers import _eta_line
 from clio.utils import (
     get_duration_sec,
+    plan_day_stem,
     resolve_binary,
     safe_basename,
     sanitize_name,
@@ -281,7 +282,7 @@ def run_cut_all(
     overwrite=False 时若输出目录已有视频则抛 FileExistsError（不改写）。
     overwrite=True 时对每个目标文件先备份再写，成功后删备份。
     """
-    plan_path = config.plans_dir / f"{safe_basename(day_label, max_len=60)}_plan.json"
+    plan_path = config.plans_dir / f"{plan_day_stem(day_label)}_plan.json"
     if not plan_path.is_file():
         raise FileNotFoundError(t("task.cut.plan_missing", {"path": plan_path}))
 

@@ -11,6 +11,7 @@ from clio.i18n import t
 from clio.identity import SEGMENT_SUFFIX_RE
 from clio.index import ArtifactIndex
 from clio.tasks._helpers import _matches_selected_artifact, _matches_selected_stem, _selected_stems
+from clio.utils import plan_day_stem
 
 
 def _step_label(name: str) -> str:
@@ -224,8 +225,9 @@ def _plan_step(config: AppConfig, analysis_jsons: list[Path], *, day_label: str,
     if not analysis_jsons:
         return _warning_step("plan", t("api.preview_missing_analyze_plan"))
     total = 1
-    plan_json = config.plans_dir / f"{day_label}_plan.json"
-    plan_md = config.plans_dir / f"{day_label}_plan.md"
+    safe_day = plan_day_stem(day_label)
+    plan_json = config.plans_dir / f"{safe_day}_plan.json"
+    plan_md = config.plans_dir / f"{safe_day}_plan.md"
     skipped = 0 if force else int(plan_md.is_file() and _valid_json_file(plan_json))
     return _step("plan", total=total, will_run=total - skipped, will_skip=skipped)
 

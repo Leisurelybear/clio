@@ -487,6 +487,54 @@ def test_export_missing_plan_returns_error(cli_runner, config_path, capsys):
     assert "不存在" in capsys.readouterr().err
 
 
+def test_cut_accepts_unsanitized_day_with_sanitized_plan(cli_runner, config_path, tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr("clio.tasks.reindex.auto_reindex_if_needed", lambda cfg: None)
+    monkeypatch.setattr("clio.plan_readiness.collect_project_indices", lambda cfg: (set(), set()))
+    monkeypatch.setattr(
+        "clio.plan_readiness.check_plan_export_readiness",
+        lambda *a, **k: SimpleNamespace(errors=[], warnings=[]),
+    )
+    monkeypatch.setattr("clio.plan_readiness.readiness_block_payload", lambda *a, **k: None)
+    run_cut = MagicMock()
+    monkeypatch.setattr("clio.pipeline.run_cut_all", run_cut)
+    plans_dir = tmp_path / "output" / "plans"
+    plans_dir.mkdir(parents=True)
+    (plans_dir / "Ep2_-_agnes-3-flash_plan.json").write_text(json.dumps({"sequence": []}), encoding="utf-8")
+
+    result = cli_runner(["--config", str(config_path), "cut", "--day", "Ep2 - agnes-3-flash"])
+
+    assert result == 0
+    run_cut.assert_called_once()
+    assert run_cut.call_args.kwargs["day_label"] == "Ep2 - agnes-3-flash"
+
+
+def test_export_accepts_unsanitized_day_with_sanitized_plan(cli_runner, config_path, tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr("clio.plan_readiness.collect_project_indices", lambda cfg: (set(), set()))
+    monkeypatch.setattr(
+        "clio.plan_readiness.check_plan_export_readiness",
+        lambda *a, **k: SimpleNamespace(errors=[], warnings=[]),
+    )
+    monkeypatch.setattr("clio.plan_readiness.readiness_block_payload", lambda *a, **k: None)
+    monkeypatch.setattr("clio.main.resolve_binary", lambda *a, **k: "ffprobe")
+    export_plan = MagicMock()
+    monkeypatch.setattr("clio.export.export_plan", export_plan)
+    plans_dir = tmp_path / "output" / "plans"
+    plans_dir.mkdir(parents=True)
+    plan_path = plans_dir / "Ep2_-_agnes-3-flash_plan.json"
+    plan_path.write_text(json.dumps({"sequence": []}), encoding="utf-8")
+
+    result = cli_runner(["--config", str(config_path), "export", "--day", "Ep2 - agnes-3-flash"])
+
+    assert result == 0
+    export_plan.assert_called_once()
+    assert export_plan.call_args.args[1] == plan_path
+    assert export_plan.call_args.kwargs["day_label"] == "Ep2 - agnes-3-flash"
+
+
 def test_migrate_config_reports_results(cli_runner, config_path, tmp_path, capsys, monkeypatch):
     monkeypatch.setattr("clio.ui.services.file_service._migrate_project_configs", lambda root: (2, ["bad"]))
 

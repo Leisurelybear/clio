@@ -90,6 +90,22 @@ class TestHandlePostExport:
         assert args[1] == 404 or kwargs.get("status") == 404
         assert not args[0].get("ok", True)
 
+    def test_sanitized_plan_for_unsanitized_day(self, handler: MagicMock) -> None:
+        plan_path = handler._get_config.return_value.plans_dir / "Ep2_-_agnes-3-flash_plan.json"
+        plan_path.write_text(json.dumps(_VALID_PLAN), encoding="utf-8")
+        result_path = Path("/output/export/Ep2_-_agnes-3-flash_jianying")
+
+        with (
+            patch("clio.ui.routes.export.collect_project_indices", return_value=({"001"}, set())),
+            patch("clio.ui.routes.export.export_plan") as mock_export,
+            patch("clio.ui.routes.export.resolve_binary", return_value="ffprobe"),
+        ):
+            mock_export.return_value = result_path
+            handle_post_export(handler, {}, {"day": "Ep2 - agnes-3-flash", "format": "jianying", "force": True})
+
+        handler._send_json.assert_called_once_with({"ok": True, "path": str(result_path)})
+        assert mock_export.call_args.args[1] == plan_path
+
     def test_missing_media_dependency_blocks_before_task_submit(self, handler: MagicMock, monkeypatch):
         plan_path = handler._get_config.return_value.plans_dir / "day1_plan.json"
         plan_path.write_text(json.dumps(_VALID_PLAN), encoding="utf-8")

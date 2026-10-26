@@ -108,6 +108,19 @@ class TestHandleGetPlan:
         handler._send_bytes.assert_called_once()
         assert b"test" in handler._send_bytes.call_args[0][0]
 
+    def test_found_with_sanitized_filename(self, tmp_path: Path):
+        handler = MagicMock()
+        plans_dir = tmp_path / "output" / "plans"
+        plans_dir.mkdir(parents=True)
+        (plans_dir / "Ep2_-_agnes-3-flash_plan.json").write_text(json.dumps({"plan": "test"}), encoding="utf-8")
+        _mock_plans_cfg(handler, plans_dir, tmp_path)
+        handler._send_bytes = MagicMock()
+
+        handle_get_plan(handler, {"day": ["Ep2 - agnes-3-flash"]})
+
+        handler._send_bytes.assert_called_once()
+        assert b"test" in handler._send_bytes.call_args[0][0]
+
 
 class TestHandlePutPlan:
     def test_forbidden_day(self):
@@ -142,6 +155,19 @@ class TestHandlePutPlan:
         saved = custom / "day1_plan.json"
         assert saved.is_file()
         assert (tmp_path / "output" / "plans" / "day1_plan.json").exists() is False
+
+    def test_saves_plan_with_sanitized_filename(self, tmp_path: Path):
+        handler = MagicMock()
+        plans_dir = tmp_path / "output" / "plans"
+        _mock_plans_cfg(handler, plans_dir, tmp_path)
+        handler._send_json = MagicMock()
+
+        handle_put_plan(handler, {"day": ["Ep2 - agnes-3-flash"]}, {"title": "test plan"})
+
+        handler._send_json.assert_called_once()
+        assert handler._send_json.call_args[0][0]["ok"] is True
+        assert (plans_dir / "Ep2_-_agnes-3-flash_plan.json").is_file()
+        assert not (plans_dir / "Ep2 - agnes-3-flash_plan.json").exists()
 
 
 class TestHandlePutPlanValidation:
@@ -494,6 +520,25 @@ def _raise_value_error(message: str):
 
 
 class TestPlanPreviewMediaValidation:
+    def test_resolves_sanitized_plan_for_unsanitized_day(self, tmp_path: Path):
+        handler = MagicMock()
+        output_dir = tmp_path / "output"
+        plans_dir = output_dir / "plans"
+        plans_dir.mkdir(parents=True)
+        (plans_dir / "Ep2_-_agnes-3-flash_plan.json").write_text(json.dumps({"sequence": []}), encoding="utf-8")
+        cfg = MagicMock()
+        cfg.plans_dir = plans_dir
+        cfg.paths.output_dir = output_dir
+        handler._resolve_project_dir.return_value = tmp_path
+        handler._get_config.return_value = cfg
+        handler._send_json = MagicMock()
+
+        handle_get_plan_preview_media(handler, {"day": ["Ep2 - agnes-3-flash"]})
+
+        payload = handler._send_json.call_args.args[0]
+        assert payload["ok"] is True
+        assert payload["day"] == "Ep2_-_agnes-3-flash"
+
     def test_invalid_plan_json_returns_400(self, tmp_path: Path):
         handler = MagicMock()
         plans_dir = tmp_path / "output" / "plans"

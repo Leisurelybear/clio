@@ -23,7 +23,13 @@ from clio.task_center.reporter import TaskCancelled
 from clio.task_center.store import TaskQuery
 from clio.ui.handler_protocol import HandlerProtocol
 from clio.ui.services.file_service import _is_safe_basename
-from clio.utils import media_dependency_error, preflight_config_media_deps, resolve_binary, write_bytes_atomic
+from clio.utils import (
+    media_dependency_error,
+    plan_day_stem,
+    preflight_config_media_deps,
+    resolve_binary,
+    write_bytes_atomic,
+)
 
 
 def _managed_task_manager(handler: Any) -> TaskManager | None:
@@ -132,6 +138,7 @@ def handle_post_export(
     if not isinstance(day, str) or not _is_safe_basename(day):
         handler._send_json({"ok": False, "error": "invalid day"}, 400)
         return
+    day = plan_day_stem(day)
     fmt = obj.get("format", "jianying")
     force = obj.get("force", False)
     if not isinstance(force, bool):

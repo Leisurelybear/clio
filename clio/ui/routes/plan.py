@@ -30,7 +30,13 @@ from clio.tasks.cut import (
     restore_orphaned_cut_backups,
 )
 from clio.ui.services.file_service import _is_safe_basename, _save_atomic
-from clio.utils import media_dependency_error, preflight_config_media_deps, validate_within_root
+from clio.utils import (
+    media_dependency_error,
+    plan_day_stem,
+    preflight_config_media_deps,
+    safe_basename,
+    validate_within_root,
+)
 
 if TYPE_CHECKING:
     from clio.ui.handler_protocol import HandlerProtocol
@@ -112,6 +118,7 @@ def handle_get_plan(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     day = qs.get("day", [""])[0]
     if not _is_safe_basename(day) or not day:
         return handler._send_json({"error": "forbidden"}, 403)
+    day = plan_day_stem(day)
     plans_dir = _plans_dir(handler, qs)
     try:
         p = validate_within_root(plans_dir / f"{day}_plan.json", plans_dir)
@@ -127,10 +134,12 @@ def handle_get_plan_preview_media(handler: HandlerProtocol, qs: dict[str, Any]) 
     day = qs.get("day", [""])[0]
     if not _is_safe_basename(day) or not day:
         return handler._send_json({"ok": False, "error": "forbidden"}, 403)
+    plan_day = plan_day_stem(day)
+    cut_day = safe_basename(day)
     proj_dir = handler._resolve_project_dir(qs)
     cfg = handler._get_config(proj_dir)
     try:
-        plan_path = validate_within_root(cfg.plans_dir / f"{day}_plan.json", cfg.plans_dir)
+        plan_path = validate_within_root(cfg.plans_dir / f"{plan_day}_plan.json", cfg.plans_dir)
     except (OSError, ValueError):
         return handler._send_json({"ok": False, "error": "forbidden"}, 403)
     if not plan_path.is_file():
@@ -142,14 +151,14 @@ def handle_get_plan_preview_media(handler: HandlerProtocol, qs: dict[str, Any]) 
         return handler._send_json({"ok": False, "error": str(exc)}, 400)
     output_root = Path(cfg.paths.output_dir).expanduser()
     try:
-        cuts_dir = validate_within_root(output_root / "cuts" / day, output_root)
+        cuts_dir = validate_within_root(output_root / "cuts" / cut_day, output_root)
     except (OSError, ValueError):
         return handler._send_json({"ok": False, "error": "forbidden"}, 403)
     handler._send_json(
         build_preview_media(
             plan if isinstance(plan, dict) else {},
             cuts_dir,
-            day=day,
+            day=cut_day,
             plan_mtime=plan_mtime,
         )
     )
@@ -160,6 +169,7 @@ def handle_put_plan(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> 
     day = qs.get("day", [""])[0]
     if not _is_safe_basename(day) or not day:
         return handler._send_json({"ok": False, "error": "forbidden"}, 403)
+    day = plan_day_stem(day)
     plans_dir = _plans_dir(handler, qs)
     try:
         p = validate_within_root(plans_dir / f"{day}_plan.json", plans_dir)
@@ -190,6 +200,7 @@ def handle_post_plan_readiness(handler: HandlerProtocol, qs: dict[str, Any], obj
     day = str(day)
     if not _is_safe_basename(day) or not day:
         return handler._send_json({"ok": False, "error": "forbidden"}, 403)
+    day = plan_day_stem(day)
     source = str(body.get("source") or "compressed")
     proj_dir = handler._resolve_project_dir(qs)
     cfg = handler._get_config(proj_dir)
@@ -255,7 +266,7 @@ def handle_post_cut(handler: HandlerProtocol, qs: dict[str, list[str]], obj: dic
     except ValueError as e:
         return handler._send_json({"ok": False, "error": str(e)}, 400)
 
-    plan_path = cfg.plans_dir / f"{day_label}_plan.json"
+    plan_path = cfg.plans_dir / f"{plan_day_stem(day_label)}_plan.json"
     if not plan_path.is_file():
         return handler._send_json({"ok": False, "error": t("api.plan_missing", {"path": plan_path})}, 404)
     try:

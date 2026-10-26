@@ -525,6 +525,26 @@ class TestHandleGetVideo:
 
         handler._send_video_range.assert_called_once()
 
+    def test_cut_source_resolves_sanitized_day(self, tmp_path: Path):
+        handler = MagicMock()
+        proj_dir = tmp_path / "input"
+        proj_dir.mkdir()
+        proj_out = tmp_path / "output"
+        cuts_dir = proj_out / "cuts" / "Ep2_-_agnes-3-flash"
+        cuts_dir.mkdir(parents=True)
+        video = cuts_dir / "001_t_seg_000.mp4"
+        video.write_bytes(b"video data")
+        handler._resolve_project_dir.return_value = proj_dir
+        handler._get_project_output.return_value = proj_out
+        handler._send_video_range = MagicMock()
+
+        handle_get_video(
+            handler,
+            {"file": ["001_t_seg_000.mp4"], "source": ["cut"], "day": ["Ep2 - agnes-3-flash"]},
+        )
+
+        handler._send_video_range.assert_called_once_with(video)
+
     def test_sends_nested_original_video(self, tmp_path: Path):
         handler = MagicMock()
         proj_dir = tmp_path / "input"

@@ -20,7 +20,7 @@ from clio.prompt_overrides import resolve_prompt_template
 from clio.prompts import PLAN_PROMPT
 from clio.schema import add_schema_version
 from clio.tasks._helpers import _matches_selected_artifact, _selected_stems
-from clio.utils import format_index, safe_basename, write_json_atomic, write_text_atomic
+from clio.utils import format_index, plan_day_stem, write_json_atomic, write_text_atomic
 
 
 def _read_analysis_json(path: Path) -> tuple[dict[str, Any] | None, str | None]:
@@ -166,7 +166,7 @@ def run_plan_vlog(
 ) -> dict[str, Any] | None:
     config.plans_dir.mkdir(parents=True, exist_ok=True)
     token_store = FileTokenUsageStore(str(config.paths.output_dir))
-    safe_day = safe_basename(day_label, max_len=60)
+    safe_day = plan_day_stem(day_label)
 
     selected = _selected_stems(files) if files is not None else None
     if selected is not None:
@@ -388,7 +388,7 @@ def run_plan_all_days(
                 "theme": plan.get("theme", ""),
                 "clip_count": len(sequence) if isinstance(sequence, list) else 0,
                 "total_estimated_sec": plan.get("total_estimated_sec", 0),
-                "plan_file": f"{day_label}_plan.json",
+                "plan_file": f"{plan_day_stem(day_label)}_plan.json",
             }
         )
 
