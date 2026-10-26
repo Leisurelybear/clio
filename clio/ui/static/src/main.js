@@ -477,6 +477,15 @@ async function init() {
   document.getElementById('btn-add-videos').addEventListener('click', () => import('./sidebar-video-manage.js').then(m => m.openVideoManager()));
   const { initVideoFilterBar } = await import('./sidebar-data.js');
   initVideoFilterBar();
+  const { initVideoDragSelect } = await import('./video-drag-select.js');
+  initVideoDragSelect({
+    enabled: () => state.selectionMode,
+    selected: () => state.selectedFiles,
+    commit: (files) => {
+      state.selectedFiles = files;
+      renderVideoList();
+    },
+  });
   const projectSwitcher = document.getElementById('btn-project-switcher');
   const projectMenu = document.getElementById('project-menu');
   const setProjectMenuOpen = (open) => {

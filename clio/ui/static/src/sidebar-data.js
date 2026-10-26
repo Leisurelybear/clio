@@ -45,28 +45,82 @@ export async function submitRelink(oldPath, newPath) {
   return r;
 }
 
-// ── Video removal helper ──────────────────────────────────────
+// ── Video removal helpers ─────────────────────────────────────
 
-export async function removeVideoFromProject(file, absPath = null) {
+function _stripDisplay(file) {
+  const display = String(file || '');
+  const baseName = display.replace(/^.*[\\/]/, '');
+  return baseName.replace(/^\d+_/, '') || baseName || display;
+}
+
+/** Map a list row back to the original entry stored in videos.json. */
+function _removeTarget(v) {
+  const ownAbs = v.abs_path || null;
+  if (state.source === 'compressed') {
+    const match = v.match || null;
+    return { file: match?.file || v.file, absPath: match?.abs_path || ownAbs };
+  }
+  return { file: v.file, absPath: ownAbs };
+}
+
+async function _selectedVideoTargets(files) {
+  const wanted = new Set((files || []).map(f => String(f)));
+  return (state.videos || [])
+    .filter(v => wanted.has(v.file))
+    .map(_removeTarget);
+}
+
+async function _removeVideos(targets) {
+  const list = (Array.isArray(targets) ? targets : []).filter(Boolean);
+  if (!list.length) return null;
   try {
-    const { findSelectedVideoIndex } = await import('./video-selection.js');
+    const { removeSelectedVideos } = await import('./video-selection.js');
     const r = await api('GET', '/api/videos/selected');
     const videos = (r.videos || []).slice();
-    const display = String(file || '');
-    const baseName = display.replace(/^.*[\\/]/, '');
-    const stripped = baseName.replace(/^\d+_/, '');
-    const found = findSelectedVideoIndex(videos, { file, absPath });
-    if (found.index === -1) {
-      setStatus(found.error || t('sidebar.video_not_found'), 'err');
-      return;
+    const { remaining, removed, missing, ambiguous } = removeSelectedVideos(videos, list);
+    if (!removed.length) {
+      setStatus(ambiguous[0] || t('sidebar.video_not_found'), 'err');
+      return null;
     }
-    videos.splice(found.index, 1);
-    await api('PUT', '/api/videos/selected', { videos });
+    await api('PUT', '/api/videos/selected', { videos: remaining });
     await loadVideos();
-    setStatus(t('sidebar.removed', { name: stripped || baseName || file }), 'ok');
+    if (state.selectedFiles.length) {
+      const present = new Set((state.videos || []).map(v => v.file));
+      const next = state.selectedFiles.filter(f => present.has(f));
+      if (next.length !== state.selectedFiles.length) {
+        state.selectedFiles = next;
+        renderVideoList();
+      }
+    }
+    const failed = missing.length + ambiguous.length;
+    if (failed) {
+      setStatus(t('sidebar.remove_partial', { removed: removed.length, failed }), 'warn');
+    } else if (removed.length === 1) {
+      setStatus(t('sidebar.removed', { name: _stripDisplay(list[0].file) }), 'ok');
+    } else {
+      setStatus(t('sidebar.removed_count', { count: removed.length }), 'ok');
+    }
+    return { removed: removed.length, failed };
   } catch (e) {
     setStatus(t('sidebar.remove_failed', { detail: e.message }), 'err');
+    return null;
   }
+}
+
+export async function removeVideoFromProject(file, absPath = null) {
+  return _removeVideos([{ file, absPath }]);
+}
+
+/** Remove every currently selected video from the project in one request. */
+export async function removeSelectedVideosFromProject() {
+  const files = (state.selectedFiles || []).slice();
+  if (!files.length) {
+    setStatus(t('sidebar.remove_selected_none'), 'warn');
+    return null;
+  }
+  if (!confirm(t('sidebar.remove_selected_confirm', { count: files.length }))) return null;
+  const targets = await _selectedVideoTargets(files);
+  return _removeVideos(targets);
 }
 
 // ── Data loading ───────────────────────────────────────────────
@@ -555,9 +609,16 @@ export function renderVideoList() {
     const selectable = state.videos.filter(v => !v.missing);
     const allSelected = selectable.length > 0 && selectable.every(v => state.selectedFiles.includes(v.file));
     headerDiv.innerHTML = `
-      <span class="selection-count">${t('sidebar.selected_count', { selected: state.selectedFiles.length, total: selectable.length })}</span>
+      <span class="selection-count" title="${t('sidebar.drag_select_hint')}">${t('sidebar.selected_count', { selected: state.selectedFiles.length, total: selectable.length })}</span>
+      <span class="selection-action danger" data-action="remove">${t('sidebar.remove_selected')}</span>
       <span class="selection-action" data-action="all">${allSelected ? t('sidebar.deselect_all') : t('sidebar.select_all')}</span>
     `;
+    const removeAction = headerDiv.querySelector('[data-action="remove"]');
+    if (state.selectedFiles.length === 0) {
+      removeAction.classList.add('disabled');
+    } else {
+      removeAction.onclick = () => { removeSelectedVideosFromProject(); };
+    }
     headerDiv.querySelector('[data-action="all"]').onclick = () => {
       if (allSelected) {
         state.selectedFiles = [];

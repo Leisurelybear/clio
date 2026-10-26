@@ -242,3 +242,95 @@ describe('videoLoadingStateHtml', () => {
     expect(html).toContain('已等待 3 秒');
   });
 });
+
+describe('removeSelectedVideosFromProject', () => {
+  it('removes every selected video in one request and clears the selection', async () => {
+    document.body.innerHTML = `
+      <button id=btn-select-videos></button>
+      <ul id=video-list></ul>
+    `;
+    const { api } = await import('../api.js');
+    const { state } = await import('../state.js');
+    state.videos = [
+      { file: '001_a.mp4', abs_path: 'D:/clips/001_a.mp4' },
+      { file: '002_b.mp4', abs_path: 'D:/clips/002_b.mp4' },
+      { file: '003_c.mp4', abs_path: 'D:/clips/003_c.mp4' },
+    ];
+    state.selectedFiles = ['001_a.mp4', '003_c.mp4'];
+    state.selectionMode = true;
+    state.currentEntity = 'run';
+    state.source = 'original';
+
+    const confirmSpy = vi.fn(() => true);
+    vi.stubGlobal('confirm', confirmSpy);
+    api.mockImplementation(async (method, url) => {
+      if (method === 'GET' && url === '/api/videos/selected') {
+        return { videos: ['D:/clips/001_a.mp4', 'D:/clips/002_b.mp4', 'D:/clips/003_c.mp4'] };
+      }
+      if (method === 'PUT' && url === '/api/videos/selected') return { ok: true };
+      if (method === 'GET' && String(url).startsWith('/api/videos?')) {
+        return { videos: [{ file: '002_b.mp4', abs_path: 'D:/clips/002_b.mp4' }], groups: {} };
+      }
+      return {};
+    });
+
+    const { removeSelectedVideosFromProject } = await import('../sidebar-data.js');
+    const result = await removeSelectedVideosFromProject();
+
+    expect(confirmSpy).toHaveBeenCalledWith('确定从项目中移除所选的 2 个视频吗？');
+    expect(result).toEqual({ removed: 2, failed: 0 });
+    expect(api).toHaveBeenCalledWith('PUT', '/api/videos/selected', {
+      videos: ['D:/clips/002_b.mp4'],
+    });
+    expect(state.selectedFiles).toEqual([]);
+    vi.unstubAllGlobals();
+  });
+
+  it('maps compressed rows back to the original allowlist entry', async () => {
+    document.body.innerHTML = `
+      <button id=btn-select-videos></button>
+      <ul id=video-list></ul>
+    `;
+    const { api } = await import('../api.js');
+    api.mockReset();
+    const { state } = await import('../state.js');
+    state.videos = [
+      {
+        file: '002_a_compressed.mp4',
+        abs_path: 'D:/compressed/002_a_compressed.mp4',
+        match: { file: '001_a.mp4', abs_path: 'D:/clips/001_a.mp4' },
+      },
+      {
+        file: '003_b_compressed.mp4',
+        abs_path: 'D:/compressed/003_b_compressed.mp4',
+        match: { file: '002_b.mp4', abs_path: 'D:/clips/002_b.mp4' },
+      },
+    ];
+    state.selectedFiles = ['002_a_compressed.mp4'];
+    state.selectionMode = true;
+    state.currentEntity = 'run';
+    state.source = 'compressed';
+
+    vi.stubGlobal('confirm', vi.fn(() => true));
+    api.mockImplementation(async (method, url) => {
+      if (method === 'GET' && url === '/api/videos/selected') {
+        return { videos: ['D:/clips/001_a.mp4', 'D:/clips/002_b.mp4'] };
+      }
+      if (method === 'PUT' && url === '/api/videos/selected') return { ok: true };
+      if (method === 'GET' && String(url).startsWith('/api/videos?')) {
+        return { videos: [state.videos[1]], groups: {} };
+      }
+      return {};
+    });
+
+    const { removeSelectedVideosFromProject } = await import('../sidebar-data.js');
+    const result = await removeSelectedVideosFromProject();
+
+    expect(result).toEqual({ removed: 1, failed: 0 });
+    expect(api).toHaveBeenCalledWith('PUT', '/api/videos/selected', {
+      videos: ['D:/clips/002_b.mp4'],
+    });
+    expect(state.selectedFiles).toEqual([]);
+    vi.unstubAllGlobals();
+  });
+});

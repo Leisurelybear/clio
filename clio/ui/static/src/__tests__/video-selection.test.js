@@ -3,6 +3,7 @@ import {
   findSelectedVideoIndex,
   mergeSelectedVideos,
   normPath,
+  removeSelectedVideos,
 } from '../video-selection.js';
 
 describe('normPath', () => {
@@ -84,5 +85,58 @@ describe('mergeSelectedVideos', () => {
     expect(r.added).toBe(0);
     expect(r.already).toBe(1);
     expect(r.merged).toEqual(['D:/clips/a.mp4']);
+  });
+});
+
+
+describe('removeSelectedVideos', () => {
+  const videos = [
+    'D:/clips/001_a.mp4',
+    'D:/clips/002_b.mp4',
+    'D:/clips/003_c.mp4',
+  ];
+
+  it('removes several targets by absolute path in one pass', () => {
+    const r = removeSelectedVideos(videos, [
+      { file: 'a.mp4', absPath: 'D:/clips/001_a.mp4' },
+      { file: 'c.mp4', absPath: 'D:/clips/003_c.mp4' },
+    ]);
+    expect(r.removed).toEqual(['D:/clips/001_a.mp4', 'D:/clips/003_c.mp4']);
+    expect(r.remaining).toEqual(['D:/clips/002_b.mp4']);
+    expect(r.missing).toEqual([]);
+    expect(r.ambiguous).toEqual([]);
+  });
+
+  it('falls back to a unique basename when no absolute path is given', () => {
+    const r = removeSelectedVideos(videos, [{ file: 'b.mp4' }]);
+    expect(r.removed).toEqual(['D:/clips/002_b.mp4']);
+    expect(r.remaining).toEqual(['D:/clips/001_a.mp4', 'D:/clips/003_c.mp4']);
+  });
+
+  it('reports missing entries without removing anything', () => {
+    const r = removeSelectedVideos(videos, [{ file: 'gone.mp4' }]);
+    expect(r.removed).toEqual([]);
+    expect(r.remaining).toEqual(videos);
+    expect(r.missing).toEqual(['gone.mp4']);
+  });
+
+  it('reports ambiguous basenames separately from missing', () => {
+    const dup = ['D:/a/same.mp4', 'D:/b/same.mp4'];
+    const r = removeSelectedVideos(dup, [{ file: 'same.mp4' }]);
+    expect(r.removed).toEqual([]);
+    expect(r.ambiguous).toHaveLength(1);
+    expect(r.ambiguous[0]).toMatch(/多个同名/);
+    expect(r.missing).toEqual([]);
+  });
+
+  it('dedupes repeated targets and ignores empty values', () => {
+    const r = removeSelectedVideos(videos, [
+      { file: 'a.mp4', absPath: 'D:/clips/001_a.mp4' },
+      { file: 'a.mp4', absPath: 'D:/clips/001_a.mp4' },
+      null,
+      {},
+    ]);
+    expect(r.removed).toEqual(['D:/clips/001_a.mp4']);
+    expect(r.missing).toEqual([]);
   });
 });

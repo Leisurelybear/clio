@@ -174,6 +174,7 @@ vlog-video-analysis/
     │           ├── runner.js                  # Run pane, step progress, rerun
     │           ├── viewer.js                  # Player, preview bar, subtitle settings
     │           ├── video-menu.js / video-selection.js / video-fade.js / video-url.js
+    │           ├── video-drag-select.js      # Sidebar rubber-band selection (rect math + pointer)
     │           ├── file-browser.js / select-btn.js / latest.js / empty-states.js
     │           ├── offline-media.js / preview-preload.js / session-restore.js
     │           ├── url-params.js / editor-save.js / desktop-pick.js

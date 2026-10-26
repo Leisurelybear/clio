@@ -258,6 +258,23 @@ Provider management is a frontend-only experience - no new backend APIs needed:
 - `server.log_retention_days` (default 14, 0 = forever) prunes direct-child
   `YYYY-MM-DD-HH.log` files; never delete unrelated or symlinked entries.
 
+### 4.15 Sidebar Video Bulk Selection
+
+- Selection mode (`#btn-select-videos`) owns `state.selectedFiles`; the per-row checkbox and the
+  rubber-band drag both write that same array, and any `renderVideoList()` rebuilds the checkboxes.
+- `video-selection.js` owns pure list mutations. `removeSelectedVideos()` removes many stored paths
+  in one pass: absolute-path equality first, a unique basename as fallback, with `missing` and
+  `ambiguous` reported separately.
+- `sidebar-data.js::removeSelectedVideosFromProject()` is the only bulk-remove entry point. It asks
+  for one confirmation, sends one `PUT /api/videos/selected`, reloads the list, and prunes
+  `state.selectedFiles` to videos that still exist. The header action is disabled at zero selected.
+- `video-drag-select.js` owns the rubber-band rect math and pointer binding. It is active only in
+  selection mode, starts outside interactive controls, keeps the previous selection with
+  Ctrl/Cmd, cancels on Escape, and auto-scrolls near the list edges. `main.js` wires
+  `enabled`/`selected`/`commit` so the module stays independent of sidebar state.
+- Keep `video-drag-select.test.js` and `video-selection.test.js` green when changing selection copy
+  or matching rules.
+
 ## 5. User Preferences
 
 - Language: Chinese for conversation, English for commits/docs/AGENTS.md

@@ -42,8 +42,10 @@ export function findSelectedVideoIndex(videos = [], { file, absPath } = {}) {
   for (let i = 0; i < list.length; i++) {
     const n = normPath(list[i]);
     const leaf = n.split('/').pop() || '';
+    const leafStripped = leaf.replace(/^\d+_/, '');
     if (
       leaf === baseName.toLowerCase()
+      || leafStripped === baseName.toLowerCase()
       || leaf === stripped.toLowerCase()
       || n.endsWith('/' + baseName.toLowerCase())
       || n.endsWith('/' + stripped.toLowerCase())
@@ -56,10 +58,11 @@ export function findSelectedVideoIndex(videos = [], { file, absPath } = {}) {
   if (basenameHits.length > 1) {
     return {
       index: -1,
+      reason: 'ambiguous',
       error: t('video_select.ambiguous', { name: stripped || baseName }),
     };
   }
-  return { index: -1, error: t('video_select.not_found') };
+  return { index: -1, reason: 'not_found', error: t('video_select.not_found') };
 }
 
 /**
@@ -91,4 +94,34 @@ export function mergeSelectedVideos(existing = [], candidates = []) {
     }
   }
   return { merged, added, already };
+}
+
+/**
+ * Remove several targets from a stored selection list in one pass.
+ * Each target is `{ file, absPath }`; matching reuses findSelectedVideoIndex,
+ * so absolute-path equality wins and a unique basename is the fallback.
+ * @returns {{ remaining: string[], removed: string[], missing: string[], ambiguous: string[] }}
+ */
+export function removeSelectedVideos(videos = [], targets = []) {
+  const remaining = (Array.isArray(videos) ? videos : []).slice();
+  const removed = [];
+  const missing = [];
+  const ambiguous = [];
+  const seen = new Set();
+  for (const target of Array.isArray(targets) ? targets : []) {
+    if (!target) continue;
+    const display = String(target.file ?? target.absPath ?? '');
+    const key = normPath(target.absPath || display);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const found = findSelectedVideoIndex(remaining, target);
+    if (found.index === -1) {
+      if (found.reason === 'ambiguous') ambiguous.push(found.error);
+      else missing.push(display);
+      continue;
+    }
+    removed.push(remaining[found.index]);
+    remaining.splice(found.index, 1);
+  }
+  return { remaining, removed, missing, ambiguous };
 }

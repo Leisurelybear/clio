@@ -998,6 +998,22 @@ button.match-badge:focus-visible { outline: 2px solid var(--border-focus); outli
   accent-color: var(--accent);
   width: 16px; height: 16px; cursor: pointer;
 }
+body.video-drag-active {
+  user-select: none;
+  cursor: crosshair;
+}
+.video-drag-box {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  border: 1px solid var(--accent);
+  background: var(--accent-bg);
+  border-radius: var(--radius-sm);
+}
+.video-item.drag-hit {
+  background: rgba(79, 195, 247, 0.08);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
 .selection-header {
   display: flex;
   align-items: center;
@@ -1018,6 +1034,17 @@ button.match-badge:focus-visible { outline: 2px solid var(--border-focus); outli
 }
 .selection-action:hover {
   background: var(--accent-bg);
+}
+.selection-action.danger {
+  color: var(--error);
+}
+.selection-action.danger:hover {
+  background: var(--error-bg);
+}
+.selection-action.disabled {
+  color: var(--text-tertiary);
+  cursor: default;
+  pointer-events: none;
 }
 .video-list-actions {
   display: flex;

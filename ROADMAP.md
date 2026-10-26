@@ -184,6 +184,22 @@ the local Web UI, while keeping absolute server-side paths and filesystem access
 
 Plan: `docs/superpowers/plans/2026-08-17-file-system-picker-plan.md`
 
+### R-018f Sidebar bulk removal and rubber-band selection (2026-10-27)
+
+**Status:** Complete; full Vitest suite verified locally.
+
+**Goal:** Remove several videos from a project without repeating the per-item menu, and
+make large selections fast with select-all or a mouse drag box.
+
+- [x] Add `removeSelectedVideos()` for one-pass multi-path removal (absolute path first,
+  unique basename fallback, ambiguous/missing reported separately)
+- [x] Add the selection-header `移除所选` action with a single confirm and one
+  `PUT /api/videos/selected` request
+- [x] Keep select-all/deselect-all and prune `state.selectedFiles` after reload
+- [x] Add rubber-band selection (`video-drag-select.js`): selection-mode only, Ctrl/Cmd adds,
+  Escape cancels, and the list auto-scrolls near the edges
+- [x] Cover pure rect/selection helpers plus the DOM drag path with Vitest
+
 ### R-045 Project switcher and editor navigation UI (2026-08-16)
 
 **Status:** Complete; focused frontend tests and full Vitest suite verified locally.
