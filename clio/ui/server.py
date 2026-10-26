@@ -83,6 +83,7 @@ from clio.ui.routes.env_routes import handle_get_env, handle_put_env
 from clio.ui.routes.export import handle_post_export
 from clio.ui.routes.fs import (
     handle_get_fs_entries,
+    handle_get_fs_network,
     handle_get_fs_videos,
     handle_post_fs_mkdir,
     handle_post_fs_reveal,
@@ -892,6 +893,7 @@ def make_handler(
             Route("GET", "/api/plan/preview-media", "handle_get_plan_preview_media"),
             Route("GET", "/api/processing-state", "handle_get_processing_state"),
             Route("GET", "/api/fs/entries", "handle_get_fs_entries"),
+            Route("GET", "/api/fs/network", "handle_get_fs_network"),
             Route("GET", "/api/fs/videos", "handle_get_fs_videos"),
             Route("POST", "/api/fs/mkdir", "handle_post_fs_mkdir"),
             Route("POST", "/api/fs/reveal", "handle_post_fs_reveal"),

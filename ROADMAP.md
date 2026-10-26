@@ -184,6 +184,19 @@ the local Web UI, while keeping absolute server-side paths and filesystem access
 
 Plan: `docs/superpowers/plans/2026-08-17-file-system-picker-plan.md`
 
+### R-046b Network locations and bulk selection in the file picker (2026-10-24)
+
+**Status:** Complete; focused Python and Vitest suites verified locally.
+
+**Goal:** Make NAS/SMB media reachable without hand-typing paths, and make multi-file
+selection practical in the in-app picker.
+
+- [x] Allow UNC share paths through the `/api/fs/*` allow-list on Windows
+- [x] Add `GET /api/fs/network` for server and share discovery with registry fallbacks
+- [x] Return to the drive list from drive and UNC roots
+- [x] Add select-all/deselect-all, network views, manual server entry, and double-click confirm
+- [x] Cover the new route, service, and picker behavior with backend/frontend tests
+
 ### R-018f Sidebar bulk removal and rubber-band selection (2026-10-27)
 
 **Status:** Complete; full Vitest suite verified locally.

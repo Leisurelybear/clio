@@ -131,6 +131,7 @@ vlog-video-analysis/
     │   ├── services/
     │   │   ├── config_cache.py    # Fingerprint-aware AppConfig cache + locale sync
     │   │   ├── file_service.py
+    │   │   ├── network_service.py # Windows SMB server/share discovery for the picker
     │   │   ├── project_service.py
     │   │   ├── run_preview.py     # Dry-run step preview shared with the run pane
     │   │   └── ai_test_service.py # Provider connectivity test

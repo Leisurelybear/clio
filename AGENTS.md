@@ -258,6 +258,20 @@ Provider management is a frontend-only experience - no new backend APIs needed:
 - `server.log_retention_days` (default 14, 0 = forever) prunes direct-child
   `YYYY-MM-DD-HH.log` files; never delete unrelated or symlinked entries.
 
+### 4.14 Network Locations in the File Picker
+
+- `clio/ui/services/network_service.py` is the only supported SMB server/share enumerator. It uses
+  `WNetOpenEnumW`/`WNetEnumResourceW` plus Explorer registry hints (`HKCU\Network`,
+  `MountPoints2`, `Map Network Drive MRU`) because Windows network discovery is frequently disabled.
+- `GET /api/fs/network` lists servers; `?server=\\server` lists that server's disk shares. Only
+  `\\server` is accepted as the `server` query value; administrative shares ending in `$` are filtered.
+- Never pass a server-only UNC to `Path`/`os.scandir` (pathlib normalizes it into a local-looking path).
+  Browse a share (`\\server\share`) or use the shares endpoint first.
+- The picker keeps a manual `\\server` entry because automatic discovery may return an empty list.
+  `_browse_parent()` returns `""` for Windows drive and UNC roots so the UI returns to the drive list.
+- `file-browser.js` owns the `fs` / `servers` / `shares` views, select-all/deselect-all, and the
+  multi-select double-click confirm. Keep backend and Vitest coverage when changing this contract.
+
 ### 4.15 Sidebar Video Bulk Selection
 
 - Selection mode (`#btn-select-videos`) owns `state.selectedFiles`; the per-row checkbox and the

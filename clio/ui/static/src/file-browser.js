@@ -2,6 +2,9 @@ import { api, icon } from './api.js';
 import { addToast } from './toast.js';
 import { onLocaleChange, t } from './i18n.js';
 
+const NETWORK_ROOT = 'network://';
+const NETWORK_MANUAL = 'network-manual://';
+
 let activePicker = null;
 let pickerRoot = null;
 
@@ -39,10 +42,12 @@ function ensurePicker() {
         <button type="button" class="fs-picker-icon-btn" data-fs-action="up" title="${t('file_browser.up')}" aria-label="${t('file_browser.up')}" data-i18n-title="file_browser.up" data-i18n-aria-label="file_browser.up">↑</button>
         <input id="fs-picker-path" type="text" aria-label="${t('file_browser.current_path')}" data-i18n-aria-label="file_browser.current_path">
         <button type="button" class="btn-secondary" data-fs-action="go" data-i18n="file_browser.go">${t('file_browser.go')}</button>
+        <button type="button" class="fs-picker-icon-btn" data-fs-action="network" title="${t('file_browser.network_location')}" aria-label="${t('file_browser.network_location')}" data-i18n-title="file_browser.network_location" data-i18n-aria-label="file_browser.network_location">${icon('network', 16)}</button>
         <button type="button" class="fs-picker-icon-btn" data-fs-action="refresh" title="${t('common.refresh')}" aria-label="${t('common.refresh')}" data-i18n-title="common.refresh" data-i18n-aria-label="common.refresh">↻</button>
       </div>
       <div class="fs-picker-filterbar">
         <input id="fs-picker-filter" type="search" placeholder="${t('file_browser.filter_placeholder')}" aria-label="${t('file_browser.filter_aria')}" data-i18n-placeholder="file_browser.filter_placeholder" data-i18n-aria-label="file_browser.filter_aria">
+        <button type="button" class="btn-secondary" data-fs-action="select-all" hidden>${t('file_browser.select_all')}</button>
       </div>
       <div id="fs-picker-status" class="fs-picker-status" aria-live="polite"></div>
       <div id="fs-picker-entries" class="fs-picker-entries" role="listbox" tabindex="0"></div>
@@ -59,21 +64,24 @@ function ensurePicker() {
     const action = event.target.closest('[data-fs-action]')?.dataset.fsAction;
     if (!action || !activePicker) return;
     if (action === 'cancel') finishPicker(null);
-    if (action === 'up' && activePicker.parent != null) loadPath(activePicker.parent, false);
-    if (action === 'go') loadPath(pathInput().value.trim(), false);
-    if (action === 'refresh') loadPath(activePicker.currentPath, false);
+    if (action === 'up') goUp();
+    if (action === 'go') navigateInput(pathInput().value.trim());
+    if (action === 'network') loadNetworkServers();
+    if (action === 'refresh') refreshCurrentView();
     if (action === 'confirm') confirmPicker();
     if (action === 'mkdir') createDirectory();
+    if (action === 'select-all') toggleSelectAll();
   });
   pathInput().addEventListener('keydown', (event) => {
     if (event.key !== 'Enter' || !activePicker) return;
     event.preventDefault();
-    loadPath(pathInput().value.trim(), false);
+    navigateInput(pathInput().value.trim());
   });
   filterInput().addEventListener('input', () => {
     if (!activePicker) return;
     activePicker.highlight = -1;
     renderEntries(activePicker.lastData || { dirs: [], files: [] });
+    updateFooter();
   });
   const handleListKeys = (event) => {
     if (!activePicker) return;
@@ -85,6 +93,12 @@ function ensurePicker() {
   };
   filterInput().addEventListener('keydown', handleListKeys);
   entriesList().addEventListener('keydown', handleListKeys);
+  entriesList().addEventListener('keydown', (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
+      event.preventDefault();
+      toggleSelectAll();
+    }
+  });
   entriesList().addEventListener('focusin', (event) => {
     if (!activePicker) return;
     const entry = event.target?.closest?.('.fs-picker-entry');
@@ -93,7 +107,7 @@ function ensurePicker() {
   });
   onLocaleChange(() => {
     if (!activePicker) return;
-    pickerRoot.querySelector('#fs-picker-title').textContent = pickerTitle(activePicker);
+    updatePickerTitle();
     updateFooter();
     renderEntries(activePicker.lastData || { dirs: [], files: [] });
   });
@@ -118,6 +132,98 @@ function filterQuery() {
 
 function visibleEntries() {
   return [...pickerRoot.querySelectorAll('.fs-picker-entry')];
+}
+
+function visibleFileEntries() {
+  if (!activePicker) return [];
+  const query = filterQuery();
+  return (activePicker.lastData?.files || []).filter((entry) => {
+    if (!query) return true;
+    return String(entry.name || entry.path || '').toLowerCase().includes(query);
+  });
+}
+
+function updatePickerTitle() {
+  if (!activePicker) return;
+  const title = activePicker.view === 'fs' ? pickerTitle(activePicker) : t('file_browser.network_title');
+  pickerRoot.querySelector('#fs-picker-title').textContent = title;
+}
+
+function updateUpButton() {
+  if (!activePicker) return;
+  const up = pickerRoot.querySelector('[data-fs-action="up"]');
+  up.disabled = activePicker.view === 'fs' ? activePicker.parent == null : false;
+}
+
+function parseNetworkInput(value) {
+  const normalized = String(value || '').trim().replace(/\//g, '\\');
+  if (!normalized.startsWith('\\\\')) return null;
+  const parts = normalized.slice(2).split('\\').filter(Boolean);
+  if (!parts.length) return null;
+  const server = `\\\\${parts[0]}`;
+  const rest = parts.slice(1).join('\\');
+  return { server, path: rest ? `${server}\\${rest}` : null };
+}
+
+function navigateInput(value) {
+  if (!activePicker) return;
+  if (!String(value || '').trim()) {
+    refreshCurrentView();
+    return;
+  }
+  const parsed = parseNetworkInput(value);
+  if (parsed && !parsed.path) {
+    void loadNetworkShares(parsed.server);
+    return;
+  }
+  if (activePicker.view !== 'fs') {
+    if (!parsed) {
+      addToast(t('file_browser.network_invalid'), 'warning');
+      return;
+    }
+    void loadPath(parsed.path, false);
+    return;
+  }
+  void loadPath(value, false);
+}
+
+function goUp() {
+  if (!activePicker) return;
+  if (activePicker.view === 'shares') {
+    void loadNetworkServers();
+    return;
+  }
+  if (activePicker.view === 'servers') {
+    void loadPath('', false);
+    return;
+  }
+  if (activePicker.parent != null) void loadPath(activePicker.parent, false);
+}
+
+function refreshCurrentView() {
+  if (!activePicker) return;
+  if (activePicker.view === 'servers') {
+    void loadNetworkServers();
+    return;
+  }
+  if (activePicker.view === 'shares') {
+    void loadNetworkShares(activePicker.networkServer);
+    return;
+  }
+  void loadPath(activePicker.currentPath, false);
+}
+
+function toggleSelectAll() {
+  if (!activePicker || !activePicker.multiple || activePicker.view !== 'fs') return;
+  const files = visibleFileEntries();
+  if (!files.length) return;
+  const allSelected = files.every((file) => activePicker.selected.has(file.path));
+  for (const file of files) {
+    if (allSelected) activePicker.selected.delete(file.path);
+    else activePicker.selected.add(file.path);
+  }
+  renderEntries(activePicker.lastData || { dirs: [], files: [] });
+  updateFooter();
 }
 
 function setHighlight(index) {
@@ -179,8 +285,19 @@ function updateFooter() {
   if (!activePicker) return;
   const confirm = pickerRoot.querySelector('[data-fs-action="confirm"]');
   const selection = pickerRoot.querySelector('#fs-picker-selection');
+  const selectAll = pickerRoot.querySelector('[data-fs-action="select-all"]');
+  const showSelectAll = activePicker.multiple && activePicker.view === 'fs';
+  if (selectAll) {
+    selectAll.hidden = !showSelectAll;
+    if (showSelectAll) {
+      const files = visibleFileEntries();
+      const allSelected = files.length > 0 && files.every((file) => activePicker.selected.has(file.path));
+      selectAll.textContent = allSelected ? t('file_browser.deselect_all') : t('file_browser.select_all');
+      selectAll.disabled = files.length === 0;
+    }
+  }
   if (activePicker.mode === 'folder') {
-    confirm.disabled = !activePicker.currentPath;
+    confirm.disabled = activePicker.view !== 'fs' || !activePicker.currentPath;
     confirm.textContent = t('file_browser.pick_current_dir');
     selection.textContent = activePicker.currentPath ? t('file_browser.current_dir') : '';
     return;
@@ -198,15 +315,16 @@ function entryButton(entry, type) {
   button.className = `fs-picker-entry fs-picker-${type}`;
   button.dataset.path = entry.path;
   button.setAttribute('role', 'option');
-  button.innerHTML = icon(type === 'dir' ? 'folder' : 'file', 18);
+  button.innerHTML = icon(entry.icon || (type === 'dir' ? 'folder' : 'file'), 18);
   const name = document.createElement('span');
   name.className = 'fs-picker-entry-name';
   name.textContent = entry.name || entry.path;
   button.appendChild(name);
-  if (type === 'file') {
+  const detail = type === 'file' ? formatFileSize(entry.size) : (entry.comment || '');
+  if (detail) {
     const size = document.createElement('span');
     size.className = 'fs-picker-entry-size';
-    size.textContent = formatFileSize(entry.size);
+    size.textContent = detail;
     button.appendChild(size);
   }
   return button;
@@ -222,15 +340,35 @@ function renderEntries(data) {
   const matches = (entry) => !query || String(entry.name || entry.path || '').toLowerCase().includes(query);
   const dirs = (data.dirs || []).filter(matches);
   const files = (data.files || []).filter(matches);
+  if (activePicker.view === 'fs' && data.is_drive_list) {
+    dirs.push({ name: t('file_browser.network_location'), path: NETWORK_ROOT, icon: 'network', isNetwork: true });
+  }
+  if (activePicker.view === 'servers') {
+    dirs.push({ name: t('file_browser.network_add_server'), path: NETWORK_MANUAL, icon: 'plus', isManual: true });
+  }
   let optionIndex = 0;
   const assignId = (button) => { button.id = `fs-picker-opt-${optionIndex++}`; };
   for (const dir of dirs) {
     const button = entryButton(dir, 'dir');
     assignId(button);
-    button.addEventListener('click', () => loadPath(dir.path, false));
+    button.addEventListener('click', () => {
+      if (dir.isNetwork) {
+        void loadNetworkServers();
+        return;
+      }
+      if (dir.isManual) {
+        promptNetworkServer();
+        return;
+      }
+      if (activePicker?.view === 'servers') {
+        void loadNetworkShares(dir.path);
+        return;
+      }
+      void loadPath(dir.path, false);
+    });
     list.appendChild(button);
   }
-  if (activePicker.mode !== 'folder') {
+  if (activePicker.mode !== 'folder' && activePicker.view === 'fs') {
     for (const file of files) {
       const button = entryButton(file, 'file');
       assignId(button);
@@ -252,11 +390,17 @@ function renderEntries(data) {
         updateFooter();
       });
       button.addEventListener('dblclick', () => {
-        if (!activePicker?.multiple) {
+        if (!activePicker) return;
+        if (activePicker.multiple) {
+          activePicker.selected.add(file.path);
+          button.classList.add('selected');
+          button.setAttribute('aria-selected', 'true');
+          updateFooter();
+        } else {
           activePicker.selected.clear();
           activePicker.selected.add(file.path);
-          confirmPicker();
         }
+        confirmPicker();
       });
       list.appendChild(button);
     }
@@ -264,9 +408,10 @@ function renderEntries(data) {
   if (!list.children.length) {
     const empty = document.createElement('p');
     empty.className = 'fs-picker-empty muted';
-    empty.textContent = query
-      ? t('file_browser.no_filter_match')
-      : (activePicker.mode === 'folder' ? t('file_browser.empty_dirs') : t('file_browser.empty_files'));
+    if (query) empty.textContent = t('file_browser.no_filter_match');
+    else if (activePicker.view === 'servers') empty.textContent = t('file_browser.network_empty');
+    else if (activePicker.view === 'shares') empty.textContent = t('file_browser.network_shares_empty');
+    else empty.textContent = activePicker.mode === 'folder' ? t('file_browser.empty_dirs') : t('file_browser.empty_files');
     list.appendChild(empty);
   }
   activePicker.highlight = -1;
@@ -276,6 +421,11 @@ async function loadPath(path, fallbackToRoot) {
   if (!activePicker) return;
   const picker = activePicker;
   const requestId = ++picker.requestId;
+  if (picker.view !== 'fs') {
+    picker.view = 'fs';
+    picker.networkServer = null;
+    updatePickerTitle();
+  }
   const status = pickerRoot.querySelector('#fs-picker-status');
   const entries = pickerRoot.querySelector('#fs-picker-entries');
   status.textContent = t('file_browser.reading');
@@ -288,7 +438,7 @@ async function loadPath(path, fallbackToRoot) {
     picker.currentPath = data.path || '';
     picker.parent = data.parent ?? null;
     pathInput().value = picker.currentPath;
-    pickerRoot.querySelector('[data-fs-action="up"]').disabled = picker.parent == null;
+    updateUpButton();
     pickerRoot.querySelector('[data-fs-action="mkdir"]').disabled = !picker.currentPath;
     if (picker.mode !== 'folder' && data.selected_path) {
       if (!picker.multiple) picker.selected.clear();
@@ -317,6 +467,96 @@ async function loadPath(path, fallbackToRoot) {
   } finally {
     if (activePicker === picker && requestId === picker.requestId) entries.removeAttribute('aria-busy');
   }
+}
+
+async function loadNetworkServers() {
+  if (!activePicker) return;
+  const picker = activePicker;
+  const requestId = ++picker.requestId;
+  picker.view = 'servers';
+  picker.networkServer = null;
+  picker.currentPath = '';
+  picker.parent = '';
+  const status = pickerRoot.querySelector('#fs-picker-status');
+  const entries = pickerRoot.querySelector('#fs-picker-entries');
+  status.textContent = t('file_browser.reading');
+  status.className = 'fs-picker-status muted';
+  entries.setAttribute('aria-busy', 'true');
+  pathInput().value = '';
+  updatePickerTitle();
+  updateUpButton();
+  pickerRoot.querySelector('[data-fs-action="mkdir"]').disabled = true;
+  try {
+    const data = await api('GET', '/api/fs/network');
+    if (activePicker !== picker || requestId !== picker.requestId) return;
+    const servers = Array.isArray(data.servers) ? data.servers : [];
+    status.textContent = servers.length
+      ? t('file_browser.network_servers', { count: servers.length })
+      : t('file_browser.network_empty');
+    status.className = 'fs-picker-status muted';
+    renderEntries({
+      dirs: servers.map((server) => ({ ...server, icon: 'network' })),
+      files: [],
+    });
+    updateFooter();
+  } catch (error) {
+    if (activePicker !== picker || requestId !== picker.requestId) return;
+    status.textContent = t('file_browser.open_failed', { detail: error.message || error });
+    status.className = 'fs-picker-status err';
+    addToast(status.textContent, 'error', 6000);
+  } finally {
+    if (activePicker === picker && requestId === picker.requestId) entries.removeAttribute('aria-busy');
+  }
+}
+
+async function loadNetworkShares(server) {
+  if (!activePicker) return;
+  const picker = activePicker;
+  const requestId = ++picker.requestId;
+  picker.view = 'shares';
+  picker.networkServer = server;
+  picker.currentPath = server;
+  picker.parent = '';
+  const status = pickerRoot.querySelector('#fs-picker-status');
+  const entries = pickerRoot.querySelector('#fs-picker-entries');
+  status.textContent = t('file_browser.reading');
+  status.className = 'fs-picker-status muted';
+  entries.setAttribute('aria-busy', 'true');
+  pathInput().value = server;
+  updatePickerTitle();
+  updateUpButton();
+  pickerRoot.querySelector('[data-fs-action="mkdir"]').disabled = true;
+  try {
+    const data = await api('GET', `/api/fs/network?server=${encodeURIComponent(server)}`);
+    if (activePicker !== picker || requestId !== picker.requestId) return;
+    const shares = Array.isArray(data.shares) ? data.shares : [];
+    status.textContent = shares.length
+      ? t('file_browser.network_shares', { count: shares.length })
+      : t('file_browser.network_shares_empty');
+    status.className = 'fs-picker-status muted';
+    renderEntries({ dirs: shares, files: [] });
+    updateFooter();
+  } catch (error) {
+    if (activePicker !== picker || requestId !== picker.requestId) return;
+    status.textContent = t('file_browser.open_failed', { detail: error.message || error });
+    status.className = 'fs-picker-status err';
+    addToast(status.textContent, 'error', 6000);
+  } finally {
+    if (activePicker === picker && requestId === picker.requestId) entries.removeAttribute('aria-busy');
+  }
+}
+
+function promptNetworkServer() {
+  if (!activePicker) return;
+  const value = window.prompt(t('file_browser.network_prompt'), activePicker.networkServer || '\\\\');
+  if (value == null) return;
+  const parsed = parseNetworkInput(value);
+  if (!parsed) {
+    addToast(t('file_browser.network_invalid'), 'warning');
+    return;
+  }
+  if (parsed.path) void loadPath(parsed.path, false);
+  else void loadNetworkShares(parsed.server);
 }
 
 async function createDirectory() {
@@ -363,13 +603,15 @@ export function openServerPicker({
       selected: new Set(),
       currentPath: '',
       parent: null,
+      view: 'fs',
+      networkServer: null,
       requestId: 0,
       keyHandler,
     };
     activePicker.lastData = { dirs: [], files: [] };
     activePicker.highlight = -1;
     filterInput().value = '';
-    pickerRoot.querySelector('#fs-picker-title').textContent = pickerTitle({ mode, multiple, kind });
+    updatePickerTitle();
     pickerRoot.style.display = 'flex';
     document.addEventListener('keydown', keyHandler);
     updateFooter();

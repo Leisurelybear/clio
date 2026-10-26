@@ -4,9 +4,11 @@ from pathlib import Path, PureWindowsPath
 from unittest.mock import MagicMock
 
 from clio.ui.routes.fs import (
+    _browse_parent,
     _is_allowed_path,
     build_reveal_command,
     handle_get_fs_entries,
+    handle_get_fs_network,
     handle_get_fs_videos,
     handle_post_fs_mkdir,
     handle_post_fs_reveal,
@@ -34,9 +36,57 @@ class TestIsAllowedPath:
         p = Path("/")
         assert _is_allowed_path(p) is False
 
-    def test_unc_path_win32_returns_false(self, monkeypatch):
+    def test_unc_share_win32_returns_true(self, monkeypatch):
         monkeypatch.setattr("sys.platform", "win32")
-        assert _is_allowed_path(PureWindowsPath(r"\\server\share\trip")) is False
+        assert _is_allowed_path(PureWindowsPath(r"\\server\share\trip")) is True
+
+
+class TestBrowseParent:
+    def test_drive_root_returns_empty_on_win32(self, monkeypatch):
+        monkeypatch.setattr("sys.platform", "win32")
+        assert _browse_parent(PureWindowsPath("C:\\")) == ""
+
+    def test_unc_share_root_returns_empty_on_win32(self, monkeypatch):
+        monkeypatch.setattr("sys.platform", "win32")
+        assert _browse_parent(PureWindowsPath(r"\\nas\video")) == ""
+
+    def test_subdirectory_returns_parent(self, tmp_path):
+        child = tmp_path / "sub"
+        assert _browse_parent(child) == str(tmp_path.resolve())
+
+    def test_posix_root_returns_none(self, monkeypatch):
+        from pathlib import PurePosixPath
+
+        monkeypatch.setattr("sys.platform", "linux")
+        assert _browse_parent(PurePosixPath("/")) is None
+
+
+class TestHandleGetFsNetwork:
+    def test_lists_servers(self, monkeypatch):
+        servers = [{"name": r"\\nas", "path": r"\\nas"}]
+        monkeypatch.setattr("clio.ui.routes.fs.list_network_servers", lambda: servers)
+        handler = MagicMock()
+
+        handle_get_fs_network(handler, {})
+
+        handler._send_json.assert_called_once_with({"servers": servers})
+
+    def test_invalid_server_returns_400(self):
+        handler = MagicMock()
+
+        handle_get_fs_network(handler, {"server": ["nas"]})
+
+        handler._send_json.assert_called_once_with({"error": "invalid network server"}, 400)
+
+    def test_lists_shares_for_valid_server(self, monkeypatch):
+        shares = [{"name": "video", "path": r"\\nas\video", "comment": ""}]
+        monkeypatch.setattr("clio.ui.routes.fs.normalize_network_server", lambda value: r"\\nas")
+        monkeypatch.setattr("clio.ui.routes.fs.list_network_shares", lambda server: shares)
+        handler = MagicMock()
+
+        handle_get_fs_network(handler, {"server": [r"\\nas"]})
+
+        handler._send_json.assert_called_once_with({"server": r"\\nas", "shares": shares})
 
 
 class TestHandleGetFsVideos:

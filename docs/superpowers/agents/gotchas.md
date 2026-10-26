@@ -110,9 +110,17 @@ See `clio/compress.py`.
 ### 9.18 Filesystem Browse Security (`/api/fs/*`)
 
 - `GET /api/fs/dirs` was removed as a dead route; the picker uses `GET /api/fs/entries`
-  (plus `/api/fs/videos`, `/api/fs/mkdir`, `/api/fs/reveal`). The path allow-list (`_is_allowed_path`)
-  and token auth are implemented — preserve that contract when adding browse-like routes. Native
-  desktop dialogs (`clio/desktop/api.py`) intentionally bypass the allow-list.
+  (plus `/api/fs/network`, `/api/fs/videos`, `/api/fs/mkdir`, `/api/fs/reveal`). The path allow-list
+  (`_is_allowed_path`) and token auth are implemented — preserve that contract when adding browse-like
+  routes. On Windows the allow-list covers drive letters **and** UNC shares (`\\nas\video`) so NAS/USB
+  media stays selectable; non-Windows still restricts to the user home. Native desktop dialogs
+  (`clio/desktop/api.py`) intentionally bypass the allow-list.
+- `clio/ui/services/network_service.py` is the only supported network-location enumerator. It combines
+  `WNet*` results with Explorer registry hints because network discovery is often disabled; the global
+  server list can legitimately be empty, so the picker always keeps a manual `\\server` entry.
+- Only `\\server` (server root) and `\\server\share\...` are supported. `pathlib` normalizes a bare
+  `\\server` into a local-looking path, so never pass a server-only UNC to `Path`/`os.scandir`; use
+  `list_network_shares()` instead. Administrative shares ending in `$` are filtered out.
 - When serving with `--host 0.0.0.0`, sensitive routes must require token auth.
 - Keep route coverage in `clio/tests/test_fs.py` and `clio/tests/test_server.py` when changing filesystem browsing.
 

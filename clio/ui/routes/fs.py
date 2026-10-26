@@ -13,15 +13,21 @@ if TYPE_CHECKING:
 
 from clio._constants import VIDEO_EXTENSIONS
 from clio.ui.services.file_service import _list_drives
+from clio.ui.services.network_service import (
+    list_network_servers,
+    list_network_shares,
+    normalize_network_server,
+)
 
 # ── security: restrict file-system browsing to known-safe roots ──
 
 
 def _is_allowed_path(resolved: Path) -> bool:
-    """Allow browsing under home, or anywhere on a Windows drive letter.
+    """Allow browsing under home, or anywhere a Windows drive/UNC path points.
 
-    Local desktop tool: users need to pick originals on D:/E: etc. Restricting
-    to drive roots only made the video manager unusable for external media.
+    Local desktop tool: users need to pick originals on D:/E:, USB drives, and
+    UNC shares such as ``\\\\nas\\video``. Restricting the list to local drive
+    roots made the video manager unusable for external media.
     """
     try:
         if resolved.is_relative_to(Path.home()):
@@ -29,10 +35,20 @@ def _is_allowed_path(resolved: Path) -> bool:
     except (ValueError, OSError):
         pass
     if sys.platform == "win32":
-        # Any path with a drive letter (C:\..., D:\GoPro\..., UNC excluded)
-        if resolved.drive and not resolved.drive.startswith("\\\\"):
+        # Drive letters (C:\..., D:\GoPro\...) and UNC shares (\\nas\video)
+        if resolved.drive:
             return True
     return False
+
+
+def _browse_parent(resolved: Path) -> str | None:
+    """Return the parent path, or the drive list marker for a Windows root."""
+    parent = resolved.parent
+    if parent != resolved:
+        return str(parent)
+    if sys.platform == "win32" and resolved.drive:
+        return ""
+    return None
 
 
 def _browse_base_dir(handler: HandlerProtocol, qs: dict[str, Any], scope: str) -> Path:
@@ -124,9 +140,9 @@ def handle_get_fs_entries(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
 
         dirs.sort(key=lambda item: item["name"].lower())
         files.sort(key=lambda item: item["name"].lower())
-        parent_path: str | None = None
-        if resolved.parent != resolved and _is_allowed_path(resolved.parent):
-            parent_path = str(resolved.parent)
+        parent_path = _browse_parent(resolved)
+        if parent_path and not _is_allowed_path(Path(parent_path)):
+            parent_path = None
         return handler._send_json(
             {
                 "path": str(resolved),
@@ -221,6 +237,17 @@ def handle_post_fs_reveal(handler: HandlerProtocol, obj: dict) -> None:
     except OSError as e:
         return handler._send_json({"ok": False, "error": str(e)}, 500)
     return handler._send_json({"ok": True, "path": str(opened)})
+
+
+def handle_get_fs_network(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
+    """Handle GET /api/fs/network — list network servers or one server's shares."""
+    raw_server = (qs.get("server", [""])[0] or "").strip()
+    if not raw_server:
+        return handler._send_json({"servers": list_network_servers()})
+    server = normalize_network_server(raw_server)
+    if server is None:
+        return handler._send_json({"error": "invalid network server"}, 400)
+    return handler._send_json({"server": server, "shares": list_network_shares(server)})
 
 
 def handle_get_fs_videos(handler: HandlerProtocol, qs: dict[str, Any]) -> None:

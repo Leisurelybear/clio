@@ -566,6 +566,12 @@ class TestDoGET:
         handler.do_GET()
         mock_fn.assert_called_once()
 
+    @patch("clio.ui.server.handle_get_fs_network")
+    def test_api_fs_network(self, mock_fn, handler_cls):
+        handler = _build_handler(handler_cls, path="/api/fs/network")
+        handler.do_GET()
+        mock_fn.assert_called_once_with(handler, {})
+
     @patch("clio.ui.server.handle_get_transcripts")
     def test_api_transcripts(self, mock_fn, handler_cls):
         handler = _build_handler(handler_cls, path="/api/transcripts")

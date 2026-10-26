@@ -56,6 +56,7 @@ function icon(name, size = 18) {
   const icons = {
     play: '<polygon points="5 3 19 12 5 21 5 3"/>',
     folder: '<path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>',
+    network: '<rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 011-1h12a1 1 0 011 1v3"/><path d="M12 12V8"/>',
     file: '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>',
     check: '<polyline points="20 6 9 17 4 12"/>',
     circle: '<circle cx="12" cy="12" r="10"/>',

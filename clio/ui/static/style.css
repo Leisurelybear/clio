@@ -2245,7 +2245,12 @@ button[id$="-cancel"]:hover { background: var(--red-bg); color: var(--red); }
 .fs-picker-icon-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
 .fs-picker-icon-btn:disabled { opacity: .4; cursor: not-allowed; }
 .fs-picker-pathbar input { min-width: 0; flex: 1; }
-.fs-picker-filterbar input { width: 100%; box-sizing: border-box; }
+.fs-picker-filterbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.fs-picker-filterbar input { min-width: 0; flex: 1; box-sizing: border-box; }
 .fs-picker-status { min-height: 18px; font-size: var(--text-sm); }
 .fs-picker-status.warn { color: var(--warning); }
 .fs-picker-status.err { color: var(--red); }
