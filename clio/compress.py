@@ -93,7 +93,11 @@ def compress_video(
     fd, tmp_name = tempfile.mkstemp(prefix=f".{output_path.name}.", suffix=".part", dir=str(output_path.parent))
     os.close(fd)
     tmp = Path(tmp_name)
-    args.extend(["-y", str(tmp)])
+    # The temp file ends in ".part", so ffmpeg cannot infer the container from
+    # the extension; name the muxer explicitly (compress targets the
+    # faststart-capable mp4/mov family, see -movflags above).
+    muxer = "mov" if output_path.suffix.lower() == ".mov" else "mp4"
+    args.extend(["-f", muxer, "-y", str(tmp)])
     orig_size = input_path.stat().st_size
     cmd_preview = f"ffmpeg {' '.join(args)}"
     print(f"  ffmpeg: {cmd_preview}")

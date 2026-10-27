@@ -100,6 +100,28 @@ class TestCompressVideo:
         crf_idx = args.index("-crf")
         assert args[crf_idx + 1] == "23"
 
+    def test_temp_output_names_muxer_explicitly(self, monkeypatch, tmp_path: Path):
+        """The ".part" temp suffix hides the container from ffmpeg's muxer guess."""
+        _, _, calls = self._run_compress(monkeypatch, tmp_path)
+        args = calls[0]
+        assert "-f" in args
+        assert args[args.index("-f") + 1] == "mp4"
+        # The format flag must be an output option, i.e. before the output path.
+        assert args.index("-f") < len(args) - 1
+        assert args[-1].endswith(".part")
+
+    def test_mov_output_uses_mov_muxer(self, monkeypatch, tmp_path: Path):
+        src = tmp_path / "input.mp4"
+        src.write_bytes(b"\x00" * 100_000)
+        out = tmp_path / "out.mov"
+        monkeypatch.setattr("clio.compress.resolve_binary", lambda *a: "ffmpeg")
+        monkeypatch.setattr("clio.compress.get_duration_sec", lambda *a: 60.0)
+        ffmpeg_calls = []
+        monkeypatch.setattr("clio.compress.run_ffmpeg", _mock_ffmpeg(ffmpeg_calls))
+        compress_video(src, out, _default_config())
+        args = ffmpeg_calls[0]
+        assert args[args.index("-f") + 1] == "mov"
+
     def test_bitrate_floor(self, monkeypatch, tmp_path: Path):
         src = tmp_path / "input.mp4"
         src.write_bytes(b"\x00" * 100_000)
