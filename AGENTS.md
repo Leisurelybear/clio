@@ -282,6 +282,10 @@ Provider management is a frontend-only experience - no new backend APIs needed:
 - `sidebar-data.js::removeSelectedVideosFromProject()` is the only bulk-remove entry point. It asks
   for one confirmation, sends one `PUT /api/videos/selected`, reloads the list, and prunes
   `state.selectedFiles` to videos that still exist. The header action is disabled at zero selected.
+- `sidebar-video-filter.js::filterVideos()` is the single source of the visible row set. The
+  selection header's select-all/deselect-all must operate on that filtered set only (never on
+  `state.videos` directly), via `video-selection.js::toggleSelectionFor()`; selections made under a
+  different filter are preserved, and offline rows are never selectable.
 - `video-drag-select.js` owns the rubber-band rect math and pointer binding. It is active only in
   selection mode, starts outside interactive controls, keeps the previous selection with
   Ctrl/Cmd, cancels on Escape, and auto-scrolls near the list edges. `main.js` wires

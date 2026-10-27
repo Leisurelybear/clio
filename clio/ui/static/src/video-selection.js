@@ -125,3 +125,27 @@ export function removeSelectedVideos(videos = [], targets = []) {
   }
   return { remaining, removed, missing, ambiguous };
 }
+
+/**
+ * Toggle a filtered subset in a selection list.
+ *
+ * When every `selectableFiles` entry is already selected, remove only those
+ * entries and keep selections made outside the current filter. Otherwise add
+ * the whole subset. The result is always deduplicated.
+ *
+ * @param {string[]} selectedFiles
+ * @param {string[]} selectableFiles
+ * @returns {string[]}
+ */
+export function toggleSelectionFor(selectedFiles = [], selectableFiles = []) {
+  const list = (Array.isArray(selectedFiles) ? selectedFiles : []).slice();
+  const target = (Array.isArray(selectableFiles) ? selectableFiles : []).filter(Boolean);
+  if (!target.length) return list;
+  const selected = new Set(list);
+  if (target.every((file) => selected.has(file))) {
+    const drop = new Set(target);
+    return list.filter((file) => !drop.has(file));
+  }
+  const added = target.filter((file) => !selected.has(file));
+  return [...list, ...added];
+}

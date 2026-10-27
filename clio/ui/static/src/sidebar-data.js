@@ -15,12 +15,11 @@ import {
   chipDefsForSource,
   countChipStats,
   countStageSummary,
-  matchVideoSearch,
-  videoMissingStage,
-  videoStageDone,
+  filterVideos,
   stageLabel,
   STAGE_CELLS,
 } from './sidebar-video-filter.js';
+import { toggleSelectionFor } from './video-selection.js';
 import { selectVideosButtonHtml } from './select-btn.js';
 import { t, onLocaleChange } from './i18n.js';
 
@@ -603,32 +602,6 @@ export function renderVideoList() {
   hideVideoListLoading();
   ul.innerHTML = '';
   renderOfflineSummary();
-  if (state.selectionMode) {
-    const headerDiv = document.createElement('div');
-    headerDiv.className = 'selection-header';
-    const selectable = state.videos.filter(v => !v.missing);
-    const allSelected = selectable.length > 0 && selectable.every(v => state.selectedFiles.includes(v.file));
-    headerDiv.innerHTML = `
-      <span class="selection-count" title="${t('sidebar.drag_select_hint')}">${t('sidebar.selected_count', { selected: state.selectedFiles.length, total: selectable.length })}</span>
-      <span class="selection-action danger" data-action="remove">${t('sidebar.remove_selected')}</span>
-      <span class="selection-action" data-action="all">${allSelected ? t('sidebar.deselect_all') : t('sidebar.select_all')}</span>
-    `;
-    const removeAction = headerDiv.querySelector('[data-action="remove"]');
-    if (state.selectedFiles.length === 0) {
-      removeAction.classList.add('disabled');
-    } else {
-      removeAction.onclick = () => { removeSelectedVideosFromProject(); };
-    }
-    headerDiv.querySelector('[data-action="all"]').onclick = () => {
-      if (allSelected) {
-        state.selectedFiles = [];
-      } else {
-        state.selectedFiles = selectable.map(v => v.file);
-      }
-      renderVideoList();
-    };
-    ul.appendChild(headerDiv);
-  }
   if (!state.videos.length) {
     const isCompressedEmpty = state.source === 'compressed';
     if (isCompressedEmpty) {
@@ -682,22 +655,37 @@ export function renderVideoList() {
     return;
   }
 
-  const q = state.videoFilter?.q || '';
-  const stage = state.videoFilter?.stage || '';
-  const mode = state.videoFilter?.mode || 'missing';
-  const visible = state.videos.filter((v) =>
-    matchVideoSearch(v, q) && (!stage || (
-      mode === 'done'
-        ? videoStageDone(v, state.source, stage)
-        : videoMissingStage(v, state.source, stage)
-    ))
-  );
+  const visible = filterVideos(state.videos, state.videoFilter, state.source);
 
   const countEl = $('video-count');
   if (countEl) countEl.textContent = `(${visible.length}/${state.videos.length})`;
 
   renderFilterChips();
   renderStageCountBar();
+
+  if (state.selectionMode) {
+    const selectable = visible.filter(v => !v.missing);
+    const allSelected = selectable.length > 0 && selectable.every(v => state.selectedFiles.includes(v.file));
+    const totalSelectable = state.videos.filter(v => !v.missing).length;
+    const headerDiv = document.createElement('div');
+    headerDiv.className = 'selection-header';
+    headerDiv.innerHTML = `
+      <span class="selection-count" title="${t('sidebar.drag_select_hint')}">${t('sidebar.selected_count', { selected: state.selectedFiles.length, total: totalSelectable })}</span>
+      <span class="selection-action danger" data-action="remove">${t('sidebar.remove_selected')}</span>
+      <span class="selection-action" data-action="all">${allSelected ? t('sidebar.deselect_all') : t('sidebar.select_all')}</span>
+    `;
+    const removeAction = headerDiv.querySelector('[data-action="remove"]');
+    if (state.selectedFiles.length === 0) {
+      removeAction.classList.add('disabled');
+    } else {
+      removeAction.onclick = () => { removeSelectedVideosFromProject(); };
+    }
+    headerDiv.querySelector('[data-action="all"]').onclick = () => {
+      state.selectedFiles = toggleSelectionFor(state.selectedFiles, selectable.map(v => v.file));
+      renderVideoList();
+    };
+    ul.appendChild(headerDiv);
+  }
 
   if (visible.length === 0 && state.videos.length > 0) {
     const li = document.createElement('li');

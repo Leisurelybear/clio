@@ -102,3 +102,17 @@ export function matchVideoSearch(video, q) {
   ].join(' ').toLowerCase();
   return hay.includes(needle);
 }
+
+/** Apply the active search + stage chips to a video list (view order kept). */
+export function filterVideos(videos, filter = {}, source) {
+  const q = filter?.q || '';
+  const stage = filter?.stage || '';
+  const mode = filter?.mode || 'missing';
+  return (Array.isArray(videos) ? videos : []).filter((v) =>
+    matchVideoSearch(v, q) && (!stage || (
+      mode === 'done'
+        ? videoStageDone(v, source, stage)
+        : videoMissingStage(v, source, stage)
+    ))
+  );
+}

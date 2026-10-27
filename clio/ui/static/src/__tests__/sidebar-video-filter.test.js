@@ -7,9 +7,9 @@ import {
   chipDefsForSource,
   countChipStats,
   countStageSummary,
+  filterVideos,
   matchVideoSearch,
 } from '../sidebar-video-filter.js';
-
 const onlineCompressed = {
   file: 'GX010195.mp4',
   index: '1',
@@ -100,5 +100,32 @@ describe('matchVideoSearch', () => {
   });
   it('treats empty query as match-all', () => {
     expect(matchVideoSearch(v, '')).toBe(true);
+  });
+});
+
+describe('filterVideos', () => {
+  const videos = [
+    { file: '001_alpha.mp4', index: '001', title: 'Alpha', text_json: 'a.json' },
+    { file: '002_beta.mp4', index: '002', title: 'Beta' },
+    { file: '003_alphabet.mp4', index: '003', title: 'Alphabet', missing: true },
+  ];
+
+  it('keeps only name/index/title matches', () => {
+    const out = filterVideos(videos, { q: 'alpha' }, 'original');
+    expect(out.map((v) => v.file)).toEqual(['001_alpha.mp4', '003_alphabet.mp4']);
+  });
+
+  it('combines the search with a missing-stage chip', () => {
+    const out = filterVideos(videos, { q: 'a', stage: 'analyze', mode: 'missing' }, 'compressed');
+    expect(out.map((v) => v.file)).toEqual(['002_beta.mp4', '003_alphabet.mp4']);
+  });
+
+  it('combines the search with a done-stage chip', () => {
+    const out = filterVideos(videos, { q: '', stage: 'analyze', mode: 'done' }, 'compressed');
+    expect(out.map((v) => v.file)).toEqual(['001_alpha.mp4']);
+  });
+
+  it('returns the whole list for an empty filter', () => {
+    expect(filterVideos(videos, {}, 'original')).toEqual(videos);
   });
 });

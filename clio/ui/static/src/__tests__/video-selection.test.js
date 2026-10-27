@@ -4,6 +4,7 @@ import {
   mergeSelectedVideos,
   normPath,
   removeSelectedVideos,
+  toggleSelectionFor,
 } from '../video-selection.js';
 
 describe('normPath', () => {
@@ -138,5 +139,37 @@ describe('removeSelectedVideos', () => {
     ]);
     expect(r.removed).toEqual(['D:/clips/001_a.mp4']);
     expect(r.missing).toEqual([]);
+  });
+});
+
+describe('toggleSelectionFor', () => {
+  it('selects only the provided subset and keeps earlier selections', () => {
+    expect(toggleSelectionFor(['001_a.mp4', '002_b.mp4'], ['003_c.mp4', '004_d.mp4'])).toEqual([
+      '001_a.mp4',
+      '002_b.mp4',
+      '003_c.mp4',
+      '004_d.mp4',
+    ]);
+  });
+
+  it('deselects only the provided subset when all of it is selected', () => {
+    expect(
+      toggleSelectionFor(['001_a.mp4', '002_b.mp4', '003_c.mp4'], ['002_b.mp4', '003_c.mp4'])
+    ).toEqual(['001_a.mp4']);
+  });
+
+  it('adds the missing subset entries when only some are selected', () => {
+    expect(toggleSelectionFor(['002_b.mp4'], ['002_b.mp4', '003_c.mp4'])).toEqual([
+      '002_b.mp4',
+      '003_c.mp4',
+    ]);
+  });
+
+  it('is a no-op for an empty subset and never duplicates entries', () => {
+    expect(toggleSelectionFor(['001_a.mp4'], [])).toEqual(['001_a.mp4']);
+    expect(toggleSelectionFor(['001_a.mp4'], ['001_a.mp4', '002_b.mp4'])).toEqual([
+      '001_a.mp4',
+      '002_b.mp4',
+    ]);
   });
 });
