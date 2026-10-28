@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 import pytest
+import yaml
 
 from clio.config import (
     WhisperConfig,
@@ -481,6 +482,66 @@ class TestLoadConfig:
         missing = blocker / "config.yaml"
         with pytest.raises(FileNotFoundError):
             load_config(missing)
+
+    def test_quoted_scalars_are_coerced_on_load(self, tmp_config):
+        raw = yaml.safe_load((tmp_config / "project.yaml").read_text(encoding="utf-8"))
+        raw["compress"] = {"target_size_mb": "7", "max_width": "1280"}
+        raw["analyze"] = {"max_workers": "2", "skip_existing": "false", "use_gpmf": "true"}
+        raw["script"] = {"target_words": "100"}
+        raw["plan"] = {"max_clips_per_day": "6", "use_transcripts": "false"}
+        raw["whisper"] = {"enabled": "false", "max_segments_per_clip": "3"}
+        raw["preview"] = {"subtitles": {"max_lines": "3", "pos_x": "25"}}
+        (tmp_config / "project.yaml").write_text(yaml.safe_dump(raw), encoding="utf-8")
+
+        cfg = load_config(tmp_config / "config.yaml", project_dir=tmp_config)
+
+        assert cfg.project_cfg is not None
+        assert cfg.compress.target_size_mb == 7.0
+        assert cfg.compress.max_width == 1280
+        assert cfg.analyze.max_workers == 2
+        assert cfg.analyze.skip_existing is False
+        assert cfg.analyze.use_gpmf is True
+        assert cfg.script.target_words == 100
+        assert cfg.plan.max_clips_per_day == 6
+        assert cfg.plan.use_transcripts is False
+        assert cfg.whisper.enabled is False
+        assert cfg.whisper.max_segments_per_clip == 3
+        assert cfg.preview.subtitles.max_lines == 3
+        assert cfg.preview.subtitles.pos_x == 25
+
+    def test_quoted_global_scalars_are_coerced_on_load(self, tmp_config):
+        raw = yaml.safe_load((tmp_config / "config.yaml").read_text(encoding="utf-8"))
+        raw["naming"] = {"index_width": "4"}
+        raw["compress"] = {"fps": "20", "crf": "30", "remove_audio": "false"}
+        raw["ui"] = {"language": "en", "desktop_notifications": "true"}
+        raw["server"] = {"access_log_body_bytes": "1024"}
+        raw["ai"]["provider_ttl_min"] = "30"
+        raw["ai"]["debug_print_prompt"] = "yes"
+        raw["ai"]["providers"]["gemini"].update({"timeout_sec": "90", "retry_attempts": "3"})
+        (tmp_config / "config.yaml").write_text(yaml.safe_dump(raw), encoding="utf-8")
+
+        cfg = load_config(tmp_config / "config.yaml", project_dir=tmp_config)
+
+        assert cfg.naming.index_width == 4
+        assert cfg.compress.fps == 20
+        assert cfg.compress.crf == 30
+        assert cfg.compress.remove_audio is False
+        assert cfg.ui.language == "en"
+        assert cfg.ui.desktop_notifications is True
+        assert cfg.server.access_log_body_bytes == 1024
+        assert cfg.ai.provider_ttl_min == 30
+        assert cfg.ai.debug_print_prompt is True
+        gemini = cfg.ai.providers["gemini"]
+        assert gemini.timeout_sec == 90.0
+        assert gemini.retry_attempts == 3
+
+    def test_uncastable_scalar_still_reports_readable_error(self, tmp_config):
+        raw = yaml.safe_load((tmp_config / "project.yaml").read_text(encoding="utf-8"))
+        raw["compress"] = {"max_width": "wide"}
+        (tmp_config / "project.yaml").write_text(yaml.safe_dump(raw), encoding="utf-8")
+
+        with pytest.raises(ValueError, match=r"compress\.max_width must be a number"):
+            load_config(tmp_config / "config.yaml", project_dir=tmp_config)
 
     def test_provider_ttl_min_from_config(self, tmp_path):
         cfg_path = tmp_path / "config.yaml"

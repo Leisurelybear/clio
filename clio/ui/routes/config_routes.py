@@ -18,12 +18,14 @@ from clio.config import CONFIG_DESCRIPTIONS, deep_merge, load_config, load_globa
 from clio.config.models import (
     AnalyzeConfig,
     ExportConfig,
+    GlobalConfig,
     PlanConfig,
     PreviewConfig,
     ProjectAIConfig,
     ProjectCompressConfig,
     ProjectPathsConfig,
     ProjectWhisperConfig,
+    ProviderConfig,
     ScriptConfig,
 )
 from clio.config.parsers import _infer_provider_capabilities
@@ -156,7 +158,8 @@ def handle_put_config_raw(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
             ref_raw = yaml.safe_load(f) or {}
     except Exception as e:
         return handler._send_json({"ok": False, "error": f"cannot read current config: {e}"}, 500)
-    coerced = _coerce_config_types(obj, ref_raw)
+    coerced = _coerce_config_types(obj, _global_type_reference(ref_raw))
+    _coerce_provider_entries(coerced)
     _strip_provider_api_keys(coerced)
     try:
         yml = yaml.dump(coerced, allow_unicode=True, default_flow_style=False, sort_keys=False, indent=2)
@@ -269,29 +272,54 @@ def _project_config_defaults() -> dict[str, Any]:
     }
 
 
-def _project_type_reference(proj_yaml: Path) -> dict[str, Any]:
-    """Build a type reference for project-layer coercion.
+def _type_reference(defaults: dict[str, Any], existing: Any) -> dict[str, Any]:
+    """Dataclass defaults win; on-disk keys the defaults do not know are kept.
 
-    Dataclass defaults win so a quoted number already on disk cannot keep
-    poisoning the reference type; unknown on-disk keys are still preserved.
+    This keeps a quoted number already on disk from poisoning the reference
+    type, while still preserving unknown/legacy keys.
     """
-    ref = _project_config_defaults()
-    if not proj_yaml.is_file():
-        return ref
-    try:
-        with open(proj_yaml, encoding="utf-8") as f:
-            existing = yaml.safe_load(f) or {}
-    except Exception:
-        return ref
+    ref = copy.deepcopy(defaults)
     if not isinstance(existing, dict):
         return ref
     for section, val in existing.items():
         if isinstance(val, dict) and isinstance(ref.get(section), dict):
             for key, item in val.items():
                 ref[section].setdefault(key, item)
-        else:
-            ref.setdefault(section, val)
+        elif section not in ref:
+            ref[section] = val
     return ref
+
+
+def _read_raw_yaml(path: Path) -> Any:
+    try:
+        with open(path, encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
+    except Exception:
+        return None
+
+
+def _global_type_reference(existing: Any) -> dict[str, Any]:
+    return _type_reference(_json_safe(asdict(GlobalConfig())), existing)
+
+
+def _provider_type_reference() -> dict[str, Any]:
+    return _json_safe(asdict(ProviderConfig(name="", type="")))
+
+
+def _coerce_provider_entries(raw: dict[str, Any]) -> None:
+    """Coerce provider numeric fields in a full global payload in place."""
+    providers = (raw.get("ai") or {}).get("providers")
+    if not isinstance(providers, dict):
+        return
+    ref = _provider_type_reference()
+    for name, provider in list(providers.items()):
+        if isinstance(provider, dict):
+            providers[name] = _coerce_config_types(provider, ref)
+
+
+def _project_type_reference(proj_yaml: Path) -> dict[str, Any]:
+    """Build a type reference for project-layer coercion."""
+    return _type_reference(_project_config_defaults(), _read_raw_yaml(proj_yaml))
 
 
 def _merge_project_with_defaults(raw: dict[str, Any]) -> dict[str, Any]:
@@ -464,7 +492,8 @@ def handle_put_config_global(handler: HandlerProtocol, qs: dict[str, Any], obj: 
             ref_raw = yaml.safe_load(f) or {}
     except Exception as e:
         return handler._send_json({"ok": False, "error": f"cannot read current config: {e}"}, 500)
-    coerced = _coerce_config_types(obj, ref_raw)
+    coerced = _coerce_config_types(obj, _global_type_reference(ref_raw))
+    _coerce_provider_entries(coerced)
     _strip_provider_api_keys(coerced)
     try:
         yml = yaml.dump(coerced, allow_unicode=True, default_flow_style=False, sort_keys=False, indent=2)
@@ -582,7 +611,7 @@ def _normalize_provider(name: str, obj: dict[str, Any]) -> dict[str, Any]:
     }
     if obj.get("name"):
         data["name"] = name
-    return data
+    return _coerce_config_types(data, _provider_type_reference())
 
 
 def _mask_provider_dict(provider: dict[str, Any]) -> dict[str, Any]:

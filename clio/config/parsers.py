@@ -28,20 +28,21 @@ def _infer_provider_capabilities(provider_type: str) -> list[str]:
 def _parse_providers(raw: dict) -> dict[str, ProviderConfig]:
     providers: dict[str, ProviderConfig] = {}
     for name, cfg in (raw or {}).items():
-        provider_type = cfg.get("type", "gemini")
+        typed = _filter_dc(cfg, ProviderConfig)
+        provider_type = typed.get("type", "gemini")
         providers[name] = ProviderConfig(
             name=name,
             type=provider_type,
             api_key=_resolve_api_key(cfg),
-            api_key_env=cfg.get("api_key_env", ""),
-            base_url=cfg.get("base_url", ""),
-            poll_interval_sec=cfg.get("poll_interval_sec", 5),
-            retry_attempts=cfg.get("retry_attempts", 2),
-            requests_per_minute=cfg.get("requests_per_minute", 0),
-            timeout_sec=cfg.get("timeout_sec", 120.0),
-            max_tokens=cfg.get("max_tokens", 0),
-            models=cfg.get("models", []),
-            capabilities=cfg.get("capabilities") or _infer_provider_capabilities(provider_type),
+            api_key_env=typed.get("api_key_env", ""),
+            base_url=typed.get("base_url", ""),
+            poll_interval_sec=typed.get("poll_interval_sec", 5),
+            retry_attempts=typed.get("retry_attempts", 2),
+            requests_per_minute=typed.get("requests_per_minute", 0),
+            timeout_sec=typed.get("timeout_sec", 120.0),
+            max_tokens=typed.get("max_tokens", 0),
+            models=typed.get("models", []),
+            capabilities=typed.get("capabilities") or _infer_provider_capabilities(provider_type),
         )
     return providers
 

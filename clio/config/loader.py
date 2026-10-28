@@ -555,13 +555,15 @@ def load_global_config(config_path: str | Path = "config.yaml") -> GlobalConfig:
 
     # Providers use env var resolution
     ai_raw = raw.get("ai", {})
+    ai_typed = _filter_dc(ai_raw, GlobalAIConfig)
     ai_cfg = GlobalAIConfig(
         providers=_parse_providers(ai_raw.get("providers")),
         default_tasks=_parse_tasks(ai_raw.get("default_tasks")),
-        debug_print_prompt=ai_raw.get("debug_print_prompt", False),
-        provider_ttl_min=ai_raw.get("provider_ttl_min", 60),
+        debug_print_prompt=ai_typed.get("debug_print_prompt", False),
+        provider_ttl_min=ai_typed.get("provider_ttl_min", 60),
     )
 
+    compress_typed = _filter_dc(raw.get("compress", {}), GlobalCompressConfig)
     gc = GlobalConfig(
         proxy=ProxyConfig(**_filter_dc(raw.get("proxy", {}), ProxyConfig)),
         server=ServerConfig(**_filter_dc(raw.get("server", {}), ServerConfig)),
@@ -574,10 +576,10 @@ def load_global_config(config_path: str | Path = "config.yaml") -> GlobalConfig:
         ),
         ai=ai_cfg,
         compress=GlobalCompressConfig(
-            codec=raw.get("compress", {}).get("codec", "libx264"),
-            fps=raw.get("compress", {}).get("fps", 15),
-            remove_audio=raw.get("compress", {}).get("remove_audio", True),
-            crf=raw.get("compress", {}).get("crf", 32),
+            codec=compress_typed.get("codec", "libx264"),
+            fps=compress_typed.get("fps", 15),
+            remove_audio=compress_typed.get("remove_audio", True),
+            crf=compress_typed.get("crf", 32),
         ),
         whisper=GlobalWhisperConfig(
             cache_dir=raw.get("whisper", {}).get("cache_dir"),
@@ -609,6 +611,9 @@ def load_project_config(
     paths_raw = raw.get("paths", {})
     ai_raw = raw.get("ai", {})
     context = _load_context(ai_raw, config_base, project_dir=project_dir)
+    compress_typed = _filter_dc(raw.get("compress", {}), ProjectCompressConfig)
+    script_typed = _filter_dc(raw.get("script", {}), ScriptConfig)
+    whisper_typed = _filter_dc(raw.get("whisper", {}), ProjectWhisperConfig)
 
     return ProjectConfig(
         paths=ProjectPathsConfig(
@@ -619,26 +624,26 @@ def load_project_config(
             context=context,
         ),
         compress=ProjectCompressConfig(
-            target_size_mb=raw.get("compress", {}).get("target_size_mb", 5),
-            max_width=raw.get("compress", {}).get("max_width", 640),
+            target_size_mb=compress_typed.get("target_size_mb", 5),
+            max_width=compress_typed.get("max_width", 640),
         ),
         analyze=AnalyzeConfig(**_filter_dc(raw.get("analyze", {}), AnalyzeConfig)),
         script=ScriptConfig(
-            scripts_subdir=raw.get("script", {}).get("scripts_subdir", "scripts"),
+            scripts_subdir=script_typed.get("scripts_subdir", "scripts"),
             template_file=_path(
-                raw.get("script", {}).get("template_file", "./templates/vlog_template.md"),
+                script_typed.get("template_file", "./templates/vlog_template.md"),
                 project_base,
             ),
-            target_words=raw.get("script", {}).get("target_words", 80),
+            target_words=script_typed.get("target_words", 80),
         ),
         plan=PlanConfig(**_filter_dc(raw.get("plan", {}), PlanConfig)),
         whisper=ProjectWhisperConfig(
-            enabled=raw.get("whisper", {}).get("enabled", True),
-            model_size=raw.get("whisper", {}).get("model_size", "medium"),
-            language=raw.get("whisper", {}).get("language", "zh"),
-            device=raw.get("whisper", {}).get("device", "auto"),
-            max_segments_per_clip=raw.get("whisper", {}).get("max_segments_per_clip", 5),
-            transcripts_subdir=raw.get("whisper", {}).get("transcripts_subdir", "transcripts"),
+            enabled=whisper_typed.get("enabled", True),
+            model_size=whisper_typed.get("model_size", "medium"),
+            language=whisper_typed.get("language", "zh"),
+            device=whisper_typed.get("device", "auto"),
+            max_segments_per_clip=whisper_typed.get("max_segments_per_clip", 5),
+            transcripts_subdir=whisper_typed.get("transcripts_subdir", "transcripts"),
             engine=_resolve_engine(raw),
         ),
         export=ExportConfig(**_filter_dc(raw.get("export", {}), ExportConfig)),

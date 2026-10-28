@@ -1,5 +1,6 @@
 import logging
-from typing import Any
+from functools import cache
+from typing import Any, get_type_hints
 
 from clio.config.models import CANVAS_PRESETS, AppConfig, GlobalConfig
 from clio.i18n import t
@@ -7,13 +8,67 @@ from clio.i18n import t
 logger = logging.getLogger("clio.config")
 
 _SUPPORTED_PROVIDER_TYPES = {"gemini", "openai", "openai_compat"}
+_TRUE_STRINGS = frozenset({"true", "1", "yes", "on"})
+_FALSE_STRINGS = frozenset({"false", "0", "no", "off", ""})
+
+
+@cache
+def _field_types(dc: type) -> dict[str, Any]:
+    try:
+        return get_type_hints(dc)
+    except Exception:
+        return {name: Any for name in getattr(dc, "__dataclass_fields__", {})}
+
+
+def _coerce_scalar(value: Any, target: Any) -> Any:
+    """Cast a YAML scalar to the dataclass field type when it is unambiguous.
+
+    Hand-edited or migrated configs may persist a quoted number/bool; leaving it
+    as a string breaks range checks and truthiness. Values that cannot be cast
+    are kept so the validator can report a readable error.
+    """
+    if value is None or target is Any:
+        return value
+    if target is bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, int):
+            return value != 0
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in _TRUE_STRINGS:
+                return True
+            if lowered in _FALSE_STRINGS:
+                return False
+        return value
+    if target is int:
+        if isinstance(value, (bool, int)):
+            return value
+        if isinstance(value, float):
+            return int(value) if value.is_integer() else value
+        if isinstance(value, str):
+            try:
+                return int(value.strip())
+            except ValueError:
+                return value
+        return value
+    if target is float:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                return float(value.strip())
+            except ValueError:
+                return value
+        return value
+    return value
 
 
 def _filter_dc(raw: dict, dc: type) -> dict:
-    fields = set()
-    if hasattr(dc, "__dataclass_fields__"):
-        fields = {f.name for f in dc.__dataclass_fields__.values()}
-    return {k: v for k, v in raw.items() if k in fields}
+    hints = _field_types(dc)
+    return {k: _coerce_scalar(v, hints[k]) for k, v in raw.items() if k in hints}
 
 
 def _require_number(field_name: str, value: Any) -> None:

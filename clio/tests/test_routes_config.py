@@ -113,6 +113,36 @@ class TestProviderCrud:
         assert saved["ai"]["providers"]["myprovider"]["type"] == "openai_compat"
         assert saved["ai"]["providers"]["myprovider"]["api_key"] == ""
 
+    def test_post_provider_coerces_numeric_strings(self, tmp_path):
+        from unittest.mock import patch as mock_patch
+
+        config_path = _write_provider_config(tmp_path)
+        handler = self._handler(config_path)
+
+        with mock_patch("clio.ui.routes.config_routes.load_global_config"):
+            handle_post_provider(
+                handler,
+                {},
+                {
+                    "name": "local",
+                    "type": "openai_compat",
+                    "timeout_sec": "90",
+                    "retry_attempts": "3",
+                    "max_tokens": "2048",
+                    "poll_interval_sec": "7",
+                    "requests_per_minute": "30",
+                },
+            )
+
+        payload = handler._send_json.call_args[0][0]
+        assert payload["ok"] is True, payload
+        saved = yaml.safe_load(config_path.read_text(encoding="utf-8"))["ai"]["providers"]["local"]
+        assert saved["timeout_sec"] == 90.0
+        assert saved["retry_attempts"] == 3
+        assert saved["max_tokens"] == 2048
+        assert saved["poll_interval_sec"] == 7
+        assert saved["requests_per_minute"] == 30
+
     def test_post_duplicate_returns_409(self, tmp_path):
         config_path = _write_provider_config(tmp_path)
         handler = self._handler(config_path)
@@ -797,6 +827,32 @@ class TestHandlePutConfigGlobal:
         data = yaml.safe_load(cfg.read_text(encoding="utf-8"))
         assert data["proxy"]["enabled"] is True
         assert data["proxy"]["url"] == "socks5://localhost:1080"
+
+    def test_coerces_quoted_numbers_from_client(self, tmp_path: Path):
+        handler = MagicMock()
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(yaml.dump({"proxy": {"enabled": False}, "naming": {"index_width": 3}}), encoding="utf-8")
+        handler.config_path = cfg
+        handler.__class__._config_cache = MagicMock()
+        handler._send_json = MagicMock()
+
+        handle_put_config_global(
+            handler,
+            {},
+            {
+                "naming": {"index_width": "4"},
+                "compress": {"fps": "20", "remove_audio": "false"},
+                "ai": {"providers": {"gemini": {"type": "gemini", "timeout_sec": "90", "retry_attempts": "3"}}},
+            },
+        )
+
+        assert handler._send_json.call_args[0][0]["ok"] is True
+        data = yaml.safe_load(cfg.read_text(encoding="utf-8"))
+        assert data["naming"]["index_width"] == 4
+        assert data["compress"]["fps"] == 20
+        assert data["compress"]["remove_audio"] is False
+        assert data["ai"]["providers"]["gemini"]["timeout_sec"] == 90.0
+        assert data["ai"]["providers"]["gemini"]["retry_attempts"] == 3
 
     def test_preserves_existing_fields(self, tmp_path: Path):
         """PUT with only proxy section — naming is replaced since payload is the full write."""
