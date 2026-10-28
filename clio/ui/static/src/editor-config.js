@@ -78,7 +78,7 @@ function _schemaField(path, layer = 'project') {
   return null;
 }
 
-async function _loadConfigSchema() {
+export async function _loadConfigSchema() {
   if (_configSchema) return _configSchema;
   try {
     _configSchema = await api('GET', '/api/config/schema');
@@ -295,8 +295,8 @@ export function _renderConfigForm(obj, path, descriptions = null, layer = 'proje
       const isPreset = sf.choices.includes(obj);
       const opts = sf.choices.map(c => `<option value="${c}"${c === obj ? ' selected' : ''}>${c}</option>`).join('');
       const customInput = isPreset ? '' : `<input type="number" class="config-custom-num" data-path="${path}" step="any" value="${obj}" style="width:80px;margin-left:4px">`;
-      const customOpt = `<option value="__custom__" selected>${t('settings.custom_option')}</option>`;
-      return `<label class="config-field config-num"><span class="config-key">${labelFromPath(path)}${tip}</span> <select data-path="${path}" data-schema-select="1">${isPreset ? opts : opts + customOpt}</select>${customInput}</label>`;
+      const customOpt = `<option value="__custom__"${isPreset ? '' : ' selected'}>${t('settings.custom_option')}</option>`;
+      return `<label class="config-field config-num"><span class="config-key">${labelFromPath(path)}${tip}</span> <select data-path="${path}" data-schema-select="1">${opts}${customOpt}</select>${customInput}</label>`;
     }
     const isInt = Number.isInteger(obj);
     return `${advBadge}<label class="config-field config-num"><span class="config-key">${labelFromPath(path)}${tip}</span> <input type="number" data-path="${path}" step="${isInt ? '1' : 'any'}" value="${obj}"></label>`;
@@ -1331,15 +1331,31 @@ function _attachEnvEditor() {
   }
 }
 
-function _attachConfigForm(pane, sourceObj, descriptions) {
-  pane.querySelectorAll('[data-path]').forEach(el => {
+function _numFromFieldValue(raw) {
+  if (raw === '') return '';
+  const n = raw.includes('.') ? parseFloat(raw) : parseInt(raw, 10);
+  return Number.isNaN(n) ? raw : n;
+}
+
+export function _attachConfigForm(pane, sourceObj, descriptions) {
+  const bind = (el) => {
     const onchange = () => {
+      if (el.tagName === 'SELECT' && el.dataset.schemaSelect !== undefined) {
+        if (el.value === '__custom__') {
+          focusCustomNumber(el);
+          return;
+        }
+        const custom = el.parentNode.querySelector('.config-custom-num');
+        if (custom) custom.remove();
+        setDeep(sourceObj, el.dataset.path, _numFromFieldValue(el.value));
+        markDirty();
+        return;
+      }
       let val;
       if (el.type === 'checkbox') {
         val = el.checked;
       } else if (el.type === 'number') {
-        val = el.value.includes('.') ? parseFloat(el.value) : (el.value === '' ? '' : parseInt(el.value, 10));
-        if (isNaN(val)) val = el.value;
+        val = _numFromFieldValue(el.value);
       } else {
         val = el.value;
       }
@@ -1353,7 +1369,24 @@ function _attachConfigForm(pane, sourceObj, descriptions) {
     if (el.tagName === 'TEXTAREA') {
       el.oninput = onchange;
     }
-  });
+  };
+
+  const focusCustomNumber = (selectEl) => {
+    let input = selectEl.parentNode.querySelector('.config-custom-num');
+    if (!input) {
+      input = document.createElement('input');
+      input.type = 'number';
+      input.className = 'config-custom-num';
+      input.dataset.path = selectEl.dataset.path;
+      input.step = 'any';
+      input.style.cssText = 'width:80px;margin-left:4px';
+      selectEl.after(input);
+      bind(input);
+    }
+    input.focus();
+  };
+
+  pane.querySelectorAll('[data-path]').forEach(bind);
   pane.querySelectorAll('.config-desc-icon').forEach(el => {
     el.onclick = (e) => {
       e.stopPropagation();

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { api } from '../api.js';
 import { state } from '../state.js';
-import { _attachProviderListHandlers, _renderConfigGlobal, _renderPromptManagement, _renderTagInput, _renderProviderList, _renderTaskBinding, mergeTaskBindings, providerEnvName, renderConfig } from '../editor-config.js';
+import { _attachConfigForm, _attachProviderListHandlers, _loadConfigSchema, _renderConfigForm, _renderConfigGlobal, _renderPromptManagement, _renderTagInput, _renderProviderList, _renderTaskBinding, mergeTaskBindings, providerEnvName, renderConfig } from '../editor-config.js';
 
 vi.mock('../api.js', async () => {
   const actual = await vi.importActual('../api.js');
@@ -38,6 +38,87 @@ describe('providerEnvName', () => {
   it('keeps mixed ASCII and non-ASCII provider names distinct', () => {
     expect(providerEnvName('gemini-本地')).toBe('GEMINI_8c72a00d_API_KEY');
     expect(providerEnvName('gemini-云端')).toBe('GEMINI_319e0255_API_KEY');
+  });
+});
+
+describe('_attachConfigForm select_or_number', () => {
+  function mount(initial = 640) {
+    const pane = document.createElement('div');
+    pane.innerHTML = `<label class="config-field config-num">
+      <select data-path="compress.max_width" data-schema-select="1">
+        <option value="640">640</option><option value="1280">1280</option><option value="1920">1920</option>
+      </select></label>`;
+    const obj = { compress: { max_width: initial } };
+    _attachConfigForm(pane, obj, {});
+    return { pane, obj, select: pane.querySelector('select') };
+  }
+
+  it('stores a preset choice as a number', () => {
+    const { obj, select } = mount();
+    select.value = '1280';
+    select.dispatchEvent(new Event('change'));
+    expect(obj.compress.max_width).toBe(1280);
+  });
+
+  it('does not write the __custom__ sentinel and creates a number input', () => {
+    const { pane, obj, select } = mount();
+    select.insertAdjacentHTML('beforeend', '<option value="__custom__">custom</option>');
+    select.value = '__custom__';
+    select.dispatchEvent(new Event('change'));
+    expect(obj.compress.max_width).toBe(640);
+    const custom = pane.querySelector('.config-custom-num');
+    expect(custom).not.toBeNull();
+    custom.value = '700';
+    custom.dispatchEvent(new Event('change'));
+    expect(obj.compress.max_width).toBe(700);
+  });
+
+  it('removes the custom input after choosing a preset', () => {
+    const pane = document.createElement('div');
+    pane.innerHTML = `<label class="config-field config-num">
+      <select data-path="compress.max_width" data-schema-select="1">
+        <option value="640">640</option><option value="1280">1280</option>
+      </select>
+      <input type="number" class="config-custom-num" data-path="compress.max_width" value="700">
+    </label>`;
+    const obj = { compress: { max_width: 700 } };
+    _attachConfigForm(pane, obj, {});
+    const select = pane.querySelector('select');
+    select.value = '1280';
+    select.dispatchEvent(new Event('change'));
+    expect(obj.compress.max_width).toBe(1280);
+    expect(pane.querySelector('.config-custom-num')).toBeNull();
+  });
+});
+
+describe('_renderConfigForm select_or_number', () => {
+  beforeEach(async () => {
+    api.mockResolvedValueOnce({
+      project: [
+        {
+          key: 'compress',
+          fields: [
+            { path: 'compress.max_width', ui: 'select_or_number', choices: [640, 1280, 1920], group: 'basic' },
+          ],
+        },
+      ],
+      global: [],
+    });
+    await _loadConfigSchema();
+  });
+
+  it('offers the custom option for a preset value without an extra input', () => {
+    const html = _renderConfigForm(1280, 'compress.max_width');
+    expect(html).toContain('data-schema-select="1"');
+    expect(html).toContain('value="__custom__"');
+    expect(html).toContain('value="1280" selected');
+    expect(html).not.toContain('config-custom-num');
+  });
+
+  it('selects the custom option and renders the number input for other values', () => {
+    const html = _renderConfigForm(700, 'compress.max_width');
+    expect(html).toContain('value="__custom__" selected');
+    expect(html).toContain('config-custom-num');
   });
 });
 
