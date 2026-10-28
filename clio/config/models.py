@@ -239,6 +239,8 @@ class ProjectWhisperConfig:
             raise ValueError(f"whisper.language must be one of {', '.join(WhisperLang)}, got: {self.language}")
         if self.device not in list(WhisperDevice):
             raise ValueError(f"whisper.device must be one of {', '.join(WhisperDevice)}, got: {self.device}")
+        if not isinstance(self.max_segments_per_clip, int) or isinstance(self.max_segments_per_clip, bool):
+            raise ValueError(f"whisper.max_segments_per_clip must be an integer, got: {self.max_segments_per_clip!r}")
         if self.max_segments_per_clip < 1:
             raise ValueError(f"whisper.max_segments_per_clip must be >= 1, got: {self.max_segments_per_clip}")
         if not self.engine or "/" in self.engine:

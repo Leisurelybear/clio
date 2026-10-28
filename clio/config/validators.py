@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 from clio.config.models import CANVAS_PRESETS, AppConfig, GlobalConfig
 from clio.i18n import t
@@ -15,9 +16,20 @@ def _filter_dc(raw: dict, dc: type) -> dict:
     return {k: v for k, v in raw.items() if k in fields}
 
 
+def _require_number(field_name: str, value: Any) -> None:
+    """Reject non-numeric values before comparison.
+
+    A quoted number in project.yaml (or an older client sending strings) used to
+    surface as `TypeError: '<' not supported between instances of 'str' and 'int'`.
+    """
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"{field_name} must be a number, got: {value!r}")
+
+
 def _require_finite(field_name: str, value: int | float) -> None:
     import math
 
+    _require_number(field_name, value)
     if isinstance(value, float) and not math.isfinite(value):
         raise ValueError(f"{field_name} must be a finite number, got: {value}")
 

@@ -132,6 +132,7 @@ def handle_put_config_raw(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
 
     if is_project_target:
         target_path = proj_yaml
+        obj = _coerce_config_types(obj, _project_type_reference(target_path))
         try:
             yml = yaml.dump(obj, allow_unicode=True, default_flow_style=False, sort_keys=False, indent=2)
         except Exception as e:
@@ -266,6 +267,31 @@ def _project_config_defaults() -> dict[str, Any]:
         "export": _json_safe(ExportConfig()),
         "preview": _json_safe(PreviewConfig()),
     }
+
+
+def _project_type_reference(proj_yaml: Path) -> dict[str, Any]:
+    """Build a type reference for project-layer coercion.
+
+    Dataclass defaults win so a quoted number already on disk cannot keep
+    poisoning the reference type; unknown on-disk keys are still preserved.
+    """
+    ref = _project_config_defaults()
+    if not proj_yaml.is_file():
+        return ref
+    try:
+        with open(proj_yaml, encoding="utf-8") as f:
+            existing = yaml.safe_load(f) or {}
+    except Exception:
+        return ref
+    if not isinstance(existing, dict):
+        return ref
+    for section, val in existing.items():
+        if isinstance(val, dict) and isinstance(ref.get(section), dict):
+            for key, item in val.items():
+                ref[section].setdefault(key, item)
+        else:
+            ref.setdefault(section, val)
+    return ref
 
 
 def _merge_project_with_defaults(raw: dict[str, Any]) -> dict[str, Any]:
@@ -483,6 +509,7 @@ def handle_put_config_project(handler: HandlerProtocol, qs: dict[str, Any], obj:
     if err:
         return handler._send_json({"ok": False, "error": err}, 400)
 
+    obj = _coerce_config_types(obj, _project_type_reference(proj_yaml))
     try:
         yml = yaml.dump(obj, allow_unicode=True, default_flow_style=False, sort_keys=False, indent=2)
     except Exception as e:

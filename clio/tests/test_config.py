@@ -25,6 +25,7 @@ from clio.config.models import (
     GlobalConfig,
     PlanConfig,
     ProjectAIConfig,
+    ProjectCompressConfig,
     ProjectConfig,
     ProjectPathsConfig,
     ProjectWhisperConfig,
@@ -431,6 +432,14 @@ class TestValidateConfig:
         mutate(cfg)
 
         with pytest.raises(ValueError, match=field_name.replace(".", r"\.")):
+            _validate_config(cfg)
+
+    def test_non_numeric_value_raises_value_error(self):
+        """A quoted number must not leak a TypeError comparison message."""
+        project = ProjectConfig(compress=ProjectCompressConfig(max_width="1280"))
+        cfg = AppConfig(global_cfg=GlobalConfig(), project_cfg=project)
+
+        with pytest.raises(ValueError, match=r"compress\.max_width must be a number"):
             _validate_config(cfg)
 
 

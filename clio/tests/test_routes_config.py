@@ -1097,3 +1097,48 @@ class TestHandlePutConfigProject:
         data = yaml.safe_load(proj_yaml.read_text(encoding="utf-8"))
         assert data["compress"]["target_size_mb"] == 5
         assert data["compress"]["max_width"] == 1920
+
+    def test_coerces_quoted_numbers_from_client(self, tmp_path: Path):
+        """The settings UI used to send select_or_number values as strings."""
+        handler = MagicMock()
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(yaml.dump({"paths": {"input_dir": "./in"}}), encoding="utf-8")
+        proj_dir = tmp_path / "project"
+        proj_dir.mkdir()
+        handler.config_path = cfg
+        handler.project_dir = tmp_path
+        handler._resolve_project_dir.return_value = proj_dir
+        handler.__class__._config_cache = MagicMock()
+        handler._send_json = MagicMock()
+
+        handle_put_config_project(
+            handler,
+            {},
+            {"compress": {"target_size_mb": "10", "max_width": "1280"}},
+        )
+
+        args = handler._send_json.call_args
+        assert args[0][0]["ok"] is True, args[0][0]
+        data = yaml.safe_load((proj_dir / "project.yaml").read_text(encoding="utf-8"))
+        assert data["compress"] == {"target_size_mb": 10, "max_width": 1280}
+
+    def test_non_numeric_value_reports_clear_error(self, tmp_path: Path):
+        handler = MagicMock()
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(yaml.dump({"paths": {"input_dir": "./in"}}), encoding="utf-8")
+        proj_dir = tmp_path / "project"
+        proj_dir.mkdir()
+        handler.config_path = cfg
+        handler.project_dir = tmp_path
+        handler._resolve_project_dir.return_value = proj_dir
+        handler.__class__._config_cache = MagicMock()
+        handler._send_json = MagicMock()
+
+        handle_put_config_project(handler, {}, {"compress": {"max_width": "wide"}})
+
+        args = handler._send_json.call_args
+        assert args[0][1] == 400
+        error = args[0][0]["error"]
+        assert "compress.max_width must be a number" in error
+        assert "not supported between instances" not in error
+        assert not (proj_dir / "project.yaml").exists()
