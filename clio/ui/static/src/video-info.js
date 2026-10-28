@@ -11,8 +11,12 @@ const _cache = new Map();
 
 let _tipEl = null;
 let _hoverTimer = null;
+let _hideTimer = null;
 let _activeLi = null;
 let _dismissBound = false;
+let _modalToken = 0;
+
+const HIDE_DELAY_MS = 200;
 
 function cacheKey(video, source) {
   return [
@@ -82,9 +86,9 @@ function settingsText(settings) {
     fps: t('video_info.setting_fps'),
     target_size_mb: t('video_info.setting_target_size'),
   };
-  return Object.keys(labels)
-    .filter((key) => settings[key] !== undefined && settings[key] !== null && settings[key] !== '')
-    .map((key) => `${labels[key]} ${settings[key]}`)
+  return Object.entries(settings)
+    .filter(([, value]) => value !== undefined && value !== null && value !== '')
+    .map(([key, value]) => `${labels[key] || key} ${value}`)
     .join(' · ');
 }
 
@@ -185,6 +189,11 @@ function _ensureTip() {
   _tipEl = document.createElement('div');
   _tipEl.className = 'video-info-tooltip';
   _tipEl.setAttribute('role', 'tooltip');
+  // Keep the card open while the pointer is on it (copy/scroll long paths).
+  _tipEl.addEventListener('mouseenter', _cancelHide);
+  _tipEl.addEventListener('mouseleave', () => {
+    if (_activeLi) _scheduleHide();
+  });
   document.body.appendChild(_tipEl);
   return _tipEl;
 }
@@ -208,18 +217,40 @@ function _hideTip() {
   if (_tipEl) _tipEl.classList.remove('open');
 }
 
+function _cancelHide() {
+  clearTimeout(_hideTimer);
+  _hideTimer = null;
+}
+
+function _scheduleHide() {
+  _cancelHide();
+  _hideTimer = setTimeout(() => {
+    _activeLi = null;
+    _hideTip();
+  }, HIDE_DELAY_MS);
+}
+
 function _bindDismiss() {
   if (_dismissBound) return;
   _dismissBound = true;
   const hide = () => {
+    _cancelHide();
     _activeLi = null;
     _hideTip();
   };
-  window.addEventListener('scroll', hide, true);
+  window.addEventListener('scroll', (event) => {
+    // Let the card scroll its own long content instead of closing itself.
+    if (_tipEl && event.target instanceof Node && _tipEl.contains(event.target)) return;
+    hide();
+  }, true);
   window.addEventListener('resize', hide);
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') hide();
+  });
 }
 
 async function _showTip(li, video, source) {
+  _cancelHide();
   const tip = _ensureTip();
   tip.innerHTML = `<div class="video-info-loading">${escapeHtml(t('video_info.loading'))}</div>`;
   tip.classList.add('open');
@@ -230,12 +261,18 @@ async function _showTip(li, video, source) {
   _positionTip(li, tip);
 }
 
-/** Wire delayed hover/focus-free tooltip on one sidebar row. */
+/** Wire delayed hover tooltip on one sidebar row. */
 export function bindVideoInfoHover(li, video, source) {
   if (!li || !video) return;
   _bindDismiss();
   li.addEventListener('mouseenter', () => {
+    _cancelHide();
     clearTimeout(_hoverTimer);
+    if (_activeLi === li && _tipEl?.classList.contains('open')) return;
+    if (_activeLi && _activeLi !== li) {
+      _activeLi = null;
+      _hideTip();
+    }
     _hoverTimer = setTimeout(() => {
       _activeLi = li;
       _showTip(li, video, source);
@@ -243,12 +280,10 @@ export function bindVideoInfoHover(li, video, source) {
   });
   li.addEventListener('mouseleave', () => {
     clearTimeout(_hoverTimer);
-    if (_activeLi === li) {
-      _activeLi = null;
-      _hideTip();
-    }
+    if (_activeLi === li) _scheduleHide();
   });
   li.addEventListener('click', () => {
+    _cancelHide();
     clearTimeout(_hoverTimer);
     _activeLi = null;
     _hideTip();
@@ -259,16 +294,18 @@ export async function openVideoInfoModal(video, source) {
   const modal = $('modal-video-info');
   const body = $('video-info-body');
   if (!modal || !body) return;
+  const token = ++_modalToken;
   const nameEl = $('video-info-name');
   if (nameEl) nameEl.textContent = String(video?.file || '').replace(/^\d+_/, '');
   body.innerHTML = `<div class="video-info-loading">${escapeHtml(t('video_info.loading'))}</div>`;
   modal.style.display = 'flex';
   const info = await _loadInfo(video, source);
-  if (modal.style.display === 'none') return;
+  if (token !== _modalToken || modal.style.display === 'none') return;
   body.innerHTML = _infoHtml(info);
 }
 
 export function closeVideoInfoModal() {
+  _modalToken += 1;
   const modal = $('modal-video-info');
   if (modal) modal.style.display = 'none';
 }

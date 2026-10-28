@@ -968,7 +968,11 @@ body.editor-collapsed .resize-handle[data-side="editor"]:hover::after {
   color: var(--text-primary);
   font-size: var(--text-xs);
   line-height: 1.5;
-  pointer-events: none;
+  pointer-events: auto;
+  max-height: min(70vh, 520px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  user-select: text;
 }
 .video-info-tooltip.open { display: block; }
 

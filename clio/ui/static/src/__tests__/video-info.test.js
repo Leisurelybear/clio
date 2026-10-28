@@ -197,12 +197,34 @@ describe('hover tooltip', () => {
     await vi.advanceTimersByTimeAsync(400);
     li.dispatchEvent(new MouseEvent('mouseleave'));
     const tip = document.querySelector('.video-info-tooltip');
+    expect(tip.classList.contains('open')).toBe(true);
+    await vi.advanceTimersByTimeAsync(200);
     expect(tip.classList.contains('open')).toBe(false);
 
     li.dispatchEvent(new MouseEvent('mouseenter'));
     await vi.advanceTimersByTimeAsync(400);
     expect(api).toHaveBeenCalledTimes(1);
     expect(tip.classList.contains('open')).toBe(true);
+  });
+
+  it('stays open while the pointer is over the card', async () => {
+    api.mockResolvedValue(SAMPLE_INFO);
+    const li = document.getElementById('row');
+    bindVideoInfoHover(li, { file: '001_a.mp4' }, 'compressed');
+
+    li.dispatchEvent(new MouseEvent('mouseenter'));
+    await vi.advanceTimersByTimeAsync(400);
+    const tip = document.querySelector('.video-info-tooltip');
+    expect(tip.classList.contains('open')).toBe(true);
+
+    li.dispatchEvent(new MouseEvent('mouseleave'));
+    tip.dispatchEvent(new MouseEvent('mouseenter'));
+    await vi.advanceTimersByTimeAsync(300);
+    expect(tip.classList.contains('open')).toBe(true);
+
+    tip.dispatchEvent(new MouseEvent('mouseleave'));
+    await vi.advanceTimersByTimeAsync(200);
+    expect(tip.classList.contains('open')).toBe(false);
   });
 
   it('does not fetch when the pointer leaves before the delay', async () => {
