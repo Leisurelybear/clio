@@ -120,6 +120,8 @@ These endpoints require the same API token as other sensitive config routes and 
 
 切换 `压缩 / 原视频` 源时会自动清空搜索和已选阶段筛选。
 
+**视频信息**：鼠标在视频行上停留约 0.4 秒会弹出信息卡片，显示绝对路径、大小、时长、修改时间，以及 ffprobe 读取的分辨率、帧率、码率、编码和容器；压缩件还会显示 `.vmeta` 里的原始大小、压缩后大小、体积比和压缩参数。想固定查看或复制长路径时，点行尾 `⋮` →「视频信息」打开弹窗。首次读取会调用 ffprobe（之后按 路径+大小+mtime 缓存），ffprobe 不可用时只显示基础信息，不影响列表。
+
 ## 数据来源
 
 UI 只读 / 写 `config.yaml` 里 `paths.output_dir` 下的文件：

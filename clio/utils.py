@@ -9,7 +9,7 @@ import threading
 import time
 from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from clio._constants import VIDEO_EXTENSIONS
 from clio.i18n import t
@@ -21,6 +21,9 @@ MAX_EXTRACT_JSON_SCAN_CHARS = 2_000_000
 _PROBE_INFO_CACHE_MAX = 512
 _PROBE_INFO_CACHE_LOCK = threading.Lock()
 _PROBE_INFO_CACHE: dict[tuple[str, str, int, int], dict[str, float]] = {}
+_MEDIA_DETAILS_CACHE_MAX = 512
+_MEDIA_DETAILS_CACHE_LOCK = threading.Lock()
+_MEDIA_DETAILS_CACHE: dict[tuple[str, str, int, int], dict[str, Any]] = {}
 
 # ---- subprocess wrappers for cross-platform encoding safety ----
 # On Chinese Windows text=True defaults to GBK, which crashes on UTF-8
@@ -778,6 +781,81 @@ def probe_video_info(video_path: Path, ffprobe: str) -> dict:
     size_mb = video_path.stat().st_size / (1024 * 1024)
     _set_cached_probe_info(key, {"duration_sec": duration, "size_mb": size_mb})
     return {"duration_sec": round(duration, 2), "size_mb": round(size_mb, 2)}
+
+
+def _ratio_to_float(raw: Any) -> float | None:
+    """Parse ffprobe numeric output (plain decimal or ``num/den`` fraction)."""
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if text in ("", "N/A", "0/0", "inf", "-inf"):
+        return None
+    try:
+        if "/" in text:
+            num, _, den = text.partition("/")
+            den_value = float(den)
+            return float(num) / den_value if den_value else None
+        return float(text)
+    except (TypeError, ValueError):
+        return None
+
+
+def _positive_int(raw: Any) -> int | None:
+    value = _ratio_to_float(raw)
+    if value is None or value < 0:
+        return None
+    return int(value)
+
+
+def probe_media_details(video_path: Path, ffprobe: str) -> dict[str, Any]:
+    """Probe container/stream details for the video info panel.
+
+    Cached by (ffprobe, resolved path, size, mtime) so repeated hovers never
+    re-run ffprobe. Raises on probe failure; callers degrade to stat-only info.
+    """
+    key = _probe_cache_key(video_path, ffprobe)
+    if key is not None:
+        with _MEDIA_DETAILS_CACHE_LOCK:
+            cached = _MEDIA_DETAILS_CACHE.get(key)
+            if cached is not None:
+                return dict(cached)
+    cmd = [
+        ffprobe,
+        "-v",
+        "error",
+        "-show_entries",
+        (
+            "format=duration,size,bit_rate,format_name:"
+            "stream=codec_type,codec_name,width,height,avg_frame_rate,r_frame_rate,bit_rate"
+        ),
+        "-of",
+        "json",
+        str(video_path),
+    ]
+    result = run_probe(cmd, max_output_bytes=65536)
+    data = json.loads(result.stdout or "{}")
+    fmt = data.get("format") or {}
+    streams = data.get("streams") or []
+    video_stream: dict[str, Any] = next((s for s in streams if s.get("codec_type") == "video"), {})
+    fps = _ratio_to_float(video_stream.get("avg_frame_rate"))
+    if fps is None:
+        fps = _ratio_to_float(video_stream.get("r_frame_rate"))
+    details: dict[str, Any] = {
+        "duration_sec": _ratio_to_float(fmt.get("duration")),
+        "size_bytes": _positive_int(fmt.get("size")),
+        "bit_rate_bps": _positive_int(video_stream.get("bit_rate")) or _positive_int(fmt.get("bit_rate")),
+        "format_name": str(fmt.get("format_name") or ""),
+        "width": _positive_int(video_stream.get("width")),
+        "height": _positive_int(video_stream.get("height")),
+        "fps": round(fps, 3) if fps else None,
+        "codec": str(video_stream.get("codec_name") or ""),
+    }
+    if key is not None:
+        with _MEDIA_DETAILS_CACHE_LOCK:
+            if len(_MEDIA_DETAILS_CACHE) >= _MEDIA_DETAILS_CACHE_MAX and key not in _MEDIA_DETAILS_CACHE:
+                _MEDIA_DETAILS_CACHE.pop(next(iter(_MEDIA_DETAILS_CACHE)))
+            _MEDIA_DETAILS_CACHE[key] = dict(details)
+    return details
 
 
 _MAX_STDERR_TAIL = 200

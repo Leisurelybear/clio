@@ -59,6 +59,14 @@ export function applyFfmpegMenuDeps(items, deps) {
  * @returns {Array<{action?: string, label?: string, disabled?: boolean, title?: string, danger?: boolean, divider?: boolean}>}
  */
 export function buildVideoMenuItems(video, source, deps = null) {
+  return [
+    { action: 'info', label: t('menu.info'), title: t('menu.info_title') },
+    { divider: true },
+    ..._buildVideoMenuItems(video, source, deps),
+  ];
+}
+
+function _buildVideoMenuItems(video, source, deps = null) {
   const missing = !!video?.missing;
   let items;
 

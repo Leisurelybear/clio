@@ -146,6 +146,7 @@ from clio.ui.routes.transcripts import (
 )
 from clio.ui.routes.videos import (
     handle_get_video,
+    handle_get_video_info,
     handle_get_videos,
     handle_get_videos_selected,
     handle_get_vmeta,
@@ -879,6 +880,7 @@ def make_handler(
             Route("GET", "/api/videos", "handle_get_videos"),
             Route("GET", "/api/video", "handle_get_video"),
             Route("HEAD", "/api/video", "handle_get_video"),
+            Route("GET", "/api/video/info", "handle_get_video_info"),
             Route("GET", "/api/vmeta/{stem}", "handle_get_vmeta"),
             Route("GET", "/api/videos/selected", "handle_get_videos_selected"),
             Route("PUT", "/api/videos/selected", "handle_put_videos_selected"),

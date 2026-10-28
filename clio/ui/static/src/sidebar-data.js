@@ -21,6 +21,7 @@ import {
 } from './sidebar-video-filter.js';
 import { toggleSelectionFor } from './video-selection.js';
 import { selectVideosButtonHtml } from './select-btn.js';
+import { bindVideoInfoHover, clearVideoInfoCache } from './video-info.js';
 import { t, onLocaleChange } from './i18n.js';
 
 // ── Video relink helper ───────────────────────────────────────
@@ -291,6 +292,7 @@ export async function loadVideos() {
     if (!isLatest('videos', ac)) return;
     state.videos = r.videos;
     state.groups = r.groups || {};
+    clearVideoInfoCache();
     updateSelectBtnVisibility();
     renderVideoList();
     // Hint when project has no selected originals yet
@@ -485,6 +487,7 @@ function renderVideoItem(v) {
       </div>
   `;
   bindCoverThumbFallback(li);
+  bindVideoInfoHover(li, v, state.source);
 
   li.onclick = (e) => {
     if (e.target.closest('.match-jump')) return;
@@ -531,6 +534,10 @@ function renderVideoItem(v) {
         if (_portalCloseHandler) { document.removeEventListener('click', _portalCloseHandler); _portalCloseHandler = null; }
         const task = item.dataset.action;
         const file = v.file;
+        if (task === 'info') {
+          import('./video-info.js').then(mod => mod.openVideoInfoModal(v, state.source));
+          return;
+        }
         if (task === 'relink') {
           await relinkVideo(file, v.abs_path || (v.match && v.match.abs_path) || null);
           return;

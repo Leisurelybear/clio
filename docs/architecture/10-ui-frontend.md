@@ -35,6 +35,7 @@
 | `subtitle-settings.js` | Subtitle style config (mode auto/manual, position, font) |
 | `file-browser.js` / `desktop-pick.js` | Server-side path picker modal / native desktop folder picker |
 | `offline-media.js` / `session-restore.js` / `video-selection.js` / `video-url.js` / `video-menu.js` | Offline matching + batch relink, restore last session, selection merge, video URLs, per-video menu badges (stage checks, cut actions) |
+| `video-info.js` | **Video metadata card** (R-049): 400ms hover tooltip + pinned modal, stat/.vmeta/ffprobe fields, per-row client cache |
 | `logs-buffer.js` / `logs-filter.js` / `latest.js` | Log tail buffer, level inference/filtering, race-guard `latest()` for fetches |
 
 ## 3. Data Fetching Contract

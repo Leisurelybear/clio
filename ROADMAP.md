@@ -15,6 +15,22 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
 
 Detailed sections and historical delivery notes remain below.
 
+### R-049 Sidebar video metadata card (2026-10-28)
+
+**Status:** Complete; full pytest, full Vitest, Ruff, and mypy verified locally.
+
+**Goal:** Show file size, absolute path, duration, resolution, frame rate, bitrate, codec, and
+compression comparison without slowing down the video list.
+
+- [x] Add `GET /api/video/info` with allowlist-scoped path resolution (compressed root check,
+  original `videos.json` allowlist; offline rows report `exists: false`)
+- [x] Add `probe_media_details()` in `clio/utils.py`, cached by path+size+mtime; degrade to
+  stat/.vmeta fields when ffprobe is unavailable
+- [x] Read `.vmeta` for original/compressed sizes, ratio, and compress settings in both views
+- [x] Add the 400ms hover card (`video-info.js`) plus a pinned `视频信息` modal from the row menu
+- [x] Cache client results per row and clear them on every `loadVideos()` refresh
+- [x] Cover probe parsing/cache, route allowlist and degradation, formatters, hover, and modal
+
 ### Task Center SSE batching and lifecycle coverage
 
 **Status:** Complete locally (2026-10-22). No frontend contract change.

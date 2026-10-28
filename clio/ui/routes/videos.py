@@ -22,7 +22,13 @@ from clio.ui.services.file_service import (
     _find_texts_dirs,
     _is_safe_basename,
 )
-from clio.utils import get_duration_sec, resolve_binary, safe_basename, validate_within_root
+from clio.utils import (
+    get_duration_sec,
+    probe_media_details,
+    resolve_binary,
+    safe_basename,
+    validate_within_root,
+)
 from clio.vmeta import VideoMeta, _meta_to_dict
 
 if TYPE_CHECKING:
@@ -737,6 +743,122 @@ def handle_get_vmeta(handler: HandlerProtocol, qs: dict[str, Any], stem: str) ->
             if meta is not None:
                 return handler._send_json(_meta_to_dict(meta))
     handler._send_json({"ok": False, "error": "not found"}, 404)
+
+
+def _resolve_info_target(
+    qs: dict[str, Any],
+    proj_dir: Path,
+    proj_out: Path,
+    source: str,
+    fname: str,
+) -> Path | None:
+    """Resolve a video list row to a concrete path, mirroring /api/video rules."""
+    if source == "original":
+        abspath = (qs.get("abspath", [""])[0] or "").strip()
+        selected = {_video_key(p) for p in load_selected_videos(proj_dir)}
+        if abspath:
+            cand = Path(abspath)
+            try:
+                cand = cand.resolve()
+            except OSError:
+                cand = Path(abspath)
+            if cand.suffix.lower() in VIDEO_EXTENSIONS and _video_key(cand) in selected:
+                return cand
+        if fname:
+            return _find_selected_original_for_request(proj_dir, fname)
+        return None
+
+    if not _is_safe_basename(fname):
+        return None
+    try:
+        cand = validate_within_root(proj_out / "compressed" / fname, proj_out)
+    except (OSError, ValueError):
+        return None
+    if cand.suffix.lower() not in VIDEO_EXTS:
+        return None
+    return cand
+
+
+def _compression_info(meta: VideoMeta | None) -> dict[str, Any] | None:
+    if meta is None:
+        return None
+    ratio: float | None = None
+    if meta.source_size > 0 and meta.target_size > 0:
+        ratio = round(meta.target_size / meta.source_size, 4)
+    return {
+        "source_path": meta.source_path,
+        "source_size_bytes": meta.source_size,
+        "target_size_bytes": meta.target_size,
+        "ratio": ratio,
+        "source_duration_sec": meta.source_duration_sec,
+        "target_duration_sec": meta.target_duration_sec,
+        "settings": meta.compress_settings or {},
+    }
+
+
+def _read_compression_meta(target: Path, source: str, comp_dir: Path) -> VideoMeta | None:
+    if source == "compressed":
+        return VideoMeta.read(target)
+    matches = _find_compressed_for_original(target.stem, comp_dir)
+    for fname, _index in matches or []:
+        meta = VideoMeta.read(comp_dir / fname)
+        if meta is not None:
+            return meta
+    return None
+
+
+def handle_get_video_info(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
+    """Handle GET /api/video/info — stat + .vmeta + cached ffprobe details."""
+    proj_dir = handler._resolve_project_dir(qs)
+    proj_out = handler._get_project_output(proj_dir)
+    comp_dir = proj_out / "compressed"
+    source = "original" if (qs.get("source", ["compressed"])[0] or "") == "original" else "compressed"
+    fname = qs.get("file", [""])[0] or ""
+
+    target = _resolve_info_target(qs, proj_dir, proj_out, source, fname)
+    if target is None:
+        return handler._send_json({"ok": False, "error": "not found"}, 404)
+
+    try:
+        st = target.stat() if target.is_file() else None
+    except OSError:
+        st = None
+
+    payload: dict[str, Any] = {
+        "ok": True,
+        "source": source,
+        "file": fname,
+        "abs_path": str(target),
+        "exists": st is not None,
+        "size_bytes": st.st_size if st is not None else None,
+        "mtime": int(st.st_mtime) if st is not None else None,
+    }
+
+    meta = _read_compression_meta(target, source, comp_dir) if st is not None else None
+    compression = _compression_info(meta)
+    if compression is not None:
+        payload["compression"] = compression
+    if st is not None and meta is not None:
+        payload["duration_sec"] = meta.source_duration_sec if source == "original" else meta.target_duration_sec
+
+    probe_error: str | None = None
+    if st is not None:
+        try:
+            cfg = handler._get_config(proj_dir)
+            ffprobe = resolve_binary(cfg.paths.ffprobe, "ffprobe")
+        except Exception:
+            ffprobe = None
+        if ffprobe:
+            try:
+                payload.update(probe_media_details(target, ffprobe))
+            except Exception as exc:
+                probe_error = str(exc)
+        else:
+            probe_error = "ffprobe unavailable"
+    if probe_error:
+        payload["probe_error"] = probe_error
+
+    handler._send_json(payload)
 
 
 def handle_get_videos_selected(handler: HandlerProtocol, qs: dict[str, Any]) -> None:

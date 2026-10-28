@@ -293,6 +293,23 @@ Provider management is a frontend-only experience - no new backend APIs needed:
 - Keep `video-drag-select.test.js` and `video-selection.test.js` green when changing selection copy
   or matching rules.
 
+### 4.16 Sidebar Video Metadata Card (R-049)
+
+- `GET /api/video/info` is the only metadata endpoint for the sidebar. It resolves compressed rows
+  under `output/compressed` via `validate_within_root` and original rows via the `videos.json`
+  allowlist; offline rows return `exists: false` instead of 404 so relink stays reachable.
+- `clio/utils.py::probe_media_details()` owns ffprobe parsing (resolution, fps, bitrate, codec,
+  container) and caches by `(ffprobe, resolved path, size, mtime)`. Callers must degrade to
+  stat/.vmeta fields when ffprobe is missing or fails (`probe_error`), never raise to the UI.
+- `.vmeta` supplies the compression comparison (`source_size`/`target_size`, ratio, and
+  `compress_settings`). In original view use `source_duration_sec`; in compressed view use
+  `target_duration_sec`. Never invent a ratio when either size is zero.
+- `video-info.js` owns the 400ms hover tooltip and the pinned `视频信息` modal; `sidebar-data.js`
+  binds hover per row and clears the client cache on every `loadVideos()`. Keep `buildInfoSections()`
+  pure so formatters and field grouping stay unit-testable.
+- The row menu always exposes `info` first (enabled for offline rows too); it must stay outside the
+  ffmpeg dependency gate.
+
 ## 5. User Preferences
 
 - Language: Chinese for conversation, English for commits/docs/AGENTS.md

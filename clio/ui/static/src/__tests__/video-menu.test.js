@@ -81,16 +81,16 @@ describe('buildVideoMenuItems', () => {
     expect(items.some((i) => i.action === 'relink')).toBe(false);
   });
 
-  it('original offline: only relink and remove enabled among actions', () => {
+  it('original offline: only info, relink and remove enabled among actions', () => {
     const items = buildVideoMenuItems({ missing: true, file: 'a.mp4' }, 'original');
     const enabled = items.filter((i) => !i.divider && !i.disabled).map((i) => i.action);
-    expect(enabled.sort()).toEqual(['relink', 'remove'].sort());
+    expect(enabled.sort()).toEqual(['info', 'relink', 'remove'].sort());
   });
 
-  it('compressed offline: pipeline actions disabled; only remove enabled', () => {
+  it('compressed offline: pipeline actions disabled; only info and remove enabled', () => {
     const items = buildVideoMenuItems({ missing: true, file: '001_a.mp4' }, 'compressed');
     const enabled = items.filter((i) => !i.divider && !i.disabled).map((i) => i.action);
-    expect(enabled).toEqual(['remove']);
+    expect(enabled).toEqual(['info', 'remove']);
     expect(items.find((i) => i.action === 'analyze')?.disabled).toBe(true);
     expect(items.find((i) => i.action === 'transcribe')?.disabled).toBe(true);
   });
