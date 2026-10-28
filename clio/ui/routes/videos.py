@@ -779,32 +779,37 @@ def _resolve_info_target(
     return cand
 
 
-def _compression_info(meta: VideoMeta | None) -> dict[str, Any] | None:
-    if meta is None:
+def _compression_info(metas: list[VideoMeta]) -> dict[str, Any] | None:
+    if not metas:
         return None
+    base = metas[0]
+    target_size = sum(max(0, meta.target_size) for meta in metas)
+    target_duration = round(sum(max(0.0, meta.target_duration_sec) for meta in metas), 3)
     ratio: float | None = None
-    if meta.source_size > 0 and meta.target_size > 0:
-        ratio = round(meta.target_size / meta.source_size, 4)
+    if base.source_size > 0 and target_size > 0:
+        ratio = round(target_size / base.source_size, 4)
     return {
-        "source_path": meta.source_path,
-        "source_size_bytes": meta.source_size,
-        "target_size_bytes": meta.target_size,
+        "source_path": base.source_path,
+        "source_size_bytes": base.source_size,
+        "target_size_bytes": target_size,
         "ratio": ratio,
-        "source_duration_sec": meta.source_duration_sec,
-        "target_duration_sec": meta.target_duration_sec,
-        "settings": meta.compress_settings or {},
+        "source_duration_sec": base.source_duration_sec,
+        "target_duration_sec": target_duration,
+        "settings": base.compress_settings or {},
     }
 
 
-def _read_compression_meta(target: Path, source: str, comp_dir: Path) -> VideoMeta | None:
+def _read_compression_metas(target: Path, source: str, comp_dir: Path) -> list[VideoMeta]:
     if source == "compressed":
-        return VideoMeta.read(target)
+        meta = VideoMeta.read(target)
+        return [meta] if meta is not None else []
     matches = _find_compressed_for_original(target.stem, comp_dir)
+    metas: list[VideoMeta] = []
     for fname, _index in matches or []:
         meta = VideoMeta.read(comp_dir / fname)
         if meta is not None:
-            return meta
-    return None
+            metas.append(meta)
+    return metas
 
 
 def handle_get_video_info(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
@@ -834,12 +839,12 @@ def handle_get_video_info(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
         "mtime": int(st.st_mtime) if st is not None else None,
     }
 
-    meta = _read_compression_meta(target, source, comp_dir) if st is not None else None
-    compression = _compression_info(meta)
+    metas = _read_compression_metas(target, source, comp_dir) if st is not None else []
+    compression = _compression_info(metas)
     if compression is not None:
         payload["compression"] = compression
-    if st is not None and meta is not None:
-        payload["duration_sec"] = meta.source_duration_sec if source == "original" else meta.target_duration_sec
+    if st is not None and metas:
+        payload["duration_sec"] = metas[0].source_duration_sec if source == "original" else metas[0].target_duration_sec
 
     probe_error: str | None = None
     if st is not None:
@@ -850,9 +855,14 @@ def handle_get_video_info(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
             ffprobe = None
         if ffprobe:
             try:
-                payload.update(probe_media_details(target, ffprobe))
+                probed = probe_media_details(target, ffprobe)
             except Exception as exc:
                 probe_error = str(exc)
+            else:
+                # Keep stat/.vmeta fallbacks when ffprobe omits a field.
+                for key, value in probed.items():
+                    if value:
+                        payload[key] = value
         else:
             probe_error = "ffprobe unavailable"
     if probe_error:

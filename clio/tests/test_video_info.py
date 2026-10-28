@@ -228,6 +228,50 @@ class TestHandleGetVideoInfo:
         assert payload["size_bytes"] == 5
         assert "probe boom" in payload["probe_error"]
 
+    def test_probe_none_fields_keep_stat_fallback(self, tmp_path: Path):
+        handler, _proj_dir, proj_out = _handler(tmp_path)
+        comp_dir = proj_out / "compressed"
+        comp_dir.mkdir()
+        (comp_dir / "001_x.mp4").write_bytes(b"12345")
+        probed = {"width": 640, "height": 360, "size_bytes": None, "duration_sec": None}
+        with (
+            patch("clio.ui.routes.videos.resolve_binary", return_value="ffprobe"),
+            patch("clio.ui.routes.videos.probe_media_details", return_value=probed),
+        ):
+            handle_get_video_info(handler, {"source": ["compressed"], "file": ["001_x.mp4"]})
+        payload = _payload(handler)
+        assert payload["size_bytes"] == 5
+        assert "duration_sec" not in payload
+        assert payload["width"] == 640
+
+    def test_split_original_sums_compressed_segment_sizes(self, tmp_path: Path):
+        handler, proj_dir, proj_out = _handler(tmp_path)
+        comp_dir = proj_out / "compressed"
+        comp_dir.mkdir()
+        source = proj_dir / "GL010800.MP4"
+        source.write_bytes(b"x" * 1000)
+        seg1 = comp_dir / "001_GL010800_seg01.mp4"
+        seg1.write_bytes(b"a" * 10)
+        seg2 = comp_dir / "002_GL010800_seg02.mp4"
+        seg2.write_bytes(b"b" * 15)
+        VideoMeta.build(source, seg1, source_duration=60.0, target_duration=30.0).write(seg1)
+        VideoMeta.build(source, seg2, source_duration=60.0, target_duration=30.0).write(seg2)
+        save_selected_videos(proj_dir, [source])
+
+        with (
+            patch("clio.ui.routes.videos.resolve_binary", return_value="ffprobe"),
+            patch("clio.ui.routes.videos.probe_media_details", return_value={"duration_sec": 60.0}),
+        ):
+            handle_get_video_info(
+                handler,
+                {"source": ["original"], "file": ["GL010800.MP4"], "abspath": [str(source)]},
+            )
+        payload = _payload(handler)
+        assert payload["compression"]["target_size_bytes"] == 25
+        assert payload["compression"]["source_size_bytes"] == 1000
+        assert payload["compression"]["ratio"] == pytest.approx(0.025)
+        assert payload["compression"]["target_duration_sec"] == pytest.approx(60.0)
+
     def test_missing_ffprobe_degrades(self, tmp_path: Path):
         handler, _proj_dir, proj_out = _handler(tmp_path, ffprobe=None)
         comp_dir = proj_out / "compressed"

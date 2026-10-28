@@ -802,7 +802,7 @@ def _ratio_to_float(raw: Any) -> float | None:
 
 def _positive_int(raw: Any) -> int | None:
     value = _ratio_to_float(raw)
-    if value is None or value < 0:
+    if value is None or value <= 0:
         return None
     return int(value)
 
