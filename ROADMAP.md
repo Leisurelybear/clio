@@ -7,6 +7,7 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
 
 ## Active backlog (2026-10-22)
 
+- R-048 Higher-detail video analysis and bounded plan input (plan ready; P0a-P0c not started)
 - R-047-FU Optional Baidu ASR provider (deferred; Aliyun cloud transcription is complete)
 - R-043 Frontend module decomposition and remaining legacy mypy debt
 - R-032e Optional ffmpeg bundling and signed desktop installer
@@ -266,6 +267,62 @@ Review: `docs/analysis/2026-08-16-full-project-code-review.md`
 - [~] Larger frontend module decomposition and remaining non-Task-Center legacy mypy debt remain follow-up maintenance work
 
 ## Detailed backlog and delivery history (since 2026-07-26)
+
+### R-048 Higher-detail video analysis and bounded plan input
+
+**Status:** Planned (design ready 2026-10-24); P0a-P0c not started. No contract change yet.
+
+**Goal:** Raise per-clip analysis density from summary level (~48 s per timeline row) to 8-12 s per
+row, keep the extra detail in `texts/*.json` for voiceover/cut/preview, and stop that detail from
+inflating the plan prompt. Old analysis JSON must remain usable without migration.
+
+**Measured problem (France project, 142 clips / 466.5 min):** 579 timeline rows, 4.1 rows per clip,
+48.3 s per row; the 26.7-min clip 009 produced only 12 rows (133 s per row). `video_analyze`
+`prompt_tokens` is almost exactly `64 × video seconds + prompt`, so Gemini runs at
+`media_resolution` LOW. The default 15-min window dilutes attention; `ANALYZE_PROMPT` asks for
+5-10 s rows but also caps at 60 rows with 2-3 sentences each and sets no minimum coverage. Nothing
+checks coverage afterward, and the plan task sends the full timeline plus inline transcripts.
+
+**Config-only mitigation verified (2026-10-28):** with only `analyze.window_max_min: 5`,
+`202610_Italy/038_GX011297` (26.6 min) produced 63 rows across 6 windows, 25.4 s per row, and no
+gap >1 s (before: 12 rows / 133 s per row). This proves window size is one lever, but rows are still
+~47 chars and only ~10.5 rows per 5-min window, so the prompt contract and visual resolution are
+still required. Only that one file has been re-run; the rest of the project is still old output and
+needs `analyze --force`.
+
+Design: `docs/superpowers/specs/2026-10-24-analysis-detail-and-plan-input-budget-design.md`
+
+- [ ] P0a `feat(analyze)`: add project `analyze.media_resolution` (`low | medium | high`, default
+  `medium`) and pass it through `VideoAIProvider.analyze_video` to the Gemini video call only, never
+  to text tasks; add `media_resolution`, `window_max_min`, `window_overlap_sec` to the analysis
+  lineage fingerprint so cached coarse results are invalidated
+- [ ] P0a: config schema/descriptions/UI select, example files, `low` fallback guidance, en/zh
+  locale keys, and a one-time warning when `compress.fps < 2`
+- [ ] P0b `feat(analyze)`: replace the fixed 60-row cap with a duration-based density contract
+  (≤5 min 25-40 rows, 5-10 min 50-80, 10-15 min 75-120; 8-12 s per row, one sentence ≤40 chars)
+- [ ] P0b: add optional `score` (1-5), `camera`, `quality`, `tags` per timeline row and top-level
+  `key_moments` (3-8 per clip); clamp/validate them, dedupe and merge across windows, and keep old
+  JSON compatible
+- [ ] P0b: log `[analyze] <name>: rows=N coverage=xx% max_gap=Ns` after each clip (observation only,
+  no retry in P0)
+- [ ] P0c `feat(plan)`: add `clio/plan_input.py::build_plan_clips()` (top-K timeline + key_moments,
+  no inline transcripts) with `plan.max_timeline_rows_per_clip` (8) and
+  `plan.max_key_moments_per_clip` (6)
+- [ ] P0c: validate `use_timeline` and transcript selection against full clips while serializing
+  only the projection; include the new plan bounds in the plan lineage
+- [ ] P1 (optional) two-stage candidate shortlist: `plan.max_candidate_clips` (60),
+  `PLAN_SHORTLIST_PROMPT`, deterministic local fallback
+- [ ] P2 (optional) sparse-window completion retry and `compress` width/fps recommendation
+
+**Acceptance:** at `medium` the same clip uses 3.5-4.5x the visual prompt tokens of `low`; new rows
+average ≤20 s and ≤40 chars; `key_moments` 3-8 per clip; France plan input <60k tokens after P0c and
+<30k after P1; old `texts/*.json` still plans without migration; changing resolution/window
+invalidates the analysis cache; pytest, Vitest, Ruff, and the mypy subset stay green.
+
+**Risks:** `medium` costs ~4x visual tokens (a 15-min window goes from ~58k to ~230k), so recommend
+`medium` + `window_max_min: 5`; 640p still caps real detail, so raise `compress.max_width` to
+960-1280 only if sign/food detail matters; project prompt overrides do not inherit the new contract;
+every existing project needs one forced re-analysis.
 
 ### R-047-FU Optional Baidu ASR provider
 
