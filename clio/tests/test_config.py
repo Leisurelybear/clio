@@ -450,6 +450,7 @@ class TestLoadConfig:
         assert isinstance(cfg, AppConfig)
         assert cfg.compress.fps == 15
         assert cfg.compress.target_size_mb == 5
+        assert cfg.compress.remove_audio is False
         assert cfg.proxy.enabled is False
 
     def test_missing_file_raises(self, tmp_path):

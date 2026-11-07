@@ -113,7 +113,7 @@ def tmp_config(tmp_path: Path) -> Path:
         "      base_url: https://api.deepseek.com/v1\n"
         "compress:\n"
         "  fps: 15\n"
-        "  remove_audio: true\n",
+        "  remove_audio: false\n",
         encoding="utf-8",
     )
     proj = tmp_path / "project.yaml"

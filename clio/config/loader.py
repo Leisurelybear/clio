@@ -578,7 +578,7 @@ def load_global_config(config_path: str | Path = "config.yaml") -> GlobalConfig:
         compress=GlobalCompressConfig(
             codec=compress_typed.get("codec", "libx264"),
             fps=compress_typed.get("fps", 15),
-            remove_audio=compress_typed.get("remove_audio", True),
+            remove_audio=compress_typed.get("remove_audio", False),
             crf=compress_typed.get("crf", 32),
         ),
         whisper=GlobalWhisperConfig(

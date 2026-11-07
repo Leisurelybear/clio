@@ -15,7 +15,8 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
   - [x] D2: skip unavailable Whisper transcription with a warning so later steps continue
   - [x] D3: resolve rerun voiceover input after fresh analysis completes
   - [x] Q1: keep duration-based compression above an 800 kbps analysis bitrate floor
-  - [ ] Next: Q2, Q8, Q3, Q9, Q10; one focused fix per commit
+  - [x] Q2: preserve mono low-bitrate audio in compressed analysis media
+  - [ ] Next: Q8, Q3, Q9, Q10; one focused fix per commit
   - Keep the existing uncommitted plan-delete/video-selection work isolated.
 - R-048 Higher-detail video analysis and bounded plan input (plan ready; P0a-P0c not started)
 - R-047-FU Optional Baidu ASR provider (deferred; Aliyun cloud transcription is complete)

@@ -138,7 +138,7 @@ compress:
   fps: 15
   codec: libx264
   crf: 32
-  remove_audio: true
+  remove_audio: false
 
 whisper:
   cache_dir: ""               # 模型缓存目录，为空时使用默认路径 <程序根目录>/models/

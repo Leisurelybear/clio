@@ -31,16 +31,19 @@ def _compress_settings_fingerprint(config: AppConfig) -> dict:
         "max_width": config.compress.max_width,
         "fps": config.compress.fps,
         "target_size_mb": config.compress.target_size_mb,
+        "remove_audio": config.compress.remove_audio,
     }
 
 
 def _meta_matches_settings(meta: VideoMeta, config: AppConfig) -> bool:
     """True when the stored compress settings still match the current config.
 
-    A legacy vmeta without dropped settings is treated as matching (keeps old
-    skip-behavior); any present key that differs forces a re-compress.
+    Legacy vmeta files without audio settings are stale when audio is now kept
+    by default, so they are re-compressed once before being reused.
     """
     stored = meta.compress_settings or {}
+    if "remove_audio" not in stored and not config.compress.remove_audio:
+        return False
     return all(stored.get(k, v) == v for k, v in _compress_settings_fingerprint(config).items())
 
 
@@ -362,6 +365,7 @@ def run_compress_all(
                     "max_width": config.compress.max_width,
                     "fps": config.compress.fps,
                     "target_size_mb": config.compress.target_size_mb,
+                    "remove_audio": config.compress.remove_audio,
                 },
                 split_info=None,
             )

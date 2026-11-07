@@ -90,6 +90,9 @@ class TestCompressVideo:
         assert result == out
         args = calls[0]
         assert "-an" not in args
+        assert args[args.index("-ac") + 1] == "1"
+        assert args[args.index("-c:a") + 1] == "aac"
+        assert args[args.index("-b:a") + 1] == "64k"
         assert "-b:v" in args
 
     def test_crf_mode(self, monkeypatch, tmp_path: Path):

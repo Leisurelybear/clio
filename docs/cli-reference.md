@@ -72,7 +72,7 @@ Exit code is `0` when no blocking problem is found, otherwise non-zero.
 
 ## `compress` — Compress Only
 
-Compress videos in the media folder with ffmpeg to 640p / 5MB / audio-stripped mp4 for later use.
+Compress videos in the media folder with ffmpeg to 640p / 5MB / mono 64 kbps AAC audio for later use.
 Does **not** invoke AI. Suitable for batch compressing first, then manual review later.
 
 Compresses each original to one file under `compressed/` as `<index>_<original stem>.mp4`.
@@ -480,7 +480,7 @@ User in JianYing (CapCut): select segments per plan → add effects → paste vo
 | `target_size_mb` | 5 | Target file size (MB); bitrate is auto-calculated from video duration |
 | `max_width` | 640 | Maximum width |
 | `fps` | 15 | Frame rate |
-| `remove_audio` | true | Strip audio |
+| `remove_audio` | false | Strip audio; when false, keep mono AAC audio at 64 kbps |
 
 ### AI Parameters
 

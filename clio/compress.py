@@ -9,34 +9,11 @@ from pathlib import Path
 from clio.config import AppConfig
 from clio.i18n import t
 from clio.log import format_size, timed
-from clio.utils import get_duration_sec, resolve_binary, run_ffmpeg, run_subprocess
+from clio.utils import get_duration_sec, resolve_binary, run_ffmpeg
 
 ProgressCB = Callable[[float, float], None]  # (current_sec, total_sec)
 MIN_VIDEO_BITRATE = 800_000
-
-
-def _get_audio_bitrate(input_path: Path, ffprobe: str) -> int:
-    """探测音频流实际码率，失败时返回 128kbps 默认值。"""
-    cmd = [
-        ffprobe,
-        "-v",
-        "error",
-        "-select_streams",
-        "a:0",
-        "-show_entries",
-        "stream=bit_rate",
-        "-of",
-        "default=noprint_wrappers=1:nokey=1",
-        str(input_path),
-    ]
-    try:
-        result = run_subprocess(cmd, capture_output=True, text=True, check=True)
-        raw = result.stdout.strip()
-        if raw and raw != "N/A":
-            return int(raw)
-    except Exception:
-        pass
-    return 128_000
+AUDIO_BITRATE = 64_000
 
 
 def compress_video(
@@ -68,12 +45,13 @@ def compress_video(
 
     if cfg.remove_audio:
         args.append("-an")
+    else:
+        args.extend(["-ac", "1", "-c:a", "aac", "-b:a", f"{AUDIO_BITRATE // 1000}k"])
 
     if cfg.target_size_mb > 0:
         target_bits = cfg.target_size_mb * 8 * 1024 * 1024
         if not cfg.remove_audio:
-            audio_bitrate = _get_audio_bitrate(input_path, ffprobe)
-            target_bits -= int(audio_bitrate * duration * 1.05)  # 预留音频码率 + 5% 余量
+            target_bits -= int(AUDIO_BITRATE * duration * 1.05)  # 预留单声道 AAC 音轨 + 5% 余量
         # A strict 5 MB cap makes long clips unusable for visual analysis.
         # Keep the duration-based budget for short clips, but preserve enough
         # detail for long clips instead of falling to ~100 kbps.

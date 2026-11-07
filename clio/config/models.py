@@ -172,7 +172,7 @@ class GlobalAIConfig:
 class GlobalCompressConfig:
     codec: str = "libx264"
     fps: int = 15
-    remove_audio: bool = True
+    remove_audio: bool = False
     crf: int = 32
 
 
@@ -431,7 +431,7 @@ class CompressConfig:
     fps: int = 15
     codec: str = "libx264"
     crf: int = 32
-    remove_audio: bool = True
+    remove_audio: bool = False
 
 
 @dataclass
