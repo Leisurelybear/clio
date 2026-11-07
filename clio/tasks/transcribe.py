@@ -203,8 +203,9 @@ def run_transcribe_all(
         msg = t("task.transcribe.not_ready", {"engine": readiness.display_name, "error": readiness.error})
         print(t("task.transcribe.warning", {"message": msg}))
         if tracker:
-            tracker.error(msg)
-        return 1
+            tracker.log(msg)
+            tracker.update(phase="transcribe", current=0, total=0, message=msg)
+        return 0
 
     transcripts_dir = config.transcripts_dir
     transcripts_dir.mkdir(parents=True, exist_ok=True)

@@ -159,16 +159,21 @@ class TestRunTranscribeAll:
         assert tracker.update.call_args[1].get("phase") == "transcribe"
 
     @patch("clio.transcribe.check_whisper", return_value=False)
-    def test_tracker_error_when_whisper_missing(self, mock_check, cfg, tmp_path):
-        """当 faster-whisper 未安装时 tracker.error 被调用"""
+    def test_whisper_missing_warns_and_allows_pipeline_to_continue(self, mock_check, cfg, tmp_path):
+        """当 faster-whisper 未安装时只记录警告，不阻断后续 pipeline 步骤"""
         from clio.tasks.transcribe import run_transcribe_all
 
         tracker = MagicMock(spec=ProgressTracker)
-        run_transcribe_all(cfg, tracker)
-        tracker.error.assert_called_once()
-        args = tracker.error.call_args[0][0]
+        result = run_transcribe_all(cfg, tracker)
+
+        assert result == 0
+        tracker.error.assert_not_called()
+        tracker.log.assert_called_once()
+        args = tracker.log.call_args[0][0]
         assert "faster-whisper" in args
         assert "whisper install" in args
+        tracker.update.assert_called_once()
+        assert tracker.update.call_args.kwargs["phase"] == "transcribe"
 
     @patch("clio.tasks.transcribe._extract_audio")
     @patch("clio.tasks.transcribe.transcribe_audio")
