@@ -576,7 +576,11 @@ def make_handler(
             if hostname and hostname not in expected and hostname != "localhost":
                 self._send_json({"error": t("api.invalid_host")}, 403)
                 return False
-            origin = self.headers.get("Origin", "") or self.headers.get("Referer", "")
+            origin_header = self.headers.get("Origin")
+            if isinstance(origin_header, str) and origin_header.strip().lower() == "null":
+                self._send_json({"error": t("api.invalid_origin")}, 403)
+                return False
+            origin = origin_header or self.headers.get("Referer", "")
             if origin:
                 try:
                     o = urlparse(origin)
@@ -594,9 +598,9 @@ def make_handler(
             Caller must send the error response for non-None status (except invalid
             JSON, which is already written).
             """
-            if self.__class__._enforce_json_ct and self.headers.get("Content-Type", ""):
+            if self.__class__._enforce_json_ct:
                 ct = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
-                if ct and ct != "application/json":
+                if ct != "application/json":
                     return None, 415
             length, err_status = _parse_json_content_length(self.headers.get("Content-Length", "0"))
             if err_status is not None:

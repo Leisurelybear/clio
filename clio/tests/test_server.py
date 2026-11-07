@@ -1214,6 +1214,15 @@ class TestLocalSession:
         handler.do_GET()
         handler.send_response.assert_called_once_with(403)
 
+    def test_null_origin_rejected_403(self, enforce_cls):
+        """Opaque browser origins must not reach local write-capable APIs."""
+        handler = _build_handler(enforce_cls, path="/api/run/start", method="POST")
+        handler.headers.get.side_effect = lambda k, d=None: (
+            "127.0.0.1:8765" if k == "Host" else "null" if k == "Origin" else "2"
+        )
+        handler.do_POST()
+        handler.send_response.assert_called_once_with(403)
+
     def test_loopback_origin_accepted(self, enforce_cls):
         with patch("clio.ui.server.handle_get_env") as mock_fn:
             handler = _build_handler(enforce_cls, path="/api/env")
@@ -1254,6 +1263,14 @@ class TestLocalSession:
             handler.rfile = io.BytesIO(body)
             handler.do_PUT()
             mock_fn.assert_called_once()
+
+    @pytest.mark.parametrize(("method", "path"), [("PUT", "/api/plan"), ("POST", "/api/plan/readiness")])
+    def test_missing_content_type_rejected_415(self, enforce_cls, method, path):
+        """Local write requests must declare a JSON content type."""
+        handler = _build_handler(enforce_cls, path=path, method=method)
+        handler.headers.get.side_effect = lambda k, d=None: "127.0.0.1:8765" if k == "Host" else "2"
+        getattr(handler, f"do_{method}")()
+        handler.send_response.assert_called_once_with(415)
 
     def test_gate_off_by_default_allows_any_host(self, handler_cls):
         """Default handlers (no desktop session) accept any Host the token passes."""
