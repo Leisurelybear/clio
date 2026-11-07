@@ -250,35 +250,34 @@ def _process_video_item(
     analysis = None
     # Lineage or source mismatches: keep the old files until a fresh analysis
     # has been committed, so a failed re-run never loses the previous result.
-    stale_candidates: list[Path] = []
+    stale_candidates: list[Path] = list(existing) if overwrite or not config.analyze.skip_existing else []
     if not overwrite and config.analyze.skip_existing and existing:
-        candidate = existing[0]
-        try:
-            existing_data = json.loads(candidate.read_text(encoding="utf-8"))
-            if existing_data.get("source_file", "") == original.name:
-                lineage_ok = existing_data.get("_lineage") == _analysis_lineage_fingerprint(
-                    config, task_prompts, effective_context
-                )
-                if lineage_ok:
+        current_lineage = _analysis_lineage_fingerprint(config, task_prompts, effective_context)
+        for candidate in existing:
+            try:
+                existing_data = json.loads(candidate.read_text(encoding="utf-8"))
+                source_matches = existing_data.get("source_file", "") == original.name
+                if source_matches and existing_data.get("_lineage") == current_lineage and json_path is None:
                     json_path = candidate
                     analysis = existing_data
-                elif existing_data.get("_lineage") is None:
+                    continue
+                if source_matches and existing_data.get("_lineage") is None and json_path is None:
                     # Pre-lineage cache: accept and stamp the current lineage so
                     # future prompt/model changes invalidate it.
                     json_path = candidate
                     analysis = existing_data
-                    analysis["_lineage"] = _analysis_lineage_fingerprint(config, task_prompts, effective_context)
+                    analysis["_lineage"] = current_lineage
                     write_json_atomic(candidate, analysis)
                     if tracker:
                         tracker.log(t("task.analyze.lineage_stamped", {"name": candidate.name}))
-                else:
+                    continue
+                if source_matches:
                     print(t("task.analyze.overwrite_prompt_changed", {"name": candidate.name}))
-                    stale_candidates.append(candidate)
-            else:
-                print(t("task.analyze.overwrite_source_mismatch", {"name": candidate.name}))
-                stale_candidates.append(candidate)
-        except (json.JSONDecodeError, OSError):
-            pass
+                else:
+                    print(t("task.analyze.overwrite_source_mismatch", {"name": candidate.name}))
+            except (json.JSONDecodeError, OSError):
+                pass
+            stale_candidates.append(candidate)
     if json_path:
         text_path = json_path.with_suffix(".txt")
         if tracker:

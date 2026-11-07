@@ -7,6 +7,8 @@ import threading
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from clio.tasks.analyze import run_analyze_all
 from clio.vmeta import VideoMeta
 
@@ -392,6 +394,52 @@ class TestRunAnalyzeAll:
         records = run_analyze_all(cfg, overwrite=True)
         assert len(records) == 1
         assert analyze_called is True
+        assert not existing.exists()
+
+    def test_overwrite_removes_all_old_titles_after_success(self, monkeypatch, tmp_path: Path):
+        cfg = _cfg(tmp_path)
+        _add_original(cfg, "GL010695.mp4")
+        comp = cfg.compressed_dir / "001_GL010695.mp4"
+        comp.write_bytes(b"\x00" * 100)
+        old_files = [cfg.texts_dir / "001_Old.json", cfg.texts_dir / "001_Older.json"]
+        for path in old_files:
+            path.write_text(
+                json.dumps({"title": path.stem, "source_file": "GL010695.mp4"}),
+                encoding="utf-8",
+            )
+            path.with_suffix(".txt").write_text("old", encoding="utf-8")
+
+        _common_mocks(monkeypatch)
+        monkeypatch.setattr("clio.tasks.analyze.get_duration_sec", lambda *a: 60.0)
+        monkeypatch.setattr(
+            "clio.tasks.analyze.analyze_video",
+            lambda *a, **kw: {"title": "Fresh", "summary": "new", "location": "X"},
+        )
+
+        records = run_analyze_all(cfg, overwrite=True)
+
+        assert len(records) == 1
+        assert sorted(path.name for path in cfg.texts_dir.glob("*.json")) == ["001_Fresh.json"]
+        assert not any(path.with_suffix(".txt").exists() for path in old_files)
+
+    def test_overwrite_failure_keeps_old_results(self, monkeypatch, tmp_path: Path):
+        cfg = _cfg(tmp_path)
+        _add_original(cfg, "GL010695.mp4")
+        comp = cfg.compressed_dir / "001_GL010695.mp4"
+        comp.write_bytes(b"\x00" * 100)
+        existing = cfg.texts_dir / "001_Old.json"
+        existing.write_text(json.dumps({"title": "Old", "source_file": "GL010695.mp4"}), encoding="utf-8")
+
+        _common_mocks(monkeypatch)
+        monkeypatch.setattr("clio.tasks.analyze.get_duration_sec", lambda *a: 60.0)
+        monkeypatch.setattr(
+            "clio.tasks.analyze.analyze_video", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("failed"))
+        )
+
+        with pytest.raises(RuntimeError):
+            run_analyze_all(cfg, overwrite=True)
+
+        assert existing.exists()
 
     def test_multi_window_merges_and_writes_one_json(self, monkeypatch, tmp_path: Path):
         cfg = _cfg(tmp_path)
