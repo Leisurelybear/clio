@@ -13,7 +13,8 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
   - [x] C1: make original media the default source for cut jobs and editor actions
   - [x] D1: remove every superseded same-source analysis artifact after successful overwrite
   - [x] D2: skip unavailable Whisper transcription with a warning so later steps continue
-  - [ ] Next: D3, Q1, Q2, Q8, Q3, Q9, Q10; one focused fix per commit
+  - [x] D3: resolve rerun voiceover input after fresh analysis completes
+  - [ ] Next: Q1, Q2, Q8, Q3, Q9, Q10; one focused fix per commit
   - Keep the existing uncommitted plan-delete/video-selection work isolated.
 - R-048 Higher-detail video analysis and bounded plan input (plan ready; P0a-P0c not started)
 - R-047-FU Optional Baidu ASR provider (deferred; Aliyun cloud transcription is complete)

@@ -543,6 +543,20 @@ class TestHandlePostRerun:
         payload = handler._send_json.call_args[0][0]
         assert payload["ok"] is True, f"Expected ok=True, got {payload}"
 
+    def test_all_rerun_does_not_require_existing_analysis(self, tmp_path: Path, _handler, monkeypatch):
+        """新视频可以先分析，再由 all rerun 使用本次生成的分析结果。"""
+        handler = _handler
+        handler._get_task_manager = lambda: _rerun_manager(tmp_path, monkeypatch)
+        proj_dir = tmp_path / "input"
+        proj_dir.mkdir()
+        (proj_dir / "GL010695.MP4").write_bytes(b"")
+        handler._resolve_project_dir.return_value = proj_dir
+
+        handle_post_rerun(handler, {}, {"video": "GL010695.MP4", "task": "all", "source": "original"})
+
+        payload = handler._send_json.call_args[0][0]
+        assert payload["ok"] is True
+
 
 class TestManagedRunIntegration:
     def test_start_submits_managed_pipeline_and_returns_task_id(self, tmp_path, monkeypatch):
@@ -860,6 +874,37 @@ class TestRunRerunTask:
         _run_rerun_task(context)
 
         assert captured["single_file"] == texts_json
+
+    def test_all_uses_analysis_path_created_by_current_rerun(self, tmp_path, monkeypatch):
+        from clio.tasks._helpers import ClipRecord
+
+        context, cfg = self._make_context(tmp_path, task="all")
+        new_texts_json = tmp_path / "new_title.json"
+        new_texts_json.write_text("{}", encoding="utf-8")
+        captured = {}
+        monkeypatch.setattr("clio.ui.routes.run.load_config", lambda *a, **k: copy.deepcopy(cfg))
+        monkeypatch.setattr("clio.ui.routes.run.run_compress_all", lambda *a, **kw: None)
+        monkeypatch.setattr(
+            "clio.ui.routes.run.run_analyze_all",
+            lambda *a, **kw: [
+                ClipRecord(
+                    index=1,
+                    stem="001_new_title",
+                    source_path=Path("source"),
+                    text_path=new_texts_json,
+                )
+            ],
+        )
+
+        def fake_scripts(config, *args, single_file=None, **kw):
+            captured["single_file"] = single_file
+
+        monkeypatch.setattr("clio.ui.routes.run.run_generate_scripts", fake_scripts)
+        monkeypatch.setattr("clio.ui.routes.run.run_transcribe_one", lambda *a, **kw: {})
+
+        _run_rerun_task(context)
+
+        assert captured["single_file"] == new_texts_json
 
     def test_transcribe_whisper_missing_raises(self, tmp_path, monkeypatch):
         context, cfg = self._make_context(tmp_path, task="transcribe")

@@ -152,7 +152,18 @@ def _run_rerun_task(context) -> dict[str, Any]:
                 continue
             context.reporter.raise_if_cancelled()
             _log(f"Step: {step_label}...")
-            step_fn()
+            step_result = step_fn()
+            if task_name == "all" and step_name == "analyze":
+                texts_json = next(
+                    (
+                        Path(record.text_path)
+                        for record in (step_result or [])
+                        if getattr(record, "text_path", None) is not None
+                    ),
+                    None,
+                )
+                if texts_json is None:
+                    raise RuntimeError(f"no analysis result found for {video_basename}")
             _log(f"✓ {step_label} complete")
         if task_name in ("transcribe", "all"):
             context.reporter.raise_if_cancelled()
@@ -542,7 +553,7 @@ def handle_post_rerun(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -
         re.sub(r"[^a-zA-Z0-9_-]", "", raw_index) if raw_index else (stem.split("_", 1)[0] if "_" in stem else stem)
     )
     texts_json = None
-    if task in ("voiceover", "all"):
+    if task == "voiceover":
         for td in _find_texts_dirs(
             proj_out,
             preferred_subdir=getattr(getattr(cfg, "analyze", None), "texts_subdir", None) or "texts",
