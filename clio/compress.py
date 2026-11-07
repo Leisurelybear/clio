@@ -12,6 +12,7 @@ from clio.log import format_size, timed
 from clio.utils import get_duration_sec, resolve_binary, run_ffmpeg, run_subprocess
 
 ProgressCB = Callable[[float, float], None]  # (current_sec, total_sec)
+MIN_VIDEO_BITRATE = 800_000
 
 
 def _get_audio_bitrate(input_path: Path, ffprobe: str) -> int:
@@ -73,7 +74,10 @@ def compress_video(
         if not cfg.remove_audio:
             audio_bitrate = _get_audio_bitrate(input_path, ffprobe)
             target_bits -= int(audio_bitrate * duration * 1.05)  # 预留音频码率 + 5% 余量
-        video_bitrate = max(int(target_bits / duration * 0.95), 100_000)
+        # A strict 5 MB cap makes long clips unusable for visual analysis.
+        # Keep the duration-based budget for short clips, but preserve enough
+        # detail for long clips instead of falling to ~100 kbps.
+        video_bitrate = max(int(target_bits / duration * 0.95), MIN_VIDEO_BITRATE)
         args.extend(
             [
                 "-b:v",

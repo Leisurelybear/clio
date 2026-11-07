@@ -135,7 +135,22 @@ class TestCompressVideo:
         compress_video(src, out, cfg)
         args = ffmpeg_calls[0]
         bv_idx = args.index("-b:v")
-        assert int(args[bv_idx + 1]) >= 100_000
+        assert int(args[bv_idx + 1]) >= 800_000
+
+    def test_long_video_keeps_analysis_bitrate_floor(self, monkeypatch, tmp_path: Path):
+        src = tmp_path / "input.mp4"
+        src.write_bytes(b"\x00" * 100_000)
+        out = tmp_path / "out.mp4"
+        monkeypatch.setattr("clio.compress.resolve_binary", lambda *a: "ffmpeg")
+        monkeypatch.setattr("clio.compress.get_duration_sec", lambda *a: 600.0)
+        ffmpeg_calls = []
+        monkeypatch.setattr("clio.compress.run_ffmpeg", _mock_ffmpeg(ffmpeg_calls))
+
+        compress_video(src, out, _default_config())
+
+        args = ffmpeg_calls[0]
+        bv_idx = args.index("-b:v")
+        assert int(args[bv_idx + 1]) == 800_000
 
     def test_cancel_during_compress(self, monkeypatch, tmp_path: Path):
         """cancel_event 被设置时 run_ffmpeg 应抛出 InterruptedError"""
