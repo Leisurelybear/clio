@@ -25,6 +25,22 @@ class TestHandleGetEnv:
 
         handler._send_json.assert_called_once_with({"content": "KEY=val\n", "path": str(dotenv)})
 
+    def test_masks_allowed_secret_values(self, tmp_path: Path):
+        handler = MagicMock()
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text("key: val\n", encoding="utf-8")
+        dotenv = tmp_path / ".env"
+        dotenv.write_text("GEMINI_API_KEY=super-secret\nSAFE_NOTE=visible\n", encoding="utf-8")
+        handler.config_path = cfg
+        handler._send_json = MagicMock()
+
+        handle_get_env(handler, {})
+
+        content = handler._send_json.call_args.args[0]["content"]
+        assert "super-secret" not in content
+        assert "GEMINI_API_KEY=********" in content
+        assert "SAFE_NOTE=visible" in content
+
     def test_returns_template_when_missing(self, tmp_path: Path):
         handler = MagicMock()
         cfg = tmp_path / "config.yaml"
@@ -65,6 +81,33 @@ class TestHandlePutEnv:
         handler._send_json.assert_called_once_with({"ok": False, "error": "content must be a string"}, 400)
         assert not (tmp_path / ".env").exists()
 
+    def test_rejects_unsafe_environment_variable(self, tmp_path: Path):
+        handler = MagicMock()
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text("key: val\n", encoding="utf-8")
+        handler.config_path = cfg
+        handler._send_json = MagicMock()
+
+        handle_put_env(handler, {}, {"content": "PATH=C:\\evil\n"})
+
+        assert handler._send_json.call_args.args[1] == 400
+        assert not (tmp_path / ".env").exists()
+
+    def test_preserves_masked_secret_on_round_trip(self, tmp_path: Path):
+        handler = MagicMock()
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text("key: val\n", encoding="utf-8")
+        handler.config_path = cfg
+        handler.__class__._config_cache = MagicMock()
+        handler._send_json = MagicMock()
+        dotenv = tmp_path / ".env"
+        dotenv.write_text("GEMINI_API_KEY=super-secret\n", encoding="utf-8")
+
+        with patch("clio.ui.routes.env_routes._load_dotenv"), patch("clio.ui.routes.env_routes._clear_provider_cache"):
+            handle_put_env(handler, {}, {"content": "GEMINI_API_KEY=********\n"})
+
+        assert dotenv.read_text(encoding="utf-8") == "GEMINI_API_KEY=super-secret\n"
+
     def test_invalidates_cache_after_save(self, tmp_path: Path):
         handler = MagicMock()
         cfg = tmp_path / "config.yaml"
@@ -77,7 +120,7 @@ class TestHandlePutEnv:
             patch("clio.ui.routes.env_routes._load_dotenv"),
             patch("clio.ui.routes.env_routes._clear_provider_cache") as mock_clear,
         ):
-            handle_put_env(handler, {}, {"content": "K=v\n"})
+            handle_put_env(handler, {}, {"content": "GEMINI_API_KEY=v\n"})
 
         handler.__class__._config_cache.invalidate_all.assert_called_once()
         mock_clear.assert_called_once()
@@ -94,10 +137,10 @@ class TestHandlePutEnv:
             patch("clio.ui.routes.env_routes._load_dotenv") as mock_load,
             patch("clio.ui.routes.env_routes._clear_provider_cache"),
         ):
-            handle_put_env(handler, {}, {"content": "NEW_KEY=val\n"})
+            handle_put_env(handler, {}, {"content": "GEMINI_API_KEY=val\n"})
 
         dotenv = tmp_path / ".env"
-        assert dotenv.read_text(encoding="utf-8") == "NEW_KEY=val\n"
+        assert dotenv.read_text(encoding="utf-8") == "GEMINI_API_KEY=val\n"
         mock_load.assert_called_once()
 
     def test_returns_path_in_response(self, tmp_path: Path):
@@ -109,7 +152,7 @@ class TestHandlePutEnv:
         handler._send_json = MagicMock()
 
         with patch("clio.ui.routes.env_routes._load_dotenv"):
-            handle_put_env(handler, {}, {"content": "K=v\n"})
+            handle_put_env(handler, {}, {"content": "GEMINI_API_KEY=v\n"})
 
         handler._send_json.assert_called_once()
         args = handler._send_json.call_args
@@ -173,12 +216,12 @@ class TestHandlePutEnv:
         handler.__class__._config_cache = MagicMock()
         handler._send_json = MagicMock()
         dotenv = tmp_path / ".env"
-        dotenv.write_text("MY_KEY=new_value\n", encoding="utf-8")
+        dotenv.write_text("GEMINI_API_KEY=new_value\n", encoding="utf-8")
         if os.name != "nt":
             os.chmod(dotenv, 0o600)
 
         with patch("clio.ui.routes.env_routes._load_dotenv") as mock_load:
-            handle_put_env(handler, {}, {"content": "MY_KEY=new_value\n"})
+            handle_put_env(handler, {}, {"content": "GEMINI_API_KEY=new_value\n"})
 
         mock_load.assert_called_once_with(tmp_path, override=True)
 
@@ -192,10 +235,10 @@ class TestHandlePutEnv:
         handler._send_json = MagicMock()
 
         with patch("clio.ui.routes.env_routes._load_dotenv"):
-            handle_put_env(handler, {}, {"content": "NEW=val\n"})
+            handle_put_env(handler, {}, {"content": "GEMINI_API_KEY=val\n"})
 
         dotenv = tmp_path / ".env"
-        assert dotenv.read_text(encoding="utf-8") == "NEW=val\n"
+        assert dotenv.read_text(encoding="utf-8") == "GEMINI_API_KEY=val\n"
 
     @pytest.mark.skipif(os.name == "nt", reason="POSIX mode bits not applicable on Windows")
     def test_403_on_overwrite_of_insecure_existing(self, tmp_path: Path):
@@ -207,14 +250,14 @@ class TestHandlePutEnv:
         handler.__class__._config_cache = MagicMock()
         handler._send_json = MagicMock()
         dotenv = tmp_path / ".env"
-        dotenv.write_text("OLD=1\n", encoding="utf-8")
+        dotenv.write_text("GEMINI_API_KEY=old\n", encoding="utf-8")
         os.chmod(dotenv, 0o644)
 
         with patch("clio.ui.routes.env_routes._load_dotenv"):
-            handle_put_env(handler, {}, {"content": "NEW=2\n"})
+            handle_put_env(handler, {}, {"content": "GEMINI_API_KEY=new\n"})
 
         handler._send_json.assert_called_once()
         args = handler._send_json.call_args
         assert args[0][1] == 403
         assert args[0][0]["ok"] is False
-        assert dotenv.read_text(encoding="utf-8") == "OLD=1\n"
+        assert dotenv.read_text(encoding="utf-8") == "GEMINI_API_KEY=old\n"

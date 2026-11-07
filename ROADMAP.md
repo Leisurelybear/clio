@@ -22,6 +22,7 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
   - [x] Q10: pass clip duration, capture time, mood, and saved voiceover into plan inputs
   - [x] B3: defer expired provider closure until active AI calls finish
   - [x] B4: share dotenv parsing and preserve shell-only environment variables on UI save
+  - [x] B5: whitelist dotenv keys and never expose API key values through the UI API
   - [ ] Next: continue the review backlog; one focused fix per commit
   - Keep the existing uncommitted plan-delete/video-selection work isolated.
 - R-048 Higher-detail video analysis and bounded plan input (plan ready; P0a-P0c not started)

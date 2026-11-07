@@ -316,7 +316,7 @@ describe('_renderProviderList', () => {
     const html = _renderProviderList({ gemini: GEMINI_PROVIDER });
     expect(html).toContain('••••••••••');
     expect(html).toContain('btn-provider-show-key');
-    expect(html).toContain('显示');
+    expect(html).toContain('查看状态');
   });
 
   it('renders edit and delete buttons for non-default providers', () => {

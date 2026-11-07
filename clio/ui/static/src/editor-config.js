@@ -1145,7 +1145,7 @@ export function _attachProviderListHandlers(pane, providersObj) {
 
   // Show/hide key buttons
   pane.querySelectorAll('.btn-provider-show-key').forEach(btn => {
-    btn.onclick = async () => {
+    btn.onclick = () => {
       const wrap = btn.closest('.provider-key-wrap');
       if (!wrap) return;
       const masked = wrap.querySelector('.provider-key-masked');
@@ -1156,25 +1156,7 @@ export function _attachProviderListHandlers(pane, providersObj) {
         masked.style.display = '';
         btn.textContent = t('settings.provider.show_key');
       } else {
-        if (!value.textContent) {
-          const providerName = wrap.dataset.provider;
-          const envName = providerName.toUpperCase() + '_API_KEY';
-          try {
-            const existing = await api('GET', '/api/env');
-            const lines = (existing.content || '').split('\n');
-            let found = false;
-            for (const line of lines) {
-              if (line.startsWith(envName + '=')) {
-                value.textContent = line.slice(envName.length + 1);
-                found = true;
-                break;
-              }
-            }
-            if (!found) { setStatus(t('settings.provider.env_not_found', { name: envName }), 'warn'); return; }
-          } catch {
-            setStatus(t('settings.env.read_failed'), 'err'); return;
-          }
-        }
+        value.textContent = t('settings.provider.key_not_exposed');
         value.style.display = '';
         masked.style.display = 'none';
         btn.textContent = t('settings.provider.hide_key');
