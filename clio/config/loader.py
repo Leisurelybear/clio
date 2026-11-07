@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import os
+import re
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -90,17 +91,31 @@ def _path(value: str | None, base: Path | None = None) -> Path:
     return path.resolve()
 
 
+_DOTENV_KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$")
+
+
+def parse_dotenv(content: str) -> dict[str, str]:
+    """Parse simple KEY=value dotenv entries shared by config loading and UI saves."""
+    values: dict[str, str] = {}
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].lstrip()
+        match = _DOTENV_KEY_RE.match(line)
+        if match:
+            values[match.group(1)] = match.group(2).strip().strip('"').strip("'")
+    return values
+
+
 def _load_dotenv(base: Path, override: bool = False) -> None:
     env_file = base / ".env"
     if not env_file.is_file():
         return
-    for line in env_file.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        key, value = key.strip(), value.strip().strip('"').strip("'")
-        if key and (override or key not in os.environ):
+    values = parse_dotenv(env_file.read_text(encoding="utf-8"))
+    for key, value in values.items():
+        if override or key not in os.environ:
             os.environ[key] = value
 
 

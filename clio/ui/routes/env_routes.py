@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import os
-import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from clio.ai.factory import _clear_provider_cache
 from clio.config import _load_dotenv  # noqa: F401 — kept for test mocks
+from clio.config.loader import parse_dotenv
 from clio.i18n import t
 from clio.utils import write_secret_atomic
 
@@ -57,27 +57,12 @@ def handle_put_env(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> N
 
 
 def _sync_env_to_environ(content: str, config_dir: Path, *, previous_content: str = "") -> None:
-    """Parse .env content and sync to os.environ: add/update present keys, remove absent ones."""
-
-    def parse(raw: str) -> dict[str, str]:
-        values: dict[str, str] = {}
-        for line in raw.splitlines():
-            line = line.strip()
-            m = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$", line)
-            if m and not line.startswith("#"):
-                values[m.group(1)] = m.group(2).strip().strip('"').strip("'")
-        return values
-
-    new_keys = parse(content)
-    previous_keys = parse(previous_content)
+    """Sync only keys managed by the previous/new .env content."""
+    del config_dir
+    new_keys = parse_dotenv(content)
+    previous_keys = parse_dotenv(previous_content)
     for key, old_value in previous_keys.items():
         if key not in new_keys and os.environ.get(key) == old_value:
             del os.environ[key]
-    for key in list(os.environ.keys()):
-        if key.startswith(("DEEPSEEK_", "GEMINI_", "OPENAI_", "MOONSHOT_", "TONGYI_", "DASHSCOPE_")):
-            if key in new_keys:
-                os.environ[key] = new_keys[key]
-            else:
-                del os.environ[key]
     for key, val in new_keys.items():
         os.environ[key] = val

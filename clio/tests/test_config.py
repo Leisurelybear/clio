@@ -674,6 +674,14 @@ class TestWhisperConfig:
 
 
 class TestLoadDotenv:
+    def test_parse_dotenv_matches_loader_rules(self):
+        from clio.config.loader import parse_dotenv
+
+        assert parse_dotenv('export A = "one"\nB=two\n# C=ignored\ninvalid key=x\n') == {
+            "A": "one",
+            "B": "two",
+        }
+
     def test_override_false_skips_existing(self, tmp_path, monkeypatch):
         monkeypatch.setenv("EXISTING_KEY", "old")
         (tmp_path / ".env").write_text("EXISTING_KEY=new\n", encoding="utf-8")

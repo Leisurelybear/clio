@@ -149,6 +149,22 @@ class TestHandlePutEnv:
 
         assert "MY_GEMINI_API_KEY" not in os.environ
 
+    def test_shell_only_provider_key_is_preserved(self, tmp_path: Path, monkeypatch):
+        handler = MagicMock()
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text("key: val\n", encoding="utf-8")
+        handler.config_path = cfg
+        handler.__class__._config_cache = MagicMock()
+        handler._send_json = MagicMock()
+        monkeypatch.setenv("GEMINI_SHELL_ONLY", "keep-me")
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "old")
+
+        with patch("clio.ui.routes.env_routes._load_dotenv"):
+            handle_put_env(handler, {}, {"content": "DEEPSEEK_API_KEY=from-file\n"})
+
+        assert os.environ["GEMINI_SHELL_ONLY"] == "keep-me"
+        assert os.environ["DEEPSEEK_API_KEY"] == "from-file"
+
     def test_overrides_existing_env_var(self, tmp_path: Path):
         handler = MagicMock()
         cfg = tmp_path / "config.yaml"

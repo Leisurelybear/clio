@@ -9,6 +9,7 @@ from clio.config.loader import (
     load_config,
     load_global_config,
     load_project_config,
+    parse_dotenv,
 )
 from clio.config.models import (
     AIConfig,
@@ -84,6 +85,7 @@ __all__ = [
     "WhisperLang",
     "WhisperModelSize",
     "_load_dotenv",
+    "parse_dotenv",
     "_path",
     "apply_run_paths",
     "deep_merge",
