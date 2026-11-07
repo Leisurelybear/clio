@@ -469,6 +469,18 @@ class TestLoadConfig:
         assert path.name == "config.example.yaml"
         assert "ai:" in path.read_text(encoding="utf-8")
 
+    def test_example_configs_use_reasoning_model_for_vlog_plan(self):
+        from clio.config.loader import _example_config_path
+
+        global_example = _example_config_path()
+        assert global_example is not None
+        global_data = yaml.safe_load(global_example.read_text(encoding="utf-8"))
+        assert global_data["ai"]["default_tasks"]["vlog_plan"]["model"] == "deepseek-reasoner"
+
+        project_example = global_example.parent / "docs" / "project.example.yaml"
+        project_data = yaml.safe_load(project_example.read_text(encoding="utf-8"))
+        assert project_data["ai"]["tasks"]["vlog_plan"]["model"] == "deepseek-reasoner"
+
     def test_auto_generates_missing_config(self, tmp_path):
         target = tmp_path / "nested" / "config.yaml"
         cfg = load_config(target)

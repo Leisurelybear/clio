@@ -75,7 +75,7 @@ ai:
       model: deepseek-chat
     vlog_plan:
       provider: deepseek
-      model: deepseek-chat
+      model: deepseek-reasoner
 
   # 已缓存的 AI 提供商过期间隔（分钟），超时后自动关闭重建。
   # 长时间运行的 UI 服务建议设 60-120，避免旧 HTTP session 泄漏。

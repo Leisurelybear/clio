@@ -30,7 +30,7 @@ ai:
       model: deepseek-chat
     vlog_plan:
       provider: deepseek
-      model: deepseek-chat
+      model: deepseek-reasoner
 
 compress:
   target_size_mb: 5
