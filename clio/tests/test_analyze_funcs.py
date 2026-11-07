@@ -10,8 +10,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from clio.ai.base import AIResponse
+from clio.ai.base import AIResponse, TokenUsage
 from clio.analyze import (
+    _call_ai,
     _merge_refinement_result,
     _select_transcript_segments,
     _validate_analysis,
@@ -31,6 +32,39 @@ def _fake_config(context: str = "", context_override: str | None = None) -> Simp
         paths=SimpleNamespace(input_dir=Path("/tmp")),
         project_dir=None,
     )
+
+
+def test_call_ai_retries_truncated_response_once():
+    provider_call = MagicMock(
+        side_effect=[
+            AIResponse('{"partial":', TokenUsage(total_tokens=5), "MAX_TOKENS"),
+            AIResponse('{"ok":true}', TokenUsage(total_tokens=8)),
+        ]
+    )
+    token_store = MagicMock()
+
+    result = _call_ai(
+        "video analysis",
+        "gemini",
+        "gemini-2.5-flash",
+        "prompt",
+        provider_call,
+        token_store=token_store,
+        task_name="video_analyze",
+    )
+
+    assert result == '{"ok":true}'
+    assert provider_call.call_count == 2
+    assert token_store.record.call_count == 2
+
+
+def test_call_ai_rejects_repeated_truncation():
+    provider_call = MagicMock(return_value=AIResponse('{"partial":', finish_reason="length"))
+
+    with pytest.raises(RuntimeError, match="连续两次输出被截断"):
+        _call_ai("video analysis", "gemini", "model", "prompt", provider_call)
+
+    assert provider_call.call_count == 2
 
 
 class TestWrapWithContext:

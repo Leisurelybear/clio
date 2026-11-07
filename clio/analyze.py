@@ -37,6 +37,15 @@ _REFINEMENT_IMMUTABLE_FIELDS = {
     "media_identity",
     "source_file",
 }
+_TRUNCATED_FINISH_REASONS = {"length", "max_tokens", "max_output_tokens"}
+
+
+def _is_truncated_response(response: AIResponse) -> bool:
+    reason = response.finish_reason
+    if reason is None:
+        return False
+    normalized = str(reason).rsplit(".", 1)[-1].strip().lower()
+    return normalized in _TRUNCATED_FINISH_REASONS
 
 
 def _store_trip_context(project_dir: str, key: str, text: str) -> None:
@@ -326,14 +335,19 @@ def _call_ai(
         print("=" * 60)
     prompt_bytes = len(prompt.encode("utf-8"))
     print(f"  AI: {provider_id}/{model}（prompt {format_size(prompt_bytes)}）")
-    with timed(f"{label} {provider_id}/{model}"):
-        resp = fn()
-    print(t("analyze.response_size", {"size": format_size(len(resp.text.encode("utf-8")))}))
-    if getattr(resp, "finish_reason", None) in ("length", "max_tokens"):
+    for attempt in range(2):
+        with timed(f"{label} {provider_id}/{model}"):
+            resp = fn()
+        print(t("analyze.response_size", {"size": format_size(len(resp.text.encode("utf-8")))}))
+        if token_store and resp.token_usage:
+            token_store.record(task_name or label, model, resp.token_usage)
+        if not _is_truncated_response(resp):
+            return resp.text
         print(t("analyze.truncated_output", {"reason": resp.finish_reason}))
-    if token_store and resp.token_usage:
-        token_store.record(task_name or label, model, resp.token_usage)
-    return resp.text
+        if attempt == 0:
+            print(t("analyze.truncated_retry"))
+
+    raise RuntimeError(t("analyze.truncated_retry_failed", {"label": label}))
 
 
 def _timeline_intervals(clip: dict) -> list[tuple[float, float]]:

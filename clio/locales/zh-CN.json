@@ -42,6 +42,8 @@
   "analyze.response_size": "  响应: {size}",
   "analyze.too_many_windows": "分析窗数量过多（{count} 个，最多 {max} 个），请增大 window_max_min 或减小 window_overlap_sec",
   "analyze.truncated_output": "  [警告] 模型输出被截断 (finish_reason={reason})，JSON 可能不完整；可在 config.yaml 提高该 provider 的 max_tokens 后重试",
+  "analyze.truncated_retry": "  模型输出被截断，正在重试一次",
+  "analyze.truncated_retry_failed": "{label}: 连续两次输出被截断，未保存不完整结果",
   "analyze.voiceover_cancelled": "voiceover 被用户取消",
   "analyze.warn_confidence_invalid": "  [警告] {source}: 字段 _confidence 类型非法，重置为 0.0",
   "analyze.warn_duration_hint_invalid": "  [警告] {source}: 字段 duration_hint_sec 类型非法，重置为 20",

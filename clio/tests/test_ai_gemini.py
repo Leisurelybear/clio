@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -332,6 +333,20 @@ class TestGenerateText:
         assert result.text == "hello world"
         self._client_mock.models.generate_content.assert_called_once_with(model="gemini-2.5-flash", contents="hi")
 
+    def test_returns_finish_reason(self):
+        from google.genai import types
+
+        response = SimpleNamespace(
+            text='{"partial":',
+            candidates=[SimpleNamespace(finish_reason=types.FinishReason.MAX_TOKENS)],
+            usage_metadata=None,
+        )
+        self._client_mock.models.generate_content.return_value = response
+
+        result = self._prov.generate_text("hi", "gemini-2.5-flash")
+
+        assert result.finish_reason == "MAX_TOKENS"
+
     def test_empty_response(self):
         response_mock = MagicMock()
         response_mock.text = ""
@@ -380,10 +395,12 @@ class TestAnalyzeVideo:
 
         response_mock = MagicMock()
         response_mock.text = "analysis result"
+        response_mock.candidates = [SimpleNamespace(finish_reason="STOP")]
         self._client_mock.models.generate_content.return_value = response_mock
 
         result = self._prov.analyze_video(str(self._video), "describe this", "gemini-2.5-flash")
         assert result.text == "analysis result"
+        assert result.finish_reason == "STOP"
         self._client_mock.files.delete.assert_called_once_with(name="files/test123")
 
     def test_file_too_large(self, tmp_path):

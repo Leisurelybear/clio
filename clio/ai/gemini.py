@@ -24,6 +24,16 @@ except ImportError:
     _HAS_GENAI_ERRORS = False
 
 
+def _extract_finish_reason(response) -> str | None:
+    candidates = getattr(response, "candidates", None)
+    if not isinstance(candidates, (list, tuple)) or not candidates:
+        return None
+    reason = getattr(candidates[0], "finish_reason", None)
+    if reason is None:
+        return None
+    return getattr(reason, "name", None) or getattr(reason, "value", None) or str(reason)
+
+
 class GeminiProvider:
     provider_id = "gemini"
 
@@ -197,7 +207,11 @@ class GeminiProvider:
                     contents=prompt,
                     config=self._generation_config,
                 )
-            return AIResponse(text=response.text or "", token_usage=self._extract_usage(response))
+            return AIResponse(
+                text=response.text or "",
+                token_usage=self._extract_usage(response),
+                finish_reason=_extract_finish_reason(response),
+            )
 
         return self._call_with_retry(_do, model, model)
 
@@ -248,7 +262,11 @@ class GeminiProvider:
                         contents=[uploaded, prompt],
                         config=self._generation_config,
                     )
-                return AIResponse(text=response.text or "", token_usage=self._extract_usage(response))
+                return AIResponse(
+                    text=response.text or "",
+                    token_usage=self._extract_usage(response),
+                    finish_reason=_extract_finish_reason(response),
+                )
 
             return self._call_with_retry(_do, t("ai.retry_what_video", {"model": model}), model)
         finally:

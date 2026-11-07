@@ -42,6 +42,8 @@
   "analyze.response_size": "  Response: {size}",
   "analyze.too_many_windows": "Too many analyze windows ({count}, at most {max}); increase window_max_min or decrease window_overlap_sec",
   "analyze.truncated_output": "  [warning] model output was truncated (finish_reason={reason}); JSON may be incomplete. Raise max_tokens for this provider in config.yaml and retry",
+  "analyze.truncated_retry": "  Model output was truncated; retrying once",
+  "analyze.truncated_retry_failed": "{label}: output was truncated twice; incomplete result was not saved",
   "analyze.voiceover_cancelled": "voiceover cancelled by the user",
   "analyze.warn_confidence_invalid": "  [warning] {source}: field _confidence has an invalid type; reset to 0.0",
   "analyze.warn_duration_hint_invalid": "  [warning] {source}: field duration_hint_sec has an invalid type; reset to 20",
