@@ -82,6 +82,10 @@ class TestResolveDevice:
         mock_cuda_count.return_value = 1
         assert _resolve_device(MagicMock(whisper=WhisperConfig(device="auto"))) == "cuda"
 
+    def test_override(self):
+        config = MagicMock(whisper=WhisperConfig(device="auto"))
+        assert _resolve_device(config, device_override="cpu") == "cpu"
+
 
 class TestResolveComputeType:
     def test_cpu(self):
@@ -340,13 +344,19 @@ class TestTranscribeAudio:
         mock_model.transcribe.side_effect = _transcribe
         mock_get_model.return_value = mock_model
 
+        config = MagicMock(whisper=WhisperConfig(language="en", device="auto"))
         result = transcribe_audio(
             Path("/fake.wav"),
-            MagicMock(whisper=WhisperConfig(language="en", device="auto")),
+            config,
         )
         assert result == [{"start": 0.0, "end": 1.0, "text": "ok", "avg_logprob": -0.1}]
         assert mock_get_model.call_count >= 2
         assert _transcribe.calls == 2
+        assert config.whisper.device == "auto"
+        assert mock_get_model.call_args_list[:2] == [
+            ((config,), {"device_override": None}),
+            ((config,), {"device_override": "cpu"}),
+        ]
 
 
 class TestRunTranscribeAll:

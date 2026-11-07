@@ -143,7 +143,9 @@ def _resolve_cache_dir(config: AppConfig) -> Path:
     return PROJECT_ROOT / "models"
 
 
-def _resolve_device(config: AppConfig) -> str:
+def _resolve_device(config: AppConfig, device_override: str | None = None) -> str:
+    if device_override is not None:
+        return device_override
     if config.whisper.device == "auto":
         try:
             from ctranslate2 import get_cuda_device_count
@@ -160,7 +162,7 @@ def _resolve_compute_types(device: str) -> list[str]:
     return ["int8", "default"]
 
 
-def _get_model(config: AppConfig):
+def _get_model(config: AppConfig, device_override: str | None = None):
     global _whisper_model, _whisper_cache_key
     if WhisperModel is None:
         _reload_whisper_import()
@@ -181,7 +183,7 @@ def _get_model(config: AppConfig):
                     os.environ["HTTPS_PROXY"] = config.proxy.url
 
             cache_dir = _resolve_cache_dir(config)
-            device = _resolve_device(config)
+            device = _resolve_device(config, device_override=device_override)
             attempt = 0
             while True:
                 with _model_lock:
@@ -277,7 +279,7 @@ def _transcribe_local_whisper(
     lang = config.whisper.language
 
     def _transcribe_once(device_override: str | None = None) -> list[dict]:
-        model = _get_model(config)
+        model = _get_model(config, device_override=device_override)
         segments_iter, info = model.transcribe(
             str(audio_path),
             language=None if lang == "auto" else lang,
@@ -327,22 +329,10 @@ def _transcribe_local_whisper(
             raise
         print(t("transcribe.warn_cuda_retry_cpu", {"error": e}))
         _clear_model_cache()
-        _orig_device = config.whisper.device
         try:
-            config.whisper.device = "cpu"
-        except AttributeError:
-            if config.whisper._project is not None:
-                config.whisper._project.device = "cpu"
-        try:
-            return _transcribe_once()
+            return _transcribe_once("cpu")
         except (RuntimeError, OSError):
             print(t("transcribe.error_cpu_fallback_failed"))
             print(t("transcribe.hint_set_device_cpu"))
             print("         pip install nvidia-cublas-cu12 nvidia-cudnn-cu12")
             raise
-        finally:
-            try:
-                config.whisper.device = _orig_device
-            except AttributeError:
-                if config.whisper._project is not None:
-                    config.whisper._project.device = _orig_device
