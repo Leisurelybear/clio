@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
+import re
+import subprocess
 import threading
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +24,103 @@ from clio.prompt_overrides import resolve_prompt_template
 from clio.prompts import PLAN_PROMPT
 from clio.schema import add_schema_version
 from clio.tasks._helpers import _matches_selected_artifact, _selected_stems
-from clio.utils import format_index, plan_day_stem, write_json_atomic, write_text_atomic
+from clio.utils import format_index, plan_day_stem, resolve_binary, run_probe, write_json_atomic, write_text_atomic
+from clio.vmeta import VideoMeta
+
+_CAPTURE_TIME_RE = re.compile(r"(?<!\d)(20\d{2}[01]\d[0-3]\d)[_-]?([0-2]\d[0-5]\d[0-5]\d)(?!\d)")
+_CAPTURE_TIME_KEYS = ("capture_time", "recorded_at", "creation_time", "date_time")
+
+
+def _positive_number(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) and number > 0 else None
+
+
+def _clip_duration_sec(config: AppConfig, data: dict[str, Any], identity: Any) -> float | None:
+    """Resolve a usable source/segment duration without requiring ffprobe."""
+    segment_duration = _positive_number(getattr(identity, "segment_duration_sec", None))
+    if segment_duration is not None:
+        return round(segment_duration, 3)
+
+    for key in ("duration_sec", "source_duration_sec", "target_duration_sec"):
+        duration = _positive_number(data.get(key))
+        if duration is not None:
+            return round(duration, 3)
+
+    compressed_name = Path(str(data.get("compressed_file") or "")).name
+    if not compressed_name:
+        return None
+    try:
+        metadata = VideoMeta.read(config.compressed_dir / compressed_name)
+    except (KeyError, OSError, TypeError, ValueError):
+        return None
+    if metadata is None:
+        return None
+    duration = _positive_number(metadata.source_duration_sec) or _positive_number(metadata.target_duration_sec)
+    return round(duration, 3) if duration is not None else None
+
+
+def _capture_time(data: dict[str, Any], source_stem: str, source_path: str = "", ffprobe: str = "") -> str:
+    metadata = data.get("metadata") if isinstance(data.get("metadata"), dict) else {}
+    for key in _CAPTURE_TIME_KEYS:
+        for values in (data, metadata):
+            value = values.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+
+    if source_path and ffprobe and Path(source_path).is_file():
+        try:
+            result = run_probe(
+                [
+                    ffprobe,
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format_tags=creation_time:stream_tags=creation_time",
+                    "-of",
+                    "json",
+                    source_path,
+                ],
+                max_output_bytes=16384,
+            )
+            probe_data = json.loads(result.stdout or "{}")
+            format_tags = (probe_data.get("format") or {}).get("tags") or {}
+            if isinstance(format_tags, dict):
+                for key, value in format_tags.items():
+                    if key.lower() == "creation_time" and isinstance(value, str) and value.strip():
+                        return value.strip()
+            for stream in probe_data.get("streams") or []:
+                tags = stream.get("tags") or {}
+                if isinstance(tags, dict):
+                    for key, value in tags.items():
+                        if key.lower() == "creation_time" and isinstance(value, str) and value.strip():
+                            return value.strip()
+        except (OSError, RuntimeError, subprocess.SubprocessError, TypeError, ValueError, json.JSONDecodeError):
+            pass
+
+    match = _CAPTURE_TIME_RE.search(source_stem)
+    if match:
+        try:
+            captured = datetime.strptime("".join(match.groups()), "%Y%m%d%H%M%S")
+        except ValueError:
+            return ""
+        return captured.isoformat(sep=" ", timespec="seconds")
+    return ""
+
+
+def _read_voiceover(config: AppConfig, analysis_path: Path) -> str:
+    path = config.scripts_dir / f"{analysis_path.stem}_voiceover.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return ""
+    value = data.get("voiceover") if isinstance(data, dict) else None
+    return value.strip() if isinstance(value, str) else ""
 
 
 def _read_analysis_json(path: Path) -> tuple[dict[str, Any] | None, str | None]:
@@ -122,6 +222,10 @@ def _plan_lineage_fingerprint(
                     "title": c.get("title", ""),
                     "summary": c.get("summary", ""),
                     "location": c.get("location", ""),
+                    "duration_sec": c.get("duration_sec"),
+                    "capture_time": c.get("capture_time", ""),
+                    "mood": c.get("mood", ""),
+                    "voiceover": c.get("voiceover", ""),
                     "timeline": c.get("timeline", []),
                     "highlights": c.get("highlights", []),
                     "suggested_use": c.get("suggested_use", ""),
@@ -207,12 +311,23 @@ def run_plan_vlog(
             source_stem = Path(data.get("source_file", "")).stem or json_file.stem
             match_stem = source_stem
             segment_offset = 0.0
+        capture_source = str(getattr(identity, "original_path", "") or "")
+        ffprobe = ""
+        if capture_source and Path(capture_source).is_file():
+            try:
+                ffprobe = resolve_binary(config.paths.ffprobe, "ffprobe")
+            except OSError:
+                pass
         clips.append(
             {
                 "index": format_index(idx, config.naming.index_width),
                 "title": data.get("title", ""),
                 "summary": data.get("summary", ""),
                 "location": data.get("location", ""),
+                "duration_sec": _clip_duration_sec(config, data, identity),
+                "capture_time": _capture_time(data, source_stem, capture_source, ffprobe),
+                "mood": data.get("mood", ""),
+                "voiceover": _read_voiceover(config, json_file),
                 "timeline": data.get("timeline", []),
                 "highlights": data.get("highlights", []),
                 "suggested_use": data.get("suggested_use", ""),

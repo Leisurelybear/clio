@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -191,6 +192,22 @@ class TestPlanLineageFingerprint:
         changed = _plan_lineage_fingerprint(loaded_config, [{"index": "001", "source_stem": "GL010684", "title": "t"}])
         assert base != changed
 
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("duration_sec", 42.5),
+            ("capture_time", "2026-11-08T09:30:00Z"),
+            ("mood", "calm"),
+            ("voiceover", "A quiet morning by the sea."),
+        ],
+    )
+    def test_changes_on_enriched_clip_context(self, loaded_config: AppConfig, field: str, value: Any) -> None:
+        clips = [{"index": "001", "source_stem": "GL010683", "title": "t"}]
+        changed_clips = [{**clips[0], field: value}]
+        assert _plan_lineage_fingerprint(loaded_config, clips) != _plan_lineage_fingerprint(
+            loaded_config, changed_clips
+        )
+
     def test_deterministic(self, loaded_config: AppConfig) -> None:
         clips = [{"index": "001", "source_stem": "GL010683", "title": "t"}]
         assert _plan_lineage_fingerprint(loaded_config, clips) == _plan_lineage_fingerprint(loaded_config, clips)
@@ -253,6 +270,60 @@ class TestRunPlanVlog:
         assert "### 001 clip 001" in md
         out = capsys.readouterr().out
         assert "day1_plan.md" in out
+
+    def test_planning_inputs_include_duration_capture_time_mood_and_voiceover(
+        self, loaded_config: AppConfig, tmp_path: Path
+    ) -> None:
+        source = tmp_path / "original.mp4"
+        source.write_bytes(b"video")
+        analysis = _analysis(
+            "001",
+            duration_sec=None,
+            mood="calm",
+            media_identity={
+                "original_stem": "GL010683",
+                "original_path": str(source),
+                "compressed_stem": "001_GL010683",
+                "compressed_path": "001_GL010683.mp4",
+                "index": "001",
+                "segment_index": 1,
+                "segment_offset_sec": 30.0,
+                "segment_duration_sec": 42.5,
+            },
+        )
+        analysis_path = _write_analysis(loaded_config, analysis)
+        loaded_config.scripts_dir.mkdir(parents=True, exist_ok=True)
+        (loaded_config.scripts_dir / f"{analysis_path.stem}_voiceover.json").write_text(
+            json.dumps({"voiceover": "A quiet morning by the sea."}), encoding="utf-8"
+        )
+        probe_result = type(
+            "ProbeResult", (), {"stdout": '{"format":{"tags":{"creation_time":"2026-11-08T09:30:00Z"}}}'}
+        )()
+
+        with (
+            patch("clio.tasks.plan.resolve_binary", return_value="ffprobe-test"),
+            patch("clio.tasks.plan.run_probe", return_value=probe_result),
+            patch("clio.tasks.plan.plan_daily_vlog", return_value={"day_title": "day1", "sequence": []}) as mock,
+        ):
+            result = run_plan_vlog(loaded_config, "day1", overwrite=True)
+
+        assert result is not None
+        clip = mock.call_args.args[0][0]
+        assert clip["duration_sec"] == 42.5
+        assert clip["capture_time"] == "2026-11-08T09:30:00Z"
+        assert clip["mood"] == "calm"
+        assert clip["voiceover"] == "A quiet morning by the sea."
+
+    def test_missing_or_invalid_voiceover_is_empty(self, loaded_config: AppConfig) -> None:
+        _write_analysis(loaded_config, _analysis("001"))
+        loaded_config.scripts_dir.mkdir(parents=True, exist_ok=True)
+        (loaded_config.scripts_dir / "001_GL010683_voiceover.json").write_text("{bad", encoding="utf-8")
+
+        with patch("clio.tasks.plan.plan_daily_vlog", return_value={"day_title": "day1", "sequence": []}) as mock:
+            result = run_plan_vlog(loaded_config, "day1", overwrite=True)
+
+        assert result is not None
+        assert mock.call_args.args[0][0]["voiceover"] == ""
 
     def test_sanitizes_day_label_for_plan_filename(self, loaded_config: AppConfig) -> None:
         _write_analysis(loaded_config, _analysis("001"))

@@ -19,7 +19,8 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
   - [x] Q8: add short-hook, B-roll pacing, narrative beat, and transition guidance to plan prompts
   - [x] Q3: transcribe before analysis and inject transcript context into video analysis
   - [x] Q9: use the DeepSeek reasoning model for the daily vlog plan
-  - [ ] Next: Q10; one focused fix per commit
+  - [x] Q10: pass clip duration, capture time, mood, and saved voiceover into plan inputs
+  - [ ] Next: continue the review backlog; one focused fix per commit
   - Keep the existing uncommitted plan-delete/video-selection work isolated.
 - R-048 Higher-detail video analysis and bounded plan input (plan ready; P0a-P0c not started)
 - R-047-FU Optional Baidu ASR provider (deferred; Aliyun cloud transcription is complete)
