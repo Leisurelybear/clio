@@ -4,7 +4,7 @@ import re
 import time
 from typing import Any
 
-from clio.ai.factory import _build_provider
+from clio.ai.factory import _build_provider, provider_use
 from clio.config import AppConfig, ProviderConfig
 from clio.utils import mask_if_looks_like_key
 
@@ -73,7 +73,8 @@ def test_provider_connection(config: AppConfig, *, provider_name: str, model: st
     started = time.monotonic()
     try:
         provider = _build_provider(config, provider_name)
-        provider.generate_text(_TEST_PROMPT, model)
+        with provider_use(provider):
+            provider.generate_text(_TEST_PROMPT, model)
     except Exception as exc:
         return {
             "ok": False,

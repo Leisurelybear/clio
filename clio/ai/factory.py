@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
 
@@ -23,10 +25,49 @@ class _CachedEntry:
     provider: TextAIProvider
     created_at: float
     closing: bool = False
+    active_calls: int = 0
 
 
 _provider_cache: dict[tuple, _CachedEntry] = {}
+_retired_entries: list[_CachedEntry] = []
 _provider_cache_lock = threading.Lock()
+
+
+def _close_provider(provider: TextAIProvider) -> None:
+    try:
+        provider.close()
+    except Exception:
+        pass
+
+
+def _find_entry(provider: TextAIProvider) -> _CachedEntry | None:
+    for entry in _provider_cache.values():
+        if entry.provider is provider:
+            return entry
+    return next((entry for entry in _retired_entries if entry.provider is provider), None)
+
+
+@contextmanager
+def provider_use(provider: TextAIProvider) -> Iterator[TextAIProvider]:
+    """Keep a cached provider alive while one AI request is using it."""
+    with _provider_cache_lock:
+        entry = _find_entry(provider)
+        if entry is not None:
+            entry.active_calls += 1
+    try:
+        yield provider
+    finally:
+        to_close: TextAIProvider | None = None
+        with _provider_cache_lock:
+            entry = _find_entry(provider)
+            if entry is not None:
+                entry.active_calls = max(0, entry.active_calls - 1)
+                if entry.closing and entry.active_calls == 0:
+                    if entry in _retired_entries:
+                        _retired_entries.remove(entry)
+                    to_close = entry.provider
+        if to_close is not None:
+            _close_provider(to_close)
 
 
 def _build_provider(config: AppConfig, provider_name: str) -> TextAIProvider:
@@ -49,6 +90,7 @@ def _build_provider(config: AppConfig, provider_name: str) -> TextAIProvider:
 
     ttl_sec = float("inf") if config.ai.provider_ttl_min <= 0 else config.ai.provider_ttl_min * 60
 
+    close_after_unlock: TextAIProvider | None = None
     with _provider_cache_lock:
         cached = _provider_cache.get(cache_key)
         if cached is not None and time.monotonic() - cached.created_at < ttl_sec:
@@ -56,11 +98,14 @@ def _build_provider(config: AppConfig, provider_name: str) -> TextAIProvider:
                 return cached.provider
         if cached is not None:
             cached.closing = True
-            try:
-                cached.provider.close()
-            except Exception:
-                pass
             del _provider_cache[cache_key]
+            if cached.active_calls:
+                _retired_entries.append(cached)
+            else:
+                close_after_unlock = cached.provider
+
+    if close_after_unlock is not None:
+        _close_provider(close_after_unlock)
 
     cls = _PROVIDER_TYPES.get(provider_cfg.type)
     if not cls:
@@ -68,25 +113,28 @@ def _build_provider(config: AppConfig, provider_name: str) -> TextAIProvider:
             t("ai.provider_type_unsupported", {"type": provider_cfg.type, "available": ", ".join(_PROVIDER_TYPES)})
         )
     provider = cls(provider_cfg, config.proxy)
+    close_after_unlock = None
+    result = provider
     with _provider_cache_lock:
         existing = _provider_cache.get(cache_key)
         if existing is not None and not existing.closing:
-            provider.close()
-            return existing.provider
-        _provider_cache[cache_key] = _CachedEntry(provider=provider, created_at=time.monotonic())
-    return provider
+            close_after_unlock = provider
+            result = existing.provider
+        else:
+            _provider_cache[cache_key] = _CachedEntry(provider=provider, created_at=time.monotonic())
+    if close_after_unlock is not None:
+        _close_provider(close_after_unlock)
+    return result
 
 
 def _clear_provider_cache() -> None:
     """Close all cached providers and clear the cache (for testing / config reload)."""
     with _provider_cache_lock:
-        providers = [e.provider for e in _provider_cache.values()]
+        providers = [e.provider for e in _provider_cache.values()] + [e.provider for e in _retired_entries]
         _provider_cache.clear()
-    for p in providers:
-        try:
-            p.close()
-        except Exception:
-            pass
+        _retired_entries.clear()
+    for provider in providers:
+        _close_provider(provider)
 
 
 def get_task_config(config: AppConfig, task: TaskName | str) -> TaskConfig:

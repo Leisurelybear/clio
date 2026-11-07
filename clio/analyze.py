@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from clio.ai.base import AIResponse, TaskName
-from clio.ai.factory import get_task_provider, get_video_provider
+from clio.ai.factory import get_task_provider, get_video_provider, provider_use
 from clio.config import AppConfig
 from clio.cut import parse_time_range
 from clio.i18n import t
@@ -533,23 +533,24 @@ def analyze_video(
             "transcript_context", transcript_template, transcripts_json=transcript_context
         )
     prompt = _wrap_with_context(base, config, context_override=context_override)
-    text = _call_ai(
-        t("analyze.label.video_analysis"),
-        provider.provider_id,
-        model,
-        prompt,
-        lambda: provider.analyze_video(
-            video_path,
-            prompt,
+    with provider_use(provider):
+        text = _call_ai(
+            t("analyze.label.video_analysis"),
+            provider.provider_id,
             model,
-            progress_callback=progress_callback,
+            prompt,
+            lambda: provider.analyze_video(
+                video_path,
+                prompt,
+                model,
+                progress_callback=progress_callback,
+                cancel_event=cancel_event,
+            ),
+            debug_print=config.ai.debug_print_prompt,
+            token_store=token_store,
+            task_name=TaskName.VIDEO_ANALYZE,
             cancel_event=cancel_event,
-        ),
-        debug_print=config.ai.debug_print_prompt,
-        token_store=token_store,
-        task_name=TaskName.VIDEO_ANALYZE,
-        cancel_event=cancel_event,
-    )
+        )
     # Check cancel_event after AI call but before validation
     if cancel_event and cancel_event.is_set():
         raise RuntimeError(t("analyze.cancelled"))
@@ -601,16 +602,17 @@ def generate_voiceover(
         target_words=config.script.target_words,
     )
     prompt = _wrap_with_context(base, config, context_override=context_override)
-    text = _call_ai(
-        t("analyze.label.voiceover"),
-        provider.provider_id,
-        model,
-        prompt,
-        lambda: provider.generate_text(prompt, model),
-        debug_print=config.ai.debug_print_prompt,
-        token_store=token_store,
-        task_name=TaskName.VOICEOVER,
-    )
+    with provider_use(provider):
+        text = _call_ai(
+            t("analyze.label.voiceover"),
+            provider.provider_id,
+            model,
+            prompt,
+            lambda: provider.generate_text(prompt, model),
+            debug_print=config.ai.debug_print_prompt,
+            token_store=token_store,
+            task_name=TaskName.VOICEOVER,
+        )
     return _validate_voiceover(extract_json(text), clip_data.get("title", ""))
 
 
@@ -668,16 +670,17 @@ def plan_daily_vlog(
             )
             base += format_prompt_template("transcript_context", transcript_template, transcripts_json=transcript_json)
     prompt = _wrap_with_context(f"日 vlog 标签: {day_label}\n\n{base}", config, context_override=context_override)
-    text = _call_ai(
-        t("analyze.label.vlog_plan"),
-        provider.provider_id,
-        model,
-        prompt,
-        lambda: provider.generate_text(prompt, model),
-        debug_print=config.ai.debug_print_prompt,
-        token_store=token_store,
-        task_name=TaskName.VLOG_PLAN,
-    )
+    with provider_use(provider):
+        text = _call_ai(
+            t("analyze.label.vlog_plan"),
+            provider.provider_id,
+            model,
+            prompt,
+            lambda: provider.generate_text(prompt, model),
+            debug_print=config.ai.debug_print_prompt,
+            token_store=token_store,
+            task_name=TaskName.VLOG_PLAN,
+        )
     result = _validate_plan(extract_json(text), day_label)
     raw_sequence_count = len(result.get("sequence", []))
 
@@ -752,16 +755,17 @@ def refine_text(
         )
         label = t("analyze.label.refine_text")
     prompt = _wrap_with_context(base, config, context_override=context_override)
-    text = _call_ai(
-        label,
-        provider.provider_id,
-        model,
-        prompt,
-        lambda: provider.generate_text(prompt, model),
-        debug_print=config.ai.debug_print_prompt,
-        token_store=token_store,
-        task_name=TaskName.REFINE_TEXT,
-    )
+    with provider_use(provider):
+        text = _call_ai(
+            label,
+            provider.provider_id,
+            model,
+            prompt,
+            lambda: provider.generate_text(prompt, model),
+            debug_print=config.ai.debug_print_prompt,
+            token_store=token_store,
+            task_name=TaskName.REFINE_TEXT,
+        )
     result = extract_json(text)
     if not isinstance(result, dict):
         print(t("analyze.refine_text_bad_structure"))
@@ -811,16 +815,17 @@ def refine_script(
         )
         label = t("analyze.label.refine_script")
     prompt = _wrap_with_context(base, config, context_override=context_override)
-    text = _call_ai(
-        label,
-        provider.provider_id,
-        model,
-        prompt,
-        lambda: provider.generate_text(prompt, model),
-        debug_print=config.ai.debug_print_prompt,
-        token_store=token_store,
-        task_name=TaskName.REFINE_TEXT,
-    )
+    with provider_use(provider):
+        text = _call_ai(
+            label,
+            provider.provider_id,
+            model,
+            prompt,
+            lambda: provider.generate_text(prompt, model),
+            debug_print=config.ai.debug_print_prompt,
+            token_store=token_store,
+            task_name=TaskName.REFINE_TEXT,
+        )
     result = extract_json(text)
     if not isinstance(result, dict):
         print(t("analyze.refine_script_bad_structure"))

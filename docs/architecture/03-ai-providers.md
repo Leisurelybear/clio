@@ -41,9 +41,10 @@
 4. Returns `(provider, model)`.
 
 TTL lifecycle (`factory.py`): entries older than `config.ai.provider_ttl_min` (0 = infinite) are
-marked `closing` and closed before replacement; concurrent callers during the closing window get a
-fresh instance instead of a half-closed one (P2-P05). `_clear_provider_cache()` (used at config/
-`.env` write and `before_stop`) force-closes everything so rotated API keys apply immediately.
+retired before replacement. Active AI calls hold a reference, so an expired provider is closed only
+after its last call finishes; idle entries close immediately. Concurrent callers get a fresh instance
+instead of a half-closed one (P2-P05). `_clear_provider_cache()` (used at config/`.env` write and
+`before_stop`) force-closes everything so rotated API keys apply immediately.
 
 ## 4. Gemini Provider (`gemini.py`)
 

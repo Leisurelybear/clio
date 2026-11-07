@@ -20,6 +20,7 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
   - [x] Q3: transcribe before analysis and inject transcript context into video analysis
   - [x] Q9: use the DeepSeek reasoning model for the daily vlog plan
   - [x] Q10: pass clip duration, capture time, mood, and saved voiceover into plan inputs
+  - [x] B3: defer expired provider closure until active AI calls finish
   - [ ] Next: continue the review backlog; one focused fix per commit
   - Keep the existing uncommitted plan-delete/video-selection work isolated.
 - R-048 Higher-detail video analysis and bounded plan input (plan ready; P0a-P0c not started)

@@ -51,6 +51,38 @@ class TestBuildProvider:
         with pytest.raises(ValueError, match="不支持的厂家类型"):
             _build_provider(loaded_config, "gemini")
 
+    def test_expired_provider_closes_after_active_call(self, loaded_config, monkeypatch):
+        import clio.ai.factory as factory
+
+        class FakeProvider:
+            provider_id = "fake"
+
+            def __init__(self, *_args):
+                self.close_count = 0
+
+            def close(self):
+                self.close_count += 1
+
+        instances = []
+
+        def build(*args):
+            provider = FakeProvider(*args)
+            instances.append(provider)
+            return provider
+
+        monkeypatch.setitem(factory._PROVIDER_TYPES, "gemini", build)
+        loaded_config.global_cfg.ai.provider_ttl_min = 1
+        clock = iter((0.0, 61.0, 62.0))
+        monkeypatch.setattr(factory.time, "monotonic", lambda: next(clock))
+
+        first = _build_provider(loaded_config, "gemini")
+        with factory.provider_use(first):
+            second = _build_provider(loaded_config, "gemini")
+            assert second is not first
+            assert instances[0].close_count == 0
+
+        assert instances[0].close_count == 1
+
 
 class TestGetTaskProvider:
     def test_gemini_task(self, loaded_config):
