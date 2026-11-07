@@ -523,9 +523,15 @@ def analyze_video(
     cancel_event: threading.Event | None = None,
     context_override: str | None = None,
     task_prompts: dict[str, str] | None = None,
+    transcript_context: str = "",
 ) -> dict:
     provider, model = get_video_provider(config, TaskName.VIDEO_ANALYZE)
     base = resolve_prompt_template("video_analyze", ANALYZE_PROMPT, config, task_prompts=task_prompts)
+    if transcript_context:
+        transcript_template = resolve_prompt_template("transcript_context", TRANSCRIPT_CONTEXT, config)
+        base += "\n\n" + format_prompt_template(
+            "transcript_context", transcript_template, transcripts_json=transcript_context
+        )
     prompt = _wrap_with_context(base, config, context_override=context_override)
     text = _call_ai(
         t("analyze.label.video_analysis"),

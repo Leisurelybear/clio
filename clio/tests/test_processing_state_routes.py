@@ -18,5 +18,5 @@ class TestHandleGetProcessingState:
         handler._send_json.assert_called_once()
         payload = handler._send_json.call_args.args[0]
         assert payload["version"] == 1
-        assert payload["steps"] == ["compress", "analyze", "voiceover", "transcribe", "plan", "label"]
+        assert payload["steps"] == ["compress", "transcribe", "analyze", "voiceover", "plan", "label"]
         assert payload["files"] == {}

@@ -47,9 +47,9 @@ def _step_label(name: str) -> str:
 
 _STEP_FUNCS: dict[str, Callable[..., Any]] = {
     "compress": run_compress_all,
+    "transcribe": run_transcribe_all,
     "analyze": run_analyze_all,
     "voiceover": run_generate_scripts,
-    "transcribe": run_transcribe_all,
     "plan": run_plan_vlog,
     "label": run_label_videos,
 }

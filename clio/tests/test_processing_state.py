@@ -12,7 +12,7 @@ class TestProcessingState:
         state.mark("GL010683", "compress", "done")
         data = state.get_state()
         assert data["version"] == 1
-        assert data["steps"] == ["compress", "analyze", "voiceover", "transcribe", "plan", "label"]
+        assert data["steps"] == ["compress", "transcribe", "analyze", "voiceover", "plan", "label"]
         assert data["files"]["GL010683"]["compress"] == "done"
 
     def test_mark_multiple_steps(self, tmp_path: Path):

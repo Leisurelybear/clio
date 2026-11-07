@@ -10,7 +10,7 @@ from pathlib import Path
 
 from clio.schema import ARTIFACT_SCHEMA_VERSION
 
-_STEPS = ["compress", "analyze", "voiceover", "transcribe", "plan", "label"]
+_STEPS = ["compress", "transcribe", "analyze", "voiceover", "plan", "label"]
 _DEFAULT_FLUSH_INTERVAL_SEC = 0.5
 _DEFAULT_MAX_PENDING_FLUSHES = 20
 _STATE_INSTANCES: weakref.WeakSet = weakref.WeakSet()

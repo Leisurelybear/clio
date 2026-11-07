@@ -30,6 +30,11 @@ def _mock_config(tmp_path: Path):
 
 
 class TestRunPipelineStepsCancel:
+    def test_default_pipeline_orders_transcribe_before_analysis(self):
+        from clio.pipeline import PIPELINE_STEPS
+
+        assert PIPELINE_STEPS == ("compress", "transcribe", "analyze", "voiceover", "plan", "label")
+
     def test_cancel_stops_after_current_step(self):
         """cancel_event 设置后 pipeline 在步骤间退出"""
         config = _mock_config(Path(""))

@@ -26,15 +26,15 @@ const STEPS_KEY = 'vlog_ui_run_steps';
 
 const RUN_STEPS = [
   { key: 'compress' },
+  { key: 'transcribe' },
   { key: 'analyze' },
   { key: 'voiceover' },
-  { key: 'transcribe' },
   { key: 'plan' },
   { key: 'label' },
 ];
 
 /** Step order used by the processing-state table and the skipped diagnostics. */
-const STEP_KEYS = ['compress', 'analyze', 'voiceover', 'transcribe', 'plan', 'label'];
+const STEP_KEYS = ['compress', 'transcribe', 'analyze', 'voiceover', 'plan', 'label'];
 
 function stepShortLabel(step) {
   const key = `run.step_short.${step}`;

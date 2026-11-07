@@ -238,6 +238,21 @@ def test_analyze_video_uses_prompt_override(tmp_path, monkeypatch):
     assert "override analyze prompt" in prompt
 
 
+def test_analyze_video_includes_transcript_context(monkeypatch):
+    from clio.analyze import analyze_video
+
+    cfg = _fake_config()
+    provider = MagicMock(provider_id="mock")
+    provider.analyze_video.return_value = AIResponse('{"title":"x","summary":"y","timeline":[]}')
+
+    monkeypatch.setattr("clio.analyze.get_video_provider", lambda *a: (provider, "model"))
+    analyze_video("clip.mp4", cfg, transcript_context='{"segments":[{"text":"你好"}]}')
+
+    prompt = provider.analyze_video.call_args.args[1]
+    assert "语音转录参考" in prompt
+    assert "你好" in prompt
+
+
 def test_validate_analysis_defaults_confidence():
     result = _validate_analysis({"title": "x", "summary": "y", "timeline": []}, "clip.mp4")
 

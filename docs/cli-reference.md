@@ -454,8 +454,11 @@ Raw Footage (input_dir)
     ▼ compress (1 original → 1 file; no physical _seg)
 640p Compressed Videos (compressed/)
     │
+    ▼ transcribe (Whisper / cloud ASR; optional)
+Transcripts (transcripts/)
+    │
     ▼ analyze (Gemini; long clips use logical windows)
-Text Analysis (texts/)
+Text Analysis (texts/; transcript context included when available)
     │
     ├──► scripts ──► Voiceover script (one per media file)
     │

@@ -618,7 +618,7 @@ def test_preview_files_selection_filters_non_plan_steps(tmp_path: Path) -> None:
     save_selected_videos(input_dir, vids)
     preview = build_run_preview(
         _config(input_dir, output_dir),
-        steps=["compress", "analyze", "transcribe", "voiceover", "label"],
+        steps=["compress", "transcribe", "analyze", "voiceover", "label"],
         force=False,
         use_transcripts=True,
         files=["A.mp4"],
@@ -626,8 +626,8 @@ def test_preview_files_selection_filters_non_plan_steps(tmp_path: Path) -> None:
 
     assert [(step["name"], step["total"], step["will_skip"]) for step in preview["steps"]] == [
         ("compress", 1, 1),
-        ("analyze", 1, 1),
         ("transcribe", 1, 1),
+        ("analyze", 1, 1),
         ("voiceover", 1, 1),
         ("label", 1, 1),
     ]

@@ -303,7 +303,7 @@ describe('run completion notifications', () => {
 describe('skipped diagnostics', () => {
   it('builds inferred skipped reasons from processing state', () => {
     const diagnostics = buildSkippedDiagnostics({
-      steps: ['compress', 'analyze', 'voiceover', 'transcribe', 'plan', 'label'],
+      steps: ['compress', 'transcribe', 'analyze', 'voiceover', 'plan', 'label'],
       files: {
         GL010683: { compress: 'done', analyze: 'skipped', voiceover: null },
         GL010684: { compress: 'skipped', analyze: 'done', transcribe: 'error' },

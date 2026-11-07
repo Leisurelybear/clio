@@ -78,12 +78,12 @@
 
 ```mermaid
 graph LR
-    A[📹 4K 原片] --> B{🗜️ 分割压缩}
-    B --> C[🤖 Gemini 分析]
-    C --> D[✍️ DeepSeek 口播]
-    C --> E[🧠 Whisper 转录]
+    A[📹 4K 原片] --> B{🗜️ 压缩}
+    B --> C[🧠 Whisper 转录]
+    C --> D[🤖 Gemini 分析]
+    D --> E[✍️ DeepSeek 口播]
     D --> F[🤖 DeepSeek 规划]
-    E --> F
+    C --> F
     F --> G[✂️ 裁剪片段]
     F --> H[🏷️ 烧录序号]
     G & H --> I[🎬 剪映成片]
@@ -97,9 +97,9 @@ graph LR
 | 步骤 | AI 引擎 | 命令 | 输入 → 输出 |
 |------|---------|------|------------|
 | 1️⃣ 压缩 | | `compress` | 4K 原片 → 640p / ~5MB / 单声道低码率音频（1 原片 1 压缩文件） |
-| 2️⃣ 🤖 **AI 分析** | **Gemini** 2.5 Flash | `analyze` | 压缩视频 → AI 摘要 + 时间轴 JSON |
-| 3️⃣ ✍️ **AI 口播** | **DeepSeek** / OpenAI | `scripts` | 分析 JSON → AI 生成旁白文案 |
-| 4️⃣ 🧠 **AI 转录** | **Whisper** / 云端 ASR | `transcribe` | 压缩视频 → 语音字幕（本地或云端） |
+| 2️⃣ 🧠 **AI 转录** | **Whisper** / 云端 ASR | `transcribe` | 压缩视频 → 语音字幕（本地或云端） |
+| 3️⃣ 🤖 **AI 分析** | **Gemini** 2.5 Flash | `analyze` | 压缩视频 + 转录 → AI 摘要 + 时间轴 JSON |
+| 4️⃣ ✍️ **AI 口播** | **DeepSeek** / OpenAI | `scripts` | 分析 JSON → AI 生成旁白文案 |
 | 5️⃣ 🤖 **AI 规划** | **DeepSeek** / OpenAI | `plan --day day1` | 分析 + 转录 → AI 编排剪辑顺序 |
 | 6️⃣ 🔧 **AI 审阅** | **DeepSeek** / Gemini | `refine` | 已有输出 + trip 上下文 → AI 修正 |
 | 7️⃣ 裁剪 | | `cut --day day1` | 规划 → 按时间轴截取片段 |

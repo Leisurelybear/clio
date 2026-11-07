@@ -56,6 +56,7 @@ def _analysis_lineage_fingerprint(
     config: AppConfig,
     task_prompts: dict[str, str] | None = None,
     context_override: str | None = None,
+    transcript_context: str = "",
 ) -> str:
     """Fingerprint of everything that can change a cached analysis result.
 
@@ -81,10 +82,29 @@ def _analysis_lineage_fingerprint(
             "max_analyze_duration_min": getattr(config.analyze, "max_analyze_duration_min", 0),
             "max_tokens": getattr(config.ai, "max_tokens", None),
             "context": _prompt_context_parts(config, context_override),
+            "transcript_context": transcript_context,
         },
         sort_keys=True,
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _load_transcript_context(config: AppConfig, compressed: Path) -> str:
+    transcripts_dir = getattr(config, "transcripts_dir", None)
+    if not isinstance(transcripts_dir, Path):
+        return ""
+    path = transcripts_dir / f"{compressed.stem}_transcript.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return ""
+    if not isinstance(data, dict) or not isinstance(data.get("segments"), list) or not data["segments"]:
+        return ""
+    return json.dumps(
+        {"source_stem": data.get("source_stem", compressed.stem), "segments": data["segments"]},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
 
 
 def _effective_analysis_context(config: AppConfig, original: Path, context_override: str | None) -> str | None:
@@ -151,6 +171,7 @@ def _analyze_with_optional_windows(
     cancel_event: threading.Event | None,
     effective_context: str | None,
     task_prompts: dict[str, str] | None,
+    transcript_context: str = "",
 ) -> dict:
     """Run Gemini analyze: legacy split files stay single-call; else use windows."""
 
@@ -164,6 +185,7 @@ def _analyze_with_optional_windows(
                 cancel_event=cancel_event,
                 context_override=effective_context,
                 task_prompts=task_prompts,
+                transcript_context=transcript_context,
             )
         except Exception as exc:
             if cancel_event is not None and cancel_event.is_set():
@@ -244,6 +266,7 @@ def _process_video_item(
             pass
 
     effective_context = _effective_analysis_context(config, original, context_override)
+    transcript_context = _load_transcript_context(config, compressed)
 
     existing = sorted(config.texts_dir.glob(f"{idx_str}_*.json"))
     json_path = None
@@ -252,7 +275,7 @@ def _process_video_item(
     # has been committed, so a failed re-run never loses the previous result.
     stale_candidates: list[Path] = list(existing) if overwrite or not config.analyze.skip_existing else []
     if not overwrite and config.analyze.skip_existing and existing:
-        current_lineage = _analysis_lineage_fingerprint(config, task_prompts, effective_context)
+        current_lineage = _analysis_lineage_fingerprint(config, task_prompts, effective_context, transcript_context)
         for candidate in existing:
             try:
                 existing_data = json.loads(candidate.read_text(encoding="utf-8"))
@@ -346,6 +369,7 @@ def _process_video_item(
             cancel_event=cancel_event,
             effective_context=effective_context,
             task_prompts=task_prompts,
+            transcript_context=transcript_context,
         )
     except InterruptedError:
         if cancel_event is not None:
@@ -376,7 +400,7 @@ def _process_video_item(
     analysis["compressed_file"] = compressed.name  # stable lookup key for videos.py
     identity = resolve_identity(compressed, idx_str, project_dir=config.project_dir)
     add_schema_version(analysis)
-    analysis["_lineage"] = _analysis_lineage_fingerprint(config, task_prompts, effective_context)
+    analysis["_lineage"] = _analysis_lineage_fingerprint(config, task_prompts, effective_context, transcript_context)
     analysis["media_identity"] = _identity_to_dict(identity)
     attach_transcript_to_analysis(config, analysis)
 
