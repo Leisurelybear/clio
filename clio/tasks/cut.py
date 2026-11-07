@@ -268,7 +268,7 @@ def run_cut_all(
     day_label: str = "day1",
     output_dir: Path | None = None,
     reencode: bool = False,
-    source: str = "compressed",
+    source: str = "original",
     cancel_event: threading.Event | None = None,
     overwrite: bool = True,
     tracker: Any | None = None,

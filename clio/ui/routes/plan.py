@@ -62,7 +62,7 @@ def _run_cut_task(context) -> dict[str, Any]:
         day_label=input_data.get("day_label", "day1"),
         output_dir=Path(output_raw) if output_raw else None,
         reencode=bool(input_data.get("reencode", False)),
-        source=input_data.get("source", "compressed"),
+        source=input_data.get("source", "original"),
         overwrite=True,
         cancel_event=context.cancel_event,
         tracker=tracker,
@@ -241,7 +241,7 @@ def handle_post_cut(handler: HandlerProtocol, qs: dict[str, list[str]], obj: dic
     day_label = obj.get("day_label", "day1")
     if not isinstance(day_label, str) or not _is_safe_basename(day_label):
         return handler._send_json({"ok": False, "error": "invalid day_label"}, 400)
-    source = obj.get("source", "compressed")
+    source = obj.get("source", "original")
     reencode = obj.get("reencode", False)
     if not isinstance(reencode, bool):
         return handler._send_json({"ok": False, "error": "reencode must be a boolean"}, 400)

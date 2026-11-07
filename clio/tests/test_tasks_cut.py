@@ -226,7 +226,7 @@ class TestRunCutAllOverwrite:
         from clio.tasks.cut import run_cut_all
 
         with pytest.raises(FileExistsError):
-            run_cut_all(cfg, "day1", overwrite=False)
+            run_cut_all(cfg, "day1", source="compressed", overwrite=False)
         mock_cut.assert_not_called()
 
     def test_reads_sanitized_plan_for_unsanitized_day(self, cfg):
@@ -245,7 +245,7 @@ class TestRunCutAllOverwrite:
         ):
             from clio.tasks.cut import run_cut_all
 
-            clips = run_cut_all(cfg, "Ep2 - agnes-3-flash", overwrite=True)
+            clips = run_cut_all(cfg, "Ep2 - agnes-3-flash", source="compressed", overwrite=True)
 
         assert clips
         assert (cfg.paths.output_dir / "cuts" / "Ep2_-_agnes-3-flash" / "001_A_seg_001.mp4").is_file()
@@ -264,7 +264,7 @@ class TestRunCutAllOverwrite:
         ):
             from clio.tasks.cut import run_cut_all
 
-            clips = run_cut_all(cfg, "day1", overwrite=True)
+            clips = run_cut_all(cfg, "day1", source="compressed", overwrite=True)
 
         sidecar = cfg.paths.output_dir / "cuts" / "day1" / "001_A_seg_001.json"
         assert clips[0]["text_file"] == sidecar.name
@@ -286,7 +286,7 @@ class TestRunCutAllOverwrite:
         ):
             from clio.tasks.cut import run_cut_all
 
-            clips = run_cut_all(cfg, "day1", overwrite=True)
+            clips = run_cut_all(cfg, "day1", source="compressed", overwrite=True)
 
         assert clips == []
         mock_cut.assert_not_called()
@@ -304,7 +304,7 @@ class TestRunCutAllOverwrite:
         ):
             from clio.tasks.cut import run_cut_all
 
-            clips = run_cut_all(cfg, "day1", tracker=tracker, overwrite=True)
+            clips = run_cut_all(cfg, "day1", source="compressed", tracker=tracker, overwrite=True)
 
         assert clips == []
         mock_cut.assert_not_called()
@@ -482,10 +482,27 @@ class TestRunCutAll:
 
         from clio.tasks.cut import run_cut_all
 
-        result = run_cut_all(cfg, "day1")
+        result = run_cut_all(cfg, "day1", source="compressed")
         assert len(result) == 2
         assert result[0]["video_index"] == "001"
         assert mock_cut.call_count == 2
+
+    @patch("clio.tasks.cut.cut_one")
+    @patch("clio.tasks.cut.resolve_binary")
+    def test_defaults_to_original_source(self, mock_resolve, mock_cut, cfg):
+        _write_plan(cfg, seq=[{"index": "001", "title": "Intro", "use_timeline": "00:00-00:30"}])
+        original = cfg.project_dir / "src.mp4"
+        original.write_bytes(b"\x00")
+        (cfg.compressed_dir / "001_src.mp4").write_bytes(b"\x00")
+        save_selected_videos(cfg.project_dir, [original])
+        mock_resolve.return_value = "ffmpeg"
+
+        from clio.tasks.cut import run_cut_all
+
+        result = run_cut_all(cfg, "day1")
+
+        assert len(result) == 1
+        assert mock_cut.call_args.args[0] == original
 
     @patch("clio.tasks.cut.cut_one")
     @patch("clio.tasks.cut.resolve_binary")
@@ -498,7 +515,7 @@ class TestRunCutAll:
 
         from clio.tasks.cut import run_cut_all
 
-        run_cut_all(cfg, "day1", tracker=tracker)
+        run_cut_all(cfg, "day1", source="compressed", tracker=tracker)
 
         tracker.update.assert_called_once_with(phase="cut", current=0, total=2, message="准备裁剪 2 个片段")
         assert tracker.next.call_count == 2
@@ -526,7 +543,7 @@ class TestRunCutAll:
 
         from clio.tasks.cut import run_cut_all
 
-        result = run_cut_all(cfg, "day1")
+        result = run_cut_all(cfg, "day1", source="compressed")
 
         assert len(result) == 1
         assert mock_cut.call_args.args[0] == video
@@ -540,7 +557,7 @@ class TestRunCutAll:
 
         from clio.tasks.cut import run_cut_all
 
-        result = run_cut_all(cfg, "day1")
+        result = run_cut_all(cfg, "day1", source="compressed")
         assert result == []
         mock_cut.assert_not_called()
 
@@ -553,7 +570,7 @@ class TestRunCutAll:
 
         from clio.tasks.cut import run_cut_all
 
-        run_cut_all(cfg, "day1")
+        run_cut_all(cfg, "day1", source="compressed")
 
         state = json.loads((cfg.paths.output_dir / ".processing.json").read_text(encoding="utf-8"))
         assert state["files"]["src"]["cut"] == "skipped"
@@ -580,7 +597,7 @@ class TestRunCutAll:
 
         from clio.tasks.cut import run_cut_all
 
-        result = run_cut_all(cfg, "day1", cancel_event=cancel)
+        result = run_cut_all(cfg, "day1", source="compressed", cancel_event=cancel)
         assert len(result) == 1
 
     @patch("clio.tasks.cut.cut_one")
@@ -594,7 +611,7 @@ class TestRunCutAll:
         from clio.tasks.cut import run_cut_all
 
         out_dir = cfg.paths.output_dir / "cuts" / "day1"
-        run_cut_all(cfg, "day1")
+        run_cut_all(cfg, "day1", source="compressed")
         manifest = out_dir / "manifest.md"
         assert manifest.exists()
         content = manifest.read_text(encoding="utf-8")
@@ -612,7 +629,7 @@ class TestRunCutAll:
 
         from clio.tasks.cut import run_cut_all
 
-        result = run_cut_all(cfg, "day1")
+        result = run_cut_all(cfg, "day1", source="compressed")
         assert result[0]["text_file"] != ""
         clip_texts = cfg.paths.output_dir / "cuts" / "day1" / result[0]["text_file"]
         assert clip_texts.exists()

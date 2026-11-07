@@ -10,7 +10,8 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
 - 2026-11 P0/P1/P2 review remediation from `docs/analysis/2026-11-05-P0-P2-Issues.md`:
   - [x] B1: reject opaque origins and local write requests without JSON Content-Type
   - [x] B2: detect Gemini truncation, retry once, and reject repeated incomplete output
-  - [ ] Next: C1, D1, D2, D3, Q1, Q2, Q8, Q3, Q9, Q10; one focused fix per commit
+  - [x] C1: make original media the default source for cut jobs and editor actions
+  - [ ] Next: D1, D2, D3, Q1, Q2, Q8, Q3, Q9, Q10; one focused fix per commit
   - Keep the existing uncommitted plan-delete/video-selection work isolated.
 - R-048 Higher-detail video analysis and bounded plan input (plan ready; P0a-P0c not started)
 - R-047-FU Optional Baidu ASR provider (deferred; Aliyun cloud transcription is complete)

@@ -235,7 +235,7 @@ def main(argv: list[str] | None = None) -> int:
     p_cut.add_argument(
         "--source",
         choices=["compressed", "original"],
-        default="compressed",
+        default="original",
         help=t("cli.help.cut.source"),
     )
     p_refine = sub.add_parser("refine", help=t("cli.help.refine"))

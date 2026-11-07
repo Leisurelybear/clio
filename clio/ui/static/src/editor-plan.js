@@ -161,7 +161,7 @@ async function refreshReadinessPanel() {
   try {
     const r = await api('POST', '/api/plan/readiness', {
       day: state.currentDay || 'day1',
-      source: $('cut-source')?.value || 'compressed',
+      source: $('cut-source')?.value || 'original',
       plan: state.plan,
     }, { signal: ac.signal });
     if (!isLatest('plan-readiness', ac)) return;
@@ -758,8 +758,8 @@ export function renderPlan() {
     <p class="hint">${t('plan.cut_hint', { day: escapeHtml(state.currentDay) })}</p>
     <label>${t('plan.cut_source_label')}
       <select id="cut-source">
-        <option value="compressed" selected>${t('plan.cut_source_compressed')}</option>
-        <option value="original">${t('plan.cut_source_original')}</option>
+        <option value="original" selected>${t('plan.cut_source_original')}</option>
+        <option value="compressed">${t('plan.cut_source_compressed')}</option>
       </select>
     </label>
     <label><input type="checkbox" id="cut-reencode"> ${t('plan.cut_reencode')}</label>
