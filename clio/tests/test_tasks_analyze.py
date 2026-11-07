@@ -84,6 +84,31 @@ def test_effective_context_falls_back_when_gpmf_enrichment_fails(monkeypatch, tm
     assert "继续使用基础 context" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize(
+    ("section", "field", "value"),
+    [
+        ("analyze", "window_max_min", 16),
+        ("analyze", "window_overlap_sec", 25),
+        ("compress", "codec", "libx265"),
+        ("compress", "fps", 30),
+        ("compress", "remove_audio", True),
+        ("compress", "crf", 28),
+        ("compress", "target_size_mb", 8),
+        ("compress", "max_width", 1280),
+    ],
+)
+def test_analysis_lineage_changes_with_window_and_compression_settings(
+    tmp_path: Path, section: str, field: str, value: object
+):
+    from clio.tasks.analyze import _analysis_lineage_fingerprint
+
+    cfg = _cfg(tmp_path)
+    base = _analysis_lineage_fingerprint(cfg)
+    setattr(getattr(cfg, section), field, value)
+
+    assert _analysis_lineage_fingerprint(cfg) != base
+
+
 class TestRunAnalyzeAll:
     def test_analyze_single_file(self, monkeypatch, tmp_path: Path):
         cfg = _cfg(tmp_path)

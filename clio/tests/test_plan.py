@@ -223,6 +223,33 @@ class TestPlanLineageFingerprint:
         changed = _plan_lineage_fingerprint(loaded_config, clips)
         assert base != changed
 
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [("max_clips_per_day", 8), ("target_duration_sec", 240)],
+    )
+    def test_changes_on_plan_constraints(self, loaded_config: AppConfig, field: str, value: int) -> None:
+        clips = [{"index": "001", "source_stem": "GL010683", "title": "t"}]
+        base = _plan_lineage_fingerprint(loaded_config, clips)
+        setattr(loaded_config.plan, field, value)
+
+        assert _plan_lineage_fingerprint(loaded_config, clips) != base
+
+    def test_changes_on_transcript_selection_limit(self, loaded_config: AppConfig) -> None:
+        clips = [{"index": "001", "source_stem": "GL010683", "title": "t"}]
+        base = _plan_lineage_fingerprint(loaded_config, clips)
+        loaded_config.whisper._project.max_segments_per_clip += 1
+
+        assert _plan_lineage_fingerprint(loaded_config, clips) != base
+
+    def test_changes_on_task_provider_output_limit(self, loaded_config: AppConfig) -> None:
+        clips = [{"index": "001", "source_stem": "GL010683", "title": "t"}]
+        task = loaded_config.ai.tasks["vlog_plan"]
+        provider = loaded_config.ai.providers[task.provider]
+        base = _plan_lineage_fingerprint(loaded_config, clips)
+        provider.max_tokens += 100
+
+        assert _plan_lineage_fingerprint(loaded_config, clips) != base
+
 
 class TestDiscoverDayLabels:
     def test_collects_and_sorts(self, loaded_config: AppConfig) -> None:

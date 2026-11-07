@@ -21,9 +21,9 @@ from clio.log import timed
 from clio.processing_state import ProcessingState
 from clio.progress import ProgressTracker
 from clio.prompt_overrides import resolve_prompt_template
-from clio.prompts import PLAN_PROMPT
+from clio.prompts import PLAN_PROMPT, TRANSCRIPT_CONTEXT
 from clio.schema import add_schema_version
-from clio.tasks._helpers import _matches_selected_artifact, _selected_stems
+from clio.tasks._helpers import _matches_selected_artifact, _selected_stems, _task_lineage_settings
 from clio.utils import format_index, plan_day_stem, resolve_binary, run_probe, write_json_atomic, write_text_atomic
 from clio.vmeta import VideoMeta
 
@@ -179,23 +179,19 @@ def _plan_lineage_fingerprint(
     from clio.analyze import _prompt_context_parts
 
     try:
-        task = config.ai.tasks.get("vlog_plan")
-        provider = getattr(task, "provider", "") if task else ""
-        model = getattr(task, "model", "") if task else ""
-    except Exception:
-        provider, model = "", ""
-    try:
         prompt = resolve_prompt_template("vlog_plan", PLAN_PROMPT, config, task_prompts=task_prompts)
     except Exception:
         prompt = PLAN_PROMPT
+    transcripts_enabled = bool(getattr(config.plan, "use_transcripts", False)) and bool(
+        getattr(config.whisper, "enabled", False)
+    )
     transcript_lineage: list[dict[str, Any]] = []
+    transcript_prompt = ""
     transcripts_dir = getattr(config, "transcripts_dir", None)
-    if (
-        getattr(config.plan, "use_transcripts", False)
-        and getattr(config.whisper, "enabled", False)
-        and isinstance(transcripts_dir, Path)
-        and transcripts_dir.is_dir()
-    ):
+    if transcripts_enabled and isinstance(transcripts_dir, Path) and transcripts_dir.is_dir():
+        transcript_prompt = resolve_prompt_template(
+            "transcript_context", TRANSCRIPT_CONTEXT, config, task_prompts=task_prompts
+        )
         for transcript in sorted(transcripts_dir.glob("*_transcript.json")):
             try:
                 digest = hashlib.sha256(transcript.read_bytes()).hexdigest()
@@ -205,11 +201,15 @@ def _plan_lineage_fingerprint(
 
     payload = json.dumps(
         {
-            "provider": provider,
-            "model": model,
+            "task": _task_lineage_settings(config, "vlog_plan"),
             "prompt": prompt,
-            "use_transcripts": getattr(config.plan, "use_transcripts", False),
-            "max_tokens": getattr(config.ai, "max_tokens", None),
+            "use_transcripts": transcripts_enabled,
+            "max_clips_per_day": getattr(config.plan, "max_clips_per_day", 12),
+            "target_duration_sec": getattr(config.plan, "target_duration_sec", 180),
+            "max_transcript_segments_per_clip": (
+                getattr(config.whisper, "max_segments_per_clip", 5) if transcripts_enabled else None
+            ),
+            "transcript_prompt": transcript_prompt,
             # Planning depends on the complete analysis, not only its title.
             # Include the content-bearing fields so an improved analysis
             # invalidates a cached plan.

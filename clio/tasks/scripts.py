@@ -20,7 +20,7 @@ from clio.progress import ProgressTracker
 from clio.prompts import SCRIPT_PROMPT
 from clio.resources import find_resource
 from clio.schema import add_schema_version
-from clio.tasks._helpers import _matches_selected_artifact, _selected_stems
+from clio.tasks._helpers import _matches_selected_artifact, _selected_stems, _task_lineage_settings
 from clio.utils import write_json_atomic, write_text_atomic
 
 
@@ -48,12 +48,6 @@ def _voiceover_lineage_fingerprint(
     prompt) or provider/model invalidates the skip_existing cache so users
     never silently keep a script generated under an older lineage.
     """
-    try:
-        task = config.ai.tasks.get("voiceover")
-        provider = getattr(task, "provider", "") if task else ""
-        model = getattr(task, "model", "") if task else ""
-    except Exception:
-        provider, model = "", ""
     from clio.analyze import _prompt_context_parts
     from clio.prompt_overrides import resolve_prompt_template
 
@@ -63,12 +57,11 @@ def _voiceover_lineage_fingerprint(
         prompt = SCRIPT_PROMPT
     payload = json.dumps(
         {
-            "provider": provider,
-            "model": model,
+            "task": _task_lineage_settings(config, "voiceover"),
             "prompt": prompt,
             "template": template,
+            "target_words": getattr(config.script, "target_words", 80),
             "context": _prompt_context_parts(config, context_override),
-            "max_tokens": getattr(config.ai, "max_tokens", None),
             "analysis": data,
         },
         sort_keys=True,

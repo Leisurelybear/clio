@@ -34,7 +34,7 @@ from clio.log import format_duration, timed
 from clio.processing_state import ProcessingState
 from clio.progress import ProgressTracker
 from clio.prompt_overrides import resolve_prompt_template
-from clio.prompts import ANALYZE_PROMPT
+from clio.prompts import ANALYZE_PROMPT, TRANSCRIPT_CONTEXT
 from clio.schema import add_schema_version
 from clio.tasks._helpers import (
     ClipRecord,
@@ -43,6 +43,7 @@ from clio.tasks._helpers import (
     _matches_selected_stem,
     _merge_summary_records,
     _selected_stems,
+    _task_lineage_settings,
     _write_csv,
     _write_text_file,
 )
@@ -65,24 +66,29 @@ def _analysis_lineage_fingerprint(
     users never silently keep results produced under an older lineage.
     """
     try:
-        task = config.ai.tasks.get("video_analyze")
-        provider = getattr(task, "provider", "") if task else ""
-        model = getattr(task, "model", "") if task else ""
-    except Exception:
-        provider, model = "", ""
-    try:
         prompt = resolve_prompt_template("video_analyze", ANALYZE_PROMPT, config, task_prompts=task_prompts)
     except Exception:
         prompt = ANALYZE_PROMPT
     payload = json.dumps(
         {
-            "provider": provider,
-            "model": model,
+            "task": _task_lineage_settings(config, "video_analyze"),
             "prompt": prompt,
             "max_analyze_duration_min": getattr(config.analyze, "max_analyze_duration_min", 0),
-            "max_tokens": getattr(config.ai, "max_tokens", None),
+            "window_max_min": int(getattr(config.analyze, "window_max_min", 15) or 15),
+            "window_overlap_sec": int(getattr(config.analyze, "window_overlap_sec", 20) or 0),
+            "compress": {
+                "codec": getattr(config.compress, "codec", ""),
+                "fps": getattr(config.compress, "fps", 0),
+                "remove_audio": getattr(config.compress, "remove_audio", False),
+                "crf": getattr(config.compress, "crf", 0),
+                "target_size_mb": getattr(config.compress, "target_size_mb", 0),
+                "max_width": getattr(config.compress, "max_width", 0),
+            },
             "context": _prompt_context_parts(config, context_override),
             "transcript_context": transcript_context,
+            "transcript_prompt": (
+                resolve_prompt_template("transcript_context", TRANSCRIPT_CONTEXT, config) if transcript_context else ""
+            ),
         },
         sort_keys=True,
     )

@@ -57,6 +57,16 @@ def test_voiceover_lineage_changes_with_template(cfg: AppConfig):
     )
 
 
+def test_voiceover_lineage_changes_with_target_words(cfg: AppConfig):
+    from clio.tasks.scripts import _voiceover_lineage_fingerprint
+
+    analysis = {"index": "001", "title": "A"}
+    base = _voiceover_lineage_fingerprint(cfg, analysis, "template")
+    cfg.script.target_words += 20
+
+    assert _voiceover_lineage_fingerprint(cfg, analysis, "template") != base
+
+
 def test_missing_default_template_falls_back_to_bundled(cfg: AppConfig, tmp_path, monkeypatch):
     from clio.tasks.scripts import _load_script_template
 
