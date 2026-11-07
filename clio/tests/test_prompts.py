@@ -126,6 +126,13 @@ def test_plan_prompt_voiceover_hint_specific():
     assert "voiceover_hint" in PLAN_PROMPT
 
 
+def test_plan_prompt_enforces_short_hook_broll_and_narrative_beats():
+    assert "3-5 秒钩子" in PLAN_PROMPT
+    assert "1-3 秒 B-roll" in PLAN_PROMPT
+    assert "narrative_beat" in PLAN_PROMPT
+    assert "transition" in PLAN_PROMPT
+
+
 def test_script_prompt_binds_to_timeline_details():
     assert "timeline_text" in SCRIPT_PROMPT
     assert "具体地点" in SCRIPT_PROMPT
