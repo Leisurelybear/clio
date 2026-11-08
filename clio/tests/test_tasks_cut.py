@@ -274,6 +274,22 @@ class TestRunCutAllOverwrite:
         assert info["start_sec"] == 0
         assert info["end_sec"] == 10
 
+    def test_defaults_to_reencode(self, cfg):
+        _write_plan(cfg, seq=[{"index": "001", "title": "A", "use_timeline": "00:00-00:10"}])
+        (cfg.compressed_dir / "001_src.mp4").write_bytes(b"\x00")
+
+        with (
+            patch("clio.tasks.cut.cut_one") as mock_cut,
+            patch("clio.tasks.cut.resolve_binary", return_value="ffmpeg"),
+            patch("clio.utils.resolve_binary", return_value="ffprobe"),
+            patch("clio.utils.get_duration_sec", return_value=100.0),
+        ):
+            from clio.tasks.cut import run_cut_all
+
+            run_cut_all(cfg, "day1", source="compressed", overwrite=True)
+
+        assert mock_cut.call_args.kwargs["reencode"] is True
+
     def test_skips_segment_when_start_exceeds_media_duration(self, cfg):
         _write_plan(cfg, seq=[{"index": "001", "title": "late", "use_timeline": "00:10-00:20"}])
         (cfg.compressed_dir / "001_src.mp4").write_bytes(b"\x00")

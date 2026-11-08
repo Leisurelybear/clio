@@ -114,6 +114,16 @@ class TestCutOne:
         assert "-c:v" in args
         assert "libx264" in args
 
+    def test_cut_one_defaults_to_reencode(self, tmp_path):
+        src = tmp_path / "input.mp4"
+        src.write_text("fake")
+        out = tmp_path / "output.mp4"
+        with mock.patch("clio.cut.run_ffmpeg") as mock_run:
+            cut_one(src, out, 0, 10, "ffmpeg")
+        args = mock_run.call_args[0][0]
+        assert "-c:v" in args
+        assert "libx264" in args
+
     def test_cut_one_stream_copy(self, tmp_path):
         src = tmp_path / "input.mp4"
         src.write_text("fake")

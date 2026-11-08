@@ -209,7 +209,10 @@ python main.py cut --day day1 --out-dir "E:/剪辑素材/第一天"
 # Cut from original (instead of compressed)
 python main.py cut --day day1 --source original
 
-# Re-encode (default -c copy finishes in seconds; with --reencode uses h264 for precise cutting)
+# Fast stream copy (cuts may start at a nearby keyframe)
+python main.py cut --day day1 --stream-copy
+
+# Precise re-encoding is the default
 python main.py cut --day day1 --reencode
 
 # Ignore readiness warnings only (errors still block)
@@ -221,7 +224,8 @@ python main.py cut --day day1 --force
 | `--day` | `day1` | Plan label (corresponds to `plans/<day>_plan.json`) |
 | `--out-dir` | `output/cuts/<day>/` | Output directory, can be user-specified |
 | `--source` | `compressed` | Video source: `compressed` or `original` |
-| `--reencode` | — | h264 re-encoding (default `-c copy` for fast cut) |
+| `--reencode` | default | h264 re-encoding for precise cuts |
+| `--stream-copy` | — | Fast stream copy; cut points align to nearby keyframes |
 | `--force` | — | Proceed despite plan **warnings** (empty title, offline media, etc.). **Errors** (bad timeline, empty sequence, missing index when known) still fail |
 
 Before cutting, Clio runs the same readiness checks as the Web UI (`clio/plan_readiness.py`). Fix errors in the plan editor or re-run `plan`; use `--force` only when warnings are acceptable.

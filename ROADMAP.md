@@ -1362,16 +1362,16 @@ High-value open items that are not already covered by completed fixes:
 - New CLI subcommand `cut`, no UI dependency
 - Reads `plans/day<N>_plan.json`
 - Extracts each entry in sequence[] with ffmpeg `-ss <start> -to <end>`
-  - Default `-c copy` (fast, cuts in seconds); provide `--reencode` for h264 precise cut
+  - Default x264 re-encoding for precise cuts; provide `--stream-copy` for fast keyframe-aligned cuts
 - `--output <dir>` to specify save directory (default `output/cuts/<day>/`)
 - Output: extracted `.mp4` + corresponding texts JSON copied to same directory
 - Progress: `[i/N] cutting 002 (01:00-01:15)...` + remaining ETA
 - Generates `manifest.md` on completion: each sequence lists output file / time range / title
 
 **Sub-tasks**:
-- [x] R-002a: `clio/cut.py`: `cut_one(video, start, end, out, *, reencode=False)` wraps ffmpeg
+- [x] R-002a: `clio/cut.py`: `cut_one(video, start, end, out, *, reencode=True)` wraps ffmpeg
 - [x] R-002b: `clio/cut.py`: `parse_time_range("00:00-00:20")` reuses existing utils logic
-- [x] R-002c: `pipeline.py`: `run_cut_all(config, day, output_dir, reencode=False)` + progress
+- [x] R-002c: `pipeline.py`: `run_cut_all(config, day, output_dir, reencode=True)` + progress
 - [x] R-002d: `main.py`: `cut` subcommand (`--day`, `--output`, `--reencode`)
 - [x] R-002e: Copy accompanying texts JSON to `cuts/<day>/` (renamed `001_xxx_seg_03.json`)
 - [x] R-002f: Progress uses `timed()` + `[i/N]` + ETA (consistent with existing pipeline)

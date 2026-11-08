@@ -267,7 +267,7 @@ def run_cut_all(
     config: AppConfig,
     day_label: str = "day1",
     output_dir: Path | None = None,
-    reencode: bool = False,
+    reencode: bool = True,
     source: str = "original",
     cancel_event: threading.Event | None = None,
     overwrite: bool = True,

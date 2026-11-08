@@ -312,7 +312,7 @@
   "plan.cut_overwrite_canceled": "Overwrite cut cancelled",
   "plan.cut_overwrite_confirm": "The output folder already has {count} cut video(s). Overwrite and re-cut?\n\nFolder: {dir}\n{preview}\nThe old files are backed up first and the backups are removed only after the new cut succeeds.",
   "plan.cut_overwrite_preview": "Example: {preview}\n",
-  "plan.cut_reencode": "Re-encode (default is the fast -c copy)",
+  "plan.cut_reencode": "Precise re-encoding (default; uncheck for fast stream copy)",
   "plan.cut_source_compressed": "Compressed",
   "plan.cut_source_label": "Video source",
   "plan.cut_source_original": "Original",

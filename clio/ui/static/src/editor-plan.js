@@ -762,7 +762,7 @@ export function renderPlan() {
         <option value="compressed">${t('plan.cut_source_compressed')}</option>
       </select>
     </label>
-    <label><input type="checkbox" id="cut-reencode"> ${t('plan.cut_reencode')}</label>
+    <label><input type="checkbox" id="cut-reencode" checked> ${t('plan.cut_reencode')}</label>
     <label>${t('plan.cut_outdir_label')}
       <span class="input-with-browse"><input id="cut-outdir" placeholder="${t('plan.cut_outdir_placeholder')}"><button class="browse-btn" data-target="cut-outdir" type="button">${t('settings.browse')}</button></span></label>
     <div class="cut-actions" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:center;">

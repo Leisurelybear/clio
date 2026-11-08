@@ -227,11 +227,19 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help=t("cli.help.cut.out_dir"),
     )
-    p_cut.add_argument(
+    cut_mode = p_cut.add_mutually_exclusive_group()
+    cut_mode.add_argument(
         "--reencode",
         action="store_true",
         help=t("cli.help.cut.reencode"),
     )
+    cut_mode.add_argument(
+        "--stream-copy",
+        dest="reencode",
+        action="store_false",
+        help=t("cli.help.cut.stream_copy"),
+    )
+    p_cut.set_defaults(reencode=True)
     p_cut.add_argument(
         "--source",
         choices=["compressed", "original"],

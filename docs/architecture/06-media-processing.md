@@ -57,8 +57,8 @@ Cache-correctness highlights:
 
 - Time-source resolution: `cut_one` consumes absolute start/duration; segment offsets for legacy
   `_seg*` files are applied at the task level via `legacy_segment_offset_sec`.
-- Default stream copy (`-c copy`) keeps cuts fast but non-frame-accurate; `--reencode` switches
-  to x264 for precise edits.
+- Default x264 re-encoding keeps cut points precise; `--stream-copy` opts into faster cuts that
+  may start at a nearby keyframe.
 - The batch runner maps plan segments (`use_timeline` ranges, `source` original/compressed) to
   output files, refuses to clobber fresh outputs (`CutBackupConflictError`), and reports missing/
   unreadable sources rather than silently passing.

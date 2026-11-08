@@ -622,6 +622,21 @@ def _prepare_cut_project(tmp_path: Path, monkeypatch) -> tuple[MagicMock, object
 
 
 class TestHandlePostCutValidation:
+    def test_defaults_reencode_to_true(self, tmp_path: Path, monkeypatch):
+        handler, manager, _output = _prepare_cut_project(tmp_path, monkeypatch)
+        captured: dict = {}
+
+        def worker(context):
+            captured.update(context.input_data)
+            return {"clip_count": 1}
+
+        monkeypatch.setattr("clio.ui.routes.plan._run_cut_task", worker)
+        handle_post_cut(handler, {}, {"day_label": "day1", "source": "compressed"})
+
+        payload = handler._send_json.call_args.args[0]
+        manager.wait(payload["task_id"])
+        assert captured["reencode"] is True
+
     def test_rejects_non_bool_reencode(self):
         handler = MagicMock()
         handler._send_json = MagicMock()

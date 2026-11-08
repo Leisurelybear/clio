@@ -312,7 +312,7 @@
   "plan.cut_overwrite_canceled": "已取消覆盖裁剪",
   "plan.cut_overwrite_confirm": "输出目录已有 {count} 个裁剪视频，是否覆盖重剪？\n\n目录: {dir}\n{preview}\n将先备份旧文件，生成新裁剪成功后再删除备份。",
   "plan.cut_overwrite_preview": "示例: {preview}\n",
-  "plan.cut_reencode": "重新编码 (默认 -c copy 快速)",
+  "plan.cut_reencode": "精确重编码（默认；取消勾选使用快速流复制）",
   "plan.cut_source_compressed": "压缩版 (compressed)",
   "plan.cut_source_label": "视频来源",
   "plan.cut_source_original": "原片 (original)",

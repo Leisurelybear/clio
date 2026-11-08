@@ -54,10 +54,13 @@ def cut_one(
     start_sec: float,
     end_sec: float,
     ffmpeg: str,
-    reencode: bool = False,
+    reencode: bool = True,
     cancel_event: threading.Event | None = None,
 ) -> Path:
-    """用 ffmpeg 从 video_path 中裁剪 [start_sec, end_sec] 区间到 output_path。"""
+    """用 ffmpeg 从 video_path 中裁剪 [start_sec, end_sec] 区间到 output_path。
+
+    默认重编码以保证裁剪点精确；传入 ``reencode=False`` 才使用快速流复制。
+    """
     output_path.parent.mkdir(parents=True, exist_ok=True)
     duration_sec = end_sec - start_sec
     if duration_sec <= 0:
