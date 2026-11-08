@@ -11,6 +11,7 @@ from clio.i18n import t
 from clio.identity import SEGMENT_SUFFIX_RE
 from clio.index import ArtifactIndex
 from clio.tasks._helpers import _matches_selected_artifact, _matches_selected_stem, _selected_stems
+from clio.tasks.plan import plan_overwrite_confirmation_required
 from clio.utils import plan_day_stem
 
 
@@ -84,7 +85,7 @@ def build_run_preview(
         )
         input_info = {**input_info, "hint": empty_selection_note}
 
-    return {
+    result = {
         "input": input_info,
         "steps": preview_steps,
         "totals": {
@@ -94,6 +95,9 @@ def build_run_preview(
             "warnings": sum(len(step["warnings"]) for step in preview_steps),
         },
     }
+    if "plan" in selected_steps and plan_overwrite_confirmation_required(config, day_label, files):
+        result["plan_overwrite"] = {"required": True, "day_label": day_label}
+    return result
 
 
 def _starts_from_compressed(steps: list[str]) -> bool:

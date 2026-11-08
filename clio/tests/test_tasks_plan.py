@@ -118,7 +118,13 @@ class TestRunPlanVlogFilesFilter:
             }
 
         with patch("clio.tasks.plan.plan_daily_vlog", side_effect=_fake_plan):
-            result = run_plan_vlog(cfg, day_label="day1", files=["A"], overwrite=False)
+            result = run_plan_vlog(
+                cfg,
+                day_label="day1",
+                files=["A"],
+                overwrite=False,
+                confirm_plan_overwrite=True,
+            )
 
         assert result is not None
         assert "clips" in captured, "plan_daily_vlog should run when files= is set despite existing plan"
@@ -126,6 +132,58 @@ class TestRunPlanVlogFilesFilter:
         assert captured["clips"][0]["title"] == "A"
         assert len(result.get("sequence", [])) == 1
         assert result["sequence"][0]["title"] == "A"
+
+    def test_existing_json_requires_confirmation(self, cfg: AppConfig):
+        from clio.tasks.plan import PlanOverwriteConfirmationRequired, run_plan_vlog
+
+        _write_text(cfg, "001_A.json", "A", 1)
+        _write_existing_plan(cfg)
+        plan_file = cfg.plans_dir / "day1_plan.json"
+        old_json = plan_file.read_text(encoding="utf-8")
+        old_md = (cfg.plans_dir / "day1_plan.md").read_text(encoding="utf-8")
+
+        with patch("clio.tasks.plan.plan_daily_vlog") as mock_plan:
+            with pytest.raises(PlanOverwriteConfirmationRequired):
+                run_plan_vlog(cfg, day_label="day1", files=["A"])
+
+        mock_plan.assert_not_called()
+        assert plan_file.read_text(encoding="utf-8") == old_json
+        assert (cfg.plans_dir / "day1_plan.md").read_text(encoding="utf-8") == old_md
+
+    def test_existing_markdown_alone_requires_confirmation(self, cfg: AppConfig):
+        from clio.tasks.plan import PlanOverwriteConfirmationRequired, run_plan_vlog
+
+        _write_text(cfg, "001_A.json", "A", 1)
+        (cfg.plans_dir / "day1_plan.md").write_text("# hand edited", encoding="utf-8")
+
+        with patch("clio.tasks.plan.plan_daily_vlog") as mock_plan:
+            with pytest.raises(PlanOverwriteConfirmationRequired):
+                run_plan_vlog(cfg, day_label="day1", files=["A"])
+
+        mock_plan.assert_not_called()
+
+    def test_no_existing_plan_needs_no_confirmation(self, cfg: AppConfig):
+        from clio.tasks.plan import run_plan_vlog
+
+        _write_text(cfg, "001_A.json", "A", 1)
+
+        with patch("clio.tasks.plan.plan_daily_vlog", side_effect=_fake_plan_payload) as mock_plan:
+            result = run_plan_vlog(cfg, day_label="day1", files=["A"])
+
+        mock_plan.assert_called_once()
+        assert result is not None
+        assert result["source_inputs"] == [{"index": "001", "source_stem": "A"}]
+
+    def test_empty_files_selection_requires_confirmation(self, cfg: AppConfig):
+        from clio.tasks.plan import PlanOverwriteConfirmationRequired, run_plan_vlog
+
+        _write_existing_plan(cfg)
+
+        with patch("clio.tasks.plan.plan_daily_vlog") as mock_plan:
+            with pytest.raises(PlanOverwriteConfirmationRequired):
+                run_plan_vlog(cfg, day_label="day1", files=[])
+
+        mock_plan.assert_not_called()
 
     def test_skip_existing_still_applies_without_files(self, cfg: AppConfig):
         """Without files=, existing valid plan is returned and AI is not called."""

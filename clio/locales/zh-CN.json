@@ -581,6 +581,7 @@
   "task.plan.material_count": "[规划] {day}，共 {count} 条素材",
   "task.plan.no_analysis": "没有可用的分析结果，请先运行 analyze",
   "task.plan.no_usable_media": "[规划] 无可用素材（选片过滤后为空或尚未 analyze）",
+  "task.plan.overwrite_confirmation_required": "部分视频生成计划会覆盖 {day} 的现有计划，请确认后再运行",
   "task.plan.progress_message": "生成 {day} 规划...",
   "task.plan.replan_corrupt": "  [重新规划] {day} (已有规划文件损坏)",
   "task.plan.replan_lineage": "  [重新规划] {day} (缓存血缘变化)",

@@ -581,6 +581,7 @@
   "task.plan.material_count": "[plan] {day}, {count} clips in total",
   "task.plan.no_analysis": "No analysis results available; run analyze first",
   "task.plan.no_usable_media": "[plan] no usable media (empty after the selection filter, or not analyzed yet)",
+  "task.plan.overwrite_confirmation_required": "Generating a plan from selected videos would replace the existing {day} plan; confirm before running",
   "task.plan.progress_message": "Generating the {day} plan...",
   "task.plan.replan_corrupt": "  [replan] {day} (existing plan file is corrupt)",
   "task.plan.replan_lineage": "  [replan] {day} (cache lineage changed)",

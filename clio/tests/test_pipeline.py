@@ -181,6 +181,29 @@ class TestRunPipelineStepsCancel:
                 f"{step} should receive overwrite=True, got: {all_kwargs[step]}"
             )
 
+    def test_plan_overwrite_confirmation_only_propagates_to_plan(self):
+        config = _mock_config(Path(""))
+        all_kwargs: dict[str, dict] = {}
+
+        def _make_mock(name):
+            def _mock(*a, **kw):
+                all_kwargs[name] = kw
+                return None
+
+            return _mock
+
+        fake_funcs = {s: _make_mock(s) for s in ("compress", "analyze", "voiceover", "transcribe", "plan", "label")}
+        with (
+            patch("clio.pipeline._STEP_FUNCS", fake_funcs),
+            patch("builtins.print"),
+            patch("clio.pipeline.timed", lambda msg: MagicMock(__enter__=lambda s: None, __exit__=lambda *a: None)),
+        ):
+            run_pipeline_steps(config, steps=list(fake_funcs), confirm_plan_overwrite=True)
+
+        assert all_kwargs["plan"].get("confirm_plan_overwrite") is True
+        for step in ("compress", "analyze", "voiceover", "transcribe", "label"):
+            assert "confirm_plan_overwrite" not in all_kwargs[step]
+
     def test_nonzero_step_result_fails_pipeline(self, tmp_path: Path):
         config = _mock_config(tmp_path)
         tracker = MagicMock()

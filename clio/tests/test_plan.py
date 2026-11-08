@@ -499,7 +499,12 @@ class TestRunPlanVlog:
         with patch("clio.tasks.plan.plan_daily_vlog", return_value={"day_title": "day1", "sequence": []}):
             run_plan_vlog(loaded_config, "day1")
         with patch("clio.tasks.plan.plan_daily_vlog", return_value={"day_title": "day1", "sequence": []}) as mock:
-            run_plan_vlog(loaded_config, "day1", files=["001_GL010683"])
+            run_plan_vlog(
+                loaded_config,
+                "day1",
+                files=["001_GL010683"],
+                confirm_plan_overwrite=True,
+            )
         assert mock.call_count == 1
 
     def test_transcripts_missing_warning(self, loaded_config: AppConfig, capsys) -> None:

@@ -236,6 +236,15 @@ function collectRunOptions() {
   return options;
 }
 
+export function needsPlanOverwriteConfirmation(preview, options) {
+  return Boolean(
+    options?.files
+    && Array.isArray(options.steps)
+    && options.steps.includes('plan')
+    && preview?.plan_overwrite?.required,
+  );
+}
+
 function renderRunPreviewHtml(preview) {
   if (!preview) {
     return `<p class="muted">${t('run.preview.empty')}</p>`;
@@ -245,6 +254,11 @@ function renderRunPreviewHtml(preview) {
   const steps = Array.isArray(preview.steps) ? preview.steps : [];
   const preflight = preview.preflight;
   const missing = Array.isArray(preflight?.missing) ? preflight.missing : [];
+  const planOverwrite = preview.plan_overwrite?.required
+    ? `<p class="warn run-plan-overwrite-warning">${t('run.preview.plan_overwrite', {
+      day: escapeHtml(preview.plan_overwrite.day_label || ''),
+    })}</p>`
+    : '';
   const separator = t('common.list_separator');
   const preflightLine = preflight && preflight.ok === false
     ? `<p class="err run-preflight-error">${t('run.preview.preflight_error', { detail: escapeHtml(preflight.detail || t('run.preview.step_unrunnable')) })}\n` +
@@ -276,6 +290,7 @@ function renderRunPreviewHtml(preview) {
       </div>
       ${preflightLine}
       ${warningLine}
+      ${planOverwrite}
       <div class="run-preview-steps">${stepRows}</div>
     </section>
   `;
@@ -363,12 +378,24 @@ async function startRun() {
     updateRunStartButtonState();
     return;
   }
-  _lastRunDay = options.day_label;
-  _lastRunSteps = options.steps.slice();
-  _expectDoneNavigation = true;
   try {
+    if (options.files && options.steps.includes('plan')) {
+      const previewResponse = await api('POST', '/api/run/preview', options);
+      const preview = previewResponse?.preview || null;
+      if (needsPlanOverwriteConfirmation(preview, options)) {
+        const day = preview.plan_overwrite.day_label || options.day_label;
+        if (!confirm(t('run.confirm_plan_overwrite', { day }))) {
+          updateRunStartButtonState();
+          return;
+        }
+        options.confirm_plan_overwrite = true;
+      }
+    }
+    _lastRunDay = options.day_label;
+    _lastRunSteps = options.steps.slice();
+    _expectDoneNavigation = true;
     const r = await api('POST', '/api/run/start', options);
-  if (r.ok) {
+    if (r.ok) {
       _managedTaskId = r.task_id || r.task?.id || null;
       renderManagedTaskLink();
       _runActive = true;

@@ -222,6 +222,85 @@ class TestHandlePostRunStart:
         assert "explode" in payload["error"]
         manager.submit.assert_not_called()
 
+    def test_partial_plan_overwrite_requires_confirmation(self, tmp_path, monkeypatch):
+        manager = MagicMock()
+        handler, _, output_dir = _managed_handler(tmp_path, manager)
+        plans_dir = output_dir / "plans"
+        plans_dir.mkdir()
+        (plans_dir / "day2_plan.json").write_text("{}", encoding="utf-8")
+        _allow_media_preflight(monkeypatch)
+
+        handle_post_run_start(
+            handler,
+            {},
+            {"day_label": "day2", "steps": ["plan"], "files": ["A.mp4"]},
+        )
+
+        payload, status = handler._send_json.call_args.args
+        assert status == 409
+        assert payload["code"] == "plan_overwrite_confirmation_required"
+        assert payload["day_label"] == "day2"
+        manager.submit.assert_not_called()
+
+    def test_confirmed_partial_plan_overwrite_is_stored_on_task(self, tmp_path, monkeypatch):
+        from clio.task_center.manager import TaskManager
+        from clio.task_center.store import TaskStore
+
+        _allow_media_preflight(monkeypatch)
+        monkeypatch.setattr("clio.ui.routes.run._run_pipeline_task", lambda context: {"ok": True})
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+        handler, _, output_dir = _managed_handler(tmp_path, manager)
+        plans_dir = output_dir / "plans"
+        plans_dir.mkdir()
+        (plans_dir / "day2_plan.md").write_text("# plan", encoding="utf-8")
+
+        handle_post_run_start(
+            handler,
+            {},
+            {
+                "day_label": "day2",
+                "steps": ["plan"],
+                "files": ["A.mp4"],
+                "confirm_plan_overwrite": True,
+            },
+        )
+
+        payload = handler._send_json.call_args.args[0]
+        task = manager.wait(payload["task_id"])
+        assert task.input_data["confirm_plan_overwrite"] is True
+
+    def test_full_plan_or_non_plan_step_ignores_existing_plan(self, tmp_path, monkeypatch):
+        from clio.task_center.manager import TaskManager
+        from clio.task_center.store import TaskStore
+
+        _allow_media_preflight(monkeypatch)
+        monkeypatch.setattr("clio.ui.routes.run._run_pipeline_task", lambda context: {"ok": True})
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+        handler, _, output_dir = _managed_handler(tmp_path, manager)
+        plans_dir = output_dir / "plans"
+        plans_dir.mkdir()
+        (plans_dir / "day1_plan.json").write_text("{}", encoding="utf-8")
+
+        handle_post_run_start(handler, {}, {"steps": ["plan"]})
+        full_payload = handler._send_json.call_args.args[0]
+        assert manager.wait(full_payload["task_id"]).status.value == "succeeded"
+
+        handler._send_json.reset_mock()
+        handle_post_run_start(handler, {}, {"steps": ["analyze"], "files": ["A.mp4"]})
+        non_plan_payload = handler._send_json.call_args.args[0]
+        assert manager.wait(non_plan_payload["task_id"]).status.value == "succeeded"
+
+    def test_rejects_non_boolean_plan_overwrite_confirmation(self, tmp_path):
+        manager = MagicMock()
+        handler, _, _ = _managed_handler(tmp_path, manager)
+
+        handle_post_run_start(handler, {}, {"confirm_plan_overwrite": "true"})
+
+        handler._send_json.assert_called_once_with(
+            {"ok": False, "error": "confirm_plan_overwrite must be a boolean"}, 400
+        )
+        manager.submit.assert_not_called()
+
     def test_pipeline_with_ephemeral_context_is_not_retryable(self, tmp_path, monkeypatch):
         from clio.task_center.manager import TaskManager
         from clio.task_center.store import TaskStore
@@ -721,6 +800,7 @@ class TestRunPipelineTask:
             captured["steps"] = steps
             captured["files"] = kwargs.get("files")
             captured["overwrite"] = kwargs.get("overwrite")
+            captured["confirm_plan_overwrite"] = kwargs.get("confirm_plan_overwrite")
             return {"steps_run": 3}
 
         monkeypatch.setattr("clio.ui.routes.run.run_pipeline_steps", fake_pipeline)
@@ -739,6 +819,7 @@ class TestRunPipelineTask:
                 "steps": ["compress"],
                 "files": ["a.mp4"],
                 "overwrite": True,
+                "confirm_plan_overwrite": True,
             },
             task=SimpleNamespace(project_path=str(tmp_path)),
             reporter=MagicMock(),
@@ -752,6 +833,7 @@ class TestRunPipelineTask:
         assert captured["steps"] == ["compress"]
         assert captured["files"] == ["a.mp4"]
         assert captured["overwrite"] is True
+        assert captured["confirm_plan_overwrite"] is True
 
     def test_cancelled_marks_tracker_and_reraises(self, tmp_path, monkeypatch):
         from clio.task_center.reporter import TaskCancelled

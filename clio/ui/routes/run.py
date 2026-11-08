@@ -18,6 +18,7 @@ from clio.task_center.models import TaskKind, TaskStatus
 from clio.task_center.reporter import TaskCancelled, TaskProgressReporter
 from clio.task_center.store import TaskQuery
 from clio.tasks._video_loader import load_selected_videos
+from clio.tasks.plan import plan_overwrite_confirmation_required
 from clio.tasks.transcribe import run_transcribe_one
 from clio.ui.services.file_service import _find_original_for_compressed, _find_texts_dirs, _is_safe_basename
 from clio.ui.services.project_service import _project_output_dir, collect_allowed_project_paths
@@ -95,6 +96,7 @@ def _run_pipeline_task(context) -> dict[str, Any]:
             cancel_event=context.cancel_event,
             files=input_data.get("files"),
             overwrite=bool(input_data.get("overwrite", False)),
+            confirm_plan_overwrite=bool(input_data.get("confirm_plan_overwrite", False)),
             context_override=input_data.get("context_override"),
             task_prompts=input_data.get("task_prompts"),
         )
@@ -322,6 +324,9 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
     overwrite = obj.get("overwrite", False)
     if not isinstance(overwrite, bool):
         return handler._send_json({"ok": False, "error": "overwrite must be a boolean"}, 400)
+    confirm_plan_overwrite = obj.get("confirm_plan_overwrite", False)
+    if not isinstance(confirm_plan_overwrite, bool):
+        return handler._send_json({"ok": False, "error": "confirm_plan_overwrite must be a boolean"}, 400)
     context_override = obj.get("context_override")
     if context_override is not None and not isinstance(context_override, str):
         return handler._send_json({"ok": False, "error": "context_override must be a string"}, 400)
@@ -337,6 +342,22 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
     task_prompts = task_prompts or None
     if task_prompts and (len(task_prompts) > 20 or any(len(value) > 100_000 for value in task_prompts.values())):
         return handler._send_json({"ok": False, "error": "task_prompts is too large"}, 400)
+
+    selected_steps = steps if steps is not None else list(PIPELINE_STEPS)
+    if (
+        "plan" in selected_steps
+        and not confirm_plan_overwrite
+        and plan_overwrite_confirmation_required(cfg, day_label, files_list)
+    ):
+        return handler._send_json(
+            {
+                "ok": False,
+                "code": "plan_overwrite_confirmation_required",
+                "error": t("task.plan.overwrite_confirmation_required", {"day": day_label}),
+                "day_label": day_label,
+            },
+            409,
+        )
 
     preflight = preflight_config_media_deps(cfg, required=media_dependencies_for_steps(steps))
     if not preflight["ok"]:
@@ -356,6 +377,7 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
         "steps": steps,
         "files": files_list,
         "overwrite": overwrite,
+        "confirm_plan_overwrite": confirm_plan_overwrite,
         "use_transcripts": cfg.plan.use_transcripts,
     }
     retryable = not (context_override or task_prompts)

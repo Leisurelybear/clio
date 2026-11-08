@@ -36,6 +36,18 @@ _CAPTURE_TIME_RE = re.compile(r"(?<!\d)(20\d{2}[01]\d[0-3]\d)[_-]?([0-2]\d[0-5]\
 _CAPTURE_TIME_KEYS = ("capture_time", "recorded_at", "creation_time", "date_time")
 
 
+class PlanOverwriteConfirmationRequired(RuntimeError):
+    """Raised when a selection-scoped plan would replace an existing day plan."""
+
+
+def plan_overwrite_confirmation_required(config: AppConfig, day_label: str, files: list[str] | None) -> bool:
+    """Return whether files= would replace an existing day plan."""
+    if files is None:
+        return False
+    safe_day = plan_day_stem(day_label)
+    return (config.plans_dir / f"{safe_day}_plan.json").exists() or (config.plans_dir / f"{safe_day}_plan.md").exists()
+
+
 def _positive_number(value: Any) -> float | None:
     if isinstance(value, bool):
         return None
@@ -275,6 +287,7 @@ def run_plan_vlog(
     cancel_event: threading.Event | None = None,
     files: list[str] | None = None,
     overwrite: bool = False,
+    confirm_plan_overwrite: bool = False,
     context_override: str | None = None,
     filter_by_day: bool = False,
     task_prompts: dict[str, str] | None = None,
@@ -290,6 +303,8 @@ def run_plan_vlog(
 
     out_json = config.plans_dir / f"{safe_day}_plan.json"
     out_md = config.plans_dir / f"{safe_day}_plan.md"
+    if not confirm_plan_overwrite and plan_overwrite_confirmation_required(config, day_label, files):
+        raise PlanOverwriteConfirmationRequired(t("task.plan.overwrite_confirmation_required", {"day": day_label}))
 
     clips = []
     skipped_inputs: list[tuple[str, str]] = []

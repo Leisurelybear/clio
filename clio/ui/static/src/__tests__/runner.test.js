@@ -6,6 +6,8 @@ import {
   missingMediaDepsForSteps,
   renderSkippedDiagnosticsHtml,
   collectRunOptions,
+  needsPlanOverwriteConfirmation,
+  startRun,
   getRunButtonText,
   _shouldResetRunNavigationOnRender,
   updateRunStartButtonState,
@@ -95,6 +97,38 @@ describe('renderRunPreviewHtml', () => {
     expect(html).toContain('媒体依赖未就绪');
     expect(html).toContain('未找到 ffmpeg，请先安装');
     expect(html).toContain('缺少 ffmpeg');
+  });
+
+  it('renders the partial-plan overwrite warning with an escaped day label', () => {
+    const html = renderRunPreviewHtml({
+      input: { path: 'D:/trip/videos', count: 1 },
+      totals: { selected_steps: 1, will_run: 1, will_skip: 0, warnings: 0 },
+      steps: [],
+      plan_overwrite: { required: true, day_label: '<day2>' },
+    });
+
+    expect(html).toContain('会替换 &lt;day2&gt; 的现有计划');
+    expect(html).not.toContain('<day2>');
+  });
+});
+
+describe('needsPlanOverwriteConfirmation', () => {
+  const riskyPreview = { plan_overwrite: { required: true, day_label: 'day2' } };
+
+  it('requires confirmation only for selected files plus plan', () => {
+    expect(needsPlanOverwriteConfirmation(riskyPreview, {
+      steps: ['plan'],
+      files: ['A.mp4'],
+    })).toBe(true);
+  });
+
+  it('does not require confirmation for full-plan or non-plan runs', () => {
+    expect(needsPlanOverwriteConfirmation(riskyPreview, { steps: ['plan'] })).toBe(false);
+    expect(needsPlanOverwriteConfirmation(riskyPreview, {
+      steps: ['analyze'],
+      files: ['A.mp4'],
+    })).toBe(false);
+    expect(needsPlanOverwriteConfirmation({}, { steps: ['plan'], files: ['A.mp4'] })).toBe(false);
   });
 });
 
@@ -209,6 +243,76 @@ describe('getRunButtonText / updateRunStartButtonState', () => {
     expect(btn.disabled).toBe(true);
     expect(btn.innerHTML).toContain('请先勾选视频');
     expect(btn.title).toContain('勾选');
+  });
+});
+
+describe('startRun', () => {
+  const baseDom = `
+    <button id="btn-run-start"></button>
+    <div id="run-preview"></div>
+    <div id="run-progress"></div>
+    <input class="run-step-cb" data-step="plan" type="checkbox" checked>
+    <input id="run-day" value="day2">
+    <input id="run-use-transcripts" type="checkbox" checked>
+    <input id="run-overwrite" type="checkbox">
+  `;
+
+  beforeEach(async () => {
+    state.selectionMode = true;
+    state.selectedFiles = ['A.mp4'];
+    state.deps = null;
+    document.body.innerHTML = baseDom;
+    const { api } = await import('../api.js');
+    vi.mocked(api).mockReset();
+    vi.stubGlobal('confirm', vi.fn(() => true));
+  });
+
+  it('stops without starting when the overwrite confirmation is declined', async () => {
+    const { api } = await import('../api.js');
+    api.mockResolvedValueOnce({
+      preview: { plan_overwrite: { required: true, day_label: 'day2' } },
+    });
+    vi.mocked(confirm).mockReturnValue(false);
+
+    await startRun();
+
+    expect(api).toHaveBeenCalledTimes(1);
+    expect(api).toHaveBeenCalledWith('POST', '/api/run/preview', expect.objectContaining({
+      files: ['A.mp4'],
+      steps: ['plan'],
+    }));
+    expect(document.getElementById('btn-run-start').disabled).toBe(false);
+    expect(api).not.toHaveBeenCalledWith('POST', '/api/run/start', expect.anything());
+  });
+
+  it('sends the confirmation flag after the user accepts overwrite', async () => {
+    const { api } = await import('../api.js');
+    api.mockResolvedValueOnce({
+      preview: { plan_overwrite: { required: true, day_label: 'day2' } },
+    });
+    api.mockResolvedValueOnce({ ok: true, task_id: 'task-1' });
+
+    await startRun();
+
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('替换 day2 的现有计划'));
+    const startCall = api.mock.calls.find(([method, url]) => method === 'POST' && url === '/api/run/start');
+    expect(startCall?.[2]).toEqual(expect.objectContaining({
+      files: ['A.mp4'],
+      steps: ['plan'],
+      confirm_plan_overwrite: true,
+    }));
+  });
+
+  it('does not ask when the fresh preview reports no overwrite risk', async () => {
+    const { api } = await import('../api.js');
+    api.mockResolvedValueOnce({ preview: {} });
+    api.mockResolvedValueOnce({ ok: true, task_id: 'task-2' });
+
+    await startRun();
+
+    expect(confirm).not.toHaveBeenCalled();
+    const startCall = api.mock.calls.find(([method, url]) => method === 'POST' && url === '/api/run/start');
+    expect(startCall?.[2]).not.toHaveProperty('confirm_plan_overwrite');
   });
 });
 

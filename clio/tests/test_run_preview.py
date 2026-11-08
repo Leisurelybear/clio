@@ -660,6 +660,75 @@ def test_preview_files_selection_does_not_filter_plan(tmp_path: Path) -> None:
     assert preview["steps"][0]["will_run"] == 1
 
 
+def test_preview_warns_when_partial_plan_would_overwrite_existing_plan(tmp_path: Path) -> None:
+    input_dir = tmp_path / "videos"
+    output_dir = tmp_path / "output"
+    texts_dir = output_dir / "texts"
+    plans_dir = output_dir / "plans"
+    input_dir.mkdir()
+    texts_dir.mkdir(parents=True)
+    plans_dir.mkdir()
+    (texts_dir / "001_A.json").write_text("{}", encoding="utf-8")
+    (texts_dir / "002_B.json").write_text("{}", encoding="utf-8")
+    (plans_dir / "day2_plan.json").write_text("{}", encoding="utf-8")
+    (input_dir / "A.mp4").write_bytes(b"video")
+    (input_dir / "B.mp4").write_bytes(b"video")
+
+    from clio.tasks._video_loader import save_selected_videos
+
+    save_selected_videos(input_dir, [input_dir / "A.mp4", input_dir / "B.mp4"])
+    preview = build_run_preview(
+        _config(input_dir, output_dir),
+        steps=["plan"],
+        force=False,
+        use_transcripts=True,
+        files=["A.mp4"],
+        day_label="day2",
+    )
+
+    assert preview["plan_overwrite"] == {"required": True, "day_label": "day2"}
+
+
+def test_preview_omits_overwrite_warning_for_full_or_new_plan(tmp_path: Path) -> None:
+    input_dir = tmp_path / "videos"
+    output_dir = tmp_path / "output"
+    texts_dir = output_dir / "texts"
+    plans_dir = output_dir / "plans"
+    input_dir.mkdir()
+    texts_dir.mkdir(parents=True)
+    plans_dir.mkdir()
+    (texts_dir / "001_A.json").write_text("{}", encoding="utf-8")
+    (plans_dir / "day1_plan.json").write_text("{}", encoding="utf-8")
+    (input_dir / "A.mp4").write_bytes(b"video")
+
+    from clio.tasks._video_loader import save_selected_videos
+
+    save_selected_videos(input_dir, [input_dir / "A.mp4"])
+    config = _config(input_dir, output_dir)
+
+    full = build_run_preview(config, steps=["plan"], force=False, use_transcripts=True)
+    new_day = build_run_preview(
+        config,
+        steps=["plan"],
+        force=False,
+        use_transcripts=True,
+        files=["A.mp4"],
+        day_label="day2",
+    )
+    non_plan = build_run_preview(
+        config,
+        steps=["analyze"],
+        force=False,
+        use_transcripts=True,
+        files=["A.mp4"],
+        day_label="day1",
+    )
+
+    assert "plan_overwrite" not in full
+    assert "plan_overwrite" not in new_day
+    assert "plan_overwrite" not in non_plan
+
+
 def test_preview_transcribe_warns_when_transcripts_disabled(tmp_path: Path) -> None:
     input_dir = tmp_path / "videos"
     output_dir = tmp_path / "output"
