@@ -26,6 +26,7 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
   - [x] B6: isolate CPU fallback device override from shared Whisper configuration
   - [x] C3: include effective task settings in analysis, voiceover, and plan lineage fingerprints
   - [x] C4: assign analysis outputs to relative days from capture dates for multi-day planning
+  - [x] C5: preserve opening and ending segments when plan output exceeds max clips
   - [ ] Next: continue the review backlog; one focused fix per commit
   - Keep the existing uncommitted plan-delete/video-selection work isolated.
 - R-048 Higher-detail video analysis and bounded plan input (plan ready; P0a-P0c not started)

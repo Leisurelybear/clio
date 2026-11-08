@@ -493,7 +493,13 @@ def _validate_plan_ranges(result: dict, clips: list[dict], max_clips: int, targe
         print(t("analyze.plan_dropped_timeline", {"count": dropped}))
     if max_clips > 0 and len(valid) > max_clips:
         print(t("analyze.plan_max_clips", {"max": max_clips}))
-        valid = valid[:max_clips]
+        # Keep both the opening and the ending so a model overproducing
+        # segments does not silently remove the story's conclusion.
+        head_count = (max_clips + 1) // 2
+        tail_count = max_clips - head_count
+        head = valid[:head_count]
+        tail = valid[-tail_count:] if tail_count else []
+        valid = head + tail
 
     total = 0.0
     for segment in valid:

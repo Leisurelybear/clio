@@ -405,6 +405,15 @@ def test_validate_plan_ranges_caps_segments_and_recomputes_duration():
     assert validated["total_estimated_sec"] == 10.0
 
 
+def test_validate_plan_ranges_preserves_opening_and_ending_when_capped():
+    clips = [{"index": str(index), "timeline": [{"start": "00:00", "end": "00:20"}]} for index in range(1, 5)]
+    result = {"sequence": [{"index": str(index), "use_timeline": "00:00-00:05"} for index in range(1, 5)]}
+
+    validated = _validate_plan_ranges(result, clips, max_clips=2, target_duration_sec=180)
+
+    assert [segment["index"] for segment in validated["sequence"]] == ["1", "4"]
+
+
 def test_select_transcripts_accepts_boundary_overlap_and_restores_time_order():
     transcript = {
         "segments": [
