@@ -102,6 +102,16 @@ def _matches_selected_stem(path: Path, selected: set[str]) -> bool:
     return bool(_stem_variants(path.stem, include_segment_base=True) & selected)
 
 
+def _project_selection_stems(config: AppConfig) -> set[str] | None:
+    """Selected video stem variants, or None for a legacy project without videos.json."""
+    project_dir = getattr(config, "project_dir", None)
+    if project_dir is None or not (Path(project_dir) / "videos.json").is_file():
+        return None
+    from clio.tasks._video_loader import source_videos
+
+    return _selected_stems([path.stem for path in source_videos(config) if path.stem])
+
+
 def _matches_selected_artifact(path: Path, selected: set[str]) -> bool:
     if _matches_selected_stem(path, selected):
         return True

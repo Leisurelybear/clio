@@ -143,6 +143,38 @@ class TestRunPlanVlogFilesFilter:
         assert len(result["sequence"]) == 2
 
 
+class TestRunPlanVlogProjectSelection:
+    def test_removed_analysis_is_excluded(self, cfg: AppConfig):
+        from clio.tasks._video_loader import save_selected_videos
+        from clio.tasks.plan import run_plan_vlog
+
+        selected = cfg.project_dir / "A.mp4"
+        selected.write_bytes(b"video")
+        save_selected_videos(cfg.project_dir, [selected])
+        _write_text(cfg, "001_A.json", "A", 1)
+        _write_text(cfg, "002_B.json", "B", 2)
+
+        with patch("clio.tasks.plan.plan_daily_vlog", side_effect=_fake_plan_payload) as mock_plan:
+            result = run_plan_vlog(cfg, day_label="day1", overwrite=True)
+
+        mock_plan.assert_called_once()
+        assert result is not None
+        assert result["source_inputs"] == [{"index": "001", "source_stem": "A"}]
+
+    def test_empty_selection_has_no_usable_media(self, cfg: AppConfig):
+        from clio.tasks._video_loader import save_selected_videos
+        from clio.tasks.plan import run_plan_vlog
+
+        save_selected_videos(cfg.project_dir, [])
+        _write_text(cfg, "001_A.json", "A", 1)
+
+        with patch("clio.tasks.plan.plan_daily_vlog") as mock_plan:
+            result = run_plan_vlog(cfg, day_label="day1", overwrite=True)
+
+        mock_plan.assert_not_called()
+        assert result is None
+
+
 def _fake_plan_payload(clips, config=None, day_label="day1", **kwargs):
     return {
         "day_title": "Selected",

@@ -670,6 +670,40 @@ class TestRunCutAll:
             assert len(result) == 1
 
 
+class TestRunCutProjectSelection:
+    @patch("clio.tasks.cut.cut_one")
+    @patch("clio.tasks.cut.resolve_binary")
+    def test_removed_video_is_not_cut_from_compressed(self, mock_resolve, mock_cut, cfg):
+        _write_plan(
+            cfg,
+            seq=[
+                {"index": "001", "title": "A", "use_timeline": "00:00-00:10"},
+                {"index": "002", "title": "B", "use_timeline": "00:00-00:10"},
+            ],
+        )
+        (cfg.compressed_dir / "001_A.mp4").write_bytes(b"\x00")
+        (cfg.compressed_dir / "002_B.mp4").write_bytes(b"\x00")
+        selected = cfg.project_dir / "A.mp4"
+        selected.write_bytes(b"\x00")
+        save_selected_videos(cfg.project_dir, [selected])
+        mock_resolve.return_value = "ffmpeg"
+
+        def fake_cut(_video_path, output_path, *_args, **_kwargs):
+            output_path.write_bytes(b"clip")
+
+        mock_cut.side_effect = fake_cut
+        with patch("clio.tasks.cut.get_duration_sec", return_value=100.0):
+            from clio.tasks.cut import run_cut_all
+
+            clips = run_cut_all(cfg, "day1", source="compressed", overwrite=True)
+
+        assert [clip["video_index"] for clip in clips] == ["001"]
+        assert mock_cut.call_count == 1
+        out_dir = cfg.paths.output_dir / "cuts" / "day1"
+        assert (out_dir / "001_A_seg_001.mp4").is_file()
+        assert not (out_dir / "002_B_seg_002.mp4").exists()
+
+
 class TestResolveCutOutputDir:
     def test_default_under_output(self, cfg):
         from clio.tasks.cut import resolve_cut_output_dir

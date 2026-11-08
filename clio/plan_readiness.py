@@ -12,6 +12,7 @@ from clio.cut import parse_time_range
 from clio.i18n import t
 from clio.identity import load_identity
 from clio.plan_model import Plan, PlanIssue
+from clio.tasks._helpers import _matches_selected_artifact, _matches_selected_stem, _project_selection_stems
 from clio.utils import format_index
 
 
@@ -216,6 +217,7 @@ def collect_project_indices(cfg: Any) -> tuple[set[str], set[str]]:
     or compressed filename stems).
     """
     width = _index_width_from_cfg(cfg)
+    selection = _project_selection_stems(cfg)
     known: set[str] = set()
     offline: set[str] = set()
     stem_to_indices: dict[str, set[str]] = {}
@@ -225,6 +227,8 @@ def collect_project_indices(cfg: Any) -> tuple[set[str], set[str]]:
         try:
             for p in comp.iterdir():
                 if p.is_file() and p.suffix.lower() in VIDEO_EXTS:
+                    if selection is not None and not _matches_selected_stem(p, selection):
+                        continue
                     stem = p.stem
                     idx = stem.split("_", 1)[0]
                     if idx:
@@ -248,6 +252,8 @@ def collect_project_indices(cfg: Any) -> tuple[set[str], set[str]]:
     if isinstance(texts, Path) and texts.is_dir():
         try:
             for jf in texts.glob("*.json"):
+                if selection is not None and not _matches_selected_artifact(jf, selection):
+                    continue
                 try:
                     data = json.loads(jf.read_text(encoding="utf-8"))
                 except (json.JSONDecodeError, OSError):

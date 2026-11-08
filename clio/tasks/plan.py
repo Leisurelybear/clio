@@ -23,7 +23,12 @@ from clio.progress import ProgressTracker
 from clio.prompt_overrides import resolve_prompt_template
 from clio.prompts import PLAN_PROMPT, TRANSCRIPT_CONTEXT
 from clio.schema import add_schema_version
-from clio.tasks._helpers import _matches_selected_artifact, _selected_stems, _task_lineage_settings
+from clio.tasks._helpers import (
+    _matches_selected_artifact,
+    _project_selection_stems,
+    _selected_stems,
+    _task_lineage_settings,
+)
 from clio.utils import format_index, plan_day_stem, resolve_binary, run_probe, write_json_atomic, write_text_atomic
 from clio.vmeta import VideoMeta
 
@@ -185,6 +190,7 @@ def _plan_lineage_fingerprint(
     transcripts_enabled = bool(getattr(config.plan, "use_transcripts", False)) and bool(
         getattr(config.whisper, "enabled", False)
     )
+    selection = _project_selection_stems(config)
     transcript_lineage: list[dict[str, Any]] = []
     transcript_prompt = ""
     transcripts_dir = getattr(config, "transcripts_dir", None)
@@ -193,6 +199,8 @@ def _plan_lineage_fingerprint(
             "transcript_context", TRANSCRIPT_CONTEXT, config, task_prompts=task_prompts
         )
         for transcript in sorted(transcripts_dir.glob("*_transcript.json")):
+            if selection is not None and not _matches_selected_artifact(transcript, selection):
+                continue
             try:
                 digest = hashlib.sha256(transcript.read_bytes()).hexdigest()
                 transcript_lineage.append({"name": transcript.name, "sha256": digest})
@@ -248,7 +256,10 @@ def _discover_day_labels(config: AppConfig) -> list[str]:
 def _discover_day_labels_with_errors(config: AppConfig) -> tuple[list[str], list[tuple[str, str]]]:
     labels: set[str] = set()
     skipped: list[tuple[str, str]] = []
+    selection = _project_selection_stems(config)
     for json_file in sorted(config.texts_dir.glob("*.json")):
+        if selection is not None and not _matches_selected_artifact(json_file, selection):
+            continue
         data, error = _read_json_object(json_file)
         if error is not None:
             skipped.append((json_file.name, error))
@@ -273,6 +284,7 @@ def run_plan_vlog(
     safe_day = plan_day_stem(day_label)
 
     selected = _selected_stems(files) if files is not None else None
+    project_selection = _project_selection_stems(config)
     if selected is not None:
         print(t("task.plan.filter_selected", {"count": len(selected)}))
 
@@ -286,6 +298,8 @@ def run_plan_vlog(
             print(t("task.plan.cancelled"))
             return
         if selected is not None and not _matches_selected_artifact(json_file, selected):
+            continue
+        if project_selection is not None and not _matches_selected_artifact(json_file, project_selection):
             continue
         data, error = _read_json_object(json_file)
         if error is not None:
@@ -370,6 +384,8 @@ def run_plan_vlog(
     trans_dir = config.transcripts_dir
     if trans_dir.is_dir() and config.whisper.enabled and config.plan.use_transcripts:
         for tf in sorted(trans_dir.glob("*_transcript.json")):
+            if project_selection is not None and not _matches_selected_artifact(tf, project_selection):
+                continue
             data, error = _read_json_object(tf)
             if error is not None or data is None:
                 continue

@@ -171,3 +171,70 @@ def test_collect_offline_from_videos_json(tmp_path):
     assert "001" in known or "1" in known
     assert offline  # mapped via original_stem
     assert "001" in offline or "1" in offline
+
+
+def test_collect_project_indices_respects_videos_selection(tmp_path):
+    import json
+    from types import SimpleNamespace
+
+    from clio.plan_readiness import collect_project_indices
+
+    comp = tmp_path / "compressed"
+    comp.mkdir()
+    (comp / "001_A.mp4").write_bytes(b"x")
+    (comp / "002_B.mp4").write_bytes(b"x")
+    texts = tmp_path / "texts"
+    texts.mkdir()
+    (texts / "001_A.json").write_text(json.dumps({"index": 1, "source_file": "A.mp4"}), encoding="utf-8")
+    (texts / "002_B.json").write_text(json.dumps({"index": 2, "source_file": "B.mp4"}), encoding="utf-8")
+    videos = tmp_path / "videos"
+    videos.mkdir()
+    selected = videos / "A.mp4"
+    selected.write_bytes(b"x")
+    (videos / "videos.json").write_text(json.dumps([str(selected)]), encoding="utf-8")
+    cfg = SimpleNamespace(
+        compressed_dir=comp,
+        texts_dir=texts,
+        project_dir=videos,
+        naming=SimpleNamespace(index_width=3),
+    )
+
+    known, offline = collect_project_indices(cfg)
+
+    assert "001" in known
+    assert "002" not in known
+    assert offline == set()
+
+
+def test_removed_video_index_fails_readiness(tmp_path):
+    import json
+    from types import SimpleNamespace
+
+    from clio.plan_readiness import check_plan_export_readiness, collect_project_indices
+
+    comp = tmp_path / "compressed"
+    comp.mkdir()
+    (comp / "001_A.mp4").write_bytes(b"x")
+    texts = tmp_path / "texts"
+    texts.mkdir()
+    (texts / "001_A.json").write_text(json.dumps({"index": 1, "source_file": "A.mp4"}), encoding="utf-8")
+    videos = tmp_path / "videos"
+    videos.mkdir()
+    selected = videos / "A.mp4"
+    selected.write_bytes(b"x")
+    (videos / "videos.json").write_text(json.dumps([str(selected)]), encoding="utf-8")
+    cfg = SimpleNamespace(
+        compressed_dir=comp,
+        texts_dir=texts,
+        project_dir=videos,
+        naming=SimpleNamespace(index_width=3),
+    )
+
+    known, _ = collect_project_indices(cfg)
+    result = check_plan_export_readiness(
+        _plan([{"index": "002", "use_timeline": "00:00-00:05", "title": "removed", "reason": "r"}]),
+        known_indices=known,
+    )
+
+    assert not result.ok
+    assert any(issue.code == "index_missing" for issue in result.errors)

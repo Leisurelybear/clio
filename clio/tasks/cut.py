@@ -16,7 +16,11 @@ from clio.identity import SEGMENT_SUFFIX_RE, legacy_segment_offset_sec, load_ide
 from clio.log import format_duration, timed
 from clio.plan_readiness import expand_index_keys
 from clio.processing_state import ProcessingState
-from clio.tasks._helpers import _eta_line
+from clio.tasks._helpers import (
+    _eta_line,
+    _matches_selected_stem,
+    _project_selection_stems,
+)
 from clio.utils import (
     get_duration_sec,
     plan_day_stem,
@@ -302,6 +306,7 @@ def run_cut_all(
     ffmpeg = resolve_binary(config.paths.ffmpeg, "ffmpeg")
     ffprobe = resolve_binary(config.paths.ffprobe, "ffprobe")
     comp_dir = config.compressed_dir
+    project_selection = _project_selection_stems(config)
     source_label = str(comp_dir if source == "compressed" else (config.project_dir or ""))
 
     print(t("task.cut.header_plan", {"name": plan_path.name, "count": len(seq)}))
@@ -318,19 +323,22 @@ def run_cut_all(
             stem = stem.split("_", 1)[1]
         return SEGMENT_SUFFIX_RE.sub("", stem)
 
+    def _selected_media(path: Path) -> bool:
+        return project_selection is None or _matches_selected_stem(path, project_selection)
+
     def _resolve_video_path(idx: str) -> Path | None:
         if source == "compressed":
             candidates = [
                 path
                 for path in _indexed_files(comp_dir, idx, index_width=config.naming.index_width)
-                if path.suffix.lower() in VIDEO_EXTS
+                if path.suffix.lower() in VIDEO_EXTS and _selected_media(path)
             ]
             return candidates[0] if candidates else None
         else:
             comp_candidates = [
                 path
                 for path in _indexed_files(comp_dir, idx, index_width=config.naming.index_width)
-                if path.suffix.lower() in VIDEO_EXTS
+                if path.suffix.lower() in VIDEO_EXTS and _selected_media(path)
             ]
             if not comp_candidates:
                 return None
@@ -340,7 +348,7 @@ def run_cut_all(
             meta = VideoMeta.read(compressed)
             if meta is not None:
                 src = meta.source_path_obj()
-                if src.is_file():
+                if src.is_file() and _selected_media(src):
                     return src
 
             # 降级：regex 反解 + videos.json。先按完整 stem 匹配，避免把自然文件名
@@ -445,7 +453,7 @@ def run_cut_all(
                     comp_candidates = [
                         path
                         for path in _indexed_files(comp_dir, idx, index_width=config.naming.index_width)
-                        if path.suffix.lower() in VIDEO_EXTS
+                        if path.suffix.lower() in VIDEO_EXTS and _selected_media(path)
                     ]
                     if comp_candidates:
                         stem = comp_candidates[0].stem
@@ -490,9 +498,11 @@ def run_cut_all(
                 "start_sec": round(start, 2),
                 "end_sec": round(end, 2),
             }
-            matching_texts = _indexed_files(
-                config.texts_dir, idx, index_width=config.naming.index_width, suffix=".json"
-            )
+            matching_texts = [
+                path
+                for path in _indexed_files(config.texts_dir, idx, index_width=config.naming.index_width, suffix=".json")
+                if _selected_media(path)
+            ]
             if matching_texts:
                 text_path = matching_texts[0]
                 data = json.loads(text_path.read_text(encoding="utf-8"))
