@@ -1,6 +1,7 @@
 import logging
 from functools import cache
-from typing import Any, get_type_hints
+from types import UnionType
+from typing import Any, get_args, get_type_hints
 
 from clio.config.models import CANVAS_PRESETS, AppConfig, GlobalConfig
 from clio.i18n import t
@@ -20,6 +21,15 @@ def _field_types(dc: type) -> dict[str, Any]:
         return {name: Any for name in getattr(dc, "__dataclass_fields__", {})}
 
 
+def _unwrap_optional(target: Any) -> Any:
+    """Reduce `X | None` to `X` so optional scalars still get coerced."""
+    if isinstance(target, UnionType):
+        args = [a for a in get_args(target) if a is not type(None)]
+        if len(args) == 1:
+            return args[0]
+    return target
+
+
 def _coerce_scalar(value: Any, target: Any) -> Any:
     """Cast a YAML scalar to the dataclass field type when it is unambiguous.
 
@@ -29,6 +39,7 @@ def _coerce_scalar(value: Any, target: Any) -> Any:
     """
     if value is None or target is Any:
         return value
+    target = _unwrap_optional(target)
     if target is bool:
         if isinstance(value, bool):
             return value
@@ -256,6 +267,8 @@ def _validate_config(config: AppConfig) -> None:
         provider_cfg = config.ai.providers[task_cfg.provider]
         _require_video_provider_compatible(task_name, task_cfg.provider, provider_cfg.type)
         _warn_unknown_model(task_name, task_cfg.provider, task_cfg.model, provider_cfg.models)
+        if task_cfg.temperature is not None:
+            _require_range(f"ai.tasks.{task_name}.temperature", task_cfg.temperature, 0, 2)
 
 
 def validate_global_config(config: GlobalConfig) -> None:
@@ -290,3 +303,5 @@ def validate_global_config(config: GlobalConfig) -> None:
         provider_cfg = config.ai.providers[task_cfg.provider]
         _require_video_provider_compatible(task_name, task_cfg.provider, provider_cfg.type)
         _warn_unknown_model(task_name, task_cfg.provider, task_cfg.model, provider_cfg.models)
+        if task_cfg.temperature is not None:
+            _require_range(f"ai.default_tasks.{task_name}.temperature", task_cfg.temperature, 0, 2)

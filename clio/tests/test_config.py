@@ -338,6 +338,27 @@ class TestValidateConfig:
         with pytest.raises(ValueError, match="<无>"):
             _validate_config(cfg)
 
+    def test_rejects_out_of_range_task_temperature(self):
+        provider = ProviderConfig(
+            name="deepseek",
+            type="openai",
+            api_key="k",
+            base_url="https://api.deepseek.com/v1",
+            models=["deepseek-chat"],
+        )
+        cfg = AppConfig(
+            global_cfg=GlobalConfig(ai=GlobalAIConfig(providers={"deepseek": provider})),
+            project_cfg=ProjectConfig(
+                ai=ProjectAIConfig(
+                    tasks={
+                        "voiceover": TaskConfig(provider="deepseek", model="deepseek-chat", temperature=-0.1),
+                    },
+                ),
+            ),
+        )
+        with pytest.raises(ValueError, match=r"ai\.tasks\.voiceover\.temperature"):
+            _validate_config(cfg)
+
     def test_task_model_outside_provider_models_is_warning_not_fatal(self, caplog):
         """R-040 F-2: a bound model outside the provider's declared list must not crash load."""
         provider = ProviderConfig(

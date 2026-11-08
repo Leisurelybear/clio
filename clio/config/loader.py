@@ -250,7 +250,7 @@ def _upgrade_config_file(yaml_path: Path, *, section_map: dict[str, type]) -> No
                     if fd.name in tcfg:
                         continue
                     val = _resolve_field_default(fd)
-                    if val is _MISSING:
+                    if val is _MISSING or val is None:
                         continue
                     tcfg[fd.name] = val
                     added.append(f"ai.{task_section}.{tname}.{fd.name}")

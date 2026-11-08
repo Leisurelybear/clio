@@ -495,6 +495,51 @@ class TestGlobalDefaultTasks:
         assert cfg.ai.tasks["voiceover"].model == "deepseek-chat"
         assert cfg.ai.tasks["refine_text"] == cfg.ai.tasks["video_analyze"]
 
+    def test_parses_and_coerces_task_temperature(self, tmp_path: Path):
+        cfg_path = tmp_path / "config.yaml"
+        cfg_path.write_text(
+            yaml.dump(
+                {
+                    "ai": {
+                        "providers": {
+                            "deepseek": {
+                                "type": "openai",
+                                "api_key": "d",
+                                "base_url": "https://api.deepseek.com/v1",
+                                "models": ["deepseek-chat"],
+                            },
+                        },
+                        "default_tasks": {
+                            "voiceover": {
+                                "provider": "deepseek",
+                                "model": "deepseek-chat",
+                                "temperature": "0.5",
+                            },
+                        },
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        cfg = load_config(cfg_path, project_dir=tmp_path)
+        assert cfg.ai.tasks["voiceover"].temperature == 0.5
+
+    def test_rejects_out_of_range_global_temperature(self):
+        from clio.config.validators import validate_global_config
+
+        provider = ProviderConfig(name="deepseek", type="openai", api_key="k", base_url="https://api.deepseek.com/v1")
+        cfg = GlobalConfig(
+            ai=GlobalAIConfig(
+                providers={"deepseek": provider},
+                default_tasks={
+                    "voiceover": TaskConfig(provider="deepseek", model="deepseek-chat", temperature=2.5),
+                },
+            ),
+        )
+        with pytest.raises(ValueError, match="ai.default_tasks.voiceover.temperature"):
+            validate_global_config(cfg)
+
     def test_upgrades_missing_default_task_fields(self, tmp_path: Path):
         cfg_path = tmp_path / "config.yaml"
         cfg_path.write_text(
@@ -513,6 +558,7 @@ class TestGlobalDefaultTasks:
         assert cfg.ai.tasks["video_analyze"].model == ""
         upgraded = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
         assert upgraded["ai"]["default_tasks"]["video_analyze"]["model"] == ""
+        assert "temperature" not in upgraded["ai"]["default_tasks"]["video_analyze"]
 
 
 class TestProhibitedFields:

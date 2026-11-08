@@ -44,6 +44,7 @@ class ProviderConfig:
 class TaskConfig:
     provider: str = ""
     model: str = ""
+    temperature: float | None = None
 
 
 @dataclass

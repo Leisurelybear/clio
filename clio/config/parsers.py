@@ -50,9 +50,11 @@ def _parse_providers(raw: dict) -> dict[str, ProviderConfig]:
 def _parse_tasks(raw: dict) -> dict[str, TaskConfig]:
     tasks: dict[str, TaskConfig] = {}
     for name, cfg in (raw or {}).items():
+        typed = _filter_dc(cfg, TaskConfig)
         tasks[name] = TaskConfig(
-            provider=cfg.get("provider", ""),
-            model=cfg.get("model", ""),
+            provider=typed.get("provider", ""),
+            model=typed.get("model", ""),
+            temperature=typed.get("temperature"),
         )
     return tasks
 
