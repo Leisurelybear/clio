@@ -784,6 +784,7 @@
   "settings.provider.test_failed": "测试失败：{detail}",
   "settings.provider.test_invalid_model": "请选择有效模型",
   "settings.provider.test_need_models": "请先添加模型",
+  "settings.provider.test_model_label": "模型",
   "settings.provider.test_ok": "测试成功：{ms} ms",
   "settings.provider.test_pick_model": "请选择要测试的模型：",
   "settings.provider.testing": "测试中...",

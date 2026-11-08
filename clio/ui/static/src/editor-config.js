@@ -1036,16 +1036,56 @@ function _chooseProviderTestModel(provider) {
   if (models.length === 0) return { ok: false, error: t('settings.provider.test_need_models') };
   if (models.length === 1) return { ok: true, model: models[0] };
 
-  const selected = prompt(`${t('settings.provider.test_pick_model')}\n${models.join('\n')}`, models[0]);
-  if (selected === null) return { ok: false, error: t('settings.provider.test_canceled'), canceled: true };
-  const model = selected.trim();
-  if (!models.includes(model)) return { ok: false, error: t('settings.provider.test_invalid_model') };
-  return { ok: true, model };
+  return new Promise(resolve => {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal';
+    backdrop.setAttribute('role', 'dialog');
+    backdrop.setAttribute('aria-modal', 'true');
+    const options = models
+      .map(model => `<option value="${escapeHtml(model)}">${escapeHtml(model)}</option>`)
+      .join('');
+    backdrop.innerHTML = `
+      <div class="modal-backdrop"></div>
+      <div class="modal-dialog" role="document">
+        <h3>${escapeHtml(t('settings.provider.test_pick_model'))}</h3>
+        <label>
+          <span>${escapeHtml(t('settings.provider.test_model_label'))}</span>
+          <select class="form-input" data-provider-test-model>${options}</select>
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" data-provider-test-cancel>${escapeHtml(t('common.cancel'))}</button>
+          <button type="button" class="btn-primary" data-provider-test-confirm>${escapeHtml(t('common.confirm'))}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(backdrop);
+    const select = backdrop.querySelector('[data-provider-test-model]');
+    const finish = result => {
+      document.removeEventListener('keydown', onKeyDown);
+      backdrop.remove();
+      resolve(result);
+    };
+    const cancel = () => finish({ ok: false, error: t('settings.provider.test_canceled'), canceled: true });
+    const onKeyDown = event => {
+      if (event.key === 'Escape') cancel();
+    };
+    backdrop.querySelector('[data-provider-test-cancel]').addEventListener('click', cancel);
+    backdrop.querySelector('[data-provider-test-confirm]').addEventListener('click', () => {
+      const model = String(select?.value || '').trim();
+      if (!models.includes(model)) {
+        finish({ ok: false, error: t('settings.provider.test_invalid_model') });
+        return;
+      }
+      finish({ ok: true, model });
+    });
+    backdrop.querySelector('.modal-backdrop').addEventListener('click', cancel);
+    document.addEventListener('keydown', onKeyDown);
+    select?.focus();
+  });
 }
 
 export async function _testProvider(providersObj, providerName) {
   const provider = providersObj?.[providerName];
-  const choice = _chooseProviderTestModel(provider);
+  const choice = await _chooseProviderTestModel(provider);
   if (!choice.ok) return choice;
 
   return api('POST', '/api/ai/test', {

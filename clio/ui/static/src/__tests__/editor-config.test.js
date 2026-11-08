@@ -389,18 +389,18 @@ describe('_renderProviderList', () => {
   });
 
   it('prompts for a multi-model provider and posts the selected model', async () => {
-    const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue('gemini-2.0-flash');
     api.mockResolvedValue({ ok: true, elapsed_ms: 41 });
     const div = document.createElement('div');
     div.innerHTML = _renderProviderList({ gemini: GEMINI_PROVIDER });
     _attachProviderListHandlers(div, { gemini: GEMINI_PROVIDER });
 
     div.querySelector('.btn-provider-test').click();
+    const modal = document.querySelector('[data-provider-test-model]')?.closest('.modal');
+    expect(modal).not.toBeNull();
+    const select = modal.querySelector('[data-provider-test-model]');
+    select.value = 'gemini-2.0-flash';
+    modal.querySelector('[data-provider-test-confirm]').click();
     await vi.waitFor(() => {
-      expect(promptSpy).toHaveBeenCalledWith(
-        expect.stringContaining('gemini-2.0-flash'),
-        'gemini-2.5-flash',
-      );
       expect(api).toHaveBeenCalledWith('POST', '/api/ai/test', {
         provider: 'gemini',
         model: 'gemini-2.0-flash',
@@ -409,13 +409,15 @@ describe('_renderProviderList', () => {
   });
 
   it('does not call api and restores the button when model prompt is canceled', async () => {
-    vi.spyOn(window, 'prompt').mockReturnValue(null);
     const div = document.createElement('div');
     div.innerHTML = _renderProviderList({ gemini: GEMINI_PROVIDER });
     _attachProviderListHandlers(div, { gemini: GEMINI_PROVIDER });
 
     const btn = div.querySelector('.btn-provider-test');
     btn.click();
+    const modal = document.querySelector('[data-provider-test-model]')?.closest('.modal');
+    expect(modal).not.toBeNull();
+    modal.querySelector('[data-provider-test-cancel]').click();
 
     expect(btn.disabled).toBe(true);
     await vi.waitFor(() => {

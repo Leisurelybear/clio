@@ -784,6 +784,7 @@
   "settings.provider.test_failed": "Test failed: {detail}",
   "settings.provider.test_invalid_model": "Pick a valid model",
   "settings.provider.test_need_models": "Add a model first",
+  "settings.provider.test_model_label": "Model",
   "settings.provider.test_ok": "Test succeeded: {ms} ms",
   "settings.provider.test_pick_model": "Pick the model to test:",
   "settings.provider.testing": "Testing...",
