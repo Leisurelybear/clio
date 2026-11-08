@@ -12,7 +12,10 @@ from clio.tasks.transcribe import run_transcribe_all
 
 def _write_transcript(out_path: Path, engine: str) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps({"engine": engine, "segments": []}), encoding="utf-8")
+    out_path.write_text(
+        json.dumps({"engine": engine, "model_size": "medium", "language": "zh", "segments": []}),
+        encoding="utf-8",
+    )
 
 
 def _make_config(tmp_path: Path, engine: str, transcript_engine: str | None = None):
@@ -69,26 +72,23 @@ def test_engine_mismatch_retranscribes(tmp_path: Path, capsys):
     mock_ta.assert_called_once()
     output = capsys.readouterr().out
     assert "重新转录" in output
-    assert "engine=local" in output
-    assert "aliyun" in output
+    assert "engine=aliyun" in output
+    assert "was local" in output
 
 
-def test_legacy_transcript_without_engine_defaults_to_local(tmp_path: Path, capsys):
-    transcripts_dir = tmp_path / "transcripts"
-    transcripts_dir.mkdir(parents=True)
-    (transcripts_dir / "001_test_transcript.json").write_text(json.dumps({"segments": []}), encoding="utf-8")
+def test_legacy_transcript_without_engine_reports_missing_metadata():
+    from clio.tasks.transcribe import _transcript_cache_mismatches
 
-    cfg = _make_config(tmp_path, engine="local")
-    cfg.transcripts_dir = transcripts_dir
-    video = tmp_path / "compressed" / "001_test.mp4"
+    mismatches = _transcript_cache_mismatches(
+        {"segments": []},
+        engine="local",
+        model_size="medium",
+        language="zh",
+    )
 
-    with (
-        patch("clio.tasks.transcribe.find_videos", return_value=[video]),
-        patch("clio.tasks.transcribe.transcribe_audio") as mock_ta,
-    ):
-        run_transcribe_all(cfg)
-
-    mock_ta.assert_not_called()
+    assert "engine=local (missing)" in mismatches
+    assert "model_size=medium (missing)" in mismatches
+    assert "language=zh (missing)" in mismatches
 
 
 def test_engine_match_skips_retranscription(tmp_path: Path):

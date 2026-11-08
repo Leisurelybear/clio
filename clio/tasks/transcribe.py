@@ -82,6 +82,30 @@ def _build_original_stem_map(project_dir: Path | None = None) -> dict[str, Path]
     return stem_to_path_map(load_selected_videos(project_dir))
 
 
+def _transcript_cache_mismatches(
+    existing: dict[str, Any],
+    *,
+    engine: str,
+    model_size: str,
+    language: str,
+) -> list[str]:
+    expected = {
+        "engine": engine,
+        "model_size": model_size,
+        "language": language,
+    }
+    mismatches: list[str] = []
+    for field, current in expected.items():
+        previous = existing.get(field)
+        if previous == current:
+            continue
+        if previous in (None, ""):
+            mismatches.append(f"{field}={current} (missing)")
+        else:
+            mismatches.append(f"{field}={current} (was {previous})")
+    return mismatches
+
+
 def _get_video_duration(video_path: Path, ffprobe: str) -> float:
     """Use ffprobe to get video duration in seconds."""
     import subprocess as _subprocess
@@ -254,29 +278,42 @@ def run_transcribe_all(
         orig_stem = original_video.stem
 
         current_engine = getattr(config.whisper, "engine", "local")
+        current_model = config.whisper.model_size
+        current_language = config.whisper.language
         if not overwrite and config.analyze.skip_existing and out_path.exists():
             try:
                 existing = json.loads(out_path.read_text(encoding="utf-8"))
             except (json.JSONDecodeError, OSError):
                 print(t("task.transcribe.retranscribe_corrupt", {"name": compressed_stem}))
             else:
-                existing_engine = existing.get("engine", "local")
-                if existing_engine != current_engine:
-                    print(
-                        t(
-                            "task.transcribe.retranscribe_engine",
-                            {"name": compressed_stem, "existing": existing_engine, "current": current_engine},
-                        )
-                    )
+                if not isinstance(existing, dict):
+                    print(t("task.transcribe.retranscribe_corrupt", {"name": compressed_stem}))
+                    existing = None
+                mismatches = _transcript_cache_mismatches(
+                    existing or {},
+                    engine=current_engine,
+                    model_size=current_model,
+                    language=current_language,
+                )
+                if mismatches:
+                    changes = ", ".join(mismatches)
+                    print(t("task.transcribe.retranscribe_metadata", {"name": compressed_stem, "changes": changes}))
                     if tracker:
                         tracker.log(
-                            t(
-                                "task.transcribe.engine_switched",
-                                {"name": compressed_stem, "existing": existing_engine, "current": current_engine},
-                            )
+                            t("task.transcribe.metadata_changed", {"name": compressed_stem, "changes": changes})
                         )
                 else:
-                    print(t("task.transcribe.skip_exists", {"name": compressed_stem, "engine": current_engine}))
+                    print(
+                        t(
+                            "task.transcribe.skip_exists",
+                            {
+                                "name": compressed_stem,
+                                "engine": current_engine,
+                                "model": current_model,
+                                "language": current_language,
+                            },
+                        )
+                    )
                     state.mark(orig_stem, "transcribe", "skipped")
                     if tracker:
                         tracker.next(message=t("task.transcribe.skip_next", {"name": compressed_stem}))

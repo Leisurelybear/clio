@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from unittest.mock import MagicMock, patch
@@ -197,7 +198,10 @@ class TestRunTranscribeAll:
 
         transcripts = output / "transcripts"
         transcripts.mkdir(parents=True)
-        (transcripts / "001_GL010683_transcript.json").write_text("{}")
+        (transcripts / "001_GL010683_transcript.json").write_text(
+            json.dumps({"engine": "local", "model_size": "small", "language": "zh", "segments": []}),
+            encoding="utf-8",
+        )
 
         mock_extract.return_value = tmp_path / "fake.wav"
         (tmp_path / "fake.wav").touch()
