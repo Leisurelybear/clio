@@ -454,15 +454,15 @@ class TestPlanDailyVlog:
     def test_filter_valid_indices(self, monkeypatch):
         """Valid indices should be kept, invalid ones filtered."""
         clips = [
-            {"index": "001", "title": "A"},
-            {"index": "003", "title": "B"},
-            {"index": "005", "title": "C"},
+            {"index": "001", "title": "A", "timeline": [{"start": "00:00", "end": "00:10"}]},
+            {"index": "003", "title": "B", "timeline": [{"start": "00:00", "end": "00:10"}]},
+            {"index": "005", "title": "C", "timeline": [{"start": "00:00", "end": "00:10"}]},
         ]
         mock_result = {
             "sequence": [
-                {"index": "001", "description": "clip A"},
+                {"index": "001", "use_timeline": "00:00-00:10", "description": "clip A"},
                 {"index": "002", "description": "DNE"},  # not in clips
-                {"index": "003", "description": "clip B"},
+                {"index": "003", "use_timeline": "00:00-00:10", "description": "clip B"},
                 {"index": "999", "description": "DNE"},
             ]
         }
@@ -470,6 +470,7 @@ class TestPlanDailyVlog:
         def make_config():
             cfg = _fake_config()
             cfg.ai.providers = {}
+            cfg.plan.target_duration_sec = 20
             return cfg
 
         monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (MagicMock(), "deepseek-chat"))
@@ -484,10 +485,20 @@ class TestPlanDailyVlog:
 
     def test_filter_int_indices_compatibility(self, monkeypatch):
         """Integer indices should be handled too (001 == 1)."""
-        clips = [{"index": 1}, {"index": 3}]
-        mock_result = {"sequence": [{"index": "001"}, {"index": 3}, {"index": "005"}]}
+        clips = [
+            {"index": 1, "timeline": [{"start": "00:00", "end": "00:10"}]},
+            {"index": 3, "timeline": [{"start": "00:00", "end": "00:10"}]},
+        ]
+        mock_result = {
+            "sequence": [
+                {"index": "001", "use_timeline": "00:00-00:10"},
+                {"index": 3, "use_timeline": "00:00-00:10"},
+                {"index": "005", "use_timeline": "00:00-00:10"},
+            ]
+        }
         cfg = _fake_config()
         cfg.ai.providers = {}
+        cfg.plan.target_duration_sec = 20
         monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (MagicMock(), "model"))
         monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, cfg, **kw: prompt)
         monkeypatch.setattr("clio.analyze._call_ai", lambda *a, **kw: json.dumps(mock_result))
@@ -505,11 +516,18 @@ class TestPlanDailyVlog:
                 {"index": "001", "use_timeline": "00:08-00:20"},
             ],
         }
+        corrected_result = {
+            "day_title": "day1",
+            "sequence": [{"index": "001", "use_timeline": "00:02-00:08"}],
+        }
         cfg = _fake_config()
         cfg.plan.max_clips_per_day = 10
+        cfg.plan.target_duration_sec = 6
         monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (MagicMock(), "model"))
         monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, cfg, **kw: prompt)
-        monkeypatch.setattr("clio.analyze._call_ai", lambda *a, **kw: json.dumps(mock_result))
+        monkeypatch.setattr(
+            "clio.analyze._call_ai", MagicMock(side_effect=[json.dumps(mock_result), json.dumps(corrected_result)])
+        )
 
         result = plan_daily_vlog(clips, cfg)
 
@@ -517,6 +535,7 @@ class TestPlanDailyVlog:
 
     def test_custom_plan_prompt_keeps_real_example_index(self, monkeypatch):
         cfg = _fake_config()
+        cfg.plan.target_duration_sec = 1
         captured: list[str] = []
         custom = "clips={clips_json} max={max_clips} target={target_duration_sec} example={example_index}"
         monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (MagicMock(), "model"))
@@ -575,8 +594,63 @@ class TestPlanDailyVlog:
         monkeypatch.setattr("clio.analyze._call_ai", lambda *a, **kw: json.dumps(mock_result))
         cfg = _fake_config()
 
-        with pytest.raises(RuntimeError, match="没有可用片段.*原始 2 段"):
+        with pytest.raises(RuntimeError, match="规划在一次修正后仍未通过校验.*超出素材 timeline"):
             plan_daily_vlog(clips, cfg)
+
+    def test_plan_retries_empty_and_overlapping_ranges(self, monkeypatch):
+        clips = [{"index": "001", "timeline": [{"start": "00:00", "end": "00:30"}]}]
+        responses = [
+            json.dumps(
+                {
+                    "sequence": [
+                        {"index": "001", "use_timeline": ""},
+                        {"index": "001", "use_timeline": "00:00-00:15"},
+                        {"index": "001", "use_timeline": "00:10-00:20"},
+                    ]
+                }
+            ),
+            json.dumps(
+                {
+                    "sequence": [
+                        {"index": "001", "use_timeline": "00:00-00:10"},
+                        {"index": "001", "use_timeline": "00:10-00:20"},
+                    ]
+                }
+            ),
+        ]
+        prompts: list[str] = []
+        cfg = _fake_config()
+        cfg.plan.target_duration_sec = 20
+        monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (MagicMock(), "model"))
+        monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, cfg, **kw: prompt)
+
+        def fake_call(label, provider_id, model, prompt, *args, **kwargs):
+            prompts.append(prompt)
+            return responses.pop(0)
+
+        monkeypatch.setattr("clio.analyze._call_ai", fake_call)
+
+        result = plan_daily_vlog(clips, cfg)
+
+        assert [segment["use_timeline"] for segment in result["sequence"]] == ["00:00-00:10", "00:10-00:20"]
+        assert len(prompts) == 2
+        assert "use_timeline 为空" in prompts[1]
+        assert "区间重叠" in prompts[1]
+
+    def test_plan_retries_duration_deviation_and_fails_after_second_invalid_result(self, monkeypatch):
+        clips = [{"index": "001", "timeline": [{"start": "00:00", "end": "00:30"}]}]
+        invalid = json.dumps({"sequence": [{"index": "001", "use_timeline": "00:00-00:05"}]})
+        cfg = _fake_config()
+        cfg.plan.target_duration_sec = 30
+        call = MagicMock(side_effect=[invalid, invalid])
+        monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (MagicMock(), "model"))
+        monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, cfg, **kw: prompt)
+        monkeypatch.setattr("clio.analyze._call_ai", call)
+
+        with pytest.raises(RuntimeError, match="规划总时长 5.0 秒与目标 30.0 秒"):
+            plan_daily_vlog(clips, cfg)
+
+        assert call.call_count == 2
 
 
 def test_voiceover_prompt_includes_timeline_duration(monkeypatch):

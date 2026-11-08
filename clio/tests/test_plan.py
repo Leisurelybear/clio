@@ -43,7 +43,7 @@ def test_plan_prompt_includes_transcripts():
     cfg.ai = MagicMock(debug_print_prompt=False)
     cfg.plan = MagicMock()
     cfg.plan.max_clips_per_day = 12
-    cfg.plan.target_duration_sec = 180
+    cfg.plan.target_duration_sec = 10
     cfg.whisper = MagicMock()
     cfg.whisper.max_segments_per_clip = 5
     cfg.whisper.enabled = True
@@ -86,7 +86,7 @@ def test_plan_no_transcript_fallback():
     cfg.ai = MagicMock(debug_print_prompt=False)
     cfg.plan = MagicMock()
     cfg.plan.max_clips_per_day = 12
-    cfg.plan.target_duration_sec = 180
+    cfg.plan.target_duration_sec = 10
     cfg.whisper = MagicMock()
     cfg.whisper.max_segments_per_clip = 5
     cfg.whisper.enabled = True

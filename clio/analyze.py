@@ -408,6 +408,79 @@ def _range_is_in_timeline(start: float, end: float, intervals: list[tuple[float,
     return False
 
 
+def _plan_index_key(value: Any) -> int | str:
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return str(value).strip()
+
+
+def _plan_validation_issues(
+    result: dict,
+    clips: list[dict],
+    target_duration_sec: float,
+    *,
+    check_duration: bool = True,
+) -> list[str]:
+    sequence = result.get("sequence", [])
+    if not sequence:
+        return [t("analyze.plan_issue_empty_sequence")]
+
+    clips_by_index = {_plan_index_key(clip.get("index")): clip for clip in clips}
+    ranges_by_index: dict[int | str, list[tuple[int, float, float]]] = {}
+    issues: list[str] = []
+    total_duration = 0.0
+    duration_count = 0
+
+    for position, segment in enumerate(sequence, start=1):
+        index = _plan_index_key(segment.get("index"))
+        clip = clips_by_index.get(index)
+        if clip is None:
+            issues.append(t("analyze.plan_issue_missing_clip", {"position": position}))
+            continue
+
+        timeline = str(segment.get("use_timeline") or "").strip()
+        if not timeline:
+            issues.append(t("analyze.plan_issue_empty_timeline", {"position": position}))
+            continue
+        try:
+            start, end = parse_time_range(timeline)
+        except (TypeError, ValueError):
+            issues.append(t("analyze.plan_issue_invalid_timeline", {"position": position}))
+            continue
+
+        source_intervals = _timeline_intervals(clip)
+        if source_intervals and not _range_is_in_timeline(start, end, source_intervals):
+            issues.append(t("analyze.plan_issue_outside_timeline", {"position": position}))
+
+        for previous_position, previous_start, previous_end in ranges_by_index.setdefault(index, []):
+            if max(start, previous_start) < min(end, previous_end) - 0.05:
+                issues.append(
+                    t(
+                        "analyze.plan_issue_overlapping_timeline",
+                        {"position": position, "previous": previous_position},
+                    )
+                )
+        ranges_by_index[index].append((position, start, end))
+        total_duration += end - start
+        duration_count += 1
+
+    if check_duration and target_duration_sec > 0 and duration_count:
+        tolerance = max(10.0, target_duration_sec * 0.25)
+        if abs(total_duration - target_duration_sec) > tolerance:
+            issues.append(
+                t(
+                    "analyze.plan_issue_duration_deviation",
+                    {
+                        "total": f"{total_duration:.1f}",
+                        "target": f"{target_duration_sec:.1f}",
+                        "tolerance": f"{tolerance:.1f}",
+                    },
+                )
+            )
+    return list(dict.fromkeys(issues))
+
+
 def _select_transcript_segments(
     transcript: dict,
     intervals: list[tuple[float, float]],
@@ -676,55 +749,58 @@ def plan_daily_vlog(
             )
             base += format_prompt_template("transcript_context", transcript_template, transcripts_json=transcript_json)
     prompt = _wrap_with_context(f"日 vlog 标签: {day_label}\n\n{base}", config, context_override=context_override)
-    with provider_use(provider):
-        text = _call_ai(
+    max_clips = int(getattr(config.plan, "max_clips_per_day", 0) or 0)
+    target_duration_sec = float(getattr(config.plan, "target_duration_sec", 0) or 0)
+
+    def call_plan(call_prompt: str) -> str:
+        return _call_ai(
             t("analyze.label.vlog_plan"),
             provider.provider_id,
             model,
-            prompt,
-            lambda: provider.generate_text(prompt, model),
+            call_prompt,
+            lambda: provider.generate_text(call_prompt, model),
             debug_print=config.ai.debug_print_prompt,
             token_store=token_store,
             task_name=TaskName.VLOG_PLAN,
         )
-    result = _validate_plan(extract_json(text), day_label)
-    raw_sequence_count = len(result.get("sequence", []))
 
-    # 后处理：过滤掉 segment 中引用不存在的 index 的项
-    # 用整数比较（去零填充），兼容 "001"、"1"、1 等不同格式
-    valid_ints: set[int | str] = set()
-    for c in clips:
-        idx = c.get("index")
-        try:
-            valid_ints.add(int(str(idx).strip()))
-        except (ValueError, TypeError):
-            valid_ints.add(str(idx))
-    if "sequence" in result:
-        original_count = len(result["sequence"])
-        filtered = []
-        for s in result["sequence"]:
-            sidx = s.get("index")
-            try:
-                match = int(str(sidx).strip()) in valid_ints
-            except (ValueError, TypeError):
-                match = str(sidx) in valid_ints
-            if match:
-                filtered.append(s)
-        result["sequence"] = filtered
-        if len(result["sequence"]) < original_count:
-            dropped = original_count - len(result["sequence"])
-            print(t("analyze.plan_dropped_invalid_index", {"count": dropped}))
+    with provider_use(provider):
+        text = call_plan(prompt)
+        for attempt in range(2):
+            result = _validate_plan(extract_json(text), day_label)
+            raw_sequence_count = len(result.get("sequence", []))
 
-    result = _validate_plan_ranges(
-        result,
-        clips,
-        max_clips=int(getattr(config.plan, "max_clips_per_day", 0) or 0),
-        target_duration_sec=float(getattr(config.plan, "target_duration_sec", 0) or 0),
-    )
-    if not result.get("sequence"):
-        raise RuntimeError(t("analyze.plan_no_usable_clips", {"count": raw_sequence_count}))
+            valid_indices = {_plan_index_key(clip.get("index")) for clip in clips}
+            original_count = len(result["sequence"])
+            result["sequence"] = [
+                segment for segment in result["sequence"] if _plan_index_key(segment.get("index")) in valid_indices
+            ]
+            if len(result["sequence"]) < original_count:
+                print(t("analyze.plan_dropped_invalid_index", {"count": original_count - len(result["sequence"])}))
 
-    return result
+            issues = _plan_validation_issues(result, clips, target_duration_sec, check_duration=False)
+            if not issues:
+                result = _validate_plan_ranges(result, clips, max_clips, target_duration_sec)
+                issues = _plan_validation_issues(result, clips, target_duration_sec)
+            if not issues:
+                return result
+
+            if attempt == 1:
+                if not result.get("sequence"):
+                    raise RuntimeError(t("analyze.plan_no_usable_clips", {"count": raw_sequence_count}))
+                raise RuntimeError(t("analyze.plan_validation_failed", {"errors": "；".join(issues)}))
+
+            issue_text = "；".join(issues)
+            print(t("analyze.plan_validation_retry", {"errors": issue_text}))
+            text = call_plan(
+                f"{prompt}\n\n"
+                + t(
+                    "analyze.plan_validation_prompt",
+                    {"errors": issue_text, "previous_json": json.dumps(result, ensure_ascii=False)},
+                )
+            )
+
+    raise AssertionError("plan retry loop exited unexpectedly")
 
 
 def refine_text(
