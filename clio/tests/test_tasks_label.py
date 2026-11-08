@@ -87,6 +87,7 @@ class TestRunLabelVideos:
 
         run_label_videos(cfg)
         mock_ffmpeg.assert_not_called()
+        mock_font.assert_not_called()
 
     @patch("clio.tasks.label.resolve_drawtext_font")
     @patch("clio.tasks.label.run_ffmpeg")
@@ -107,6 +108,27 @@ class TestRunLabelVideos:
         out = labeled_dir / "001_test_labeled.mp4"
         assert out.name == "001_test_labeled.mp4"
         mock_ffmpeg.assert_called_once()
+
+    @patch("clio.tasks.label.resolve_drawtext_font")
+    @patch("clio.tasks.label.run_ffmpeg")
+    @patch("clio.tasks.label.resolve_binary")
+    def test_missing_font_warns_and_skips_all_without_failing(self, mock_resolve, mock_ffmpeg, mock_font, cfg, capsys):
+        mock_font.side_effect = FileNotFoundError("font unavailable")
+        for idx in (1, 2):
+            (cfg.texts_dir / f"{idx:03d}_clip.json").write_text(json.dumps({"index": idx}), encoding="utf-8")
+            (cfg.compressed_dir / f"{idx:03d}_clip.mp4").write_bytes(b"\x00")
+        mock_resolve.return_value = "ffmpeg"
+        tracker = MagicMock()
+
+        from clio.tasks.label import run_label_videos
+
+        run_label_videos(cfg, tracker=tracker)
+
+        mock_font.assert_called_once()
+        mock_ffmpeg.assert_not_called()
+        assert "font unavailable" in capsys.readouterr().out
+        assert tracker.log.call_count == 1
+        assert tracker.next.call_count == 2
 
     @patch("clio.tasks.label.resolve_drawtext_font")
     @patch("clio.tasks.label.run_ffmpeg")

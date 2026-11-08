@@ -90,7 +90,8 @@ def run_label_videos(
     labeled_dir = config.paths.output_dir / "labeled"
     labeled_dir.mkdir(parents=True, exist_ok=True)
     state = ProcessingState(config.paths.output_dir)
-    font_path = resolve_drawtext_font()
+    font_path: Path | None = None
+    font_lookup_attempted = False
 
     json_files = sorted(config.texts_dir.glob("*.json"))
     if files is not None:
@@ -138,6 +139,22 @@ def run_label_videos(
                 state.mark(orig_stem, "label", "skipped")
                 if tracker:
                     tracker.next(message=t("task.label.skip_exists_tracker", {"name": out.name}))
+                continue
+
+            if not font_lookup_attempted:
+                font_lookup_attempted = True
+                try:
+                    font_path = resolve_drawtext_font()
+                except FileNotFoundError as exc:
+                    warning = t("task.label.font_skip_warning", {"message": str(exc)})
+                    print(warning)
+                    if tracker:
+                        tracker.log(warning)
+            if font_path is None:
+                print(t("task.label.skip_font", {"name": json_file.stem}))
+                state.mark(orig_stem, "label", "skipped")
+                if tracker:
+                    tracker.next(message=t("task.label.skip_font_tracker", {"name": json_file.stem}))
                 continue
 
             print(_eta_line(t("task.label.eta_label"), i, len(json_files), json_file.stem, completed, elapsed_total))
