@@ -29,6 +29,7 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
   - [x] C4: assign analysis outputs to relative days from capture dates for multi-day planning
   - [x] C5: preserve opening and ending segments when plan output exceeds max clips
   - [x] C6: retry daily plans once when timeline selections overlap, are empty, or miss the duration target
+  - [x] C11: document that cut runs separately from the full pipeline
   - [x] D10: compare transcript engine, model, and language before cache reuse
   - [x] D11: skip label generation with a warning when no drawtext font is available
   - [x] D14: cache offline originals so startup does not repeat ffprobe work
