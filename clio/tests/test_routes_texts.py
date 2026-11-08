@@ -81,6 +81,12 @@ class TestHandleGetVoiceover:
 
 
 class TestHandlePutTexts:
+    PAYLOAD = {
+        "title": "A",
+        "summary": "s",
+        "timeline": [{"start": "00:00", "end": "00:05", "description": "d"}],
+    }
+
     def test_forbidden(self, handler):
         handler._resolve_texts.return_value = None
         from clio.ui.routes.texts import handle_put_texts
@@ -99,12 +105,12 @@ class TestHandlePutTexts:
             patch("clio.ui.routes.texts.request_version", return_value="0123456789abcdef") as mock_request,
             patch("clio.ui.routes.texts.save_with_version", return_value=new_version) as mock_save,
         ):
-            handle_put_texts(handler, {"file": ["001.json"]}, {"key": "val"})
+            handle_put_texts(handler, {"file": ["001.json"]}, dict(self.PAYLOAD))
 
         mock_request.assert_called_once_with(handler)
         saved_path, saved_data, expected = mock_save.call_args.args
         assert saved_path is path
-        assert json.loads(saved_data) == {"key": "val"}
+        assert json.loads(saved_data) == self.PAYLOAD
         assert expected == "0123456789abcdef"
         handler._send_json.assert_called_once_with(
             {"ok": True, "path": str(path), "version": new_version},
@@ -119,13 +125,86 @@ class TestHandlePutTexts:
             "clio.ui.routes.texts.save_with_version",
             side_effect=ArtifactConflictError(current),
         ):
-            handle_put_texts(handler, {"file": ["001.json"]}, {"key": "val"})
+            handle_put_texts(handler, {"file": ["001.json"]}, dict(self.PAYLOAD))
 
         payload, status = handler._send_json.call_args.args
         assert status == 409
         assert payload["code"] == "artifact_conflict"
         assert payload["current_version"] == current
         assert handler._send_json.call_args.kwargs["extra_headers"] == version_headers(current)
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {},
+            {"title": ""},
+            {"title": "   "},
+            {"title": 5},
+            {"title": "A", "summary": 5},
+            {"title": "A", "location": ["x"]},
+            {"title": "A"},
+            {"title": "A", "timeline": "00:00-00:05"},
+            {"title": "A", "timeline": [{"start": "00:00"}]},
+            {"title": "A", "timeline": [{"start": True, "end": "00:05"}]},
+            {"title": "A", "timeline": [{"start": None, "end": "00:05"}]},
+            {"title": "A", "timeline": [{"start": "", "end": "00:05"}]},
+            {"title": "A", "timeline": [{"start": "00:00", "end": "00:05", "description": 1}]},
+            {"title": "A", "timeline": ["not-a-dict"]},
+            {"title": "A", "timeline": [], "highlights": "x"},
+            {"title": "A", "timeline": [], "highlights": [1]},
+        ],
+    )
+    def test_rejects_malformed_analysis(self, handler, payload):
+        from clio.ui.routes.texts import handle_put_texts
+
+        with (
+            patch("clio.ui.routes.texts.request_version") as mock_request,
+            patch("clio.ui.routes.texts.save_with_version") as mock_save,
+        ):
+            handle_put_texts(handler, {"file": ["001.json"]}, payload)
+
+        mock_request.assert_not_called()
+        mock_save.assert_not_called()
+        body, status = handler._send_json.call_args.args
+        assert status == 400
+        assert body["ok"] is False
+        assert body["code"] == "invalid_analysis"
+        assert body["error"]
+
+    def test_accepts_minimal_valid_payload(self, handler):
+        from clio.ui.routes.texts import handle_put_texts
+
+        with patch("clio.ui.routes.texts.save_with_version", return_value="v"):
+            handle_put_texts(
+                handler,
+                {"file": ["001.json"]},
+                {"title": "A", "summary": "s", "timeline": []},
+            )
+
+        body = handler._send_json.call_args.args[0]
+        assert body["ok"] is True
+
+    def test_accepts_numeric_timeline_bounds_and_null_optionals(self, handler):
+        from clio.ui.routes.texts import handle_put_texts
+
+        with patch("clio.ui.routes.texts.save_with_version", return_value="v"):
+            handle_put_texts(
+                handler,
+                {"file": ["001.json"]},
+                {
+                    "title": "A",
+                    "summary": None,
+                    "location": None,
+                    "mood": None,
+                    "suggested_use": None,
+                    "cover_timestamp": None,
+                    "timeline": [{"start": 0, "end": 5.5}],
+                    "highlights": ["x", {"text": "y"}],
+                },
+            )
+
+        body = handler._send_json.call_args.args[0]
+        assert body["ok"] is True
 
 
 class TestHandlePutVoiceover:

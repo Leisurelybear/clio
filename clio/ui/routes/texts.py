@@ -48,6 +48,46 @@ def _detect_cover_content_type(data: bytes) -> str | None:
     return None
 
 
+def _analysis_payload_error(obj: dict) -> str | None:
+    """Return an i18n error message when an analysis payload is malformed.
+
+    The editor saves the whole analysis object, so a bad type here would only
+    surface later as a broken plan or voiceover prompt. Reject it at the route.
+    """
+    title = obj.get("title")
+    if not isinstance(title, str) or not title.strip():
+        return t("api.texts_title_required")
+    summary = obj.get("summary")
+    if summary is not None and not isinstance(summary, str):
+        return t("api.texts_field_type", {"field": "summary", "expected": "string"})
+    for key in ("location", "mood", "suggested_use", "cover_timestamp"):
+        value = obj.get(key)
+        if value is not None and not isinstance(value, str):
+            return t("api.texts_field_type", {"field": key, "expected": "string"})
+    timeline = obj.get("timeline")
+    if not isinstance(timeline, list):
+        return t("api.texts_timeline_invalid")
+    for position, item in enumerate(timeline, start=1):
+        if not isinstance(item, dict):
+            return t("api.texts_timeline_entry_invalid", {"position": position})
+        for key in ("start", "end"):
+            value = item.get(key)
+            if isinstance(value, str):
+                if not value.strip():
+                    return t("api.texts_timeline_entry_invalid", {"position": position})
+            elif isinstance(value, bool) or not isinstance(value, (int, float)):
+                return t("api.texts_timeline_entry_invalid", {"position": position})
+        if "description" in item and not isinstance(item["description"], str):
+            return t("api.texts_timeline_entry_invalid", {"position": position})
+    highlights = obj.get("highlights")
+    if highlights is not None:
+        if not isinstance(highlights, list):
+            return t("api.texts_field_type", {"field": "highlights", "expected": "array"})
+        if any(not isinstance(item, (dict, str)) for item in highlights):
+            return t("api.texts_highlights_entry_invalid")
+    return None
+
+
 def _send_artifact_conflict(handler: HandlerProtocol, exc: ArtifactConflictError) -> None:
     headers = version_headers(exc.current_version) if exc.current_version else None
     handler._send_json(
@@ -129,6 +169,9 @@ def handle_put_texts(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) ->
     p = handler._resolve_texts(fname, proj_out)
     if p is None:
         return handler._send_json({"ok": False, "error": "forbidden or not found"}, 403)
+    error = _analysis_payload_error(obj)
+    if error is not None:
+        return handler._send_json({"ok": False, "code": "invalid_analysis", "error": error}, 400)
     data = json.dumps(obj, ensure_ascii=False, indent=2).encode("utf-8")
     try:
         version = save_with_version(p, data, request_version(handler))
