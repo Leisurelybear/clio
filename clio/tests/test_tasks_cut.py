@@ -213,6 +213,176 @@ class TestListExistingCutVideos:
         assert list_existing_cut_videos(tmp_path) == []
 
 
+class TestStaleCutArtifacts:
+    def test_planned_names_include_only_cuttable_segments(self):
+        from clio.tasks.cut import _planned_cut_artifact_names
+
+        names = _planned_cut_artifact_names(
+            [
+                {"index": "001", "title": "Intro", "use_timeline": "00:00-00:10"},
+                {"index": "", "title": "Missing index", "use_timeline": "00:00-00:10"},
+                {"index": "002", "title": "Missing timeline", "use_timeline": ""},
+            ]
+        )
+
+        assert names == {"001_Intro_seg_001.mp4", "001_Intro_seg_001.json"}
+
+    @patch("clio.tasks.cut.cut_one")
+    @patch("clio.tasks.cut.resolve_binary")
+    def test_overwrite_moves_stale_artifacts_before_cutting_and_cleans_success(self, mock_resolve, mock_cut, cfg):
+        _write_plan(cfg, seq=[{"index": "001", "title": "New", "use_timeline": "00:00-00:10"}])
+        (cfg.compressed_dir / "001_src.mp4").write_bytes(b"\x00")
+        out = cfg.paths.output_dir / "cuts" / "day1"
+        out.mkdir(parents=True)
+        stale_video = out / "001_Old_seg_001.mp4"
+        stale_text = out / "001_Old_seg_001.json"
+        unrelated_video = out / "keep_me.mp4"
+        unrelated_json = out / "notes.json"
+        stale_video.write_bytes(b"old-video")
+        stale_text.write_text("{}", encoding="utf-8")
+        unrelated_video.write_bytes(b"keep")
+        unrelated_json.write_text("{}", encoding="utf-8")
+        mock_resolve.return_value = "ffmpeg"
+        seen: dict[str, bool] = {}
+
+        def fake_cut(_video_path, output_path, *_args, **_kwargs):
+            seen["stale_target_gone"] = not stale_video.exists()
+            seen["stale_backup_present"] = stale_video.with_name(stale_video.name + ".clio_bak").exists()
+            output_path.write_bytes(b"new-video")
+
+        mock_cut.side_effect = fake_cut
+        with patch("clio.utils.get_duration_sec", return_value=100.0):
+            from clio.tasks.cut import run_cut_all
+
+            clips = run_cut_all(cfg, "day1", source="compressed", overwrite=True)
+
+        assert seen == {"stale_target_gone": True, "stale_backup_present": True}
+        assert clips[0]["output_file"] == "001_New_seg_001.mp4"
+        assert (out / "001_New_seg_001.mp4").read_bytes() == b"new-video"
+        assert (out / "001_New_seg_001.json").is_file()
+        assert not stale_video.exists()
+        assert not stale_text.exists()
+        assert not stale_video.with_name(stale_video.name + ".clio_bak").exists()
+        assert not stale_text.with_name(stale_text.name + ".clio_bak").exists()
+        assert unrelated_video.read_bytes() == b"keep"
+        assert unrelated_json.is_file()
+
+    @patch("clio.tasks.cut.cut_one")
+    @patch("clio.tasks.cut.resolve_binary")
+    def test_failed_overwrite_keeps_stale_artifacts_recoverable(self, mock_resolve, mock_cut, cfg):
+        _write_plan(cfg, seq=[{"index": "001", "title": "New", "use_timeline": "00:00-00:10"}])
+        (cfg.compressed_dir / "001_src.mp4").write_bytes(b"\x00")
+        out = cfg.paths.output_dir / "cuts" / "day1"
+        out.mkdir(parents=True)
+        stale_video = out / "001_Old_seg_001.mp4"
+        stale_text = out / "001_Old_seg_001.json"
+        stale_video.write_bytes(b"old-video")
+        stale_text.write_text("{}", encoding="utf-8")
+        mock_resolve.return_value = "ffmpeg"
+        mock_cut.side_effect = RuntimeError("ffmpeg failed")
+
+        with (
+            patch("clio.utils.get_duration_sec", return_value=100.0),
+            pytest.raises(RuntimeError, match="ffmpeg failed"),
+        ):
+            from clio.tasks.cut import run_cut_all
+
+            run_cut_all(cfg, "day1", source="compressed", overwrite=True)
+
+        assert not stale_video.exists()
+        assert not stale_text.exists()
+        assert stale_video.with_name(stale_video.name + ".clio_bak").read_bytes() == b"old-video"
+        assert stale_text.with_name(stale_text.name + ".clio_bak").is_file()
+
+    @patch("clio.tasks.cut.cut_one")
+    @patch("clio.tasks.cut.resolve_binary")
+    def test_cancelled_overwrite_keeps_stale_artifacts_recoverable(self, mock_resolve, mock_cut, cfg):
+        _write_plan(cfg, seq=[{"index": "001", "title": "New", "use_timeline": "00:00-00:10"}])
+        (cfg.compressed_dir / "001_src.mp4").write_bytes(b"\x00")
+        out = cfg.paths.output_dir / "cuts" / "day1"
+        out.mkdir(parents=True)
+        stale_video = out / "001_Old_seg_001.mp4"
+        stale_video.write_bytes(b"old-video")
+        mock_resolve.return_value = "ffmpeg"
+        cancel = threading.Event()
+        cancel.set()
+
+        from clio.tasks.cut import run_cut_all
+
+        result = run_cut_all(cfg, "day1", source="compressed", overwrite=True, cancel_event=cancel)
+
+        assert result == []
+        mock_cut.assert_not_called()
+        assert not stale_video.exists()
+        assert stale_video.with_name(stale_video.name + ".clio_bak").read_bytes() == b"old-video"
+
+    @patch("clio.tasks.cut.cut_one")
+    @patch("clio.tasks.cut.resolve_binary")
+    def test_uncuttable_position_preserves_existing_artifact(self, mock_resolve, mock_cut, cfg):
+        _write_plan(
+            cfg,
+            seq=[
+                {"index": "001", "title": "New", "use_timeline": "00:00-00:10"},
+                {"index": "", "title": "Keep", "use_timeline": ""},
+            ],
+        )
+        (cfg.compressed_dir / "001_src.mp4").write_bytes(b"\x00")
+        out = cfg.paths.output_dir / "cuts" / "day1"
+        out.mkdir(parents=True)
+        protected_video = out / "002_Old_seg_002.mp4"
+        protected_video.write_bytes(b"keep-video")
+        mock_resolve.return_value = "ffmpeg"
+        mock_cut.side_effect = lambda _video, output_path, *_args, **_kwargs: output_path.write_bytes(b"new-video")
+
+        with patch("clio.utils.get_duration_sec", return_value=100.0):
+            from clio.tasks.cut import run_cut_all
+
+            clips = run_cut_all(cfg, "day1", source="compressed", overwrite=True)
+
+        assert len(clips) == 1
+        assert protected_video.read_bytes() == b"keep-video"
+        assert not protected_video.with_name(protected_video.name + ".clio_bak").exists()
+
+    @patch("clio.tasks.cut.cut_one")
+    @patch("clio.tasks.cut.resolve_binary")
+    def test_partial_run_keeps_stale_artifacts_recoverable(self, mock_resolve, mock_cut, cfg):
+        _write_plan(cfg, seq=[{"index": "001", "title": "New", "use_timeline": "00:00-00:10"}])
+        out = cfg.paths.output_dir / "cuts" / "day1"
+        out.mkdir(parents=True)
+        stale_video = out / "001_Old_seg_001.mp4"
+        stale_video.write_bytes(b"old-video")
+        mock_resolve.return_value = "ffmpeg"
+
+        from clio.tasks.cut import run_cut_all
+
+        clips = run_cut_all(cfg, "day1", source="compressed", overwrite=True)
+
+        assert clips == []
+        mock_cut.assert_not_called()
+        assert not stale_video.exists()
+        assert stale_video.with_name(stale_video.name + ".clio_bak").read_bytes() == b"old-video"
+
+    @patch("clio.tasks.cut.cut_one")
+    @patch("clio.tasks.cut.resolve_binary")
+    def test_stale_backup_conflict_stops_before_cutting(self, mock_resolve, mock_cut, cfg):
+        _write_plan(cfg, seq=[{"index": "001", "title": "New", "use_timeline": "00:00-00:10"}])
+        (cfg.compressed_dir / "001_src.mp4").write_bytes(b"\x00")
+        out = cfg.paths.output_dir / "cuts" / "day1"
+        out.mkdir(parents=True)
+        stale_video = out / "001_Old_seg_001.mp4"
+        stale_video.write_bytes(b"old-video")
+        stale_video.with_name(stale_video.name + ".clio_bak").write_bytes(b"older-video")
+        mock_resolve.return_value = "ffmpeg"
+
+        from clio.tasks.cut import CutBackupConflictError, run_cut_all
+
+        with pytest.raises(CutBackupConflictError, match="备份已存在"):
+            run_cut_all(cfg, "day1", source="compressed", overwrite=True)
+
+        mock_cut.assert_not_called()
+        assert stale_video.read_bytes() == b"old-video"
+
+
 class TestRunCutAllOverwrite:
     @patch("clio.tasks.cut.cut_one")
     @patch("clio.tasks.cut.resolve_binary")

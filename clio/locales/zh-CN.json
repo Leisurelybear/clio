@@ -533,6 +533,8 @@
   "task.cut.skip_no_index_tracker": "跳过第 {index} 段：缺少索引或时间范围",
   "task.cut.skip_video_missing": "  [跳过] 找不到 index={index} 的视频（{source}）: {title}",
   "task.cut.skip_video_missing_tracker": "跳过第 {index} 段：找不到视频",
+  "task.cut.stale_backup_conflict": "无法移走计划外旧片段，备份已存在: {path}",
+  "task.cut.stale_moved": "  [cut] 已移走计划外旧片段: {name}",
   "task.cut.timed_label": "run_cut_all {day}（{count} 段）",
   "task.eta_line": "[{label} {i}/{total}] {name}（平均 {avg}，剩余 ~{remaining}）",
   "task.label.cancelled": "[取消] label 步骤被用户终止",

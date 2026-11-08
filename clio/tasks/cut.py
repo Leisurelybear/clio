@@ -90,6 +90,67 @@ def list_existing_cut_videos(out_root: Path) -> list[str]:
     return names
 
 
+def _cut_clip_stem(index: Any, title: str, position: int) -> str:
+    return f"{safe_basename(index, max_len=30)}_{sanitize_name(title, max_len=30)}_seg_{position:03d}"
+
+
+def _cut_artifact_plan(sequence: list[dict]) -> tuple[set[str], set[int]]:
+    """Return expected artifact names and positions that cannot be regenerated."""
+    names: set[str] = set()
+    preserved_positions: set[int] = set()
+    for position, segment in enumerate(sequence, start=1):
+        index = segment.get("index", "")
+        timeline = (segment.get("use_timeline") or "").strip()
+        if not index or not timeline:
+            preserved_positions.add(position)
+            continue
+        title = segment.get("title", "").strip()
+        stem = _cut_clip_stem(index, title, position)
+        names.add(f"{stem}.mp4")
+        names.add(f"{stem}.json")
+    return names, preserved_positions
+
+
+def _planned_cut_artifact_names(sequence: list[dict]) -> set[str]:
+    """Return clip and sidecar basenames that the current plan can generate."""
+    names, _ = _cut_artifact_plan(sequence)
+    return names
+
+
+def _cut_artifact_position(path: Path) -> int | None:
+    if not path.is_file() or path.suffix.lower() not in (_VIDEO_OUT_EXTS | {".json"}):
+        return None
+    prefix, separator, suffix = path.stem.rpartition("_seg_")
+    if not prefix or not separator or not suffix.isdigit():
+        return None
+    return int(suffix)
+
+
+def _move_stale_cut_artifacts(
+    out_root: Path,
+    expected_names: set[str],
+    preserved_positions: set[int] | None = None,
+) -> list[Path]:
+    """Move generated artifacts absent from the current plan to recoverable backups."""
+    moved: list[Path] = []
+    if not out_root.is_dir():
+        return moved
+    preserved_positions = preserved_positions or set()
+    for path in sorted(out_root.iterdir()):
+        if path.name in expected_names:
+            continue
+        position = _cut_artifact_position(path)
+        if position is None or position in preserved_positions:
+            continue
+        backup = path.with_name(path.name + CUT_BAK_SUFFIX)
+        if backup.exists():
+            raise CutBackupConflictError(t("task.cut.stale_backup_conflict", {"path": backup}))
+        path.replace(backup)
+        moved.append(backup)
+        print(t("task.cut.stale_moved", {"name": path.name}))
+    return moved
+
+
 def replace_file_safely(dest: Path, write_fn) -> None:
     """Write *dest* via rename-backup → write → delete-backup; restore on failure.
 
@@ -305,6 +366,10 @@ def run_cut_all(
     out_root.mkdir(parents=True, exist_ok=True)
     ffmpeg = resolve_binary(config.paths.ffmpeg, "ffmpeg")
     ffprobe = resolve_binary(config.paths.ffprobe, "ffprobe")
+    stale_backups: list[Path] = []
+    if overwrite:
+        expected_names, preserved_positions = _cut_artifact_plan(seq)
+        stale_backups = _move_stale_cut_artifacts(out_root, expected_names, preserved_positions)
     comp_dir = config.compressed_dir
     project_selection = _project_selection_stems(config)
     source_label = str(comp_dir if source == "compressed" else (config.project_dir or ""))
@@ -462,7 +527,7 @@ def run_cut_all(
                     start += offset
                     end += offset
 
-            clip_stem = f"{safe_basename(idx, max_len=30)}_{sanitize_name(title, max_len=30)}_seg_{i:03d}"
+            clip_stem = _cut_clip_stem(idx, title, i)
             clip_path = out_root / f"{clip_stem}.mp4"
 
             print(_eta_line(t("task.cut.eta_label"), i, len(seq), clip_stem, completed, elapsed_total))
@@ -531,6 +596,10 @@ def run_cut_all(
             )
             if tracker is not None:
                 tracker.next(message=t("task.cut.segment_done", {"index": i, "total": len(seq)}))
+
+    if len(clips) == len(seq):
+        for backup in stale_backups:
+            backup.unlink(missing_ok=True)
 
     manifest_path = out_root / "manifest.md"
     lines = [
