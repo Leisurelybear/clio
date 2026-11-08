@@ -28,6 +28,7 @@ from clio.i18n import t
 from clio.identity import (
     SEGMENT_SUFFIX_RE,
     _identity_to_dict,
+    is_legacy_split_identity,
     is_legacy_split_path,
     load_identity,
     prefer_canonical_compressed,
@@ -552,7 +553,10 @@ def _process_video_item(
     stem = _build_stem(idx_val, analysis.get("title", original.stem), config)
     final_text = config.texts_dir / f"{stem}.txt"
     json_path = config.texts_dir / f"{stem}.json"
-    cover_path = extract_cover_frame(config, compressed, analysis, stem)
+    # Legacy split artifacts carry timestamps relative to their segment, so the
+    # original would be seeked at the wrong place; keep those on the compressed clip.
+    cover_source = compressed if is_legacy_split_identity(identity) else original
+    cover_path = extract_cover_frame(config, cover_source, analysis, stem, fallback_path=compressed)
     if cover_path is not None:
         analysis["cover_file"] = str(cover_path.relative_to(config.paths.output_dir))
     _write_text_file(final_text, analysis, original, compressed)

@@ -34,6 +34,7 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
   - [x] D14: cache offline originals so startup does not repeat ffprobe work
   - [x] D16: order new compressions by capture time so indexes follow shooting order
   - [x] D17: match selected originals by full path so same-named clips stay independent
+  - [x] D18: validate cover output files and extract covers from the original source
   - [x] D19: validate analysis saves and fail the CLI when batch refinement fails
   - [ ] Next: continue the review backlog; one focused fix per commit
   - Keep the existing uncommitted plan-delete/video-selection work isolated.

@@ -518,6 +518,8 @@
   "task.compress.skip_log": "⏭️ 跳过 {label}（已存在 {name}）",
   "task.compress.skip_offline": "[跳过] {count} 个离线/缺失视频（仍保留在 videos.json，可用 relink 修复）",
   "task.compress.start_log": "▶ 压缩 {label}",
+  "task.cover.empty_frame": "  [封面] 未生成有效图片 {name} @ {timestamp}，跳过",
+  "task.cover.source_missing": "  [封面] 源文件缺失 {name}，跳过",
   "task.cover.extract_failed": "  [封面] 抽帧失败 {name} @ {timestamp}: {detail}",
   "task.cut.cancelled": "  [取消] 裁剪阶段被用户终止（第 {index} 段）",
   "task.cut.clamp_end": "  [警告] 结束时间 {end}s 超出媒体时长 {duration}s，截断至末尾",

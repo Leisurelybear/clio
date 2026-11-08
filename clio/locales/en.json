@@ -518,6 +518,8 @@
   "task.compress.skip_log": "⏭️ Skipping {label} (already exists: {name})",
   "task.compress.skip_offline": "[skip] {count} offline/missing videos (kept in videos.json; use relink to fix)",
   "task.compress.start_log": "▶ Compress {label}",
+  "task.cover.empty_frame": "  [cover] no image produced for {name} @ {timestamp}; skipping",
+  "task.cover.source_missing": "  [cover] source file missing for {name}; skipping",
   "task.cover.extract_failed": "  [cover] frame extraction failed {name} @ {timestamp}: {detail}",
   "task.cut.cancelled": "  [cancel] cut phase terminated by the user (segment {index})",
   "task.cut.clamp_end": "  [warning] end time {end}s exceeds the media duration {duration}s; clamping to the end",
