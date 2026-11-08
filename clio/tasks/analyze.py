@@ -123,6 +123,21 @@ def _build_day_labels(config: AppConfig, items: list[tuple[Path, Path, str]]) ->
     return {path: labels.get(date, "day1") for path, date in dates.items()}
 
 
+class _FailureCounter:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._count = 0
+
+    def increment(self) -> None:
+        with self._lock:
+            self._count += 1
+
+    @property
+    def value(self) -> int:
+        with self._lock:
+            return self._count
+
+
 def _analysis_lineage_fingerprint(
     config: AppConfig,
     task_prompts: dict[str, str] | None = None,
@@ -368,7 +383,7 @@ def _process_video_item(
     overwrite: bool,
     tracker: ProgressTracker | None,
     state: ProcessingState,
-    error_count: list[int],
+    failure_counter: _FailureCounter,
     day_label: str = "day1",
     cancel_event: threading.Event | None = None,
     context_override: str | None = None,
@@ -527,7 +542,7 @@ def _process_video_item(
             )
         )
         state.mark(original.stem, "analyze", "error")
-        error_count[0] += 1
+        failure_counter.increment()
         if tracker:
             tracker.next(message=t("task.analyze.fail_message", {"name": compressed.name}))
             tracker.log(t("task.analyze.fail_log", {"name": compressed.name, "detail": e}))
@@ -684,7 +699,7 @@ def run_analyze_all(
     state = ProcessingState(config.paths.output_dir)
 
     with timed(t("task.analyze.phase_title", {"count": total})):
-        error_count: list[int] = [0]
+        failure_counter = _FailureCounter()
         max_workers = config.analyze.max_workers
 
         if tracker:
@@ -714,7 +729,7 @@ def run_analyze_all(
                     overwrite,
                     tracker,
                     state,
-                    error_count,
+                    failure_counter,
                     day_labels.get(str(original.resolve()), "day1"),
                     cancel_event,
                     context_override,
@@ -743,7 +758,7 @@ def run_analyze_all(
                             records.append(result)
                     except Exception as e:
                         print(t("task.analyze.task_failed", {"detail": e}))
-                        error_count[0] += 1
+                        failure_counter.increment()
 
                     if cancel_event and cancel_event.is_set():
                         break
@@ -763,7 +778,7 @@ def run_analyze_all(
     print(t("task.analyze.csv_saved", {"path": config.summary_csv}))
 
     completed = len(records)
-    failed = error_count[0]
+    failed = failure_counter.value
     if failed > 0:
         raise RuntimeError(t("task.analyze.incomplete", {"completed": completed, "failed": failed}))
     return records

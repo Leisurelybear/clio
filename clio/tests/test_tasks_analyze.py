@@ -215,6 +215,26 @@ def test_same_named_originals_only_analyze_selected_path(monkeypatch, tmp_path: 
     assert seen == [str(comp_a)]
 
 
+def test_failure_counter_is_thread_safe():
+    from clio.tasks.analyze import _FailureCounter
+
+    counter = _FailureCounter()
+    barrier = threading.Barrier(8)
+
+    def increment() -> None:
+        barrier.wait()
+        for _ in range(1000):
+            counter.increment()
+
+    threads = [threading.Thread(target=increment) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert counter.value == 8000
+
+
 class TestRunAnalyzeAll:
     def test_analyze_single_file(self, monkeypatch, tmp_path: Path):
         cfg = _cfg(tmp_path)
