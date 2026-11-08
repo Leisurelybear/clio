@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -300,3 +301,91 @@ class TestRunReindex:
 
         assert result == 1
         assert (compressed_dir / "GL010683.vindex").exists()
+
+
+class TestOfflineCache:
+    def _prepare_offline_group(self, config: AppConfig, compressed_dir: Path, input_dir: Path) -> Path:
+        compressed = compressed_dir / "001_GL010683.mp4"
+        compressed.write_text("fake")
+        missing_source = input_dir / "GL010683.mp4"
+        (input_dir / "videos.json").write_text(json.dumps([str(missing_source)]), encoding="utf-8")
+        return missing_source
+
+    def _run_auto(self, config: AppConfig):
+        with (
+            patch("clio.tasks.reindex.resolve_binary", return_value="ffprobe"),
+            patch("clio.tasks.reindex.get_duration_sec", return_value=0.0),
+            patch("clio.tasks.reindex._time.sleep"),
+        ):
+            return auto_reindex_if_needed(config)
+
+    def test_offline_source_is_cached_and_not_retried(
+        self, config: AppConfig, compressed_dir: Path, input_dir: Path
+    ) -> None:
+        self._prepare_offline_group(config, compressed_dir, input_dir)
+
+        assert self._run_auto(config) is True
+        cache_file = compressed_dir / ".reindex_offline.json"
+        assert cache_file.is_file()
+
+        with patch("clio.tasks.reindex.run_reindex") as mock_reindex:
+            assert self._run_auto(config) is False
+        mock_reindex.assert_not_called()
+
+    def test_offline_cache_invalidated_when_source_returns(
+        self, config: AppConfig, compressed_dir: Path, input_dir: Path
+    ) -> None:
+        missing_source = self._prepare_offline_group(config, compressed_dir, input_dir)
+        assert self._run_auto(config) is True
+        missing_source.write_text("now online")
+
+        with patch("clio.tasks.reindex.run_reindex", return_value=0) as mock_reindex:
+            assert self._run_auto(config) is True
+        mock_reindex.assert_called_once()
+        assert mock_reindex.call_args.kwargs["stems"] == {"GL010683"}
+
+    def test_offline_cache_invalidated_when_compressed_changes(
+        self, config: AppConfig, compressed_dir: Path, input_dir: Path
+    ) -> None:
+        self._prepare_offline_group(config, compressed_dir, input_dir)
+        compressed = compressed_dir / "001_GL010683.mp4"
+        assert self._run_auto(config) is True
+        compressed.write_text("fake and now different")
+
+        with patch("clio.tasks.reindex.run_reindex", return_value=0) as mock_reindex:
+            assert self._run_auto(config) is True
+        mock_reindex.assert_called_once()
+
+    def test_run_reindex_records_offline_source_without_crashing(
+        self, config: AppConfig, compressed_dir: Path, input_dir: Path
+    ) -> None:
+        self._prepare_offline_group(config, compressed_dir, input_dir)
+
+        with (
+            patch("clio.tasks.reindex.resolve_binary", return_value="ffprobe"),
+            patch("clio.tasks.reindex.get_duration_sec", return_value=0.0),
+        ):
+            result = run_reindex(config)
+
+        assert result == 0
+        cache = json.loads((compressed_dir / ".reindex_offline.json").read_text(encoding="utf-8"))
+        assert "GL010683" in cache["offline"]
+        assert cache["offline"]["GL010683"]["source_path"].endswith("GL010683.mp4")
+
+    def test_offline_cache_ignores_unknown_version(
+        self, config: AppConfig, compressed_dir: Path, input_dir: Path
+    ) -> None:
+        self._prepare_offline_group(config, compressed_dir, input_dir)
+        (compressed_dir / ".reindex_offline.json").write_text(
+            json.dumps(
+                {
+                    "version": 999,
+                    "offline": {"GL010683": {"fingerprint": "stale", "source_path": ""}},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with patch("clio.tasks.reindex.run_reindex", return_value=0) as mock_reindex:
+            assert self._run_auto(config) is True
+        mock_reindex.assert_called_once()

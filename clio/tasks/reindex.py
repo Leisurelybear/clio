@@ -2,16 +2,80 @@
 
 from __future__ import annotations
 
+import json
 import time as _time
 from collections import defaultdict
 from pathlib import Path
+from typing import cast
 
 from clio._constants import VIDEO_EXTS
 from clio.config import AppConfig
 from clio.i18n import t
 from clio.identity import SEGMENT_SUFFIX_RE
-from clio.utils import get_duration_sec, resolve_binary
+from clio.utils import JsonValue, get_duration_sec, resolve_binary, write_json_atomic
 from clio.vmeta import SegmentEntry, VideoIndex, VideoMeta
+
+_OFFLINE_CACHE_NAME = ".reindex_offline.json"
+_OFFLINE_CACHE_VERSION = 1
+
+
+def _offline_cache_path(compressed_dir: Path) -> Path:
+    return compressed_dir / _OFFLINE_CACHE_NAME
+
+
+def _load_offline_cache(compressed_dir: Path) -> dict[str, dict]:
+    path = _offline_cache_path(compressed_dir)
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return {}
+    if not isinstance(raw, dict) or raw.get("version") != _OFFLINE_CACHE_VERSION:
+        return {}
+    entries = raw.get("offline")
+    if not isinstance(entries, dict):
+        return {}
+    return {str(stem): entry for stem, entry in entries.items() if isinstance(entry, dict)}
+
+
+def _save_offline_cache(compressed_dir: Path, entries: dict[str, dict]) -> None:
+    path = _offline_cache_path(compressed_dir)
+    if not entries:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            pass
+        return
+    write_json_atomic(
+        path,
+        cast(JsonValue, {"version": _OFFLINE_CACHE_VERSION, "offline": entries}),
+    )
+
+
+def _file_set_fingerprint(files: list[Path], project_dir: Path | None) -> str:
+    parts: list[str] = []
+    for p in sorted(files, key=lambda x: x.name):
+        try:
+            st = p.stat()
+        except OSError:
+            continue
+        parts.append(f"{p.name}:{st.st_size}:{st.st_mtime_ns}")
+    if project_dir is not None:
+        try:
+            st = (Path(project_dir) / "videos.json").stat()
+        except OSError:
+            pass
+        else:
+            parts.append(f"videos.json:{st.st_size}:{st.st_mtime_ns}")
+    return "|".join(parts)
+
+
+def _offline_cache_hit(entry: dict, files: list[Path], project_dir: Path | None) -> bool:
+    source_path = entry.get("source_path")
+    if isinstance(source_path, str) and source_path and Path(source_path).is_file():
+        return False
+    return entry.get("fingerprint") == _file_set_fingerprint(files, project_dir)
 
 
 def _find_original_for_stem(stem: str, project_dir: Path | None = None) -> Path | None:
@@ -75,8 +139,19 @@ def auto_reindex_if_needed(config: AppConfig, ffprobe: str | None = None) -> boo
         orig_stem = _group_stem(p, config.project_dir)
         groups.setdefault(orig_stem, []).append(p)
 
-    # 检查哪些没有 .vindex
-    missing = [s for s in groups if not VideoIndex.read(s, compressed_dir)]
+    if not groups:
+        return False
+
+    # 检查哪些没有 .vindex；已确认原片离线的组不重复重建
+    offline_cache = _load_offline_cache(compressed_dir)
+    missing: list[str] = []
+    for stem, stem_files in groups.items():
+        if VideoIndex.read(stem, compressed_dir):
+            continue
+        entry = offline_cache.get(stem)
+        if entry is not None and _offline_cache_hit(entry, stem_files, config.project_dir):
+            continue
+        missing.append(stem)
     scan_ms = (_time.perf_counter() - t_scan) * 1000
     if not missing:
         if groups:
@@ -93,7 +168,7 @@ def auto_reindex_if_needed(config: AppConfig, ffprobe: str | None = None) -> boo
     print("=" * _W)
     print()
     t_rebuild = _time.perf_counter()
-    run_reindex(config, ffprobe)
+    run_reindex(config, ffprobe, stems=set(missing))
     rebuild_s = _time.perf_counter() - t_rebuild
     print()
     print("=" * _W)
@@ -104,10 +179,12 @@ def auto_reindex_if_needed(config: AppConfig, ffprobe: str | None = None) -> boo
     return True
 
 
-def run_reindex(config: AppConfig, ffprobe: str | None = None) -> int:
+def run_reindex(config: AppConfig, ffprobe: str | None = None, stems: set[str] | None = None) -> int:
     """Scan compressed_dir and rebuild .vindex files.
 
-    Also writes .vmeta for any compressed file missing it.
+    Also writes .vmeta for any compressed file missing it, and caches groups
+    whose original media is offline so startup does not retry them every time.
+    When ``stems`` is given only those groups are rebuilt.
     Returns count of .vindex files written.
     """
     if ffprobe is None:
@@ -132,25 +209,41 @@ def run_reindex(config: AppConfig, ffprobe: str | None = None) -> int:
         orig_stem = _group_stem(p, config.project_dir)
         groups[orig_stem].append(p)
 
+    offline_cache = {stem: entry for stem, entry in _load_offline_cache(compressed_dir).items() if stem in groups}
     written_index = 0
 
     for orig_stem, comp_files in groups.items():
+        if stems is not None and orig_stem not in stems:
+            continue
         # Try to find original source path
         source_path = None
+        known_source = None
         for p in comp_files:
             meta = VideoMeta.read(p)
             if meta is not None:
                 src = meta.source_path_obj()
+                if known_source is None:
+                    known_source = src
                 if src.is_file():
                     source_path = src
                     break
 
         if source_path is None:
-            source_path = _find_original_for_stem(orig_stem, config.project_dir)
+            candidate = _find_original_for_stem(orig_stem, config.project_dir)
+            if candidate is not None:
+                if known_source is None:
+                    known_source = candidate
+                if candidate.is_file():
+                    source_path = candidate
 
         if source_path is None:
+            offline_cache[orig_stem] = {
+                "fingerprint": _file_set_fingerprint(comp_files, config.project_dir),
+                "source_path": str(known_source) if known_source is not None else "",
+            }
             print(t("task.reindex.skip_no_source", {"name": orig_stem}))
             continue
+        offline_cache.pop(orig_stem, None)
 
         # Sort compressed files by prefix index
         comp_files.sort(key=lambda p: int(p.stem.split("_", 1)[0]))
@@ -220,5 +313,6 @@ def run_reindex(config: AppConfig, ffprobe: str | None = None) -> int:
         written_index += 1
         print(t("task.reindex.ok", {"name": orig_stem, "count": len(comp_files)}))
 
+    _save_offline_cache(compressed_dir, offline_cache)
     print(t("task.reindex.done", {"count": written_index}))
     return written_index
