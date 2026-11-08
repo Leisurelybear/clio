@@ -65,6 +65,7 @@
   "analyze.warn_invalid_field_type_empty_list": "  [warning] {source}: field {key} has an invalid type ({type_name}); reset to an empty list",
   "analyze.warn_missing_field": "  [warning] {source}: AI response is missing fields {missing}; using defaults",
   "analyze.warn_refine_incompatible_field": "  [warning] refine: ignoring field with an incompatible type {key}",
+  "analyze.warn_refine_timeline_incomplete": "  [warning] refine: timeline entries are incomplete; keeping the original list",
   "analyze.warn_refine_unknown_fields": "  [warning] refine: ignoring undeclared fields {fields}",
   "analyze.warn_sequence_invalid": "  [warning] {source}: field sequence has an invalid type; reset to an empty list",
   "analyze.warn_total_estimated_invalid": "  [warning] {source}: field total_estimated_sec has an invalid type; reset to 180",

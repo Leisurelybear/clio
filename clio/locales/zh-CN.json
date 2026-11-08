@@ -65,6 +65,7 @@
   "analyze.warn_invalid_field_type_empty_list": "  [警告] {source}: 字段 {key} 类型非法（{type_name}），重置为空列表",
   "analyze.warn_missing_field": "  [警告] {source}: AI 返回缺少字段 {missing}，使用默认值",
   "analyze.warn_refine_incompatible_field": "  [警告] refine: 忽略类型不兼容字段 {key}",
+  "analyze.warn_refine_timeline_incomplete": "  [警告] refine: timeline 条目不完整，保留原列表",
   "analyze.warn_refine_unknown_fields": "  [警告] refine: 忽略未声明字段 {fields}",
   "analyze.warn_sequence_invalid": "  [警告] {source}: 字段 sequence 类型非法，重置为空列表",
   "analyze.warn_total_estimated_invalid": "  [警告] {source}: 字段 total_estimated_sec 类型非法，重置为 180",

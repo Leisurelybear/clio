@@ -68,6 +68,15 @@ def _refinement_value_compatible(original: Any, candidate: Any) -> bool:
     return isinstance(candidate, type(original))
 
 
+def _refinement_timeline_is_incomplete(original: Any, candidate: Any) -> bool:
+    """Reject a timeline that lost entries or contains malformed items."""
+    if not isinstance(original, list) or not isinstance(candidate, list):
+        return False
+    if len(candidate) < len(original):
+        return True
+    return any(not isinstance(item, dict) for item in candidate)
+
+
 def _read_trip_context(project_dir: str) -> str:
     """读取 trip_context.md，按项目目录 + 文件 mtime 缓存。
 
@@ -287,7 +296,9 @@ def _merge_refinement_result(original: dict, candidate: Any, *, required_field: 
             else:
                 merged[key] = []
         elif key in original:
-            if _refinement_value_compatible(original[key], value):
+            if key == "timeline" and _refinement_timeline_is_incomplete(original[key], value):
+                print(t("analyze.warn_refine_timeline_incomplete"))
+            elif _refinement_value_compatible(original[key], value):
                 merged[key] = copy.deepcopy(value)
             else:
                 print(t("analyze.warn_refine_incompatible_field", {"key": key}))

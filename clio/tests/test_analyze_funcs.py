@@ -523,6 +523,47 @@ def test_merge_refinement_falls_back_when_required_field_is_missing():
     assert _merge_refinement_result(original, {"title": "changed"}, required_field="voiceover") == original
 
 
+def test_merge_refinement_preserves_timeline_when_candidate_is_truncated():
+    original = {
+        "title": "old",
+        "timeline": [
+            {"start": "00:00", "end": "00:05", "description": "arrival"},
+            {"start": "00:05", "end": "00:12", "description": "walk"},
+        ],
+    }
+
+    merged = _merge_refinement_result(
+        original,
+        {
+            "title": "new",
+            "timeline": [{"start": "00:00", "end": "00:05", "description": "arrival"}],
+        },
+    )
+
+    assert merged["title"] == "new"
+    assert merged["timeline"] == original["timeline"]
+
+
+def test_merge_refinement_preserves_timeline_with_malformed_items():
+    original = {"timeline": [{"start": "00:00", "end": "00:05"}, {"start": "00:05", "end": "00:10"}]}
+
+    merged = _merge_refinement_result(
+        original,
+        {"timeline": [{"start": "00:00", "end": "00:05"}, "not-an-entry"]},
+    )
+
+    assert merged["timeline"] == original["timeline"]
+
+
+def test_merge_refinement_accepts_complete_timeline_replacement():
+    original = {"timeline": [{"start": "00:00", "end": "00:05"}, {"start": "00:05", "end": "00:10"}]}
+    replacement = [{"start": "00:00", "end": "00:04"}, {"start": "00:04", "end": "00:10"}]
+
+    merged = _merge_refinement_result(original, {"timeline": replacement})
+
+    assert merged["timeline"] == replacement
+
+
 def test_validate_plan_ranges_caps_segments_and_recomputes_duration():
     clips = [
         {"index": "001", "timeline": [{"start": "00:00", "end": "00:20"}]},
