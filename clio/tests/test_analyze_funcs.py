@@ -67,6 +67,107 @@ def test_call_ai_rejects_repeated_truncation():
     assert provider_call.call_count == 2
 
 
+def test_summarize_window_analysis_uses_all_windows_and_preserves_other_fields(monkeypatch):
+    from clio.analyze import summarize_window_analysis
+
+    cfg = _fake_config()
+    provider = MagicMock()
+    provider.provider_id = "deepseek"
+    captured: dict[str, str] = {}
+    response = {
+        "title": "Full trip",
+        "summary": "The whole journey",
+        "location": "A and B",
+        "mood": "varied",
+        "suggested_use": "journey transition",
+        "timeline": [],
+        "highlights": [],
+        "cover_timestamp": "99:99",
+        "media_identity": {"source_stem": "tampered"},
+    }
+
+    monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (provider, "deepseek-chat"))
+    monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, *a, **kw: prompt)
+
+    def fake_call(label, provider_id, model, prompt, fn, **kwargs):
+        captured["prompt"] = prompt
+        captured["model"] = model
+        captured["task"] = kwargs["task_name"]
+        return json.dumps(response, ensure_ascii=False)
+
+    monkeypatch.setattr("clio.analyze._call_ai", fake_call)
+    original = {
+        "title": "Window one",
+        "summary": "Window one summary\nWindow two summary",
+        "location": "A / B",
+        "mood": "calm",
+        "suggested_use": "opening",
+        "timeline": [{"start": 900, "end": 910, "description": "late event"}],
+        "highlights": [{"start": 900, "description": "late highlight"}],
+        "cover_timestamp": "00:08",
+        "media_identity": {"source_stem": "original"},
+        "analyze_windows": [{"i": 0}, {"i": 1}],
+    }
+
+    result = summarize_window_analysis(original, cfg)
+
+    assert captured["prompt"].count("Window one summary") == 1
+    assert "Window two summary" in captured["prompt"]
+    assert "late event" in captured["prompt"]
+    assert captured["model"] == "deepseek-chat"
+    assert captured["task"] == "refine_text"
+    assert result["title"] == "Full trip"
+    assert result["timeline"] == original["timeline"]
+    assert result["highlights"] == original["highlights"]
+    assert result["cover_timestamp"] == original["cover_timestamp"]
+    assert result["media_identity"] == original["media_identity"]
+    assert result["analyze_windows"] == original["analyze_windows"]
+
+
+@pytest.mark.parametrize("response", ["{}", '{"title":""}'])
+def test_summarize_window_analysis_rejects_incomplete_response(monkeypatch, response):
+    from clio.analyze import summarize_window_analysis
+
+    cfg = _fake_config()
+    provider = MagicMock(provider_id="deepseek")
+    monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (provider, "model"))
+    monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, *a, **kw: prompt)
+    monkeypatch.setattr("clio.analyze._call_ai", lambda *a, **kw: response)
+
+    with pytest.raises(ValueError):
+        summarize_window_analysis({"title": "original"}, cfg)
+
+
+def test_summarize_window_analysis_checks_cancellation_after_ai_call(monkeypatch):
+    import threading
+
+    from clio.analyze import summarize_window_analysis
+
+    cfg = _fake_config()
+    provider = MagicMock(provider_id="deepseek")
+    cancel_event = threading.Event()
+    response = json.dumps(
+        {
+            "title": "t",
+            "summary": "s",
+            "location": "l",
+            "mood": "m",
+            "suggested_use": "u",
+        }
+    )
+    monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (provider, "model"))
+    monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, *a, **kw: prompt)
+
+    def fake_call(*args, **kwargs):
+        cancel_event.set()
+        return response
+
+    monkeypatch.setattr("clio.analyze._call_ai", fake_call)
+
+    with pytest.raises(InterruptedError):
+        summarize_window_analysis({"title": "original"}, cfg, cancel_event=cancel_event)
+
+
 class TestWrapWithContext:
     def test_no_context_returns_prompt_unchanged(self, monkeypatch):
         monkeypatch.setattr("pathlib.Path.is_file", lambda self: False)

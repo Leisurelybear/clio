@@ -24,6 +24,7 @@ from clio.prompts import (
     REFINE_TEXT_PROMPT,
     SCRIPT_PROMPT,
     TRANSCRIPT_CONTEXT,
+    WINDOW_SUMMARY_PROMPT,
 )
 from clio.utils import extract_json
 
@@ -853,6 +854,60 @@ def refine_text(
         print(t("analyze.refine_text_bad_structure"))
         return analysis
     return _merge_refinement_result(analysis, result)
+
+
+_WINDOW_SUMMARY_FIELDS = ("title", "summary", "location", "mood", "suggested_use")
+
+
+def summarize_window_analysis(
+    analysis: dict,
+    config: AppConfig,
+    *,
+    token_store=None,
+    cancel_event: threading.Event | None = None,
+    context_override: str | None = None,
+    task_prompts: dict[str, str] | None = None,
+) -> dict:
+    """Rewrite only summary fields after multiple video windows are merged."""
+    provider, model = get_task_provider(config, TaskName.REFINE_TEXT)
+    template = resolve_prompt_template("window_summary", WINDOW_SUMMARY_PROMPT, config, task_prompts=task_prompts)
+    base = format_prompt_template(
+        "window_summary",
+        template,
+        analysis_json=json.dumps(analysis, ensure_ascii=False, indent=None),
+    )
+    prompt = _wrap_with_context(base, config, context_override=context_override)
+    try:
+        with provider_use(provider):
+            text = _call_ai(
+                t("analyze.label.window_summary"),
+                provider.provider_id,
+                model,
+                prompt,
+                lambda: provider.generate_text(prompt, model),
+                debug_print=config.ai.debug_print_prompt,
+                token_store=token_store,
+                task_name=TaskName.REFINE_TEXT,
+                cancel_event=cancel_event,
+            )
+    except Exception as exc:
+        if cancel_event is not None and cancel_event.is_set():
+            raise InterruptedError(t("analyze.cancelled")) from exc
+        raise
+    if cancel_event is not None and cancel_event.is_set():
+        raise InterruptedError(t("analyze.cancelled"))
+
+    candidate = extract_json(text)
+    if not isinstance(candidate, dict) or any(
+        field not in candidate or not isinstance(candidate[field], str) or not candidate[field].strip()
+        for field in _WINDOW_SUMMARY_FIELDS
+    ):
+        raise ValueError(t("analyze.window_summary_bad_structure"))
+
+    merged = copy.deepcopy(analysis)
+    for field in _WINDOW_SUMMARY_FIELDS:
+        merged[field] = candidate[field]
+    return merged
 
 
 def refine_script(

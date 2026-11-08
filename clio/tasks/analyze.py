@@ -15,7 +15,7 @@ from typing import Any
 
 from clio._constants import VIDEO_EXTS
 from clio.ai.token_usage import FileTokenUsageStore
-from clio.analyze import _prompt_context_parts, analyze_video
+from clio.analyze import _prompt_context_parts, analyze_video, summarize_window_analysis
 from clio.analyze_windows import (
     build_analyze_windows,
     cleanup_analyze_windows_dir,
@@ -37,7 +37,7 @@ from clio.log import format_duration, timed
 from clio.processing_state import ProcessingState
 from clio.progress import ProgressTracker
 from clio.prompt_overrides import resolve_prompt_template
-from clio.prompts import ANALYZE_PROMPT, TRANSCRIPT_CONTEXT
+from clio.prompts import ANALYZE_PROMPT, TRANSCRIPT_CONTEXT, WINDOW_SUMMARY_PROMPT
 from clio.schema import add_schema_version
 from clio.tasks._helpers import (
     ClipRecord,
@@ -124,6 +124,8 @@ def _analysis_lineage_fingerprint(
     task_prompts: dict[str, str] | None = None,
     context_override: str | None = None,
     transcript_context: str = "",
+    *,
+    multi_window: bool = False,
 ) -> str:
     """Fingerprint of everything that can change a cached analysis result.
 
@@ -135,30 +137,48 @@ def _analysis_lineage_fingerprint(
         prompt = resolve_prompt_template("video_analyze", ANALYZE_PROMPT, config, task_prompts=task_prompts)
     except Exception:
         prompt = ANALYZE_PROMPT
-    payload = json.dumps(
-        {
-            "task": _task_lineage_settings(config, "video_analyze"),
-            "prompt": prompt,
-            "max_analyze_duration_min": getattr(config.analyze, "max_analyze_duration_min", 0),
-            "window_max_min": int(getattr(config.analyze, "window_max_min", 15) or 15),
-            "window_overlap_sec": int(getattr(config.analyze, "window_overlap_sec", 20) or 0),
-            "compress": {
-                "codec": getattr(config.compress, "codec", ""),
-                "fps": getattr(config.compress, "fps", 0),
-                "remove_audio": getattr(config.compress, "remove_audio", False),
-                "crf": getattr(config.compress, "crf", 0),
-                "target_size_mb": getattr(config.compress, "target_size_mb", 0),
-                "max_width": getattr(config.compress, "max_width", 0),
-            },
-            "context": _prompt_context_parts(config, context_override),
-            "transcript_context": transcript_context,
-            "transcript_prompt": (
-                resolve_prompt_template("transcript_context", TRANSCRIPT_CONTEXT, config) if transcript_context else ""
-            ),
+    payload_data: dict[str, object] = {
+        "task": _task_lineage_settings(config, "video_analyze"),
+        "prompt": prompt,
+        "max_analyze_duration_min": getattr(config.analyze, "max_analyze_duration_min", 0),
+        "window_max_min": int(getattr(config.analyze, "window_max_min", 15) or 15),
+        "window_overlap_sec": int(getattr(config.analyze, "window_overlap_sec", 20) or 0),
+        "compress": {
+            "codec": getattr(config.compress, "codec", ""),
+            "fps": getattr(config.compress, "fps", 0),
+            "remove_audio": getattr(config.compress, "remove_audio", False),
+            "crf": getattr(config.compress, "crf", 0),
+            "target_size_mb": getattr(config.compress, "target_size_mb", 0),
+            "max_width": getattr(config.compress, "max_width", 0),
         },
-        sort_keys=True,
-    )
+        "context": _prompt_context_parts(config, context_override),
+        "transcript_context": transcript_context,
+        "transcript_prompt": (
+            resolve_prompt_template("transcript_context", TRANSCRIPT_CONTEXT, config) if transcript_context else ""
+        ),
+    }
+    if multi_window:
+        try:
+            summary_prompt = resolve_prompt_template(
+                "window_summary", WINDOW_SUMMARY_PROMPT, config, task_prompts=task_prompts
+            )
+        except Exception:
+            summary_prompt = WINDOW_SUMMARY_PROMPT
+        payload_data["window_summary"] = {
+            "version": 1,
+            "task": _task_lineage_settings(config, "refine_text"),
+            "prompt": summary_prompt,
+        }
+    payload = json.dumps(payload_data, sort_keys=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _uses_multiple_windows(compressed: Path, duration_sec: float, config: AppConfig) -> bool:
+    if is_legacy_split_path(compressed) or duration_sec <= 0:
+        return False
+    window_max = int(getattr(config.analyze, "window_max_min", 15) or 15)
+    overlap = int(getattr(config.analyze, "window_overlap_sec", 20) or 0)
+    return len(build_analyze_windows(duration_sec, window_max, overlap)) > 1
 
 
 def _load_transcript_context(config: AppConfig, compressed: Path) -> str:
@@ -303,7 +323,17 @@ def _analyze_with_optional_windows(
         cleanup_analyze_windows_dir(dest)
         raise
 
-    return merge_window_analyses(partials, overlap)
+    merged = merge_window_analyses(partials, overlap)
+    if cancel_event is not None and cancel_event.is_set():
+        raise InterruptedError(t("analyze.cancelled"))
+    return summarize_window_analysis(
+        merged,
+        config,
+        token_store=token_store,
+        cancel_event=cancel_event,
+        context_override=effective_context,
+        task_prompts=task_prompts,
+    )
 
 
 def _process_video_item(
@@ -340,6 +370,7 @@ def _process_video_item(
 
     effective_context = _effective_analysis_context(config, original, context_override)
     transcript_context = _load_transcript_context(config, compressed)
+    multi_window = _uses_multiple_windows(compressed, duration_sec, config)
 
     existing = sorted(config.texts_dir.glob(f"{idx_str}_*.json"))
     json_path = None
@@ -348,7 +379,13 @@ def _process_video_item(
     # has been committed, so a failed re-run never loses the previous result.
     stale_candidates: list[Path] = list(existing) if overwrite or not config.analyze.skip_existing else []
     if not overwrite and config.analyze.skip_existing and existing:
-        current_lineage = _analysis_lineage_fingerprint(config, task_prompts, effective_context, transcript_context)
+        current_lineage = _analysis_lineage_fingerprint(
+            config,
+            task_prompts,
+            effective_context,
+            transcript_context,
+            multi_window=multi_window,
+        )
         for candidate in existing:
             try:
                 existing_data = json.loads(candidate.read_text(encoding="utf-8"))
@@ -480,7 +517,13 @@ def _process_video_item(
         analysis["day_label"] = day_label
     identity = resolve_identity(compressed, idx_str, project_dir=config.project_dir)
     add_schema_version(analysis)
-    analysis["_lineage"] = _analysis_lineage_fingerprint(config, task_prompts, effective_context, transcript_context)
+    analysis["_lineage"] = _analysis_lineage_fingerprint(
+        config,
+        task_prompts,
+        effective_context,
+        transcript_context,
+        multi_window=multi_window,
+    )
     analysis["media_identity"] = _identity_to_dict(identity)
     attach_transcript_to_analysis(config, analysis)
 

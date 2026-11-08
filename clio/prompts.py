@@ -167,6 +167,24 @@ SCRIPT_PROMPT = """你是旅行 vlog 口播文案写手。根据以下素材分�
 }}
 """
 
+WINDOW_SUMMARY_PROMPT = """你是旅行视频内容编辑。下面是同一段长视频分窗分析后合并的全局素材信息。
+
+请综合全片时间线和亮点，重写全片摘要字段，不能只依据第一个分析窗口：
+- title：准确概括全片的主要内容
+- summary：用具体画面串联全片，不重复罗列各窗口摘要
+- location：只填写证据支持的地点；无法确定时如实说明
+- mood：概括全片主要氛围，并以画面内容为依据
+- suggested_use：概括该素材适合在旅行 vlog 中承担的作用
+
+不要修改任何时间戳、时间线、highlights、身份字段或其他字段。只输出 JSON，不要 markdown 代码块。
+
+## 全片合并分析
+{analysis_json}
+
+请只输出 title、summary、location、mood、suggested_use 五个字符串字段。
+"""
+
+
 PLAN_PROMPT = """你是旅行 vlog 剪辑策划。用户以「一天行程 = 一条 vlog」来剪辑。
 
 以下是当天所有素材的摘要（JSON 数组），每个素材都有唯一的 index：

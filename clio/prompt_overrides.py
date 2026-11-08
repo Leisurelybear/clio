@@ -12,6 +12,7 @@ PROMPT_PLACEHOLDERS: dict[str, set[str]] = {
     "vlog_plan": {"clips_json", "max_clips", "target_duration_sec", "example_index"},
     "refine_text": {"existing_json"},
     "refine_text_fix": {"fix_instruction", "existing_json"},
+    "window_summary": {"analysis_json"},
     "refine_script": {"analysis_json", "existing_json"},
     "refine_script_fix": {"fix_instruction", "analysis_json", "existing_json"},
     "transcript_context": {"transcripts_json"},
