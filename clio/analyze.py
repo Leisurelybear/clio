@@ -655,11 +655,16 @@ def generate_voiceover(
     timeline = clip_data.get("timeline", [])
     if not isinstance(timeline, list):
         timeline = []
-    timeline_lines = "\n".join(
-        f"- {t.get('start', '?')}-{t.get('end', '?')}: {t.get('description', '')}"
-        for t in timeline
-        if isinstance(t, dict)
-    )
+    timeline_lines_list: list[str] = []
+    for item in timeline:
+        if not isinstance(item, dict):
+            continue
+        line = f"- {item.get('start', '?')}-{item.get('end', '?')}: {item.get('description', '')}"
+        transcript = str(item.get("transcript") or "").strip()
+        if transcript:
+            line += f"\n  对齐转录: {transcript}"
+        timeline_lines_list.append(line)
+    timeline_lines = "\n".join(timeline_lines_list)
     intervals = _timeline_intervals(clip_data)
     timeline_duration = sum(end - start for start, end in intervals)
     duration_note = (

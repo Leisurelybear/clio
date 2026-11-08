@@ -354,6 +354,42 @@ def test_analyze_video_includes_transcript_context(monkeypatch):
     assert "你好" in prompt
 
 
+def test_generate_voiceover_includes_aligned_transcript(monkeypatch):
+    from clio.analyze import generate_voiceover
+
+    cfg = _fake_config()
+    provider = MagicMock(provider_id="mock")
+    captured: dict[str, str] = {}
+    monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (provider, "model"))
+    monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, *a, **kw: prompt)
+    monkeypatch.setattr(
+        "clio.analyze._call_ai",
+        lambda *args, **kwargs: captured.setdefault("prompt", args[3]) or "{}",
+    )
+    monkeypatch.setattr("clio.analyze.extract_json", lambda text: {"title": "x", "voiceover": "ok"})
+
+    generate_voiceover(
+        {
+            "index": "001",
+            "title": "Morning market",
+            "summary": "A market visit",
+            "location": "Old town",
+            "timeline": [
+                {
+                    "start": "00:02",
+                    "end": "00:08",
+                    "description": "Walking through the market",
+                    "transcript": "今天先去市场买早餐",
+                }
+            ],
+        },
+        "Template",
+        cfg,
+    )
+
+    assert "对齐转录: 今天先去市场买早餐" in captured["prompt"]
+
+
 def test_validate_analysis_defaults_confidence():
     result = _validate_analysis({"title": "x", "summary": "y", "timeline": []}, "clip.mp4")
 
