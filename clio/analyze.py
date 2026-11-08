@@ -556,6 +556,145 @@ def _select_transcript_segments(
     return sorted(candidates, key=lambda segment: float(segment.get("start", 0.0)))
 
 
+def _clean_transcript_segment(segment: dict) -> dict | None:
+    text = str(segment.get("text") or "").strip()
+    if not text:
+        return None
+    cleaned: dict[str, Any] = {"text": text}
+    for field in ("start", "end"):
+        try:
+            value = float(segment.get(field))
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(value):
+            cleaned[field] = value
+    try:
+        avg_logprob = float(segment.get("avg_logprob"))
+    except (TypeError, ValueError):
+        pass
+    else:
+        if math.isfinite(avg_logprob):
+            cleaned["avg_logprob"] = avg_logprob
+    if segment.get("low_confidence") is True:
+        cleaned["low_confidence"] = True
+    return cleaned
+
+
+def _timeline_transcript_groups(
+    clip: dict,
+    transcript: dict | None,
+    *,
+    offset_sec: float,
+) -> list[tuple[dict, list[dict]]]:
+    timeline = clip.get("timeline")
+    if not isinstance(timeline, list):
+        return []
+    groups: list[tuple[dict, list[dict]]] = []
+    for item in timeline:
+        if not isinstance(item, dict):
+            continue
+        segments: list[dict] = []
+        raw_segments = item.get("transcript_segments")
+        if isinstance(raw_segments, list):
+            for raw in raw_segments:
+                if isinstance(raw, dict):
+                    cleaned = _clean_transcript_segment(raw)
+                    if cleaned is not None:
+                        segments.append(cleaned)
+        if not segments:
+            text = str(item.get("transcript") or "").strip()
+            if text:
+                segments.append({"text": text})
+        if not segments and isinstance(transcript, dict):
+            intervals = _timeline_intervals({"timeline": [item]})
+            if intervals:
+                for raw in _select_transcript_segments(transcript, intervals, offset_sec=offset_sec, limit=0):
+                    cleaned = _clean_transcript_segment(raw)
+                    if cleaned is not None:
+                        segments.append(cleaned)
+        if not segments:
+            continue
+        segments.sort(key=lambda segment: (segment.get("start", math.inf), segment.get("end", math.inf)))
+        unique: list[dict] = []
+        seen: set[tuple[Any, Any, str]] = set()
+        for segment in segments:
+            key = (segment.get("start"), segment.get("end"), str(segment.get("text", "")))
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(segment)
+        if unique:
+            groups.append((item, unique))
+    return groups
+
+
+def _cap_transcript_groups(groups: list[list[dict]], *, limit: int) -> list[list[dict]]:
+    if limit <= 0:
+        return [list(group) for group in groups]
+    selected: list[list[dict]] = [[] for _ in groups]
+    total = 0
+    depth = 0
+    while total < limit:
+        progressed = False
+        for index, group in enumerate(groups):
+            if depth >= len(group):
+                continue
+            selected[index].append(group[depth])
+            total += 1
+            progressed = True
+            if total >= limit:
+                break
+        if not progressed:
+            break
+        depth += 1
+    return selected
+
+
+def _build_plan_transcript_info(
+    clips: list[dict],
+    transcripts_map: dict[str, dict] | None,
+    *,
+    limit: int,
+) -> list[dict]:
+    """Summarize transcripts per clip timeline entry instead of by ASR confidence."""
+    mapping = transcripts_map if isinstance(transcripts_map, dict) else {}
+    info: list[dict] = []
+    for clip in clips:
+        if not isinstance(clip, dict):
+            continue
+        clip_stem = clip.get("match_stem") or clip.get("source_stem", "")
+        transcript = mapping.get(str(clip_stem).lower()) if clip_stem else None
+        try:
+            offset = float(clip.get("segment_offset_sec", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            offset = 0.0
+        groups = _timeline_transcript_groups(clip, transcript, offset_sec=offset)
+        if not groups:
+            continue
+        capped = _cap_transcript_groups([segments for _, segments in groups], limit=limit)
+        timeline_entries: list[dict] = []
+        for (item, _), selected_segments in zip(groups, capped):
+            if not selected_segments:
+                continue
+            timeline_entries.append(
+                {
+                    "start": item.get("start"),
+                    "end": item.get("end"),
+                    "description": item.get("description", ""),
+                    "transcript_segments": selected_segments,
+                }
+            )
+        if timeline_entries:
+            info.append(
+                {
+                    "clip_index": clip.get("index"),
+                    "clip_title": clip.get("title"),
+                    "timeline": timeline_entries,
+                }
+            )
+    return info
+
+
 def _validate_plan_ranges(result: dict, clips: list[dict], max_clips: int, target_duration_sec: float) -> dict:
     """Filter impossible plan segments and normalize the reported duration."""
     by_index: dict[int | str, list[tuple[float, float]]] = {}
@@ -759,28 +898,10 @@ def plan_daily_vlog(
         target_duration_sec=config.plan.target_duration_sec,
         example_index=example_index,
     )
-    if transcripts_map and use_transcripts and config.whisper.enabled:
-        transcript_info = []
-        for clip in clips:
-            clip_stem = clip.get("match_stem") or clip.get("source_stem", "")
-            trans = transcripts_map.get(clip_stem.lower()) if clip_stem else None
-            if trans is None:
-                continue
-            offset = float(clip.get("segment_offset_sec", 0.0) or 0.0)
-            matched = _select_transcript_segments(
-                trans,
-                _timeline_intervals(clip),
-                offset_sec=offset,
-                limit=config.whisper.max_segments_per_clip,
-            )
-            if matched:
-                transcript_info.append(
-                    {
-                        "clip_index": clip.get("index"),
-                        "clip_title": clip.get("title"),
-                        "transcript_segments": matched,
-                    }
-                )
+    whisper_cfg = getattr(config, "whisper", None)
+    if use_transcripts and bool(getattr(whisper_cfg, "enabled", False)):
+        limit = int(getattr(whisper_cfg, "max_segments_per_clip", 5) or 5)
+        transcript_info = _build_plan_transcript_info(clips, transcripts_map, limit=limit)
         if transcript_info:
             transcript_json = json.dumps(transcript_info, ensure_ascii=False, indent=None)
             transcript_template = resolve_prompt_template(

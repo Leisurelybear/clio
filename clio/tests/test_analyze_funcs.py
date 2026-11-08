@@ -12,6 +12,7 @@ import pytest
 
 from clio.ai.base import AIResponse, TokenUsage
 from clio.analyze import (
+    _build_plan_transcript_info,
     _call_ai,
     _merge_refinement_result,
     _select_transcript_segments,
@@ -603,6 +604,69 @@ def test_select_transcripts_accepts_boundary_overlap_and_restores_time_order():
     selected = _select_transcript_segments(transcript, [(0, 10)], offset_sec=0, limit=2)
 
     assert [segment["text"] for segment in selected] == ["early", "boundary"]
+
+
+def test_build_plan_transcript_info_spreads_segments_across_timeline_entries():
+    clips = [
+        {
+            "index": "001",
+            "title": "A",
+            "timeline": [
+                {
+                    "start": "00:00",
+                    "end": "00:10",
+                    "description": "first",
+                    "transcript_segments": [
+                        {"start": 1, "end": 2, "text": "first-a", "avg_logprob": -9.0},
+                        {"start": 3, "end": 4, "text": "first-b", "avg_logprob": -0.1},
+                    ],
+                },
+                {
+                    "start": "00:10",
+                    "end": "00:20",
+                    "description": "second",
+                    "transcript_segments": [{"start": 11, "end": 12, "text": "second-a", "avg_logprob": -9.0}],
+                },
+            ],
+        }
+    ]
+
+    info = _build_plan_transcript_info(clips, None, limit=2)
+
+    assert [entry["description"] for entry in info[0]["timeline"]] == ["first", "second"]
+    assert [[segment["text"] for segment in entry["transcript_segments"]] for entry in info[0]["timeline"]] == [
+        ["first-a"],
+        ["second-a"],
+    ]
+
+
+def test_build_plan_transcript_info_falls_back_to_transcript_per_timeline_entry():
+    clips = [
+        {
+            "index": "001",
+            "title": "A",
+            "match_stem": "gl010683",
+            "timeline": [
+                {"start": "00:00", "end": "00:10", "description": "first"},
+                {"start": "00:10", "end": "00:20", "description": "second"},
+            ],
+        }
+    ]
+    transcript = {
+        "segments": [
+            {"start": 1, "end": 2, "text": "first-a", "avg_logprob": -0.1},
+            {"start": 3, "end": 4, "text": "first-b", "avg_logprob": -0.2},
+            {"start": 11, "end": 12, "text": "second-a", "avg_logprob": -9.0},
+        ]
+    }
+
+    info = _build_plan_transcript_info(clips, {"gl010683": transcript}, limit=2)
+
+    assert [entry["description"] for entry in info[0]["timeline"]] == ["first", "second"]
+    assert [[segment["text"] for segment in entry["transcript_segments"]] for entry in info[0]["timeline"]] == [
+        ["first-a"],
+        ["second-a"],
+    ]
 
 
 def test_plan_range_validation_ignores_malformed_source_timestamps():

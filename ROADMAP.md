@@ -42,6 +42,7 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
   - [x] B9: keep title and summary length rules in the shared trip context only
   - [x] O5: delimit transcripts and user background so embedded text cannot act as instructions
   - [x] O3: stop asking the model for an unused self-assessed confidence score
+  - [x] C12: summarize per-clip transcripts by timeline entry instead of ASR confidence
   - [ ] Next: continue the review backlog; one focused fix per commit
   - Keep the existing uncommitted plan-delete/video-selection work isolated.
 - R-048 Higher-detail video analysis and bounded plan input (plan ready; P0a-P0c not started)
