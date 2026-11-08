@@ -148,6 +148,21 @@ class Plan:
             raise IndexError(f"remove_at out of range: {i}")
         return self.sequence.pop(i)
 
+    def recalculate_total_estimated_sec(self) -> float:
+        """Set the total from valid timeline ranges and return the new total."""
+        total = 0.0
+        for seg in self.sequence:
+            timeline = (seg.use_timeline or "").strip()
+            if not timeline:
+                continue
+            try:
+                start, end = parse_time_range(timeline)
+            except ValueError:
+                continue
+            total += max(0.0, end - start)
+        self.total_estimated_sec = round(total, 2)
+        return self.total_estimated_sec
+
     def validate_for_save(self) -> list[PlanIssue]:
         issues: list[PlanIssue] = []
         for i, seg in enumerate(self.sequence):

@@ -48,6 +48,7 @@ vi.mock('../plan-edit.js', () => ({
   nextExpandedAfterDelete: vi.fn(),
   nextExpandedAfterInsert: vi.fn(),
   nextExpandedAfterMove: vi.fn(),
+  syncPlanTotalEstimatedSec: vi.fn(),
 }));
 vi.mock('../latest.js', () => ({
   beginLatest: vi.fn(),

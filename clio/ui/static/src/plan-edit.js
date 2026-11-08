@@ -1,6 +1,7 @@
 /** Pure helpers for plan sequence structural edits (no DOM). */
 
 import { parseTimecode } from './utils.js';
+import { buildTimeline } from './plan-timeline.js';
 
 export function reorderSequence(sequence, fromIndex, toIndex) {
   const arr = sequence.slice();
@@ -79,6 +80,13 @@ export function removeSegment(sequence, index) {
 
 export function patchSegment(segment, fields) {
   return { ...segment, ...fields };
+}
+
+/** Recompute the persisted total from the current timeline sequence. */
+export function syncPlanTotalEstimatedSec(plan) {
+  if (!plan || !Array.isArray(plan.sequence)) return 0;
+  plan.total_estimated_sec = buildTimeline(plan.sequence).total;
+  return plan.total_estimated_sec;
 }
 
 /** Format seconds as MM:SS (minutes may exceed 59 for long clips). */

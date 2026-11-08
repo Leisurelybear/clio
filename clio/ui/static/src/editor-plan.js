@@ -21,6 +21,7 @@ import {
   nextExpandedAfterDelete,
   nextExpandedAfterInsert,
   nextExpandedAfterMove,
+  syncPlanTotalEstimatedSec,
 } from './plan-edit.js';
 
 let _readinessTimer = null;
@@ -103,6 +104,7 @@ function applySequence(next, opts = {}) {
   if (!state.plan) return;
   const hadPreview = state.previewActive;
   state.plan.sequence = next;
+  syncPlanTotalEstimatedSec(state.plan);
   state.planPreviewMedia = null;
   state.previewCutFallbacks.clear();
   if (hadPreview) stopPreview();
@@ -423,6 +425,7 @@ function openRangePickerForSegment(segIndex) {
     onApply: ({ segIndex: i, use_timeline }) => {
       if (!state.plan?.sequence?.[i]) return;
       state.plan.sequence[i] = patchSegment(state.plan.sequence[i], { use_timeline });
+      syncPlanTotalEstimatedSec(state.plan);
       markDirty();
       _refreshPreviewTimeline();
       const li = document.querySelector(`#plan-list [data-preview-index="${i}"]`);
@@ -690,6 +693,7 @@ export function renderPlan() {
         } else if (e.target.dataset.k === 'use_timeline') {
           const tlEl = li.querySelector('.plan-seg-tl');
           if (tlEl) tlEl.textContent = e.target.value || '—';
+          syncPlanTotalEstimatedSec(p);
           _refreshPreviewTimeline();
         }
         markDirty();

@@ -213,6 +213,7 @@ def handle_put_plan(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> 
             },
             400,
         )
+    plan.recalculate_total_estimated_sec()
     data = add_schema_version(plan.to_dict())
     payload = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
     p.parent.mkdir(parents=True, exist_ok=True)

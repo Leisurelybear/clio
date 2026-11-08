@@ -17,6 +17,7 @@ import {
   clampFileSelection,
   selectionFromUseTimeline,
   useTimelineFromFileSelection,
+  syncPlanTotalEstimatedSec,
 } from '../plan-edit.js';
 
 describe('plan-edit', () => {
@@ -40,6 +41,41 @@ describe('plan-edit', () => {
     expect(next.title).toBe('b');
     expect(next.use_timeline).toBe('00:00-00:01');
     expect(s.title).toBe('a');
+  });
+
+  it('syncPlanTotalEstimatedSec sums valid ranges into the plan', () => {
+    const plan = {
+      total_estimated_sec: 999,
+      sequence: [
+        { index: '001', use_timeline: '00:00-00:10' },
+        { index: '002', use_timeline: '00:10-00:15.5' },
+      ],
+    };
+
+    expect(syncPlanTotalEstimatedSec(plan)).toBe(15.5);
+    expect(plan.total_estimated_sec).toBe(15.5);
+  });
+
+  it('syncPlanTotalEstimatedSec ignores empty, invalid, and reversed ranges', () => {
+    const plan = {
+      total_estimated_sec: 999,
+      sequence: [
+        { index: '001', use_timeline: '00:00-00:04' },
+        { index: '002', use_timeline: '' },
+        { index: '003', use_timeline: 'not-a-range' },
+        { index: '004', use_timeline: '00:20-00:10' },
+      ],
+    };
+
+    expect(syncPlanTotalEstimatedSec(plan)).toBe(4);
+    expect(plan.total_estimated_sec).toBe(4);
+  });
+
+  it('syncPlanTotalEstimatedSec sets an empty sequence total to zero', () => {
+    const plan = { total_estimated_sec: 180, sequence: [] };
+
+    expect(syncPlanTotalEstimatedSec(plan)).toBe(0);
+    expect(plan.total_estimated_sec).toBe(0);
   });
 
   it('formatTimelineSec pads mm:ss', () => {

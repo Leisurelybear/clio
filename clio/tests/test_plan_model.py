@@ -34,6 +34,30 @@ def test_from_dict_legacy_roundtrip_preserves_extras_and_confidence():
     assert out["sequence"][0]["use_timeline"] == "00:10-00:40"
 
 
+def test_recalculate_total_estimated_sec_sums_valid_ranges():
+    plan = Plan.from_dict(
+        {
+            "total_estimated_sec": 999,
+            "sequence": [
+                {"index": "001", "use_timeline": "00:00-00:10"},
+                {"index": "002", "use_timeline": "00:10-00:15.5"},
+                {"index": "003", "use_timeline": ""},
+                {"index": "004", "use_timeline": "00:30-00:20"},
+            ],
+        }
+    )
+
+    assert plan.recalculate_total_estimated_sec() == 15.5
+    assert plan.total_estimated_sec == 15.5
+
+
+def test_recalculate_total_estimated_sec_zero_for_no_valid_ranges():
+    plan = Plan.from_dict({"total_estimated_sec": 180, "sequence": []})
+
+    assert plan.recalculate_total_estimated_sec() == 0
+    assert plan.total_estimated_sec == 0
+
+
 def test_validate_for_save_rejects_bad_timeline():
     plan = Plan.from_dict(
         {

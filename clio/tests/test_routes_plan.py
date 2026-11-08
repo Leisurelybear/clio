@@ -327,6 +327,38 @@ class TestHandlePutPlanValidation:
         saved = json.loads((plans_dir / "day1_plan.json").read_text(encoding="utf-8"))
         assert saved["sequence"][0]["index"] == "001"
         assert "_schema_version" in saved
+        assert saved["total_estimated_sec"] == 10
+
+    def test_recalculates_total_estimated_sec_on_save(self, tmp_path: Path):
+        handler = MagicMock()
+        plans_dir = tmp_path / "output" / "plans"
+        _mock_plans_cfg(handler, plans_dir, tmp_path)
+        handler._send_json = MagicMock()
+        body = {
+            "day_title": "d",
+            "total_estimated_sec": 999,
+            "sequence": [
+                {"index": "001", "use_timeline": "00:00-00:10"},
+                {"index": "002", "use_timeline": "00:10-00:15.5"},
+            ],
+        }
+        handle_put_plan(handler, {"day": ["day1"]}, body)
+        saved = json.loads((plans_dir / "day1_plan.json").read_text(encoding="utf-8"))
+        assert saved["total_estimated_sec"] == 15.5
+
+    def test_saves_zero_total_when_no_timeline_is_present(self, tmp_path: Path):
+        handler = MagicMock()
+        plans_dir = tmp_path / "output" / "plans"
+        _mock_plans_cfg(handler, plans_dir, tmp_path)
+        handler._send_json = MagicMock()
+        body = {
+            "day_title": "d",
+            "total_estimated_sec": 180,
+            "sequence": [{"index": "001", "use_timeline": ""}],
+        }
+        handle_put_plan(handler, {"day": ["day1"]}, body)
+        saved = json.loads((plans_dir / "day1_plan.json").read_text(encoding="utf-8"))
+        assert saved["total_estimated_sec"] == 0
 
 
 class TestHandlePostPlanReadiness:
