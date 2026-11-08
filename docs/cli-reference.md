@@ -608,7 +608,7 @@ templates/prompts/REFINE_SCRIPT_FIX_PROMPT.md
 
 Keep the same `{placeholder}` names as the built-in prompt when overriding formatted prompts such as script, plan, or refine prompts.
 
-Generated analysis, voiceover, and plan JSON may include `_confidence` as a 0-1 self-assessed confidence score. Missing values are treated as `0.0` so older outputs remain valid.
+Older analysis, voiceover, and plan JSON files may still contain a `_confidence` self-score. It is ignored on load and dropped the next time the file is rewritten.
 
 The web backend also exposes authenticated prompt management APIs:
 

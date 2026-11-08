@@ -99,8 +99,7 @@ ANALYZE_PROMPT = """请仔细分析这段旅行 vlog 原始素材视频，用中
     {"start": "00:08", "description": "亮点画面一句话", "reason": "为什么值得保留"}
   ],
   "suggested_use": "适合放在日 vlog 的哪个环节（开场/途中/美食/结尾等）",
-  "cover_timestamp": "建议作为封面的画面时间点，如 00:08",
-  "_confidence": 0.82
+  "cover_timestamp": "建议作为封面的画面时间点，如 00:08"
 }
 
 要求：
@@ -127,10 +126,6 @@ ANALYZE_PROMPT = """请仔细分析这段旅行 vlog 原始素材视频，用中
 ## cover_timestamp
 - 选择主体清晰、光线好、构图稳定、有代表性的单个时间点
 - 必须是 timeline 中真实存在的画面点，时间格式 MM:SS 或 HH:MM:SS
-
-## _confidence
-- 填 0 到 1 的小数，表示对地点、时间线、亮点判断的整体把握
-- 对无法确认的信息（如看不清的招牌文字、不确定的地点）主动降低置信度，并在 description 里注明存疑
 """
 
 SCRIPT_PROMPT = """你是旅行 vlog 口播文案写手。根据以下素材分析结果和口播模板，为编号 {index} 的片段写口播文案。
@@ -164,8 +159,7 @@ SCRIPT_PROMPT = """你是旅行 vlog 口播文案写手。根据以下素材分�
   "title": "{title}",
   "voiceover": "口播正文，不超过约{target_words}字；短素材按建议字数缩短，第一人称、自然口语化",
   "duration_hint_sec": 20,
-  "edit_tip": "给剪辑师的一句建议（选哪个时间段、要不要加速等）",
-  "_confidence": 0.82
+  "edit_tip": "给剪辑师的一句建议（选哪个时间段、要不要加速等）"
 }}
 """
 
@@ -233,8 +227,7 @@ PLAN_PROMPT = """你是旅行 vlog 剪辑策划。用户以「一天行程 = 一
     }}
   ],
   "opening_tip": "开场建议",
-  "ending_tip": "结尾建议",
-  "_confidence": 0.82
+  "ending_tip": "结尾建议"
 }}
 """
 

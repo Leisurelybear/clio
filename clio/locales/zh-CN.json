@@ -58,7 +58,6 @@
   "analyze.truncated_retry_failed": "{label}: 连续两次输出被截断，未保存不完整结果",
   "analyze.window_summary_bad_structure": "长视频汇总返回结构不完整，未保存分析结果",
   "analyze.voiceover_cancelled": "voiceover 被用户取消",
-  "analyze.warn_confidence_invalid": "  [警告] {source}: 字段 _confidence 类型非法，重置为 0.0",
   "analyze.warn_duration_hint_invalid": "  [警告] {source}: 字段 duration_hint_sec 类型非法，重置为 20",
   "analyze.warn_invalid_field": "  [警告] {source}: 字段 {key} 类型非法，重置为默认值",
   "analyze.warn_invalid_field_type": "  [警告] {source}: 字段 {key} 类型非法（{type_name}），重置为默认值",

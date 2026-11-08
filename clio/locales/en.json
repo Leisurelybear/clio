@@ -58,7 +58,6 @@
   "analyze.truncated_retry_failed": "{label}: output was truncated twice; incomplete result was not saved",
   "analyze.window_summary_bad_structure": "The long-video summary response was incomplete; the analysis was not saved",
   "analyze.voiceover_cancelled": "voiceover cancelled by the user",
-  "analyze.warn_confidence_invalid": "  [warning] {source}: field _confidence has an invalid type; reset to 0.0",
   "analyze.warn_duration_hint_invalid": "  [warning] {source}: field duration_hint_sec has an invalid type; reset to 20",
   "analyze.warn_invalid_field": "  [warning] {source}: field {key} has an invalid type; reset to the default",
   "analyze.warn_invalid_field_type": "  [warning] {source}: field {key} has an invalid type ({type_name}); reset to the default",

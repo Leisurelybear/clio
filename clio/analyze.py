@@ -184,7 +184,7 @@ def _validate_analysis(data: dict, source: str) -> dict:
     data.setdefault("mood", "")
     data.setdefault("suggested_use", "")
     data.setdefault("cover_timestamp", "")
-    data.setdefault("_confidence", 0.0)
+    data.pop("_confidence", None)
 
     for key, default in (
         ("title", Path(source).stem),
@@ -217,10 +217,6 @@ def _validate_analysis(data: dict, source: str) -> dict:
     # Keep valid entries and discard malformed model output before it can crash.
     data["timeline"] = [item for item in data["timeline"] if isinstance(item, dict)]
     data["highlights"] = [item for item in data["highlights"] if isinstance(item, (dict, str))]
-    value, ok = _coerce_number(data["_confidence"], 0.0)
-    if not ok:
-        print(t("analyze.warn_confidence_invalid", {"source": source}))
-    data["_confidence"] = min(1.0, max(0.0, value))
     return data
 
 
@@ -235,7 +231,7 @@ def _validate_voiceover(data: dict, source: str) -> dict:
     data.setdefault("voiceover", "")
     data.setdefault("duration_hint_sec", 20)
     data.setdefault("edit_tip", "")
-    data.setdefault("_confidence", 0.0)
+    data.pop("_confidence", None)
 
     for key, default in (("title", Path(source).stem), ("voiceover", ""), ("edit_tip", "")):
         value, ok = _coerce_str(data[key], default)
@@ -246,10 +242,6 @@ def _validate_voiceover(data: dict, source: str) -> dict:
     if not ok:
         print(t("analyze.warn_duration_hint_invalid", {"source": source}))
     data["duration_hint_sec"] = max(0.0, value)
-    value, ok = _coerce_number(data["_confidence"], 0.0)
-    if not ok:
-        print(t("analyze.warn_confidence_invalid", {"source": source}))
-    data["_confidence"] = min(1.0, max(0.0, value))
     return data
 
 
@@ -266,7 +258,7 @@ def _validate_plan(data: dict, source: str) -> dict:
     data.setdefault("sequence", [])
     data.setdefault("opening_tip", "")
     data.setdefault("ending_tip", "")
-    data.setdefault("_confidence", 0.0)
+    data.pop("_confidence", None)
 
     for key, default in (("day_title", source), ("theme", ""), ("opening_tip", ""), ("ending_tip", "")):
         value, ok = _coerce_str(data[key], default)
@@ -281,10 +273,6 @@ def _validate_plan(data: dict, source: str) -> dict:
     if not ok:
         print(t("analyze.warn_total_estimated_invalid", {"source": source}))
     data["total_estimated_sec"] = max(0.0, value)
-    value, ok = _coerce_number(data["_confidence"], 0.0)
-    if not ok:
-        print(t("analyze.warn_confidence_invalid", {"source": source}))
-    data["_confidence"] = min(1.0, max(0.0, value))
     return data
 
 

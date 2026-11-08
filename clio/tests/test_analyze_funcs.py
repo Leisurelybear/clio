@@ -404,22 +404,15 @@ def test_generate_voiceover_includes_aligned_transcript(monkeypatch):
     assert "对齐转录: 今天先去市场买早餐" in captured["prompt"]
 
 
-def test_validate_analysis_defaults_confidence():
-    result = _validate_analysis({"title": "x", "summary": "y", "timeline": []}, "clip.mp4")
+def test_validators_drop_model_reported_confidence():
+    analysis = _validate_analysis({"title": "x", "summary": "y", "timeline": [], "_confidence": 0.8}, "clip.mp4")
+    assert "_confidence" not in analysis
 
-    assert result["_confidence"] == 0.0
+    voiceover = _validate_voiceover({"title": "x", "voiceover": "hello", "_confidence": 0.8}, "clip.mp4")
+    assert "_confidence" not in voiceover
 
-
-def test_validate_voiceover_defaults_confidence():
-    result = _validate_voiceover({"title": "x", "voiceover": "hello"}, "clip.mp4")
-
-    assert result["_confidence"] == 0.0
-
-
-def test_validate_plan_defaults_confidence():
-    result = _validate_plan({"day_title": "day1", "sequence": []}, "day1")
-
-    assert result["_confidence"] == 0.0
+    plan = _validate_plan({"day_title": "day1", "sequence": [], "_confidence": 0.8}, "day1")
+    assert "_confidence" not in plan
 
 
 def test_validate_analysis_rejects_wrong_typed_fields():
@@ -430,7 +423,6 @@ def test_validate_analysis_rejects_wrong_typed_fields():
             "summary": ["not a string"],
             "timeline": "not-a-list",
             "highlights": {"oops": 1},
-            "_confidence": "abc",
         },
         "clip.mp4",
     )
@@ -438,17 +430,15 @@ def test_validate_analysis_rejects_wrong_typed_fields():
     assert result["summary"] == ""
     assert result["timeline"] == []
     assert result["highlights"] == []
-    assert result["_confidence"] == 0.0
 
 
 def test_validate_analysis_keeps_valid_types():
     result = _validate_analysis(
-        {"title": "A", "summary": "s", "timeline": [{"start": "00:01", "text": "x"}], "_confidence": 0.8},
+        {"title": "A", "summary": "s", "timeline": [{"start": "00:01", "text": "x"}]},
         "clip.mp4",
     )
     assert result["title"] == "A"
     assert result["timeline"] == [{"start": "00:01", "text": "x"}]
-    assert result["_confidence"] == 0.8
 
 
 def test_validate_plan_rejects_wrong_typed_fields():
@@ -486,29 +476,24 @@ def test_validate_plan_filters_non_dict_sequence_items():
 
 
 def test_validate_voiceover_rejects_wrong_typed_fields():
-    result = _validate_voiceover(
-        {"title": 1, "voiceover": None, "duration_hint_sec": "long", "_confidence": []}, "clip.mp4"
-    )
+    result = _validate_voiceover({"title": 1, "voiceover": None, "duration_hint_sec": "long"}, "clip.mp4")
     assert result["title"] == "clip"
     assert result["voiceover"] == ""
     assert result["duration_hint_sec"] == 20.0
-    assert result["_confidence"] == 0.0
 
 
-def test_validators_clamp_confidence_and_drop_malformed_timeline_entries():
+def test_validators_drop_malformed_timeline_entries():
     analysis = _validate_analysis(
         {
             "title": "x",
             "summary": "y",
             "timeline": [{"start": "00:00", "end": "00:05"}, "bad"],
             "highlights": [{"start": "00:01"}, 3],
-            "_confidence": 9,
         },
         "clip.mp4",
     )
     assert len(analysis["timeline"]) == 1
     assert analysis["highlights"] == [{"start": "00:01"}]
-    assert analysis["_confidence"] == 1.0
 
 
 def test_merge_refinement_preserves_original_fields_and_ignores_unknowns():
