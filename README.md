@@ -102,9 +102,9 @@ graph LR
 | 4️⃣ ✍️ **AI 口播** | **DeepSeek** / OpenAI | `scripts` | 分析 JSON → AI 生成旁白文案 |
 | 5️⃣ 🤖 **AI 规划** | **DeepSeek** / OpenAI | `plan --day day1` | 分析 + 转录 → AI 编排剪辑顺序 |
 | 6️⃣ 🔧 **AI 审阅** | **DeepSeek** / Gemini | `refine` | 已有输出 + trip 上下文 → AI 修正 |
-| 7️⃣ 裁剪 | | `cut --day day1` | 规划 → 按时间轴截取片段 |
+| 7️⃣ 裁剪 | | `cut --day day1` | 规划完成后单独运行 → 按时间轴截取片段 |
 | 8️⃣ 标号 | | `label` | 压缩视频 → 烧录序号水印 |
-| 🚀 全流程 | 全部 AI | `run --day day1` | 依次执行所有步骤 |
+| 🚀 流水线 | AI + 媒体 | `run --day day1` | 依次执行压缩、转录、分析、口播、规划和标号；裁剪需另行运行 `cut` |
 
 > 💡 支持**单个文件**处理：`python main.py analyze -i "output/compressed/001_GL010685.mp4"`
 > 💡 每步独立运行、自动跳过已有输出，加 `--force` 强制重跑
