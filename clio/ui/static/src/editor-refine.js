@@ -28,9 +28,17 @@ export async function refineCurrentFile(type) {
   const fileField = type === 'texts' ? 'text_json' : 'script_json';
   if (!v[fileField]) { setStatus(t(type === 'texts' ? 'plan.no_texts_json' : 'plan.no_voiceover_json'), 'err'); return; }
   const label = type === 'texts' ? t('editor.artifact.texts') : t('editor.artifact.voiceover');
-  if (!confirm(t('editor.refine.confirm', { label }))) return;
+  const saveCurrentArtifact = state.dirty && state.currentEntity === 'video' && state.currentTab === type;
+  const confirmKey = saveCurrentArtifact ? 'editor.refine.confirm_dirty' : 'editor.refine.confirm';
+  if (!confirm(t(confirmKey, { label }))) return;
   const ctx = $(`refine-context-${type}`).value.trim();
   if (state.refining) return;
+
+  if (saveCurrentArtifact) {
+    const { save } = await import('./editor-plan.js');
+    await save();
+    if (state.dirty) return;
+  }
 
   state._refineError = null;
   const refineFile = v[fileField];

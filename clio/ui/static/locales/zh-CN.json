@@ -74,6 +74,7 @@
   "editor.refine.busy": "该文件正在 AI 审阅中（其他页面已触发），请等待完成",
   "editor.refine.button": "AI 审阅修正",
   "editor.refine.confirm": "确定要提交 AI 审阅修正「{label}」吗？当前未保存的修改将丢失。",
+  "editor.refine.confirm_dirty": "先保存当前修改，再提交 AI 审阅修正「{label}」吗？",
   "editor.refine.context_label": "临时上下文（可选，如更正建议）",
   "editor.refine.context_placeholder": "例如：地名写错了，请修正为正确的拼音",
   "editor.refine.done": "{label}已 AI 审阅修正",

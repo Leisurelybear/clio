@@ -74,6 +74,7 @@
   "editor.refine.busy": "This file is already being reviewed by AI (triggered in another page); please wait for it to finish",
   "editor.refine.button": "AI review & fix",
   "editor.refine.confirm": "Submit \"{label}\" for AI review & fix? Unsaved changes will be lost.",
+  "editor.refine.confirm_dirty": "Save the current edits before submitting \"{label}\" for AI review & fix?",
   "editor.refine.context_label": "Temporary context (optional, e.g. corrections)",
   "editor.refine.context_placeholder": "e.g. the place name is wrong, fix it to the correct spelling",
   "editor.refine.done": "{label} reviewed and fixed by AI",
