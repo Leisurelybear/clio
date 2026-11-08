@@ -286,6 +286,7 @@ def test_force_flag_after_subcommand(mock_reindex, mock_analyze, cli_runner, con
 @patch("clio.pipeline.run_refine_scripts")
 @patch("clio.pipeline.run_refine_texts")
 def test_refine_accepts_project_directory(mock_texts, mock_scripts, cli_runner, config_path, tmp_path):
+    mock_texts.return_value = 0
     project = tmp_path / "refine-project"
     project.mkdir()
 
@@ -430,6 +431,24 @@ def test_refine_reports_value_error(cli_runner, config_path, capsys, monkeypatch
 
     assert result == 1
     assert "bad plan" in capsys.readouterr().err
+
+
+def test_refine_failure_returns_nonzero(cli_runner, config_path, capsys, monkeypatch):
+    monkeypatch.setattr("clio.pipeline.run_refine_texts", lambda *a, **k: -2)
+
+    result = cli_runner(["--config", str(config_path), "refine", "--target", "texts"])
+
+    assert result == 1
+    assert "2" in capsys.readouterr().err
+
+
+def test_refine_all_targets_accumulate_failures(cli_runner, config_path, monkeypatch):
+    monkeypatch.setattr("clio.pipeline.run_refine_texts", lambda *a, **k: -1)
+    monkeypatch.setattr("clio.pipeline.run_refine_scripts", lambda *a, **k: -2)
+
+    result = cli_runner(["--config", str(config_path), "refine", "--target", "all"])
+
+    assert result == 1
 
 
 def test_cut_blocked_by_readiness(cli_runner, config_path, tmp_path, capsys, monkeypatch):

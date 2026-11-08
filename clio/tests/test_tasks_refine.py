@@ -153,7 +153,27 @@ class TestRunRefineTexts:
         from clio.tasks.refine import run_refine_texts
 
         result = run_refine_texts(cfg)
-        assert result == 1  # only successful files count
+        assert result == -1  # one failure is reported as a negative count
+
+    @patch("clio.tasks.refine.refine_text")
+    def test_all_failures_return_negative_count(self, mock_refine, cfg):
+        for name in ["001.json", "002.json"]:
+            (cfg.texts_dir / name).write_text('{"title": "t"}')
+        mock_refine.side_effect = RuntimeError("fail")
+
+        from clio.tasks.refine import run_refine_texts
+
+        assert run_refine_texts(cfg) == -2
+
+    @patch("clio.tasks.refine.refine_text")
+    def test_bad_json_counts_as_failure(self, mock_refine, cfg):
+        (cfg.texts_dir / "001.json").write_text("{not json")
+        mock_refine.return_value = {"title": "ok"}
+
+        from clio.tasks.refine import run_refine_texts
+
+        assert run_refine_texts(cfg) == -1
+        mock_refine.assert_not_called()
 
     @patch("clio.tasks.refine.refine_text")
     def test_fix_mode_passes_fix_param(self, mock_refine, cfg):
@@ -253,3 +273,13 @@ class TestRunRefineScripts:
         result = run_refine_scripts(cfg, files=["002_B_voiceover"])
         assert result == 1
         mock_refine.assert_called_once()
+
+    @patch("clio.tasks.refine.refine_script")
+    def test_all_failures_return_negative_count(self, mock_refine, cfg):
+        for name in ("001_A_voiceover.json", "002_B_voiceover.json"):
+            (cfg.scripts_dir / name).write_text('{"voiceover": "s"}')
+        mock_refine.side_effect = RuntimeError("fail")
+
+        from clio.tasks.refine import run_refine_scripts
+
+        assert run_refine_scripts(cfg) == -2

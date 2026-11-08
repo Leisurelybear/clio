@@ -293,6 +293,7 @@
   "cli.path.project_missing": "项目路径不存在: {path}",
   "cli.path.project_not_dir": "项目路径不是目录: {path}",
   "cli.plan.not_found": "规划文件不存在: {path}",
+  "cli.refine.failed": "错误: {count} 个文件审阅失败",
   "cli.refine.fix_requires_file": "错误: --fix 必须配合 -i 指定单个 .json 文件",
   "cli.refine.no_context": "警告: config.yaml 里没有配置 ai.context 或 ai.context_file，refine 效果有限（AI 不知道你的行程背景和规范）。",
   "cli.serve.already_running": "Clio 已在运行: {url}",

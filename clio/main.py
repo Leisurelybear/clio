@@ -523,14 +523,20 @@ def main(argv: list[str] | None = None) -> int:
                 print(t("cli.refine.fix_requires_file"), file=sys.stderr)
                 return 1
             try:
+                failed = 0
                 if args.target in ("texts", "all"):
-                    run_refine_texts(config, target_path, fix=fix, context_override=context_override)
+                    result = run_refine_texts(config, target_path, fix=fix, context_override=context_override)
+                    failed += -result if result < 0 else 0
                 if args.target in ("scripts", "all"):
                     if args.target == "all" and target_path is not None:
                         scripts_path = None
                     else:
                         scripts_path = target_path
-                    run_refine_scripts(config, scripts_path, fix=fix, context_override=context_override)
+                    result = run_refine_scripts(config, scripts_path, fix=fix, context_override=context_override)
+                    failed += -result if result < 0 else 0
+                if failed:
+                    print(t("cli.refine.failed", {"count": failed}), file=sys.stderr)
+                    return 1
             except ValueError as e:
                 print(t("cli.error", {"detail": e}), file=sys.stderr)
                 return 1

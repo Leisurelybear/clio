@@ -293,6 +293,7 @@
   "cli.path.project_missing": "Project path does not exist: {path}",
   "cli.path.project_not_dir": "Project path is not a directory: {path}",
   "cli.plan.not_found": "Plan file not found: {path}",
+  "cli.refine.failed": "Error: {count} file(s) failed to refine",
   "cli.refine.fix_requires_file": "Error: --fix requires a single .json file with -i",
   "cli.refine.no_context": "Warning: config.yaml has no ai.context or ai.context_file; refine quality will be limited (the AI lacks your trip background and rules).",
   "cli.serve.already_running": "Clio is already running: {url}",

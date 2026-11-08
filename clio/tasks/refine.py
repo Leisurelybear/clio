@@ -55,8 +55,9 @@ def run_refine_texts(
     overwrite: bool = False,
     task_prompts: dict[str, str] | None = None,
 ) -> int:
-    """审阅并修正 texts/*.json；同步重写同名 .txt。返回处理条数。
+    """审阅并修正 texts/*.json；同步重写同名 .txt。
 
+    返回成功处理条数；只要有文件失败则返回负的失败条数，供 CLI 判定退出码。
     fix 非空时：仅处理 -i 指定的单文件，prompt 切换为「按用户意见定向修正」。
     """
     if fix and (path is None or path.is_dir()):
@@ -74,6 +75,7 @@ def run_refine_texts(
     if fix:
         print(t("task.refine.fix_note", {"fix": fix}))
     completed = 0
+    failed = 0
     elapsed_total = 0.0
     with timed(t("task.refine.timed_label", {"label": label, "count": len(target_files)})):
         for i, json_file in enumerate(target_files, start=1):
@@ -90,6 +92,7 @@ def run_refine_texts(
                     task_prompts=task_prompts,
                 )
             except Exception as e:
+                failed += 1
                 print(t("task.refine.failed", {"detail": e}))
                 continue
             finally:
@@ -103,7 +106,7 @@ def run_refine_texts(
                 print(t("task.refine.changes", {"count": len(changelog), "detail": "; ".join(changelog)[:120]}))
             else:
                 print(t("task.refine.no_changes"))
-    return completed
+    return completed if failed == 0 else -failed
 
 
 def run_refine_scripts(
@@ -117,6 +120,7 @@ def run_refine_scripts(
 ) -> int:
     """审阅并修正 scripts/*_voiceover.json；同步重写同名 .md。
 
+    返回成功处理条数；只要有文件失败则返回负的失败条数，供 CLI 判定退出码。
     fix 非空时：仅处理 -i 指定的单文件。
     """
     if fix and (path is None or path.is_dir()):
@@ -134,6 +138,7 @@ def run_refine_scripts(
     if fix:
         print(t("task.refine.fix_note", {"fix": fix}))
     completed = 0
+    failed = 0
     elapsed_total = 0.0
     with timed(t("task.refine.timed_label", {"label": label, "count": len(target_files)})):
         for i, json_file in enumerate(target_files, start=1):
@@ -152,6 +157,7 @@ def run_refine_scripts(
                     task_prompts=task_prompts,
                 )
             except Exception as e:
+                failed += 1
                 print(t("task.refine.failed", {"detail": e}))
                 continue
             finally:
@@ -165,4 +171,4 @@ def run_refine_scripts(
                 print(t("task.refine.changes", {"count": len(changelog), "detail": "; ".join(changelog)[:120]}))
             else:
                 print(t("task.refine.no_changes"))
-    return completed
+    return completed if failed == 0 else -failed
