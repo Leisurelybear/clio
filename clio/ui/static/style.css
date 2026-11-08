@@ -3140,6 +3140,11 @@ select.form-input { cursor: pointer; }
   border-color: var(--error, #ef4444);
   color: var(--error, #ef4444);
 }
+.plan-meta-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin: 4px 0 8px;
+}
 .plan-timeline-row {
   display: flex;
   flex-wrap: wrap;

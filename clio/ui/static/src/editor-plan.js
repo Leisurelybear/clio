@@ -471,6 +471,42 @@ function _prefillSubtitle(li, seg) {
     .catch(() => { subEl.placeholder = t('plan.subtitle.load_failed'); });
 }
 
+export async function deletePlan(day = state.currentDay, options = {}) {
+  const label = String(day || '');
+  if (!label) return false;
+  const ask = options.confirm || confirm;
+  if (!ask(t('plan.delete_plan_confirm', { day: label }))) return false;
+  const request = options.api || api;
+  try {
+    await request('DELETE', `/api/plan?day=${encodeURIComponent(label)}`);
+  } catch (e) {
+    const message = t('plan.delete_plan_failed', { detail: e.message });
+    setStatus(message, 'err');
+    addToast(message, 'error', 6000, { persist: false });
+    return false;
+  }
+  clearDirty();
+  state.plan = null;
+  state.planPreviewMedia = null;
+  state.previewCutFallbacks?.clear();
+  state._previewMedia = null;
+  const message = t('plan.delete_plan_done', { day: label });
+  setStatus(message, 'ok');
+  addToast(message, 'success', undefined, { persist: false });
+
+  const { loadPlans, selectPlan, saveProject } = options.sidebar || await import('./sidebar.js');
+  await loadPlans();
+  if (state.availablePlans.length) {
+    await selectPlan(state.availablePlans[0].day_label);
+  } else {
+    state.currentDay = label;
+    updateSidebarDay();
+    saveProject();
+    renderPlan();
+  }
+  return true;
+}
+
 export function renderPlan() {
   const p = state.plan;
   const pane = $('tab-plan');
@@ -501,6 +537,11 @@ export function renderPlan() {
     <label>${t('plan.field.theme')} <input data-field="theme"></label>
     <label>${t('plan.field.opening_tip')} <textarea data-field="opening_tip" rows="2"></textarea></label>
     <label>${t('plan.field.ending_tip')} <textarea data-field="ending_tip" rows="2"></textarea></label>
+    <div class="plan-meta-actions">
+      <button type="button" id="btn-plan-delete" class="plan-ghost-btn plan-ghost-btn--danger">
+        ${icon('x', 14)} ${t('plan.delete_plan')}
+      </button>
+    </div>
     <h3>${t('plan.sequence_title', { count: p.sequence.length })}</h3>
     <p class="hint">${t('plan.sequence_hint')}</p>
     <ol id="plan-list"></ol>
@@ -518,6 +559,15 @@ export function renderPlan() {
       updateSidebarDay();
       await import('./sidebar.js').then(mod => mod.saveProject());
       await import('./sidebar.js').then(mod => mod.selectPlan());
+    };
+  }
+  const deletePlanBtn = $('btn-plan-delete');
+  if (deletePlanBtn) {
+    deletePlanBtn.onclick = async () => {
+      if (deletePlanBtn.disabled) return;
+      deletePlanBtn.disabled = true;
+      const deleted = await deletePlan(state.currentDay);
+      if (!deleted && deletePlanBtn.isConnected) deletePlanBtn.disabled = false;
     };
   }
   for (const k of ['day_title', 'theme', 'opening_tip', 'ending_tip']) {

@@ -193,6 +193,26 @@ def handle_put_plan(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> 
     handler._send_json({"ok": True, "path": str(p)})
 
 
+def handle_delete_plan(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
+    """Handle DELETE /api/plan — remove a generated plan file."""
+    day = qs.get("day", [""])[0]
+    if not _is_safe_basename(day) or not day:
+        return handler._send_json({"ok": False, "error": "forbidden"}, 403)
+    day = plan_day_stem(day)
+    plans_dir = _plans_dir(handler, qs)
+    try:
+        p = validate_within_root(plans_dir / f"{day}_plan.json", plans_dir)
+    except (OSError, ValueError):
+        return handler._send_json({"ok": False, "error": "forbidden"}, 403)
+    if not p.is_file():
+        return handler._send_json({"ok": False, "error": t("api.plan_missing", {"path": p})}, 404)
+    try:
+        p.unlink()
+    except OSError as exc:
+        return handler._send_json({"ok": False, "error": str(exc)}, 500)
+    handler._send_json({"ok": True, "day_label": day, "path": str(p)})
+
+
 def handle_post_plan_readiness(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
     """POST /api/plan/readiness — optional inline plan body for dirty buffer checks."""
     body = obj if isinstance(obj, dict) else {}

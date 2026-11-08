@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from clio.ui.routes.plan import (
+    handle_delete_plan,
     handle_get_cut_orphaned_backups,
     handle_get_plan,
     handle_get_plan_preview_media,
@@ -120,6 +121,72 @@ class TestHandleGetPlan:
 
         handler._send_bytes.assert_called_once()
         assert b"test" in handler._send_bytes.call_args[0][0]
+
+
+class TestHandleDeletePlan:
+    def test_forbidden_day(self):
+        handler = MagicMock()
+        handler._send_json = MagicMock()
+
+        handle_delete_plan(handler, {"day": ["../secret"]})
+
+        handler._send_json.assert_called_once_with({"ok": False, "error": "forbidden"}, 403)
+
+    def test_not_found(self, tmp_path: Path):
+        handler = MagicMock()
+        plans_dir = tmp_path / "output" / "plans"
+        _mock_plans_cfg(handler, plans_dir, tmp_path)
+        handler._send_json = MagicMock()
+
+        handle_delete_plan(handler, {"day": ["day1"]})
+
+        args = handler._send_json.call_args
+        assert "规划文件不存在" in args[0][0]["error"]
+        assert args[0][1] == 404
+
+    def test_deletes_only_requested_plan(self, tmp_path: Path):
+        handler = MagicMock()
+        plans_dir = tmp_path / "output" / "plans"
+        plans_dir.mkdir(parents=True)
+        (plans_dir / "day1_plan.json").write_bytes(b"{}")
+        (plans_dir / "day2_plan.json").write_bytes(b"{}")
+        _mock_plans_cfg(handler, plans_dir, tmp_path)
+        handler._send_json = MagicMock()
+
+        handle_delete_plan(handler, {"day": ["day1"]})
+
+        assert not (plans_dir / "day1_plan.json").exists()
+        assert (plans_dir / "day2_plan.json").is_file()
+        payload = handler._send_json.call_args[0][0]
+        assert payload["ok"] is True
+        assert payload["day_label"] == "day1"
+        assert payload["path"].endswith("day1_plan.json")
+
+    def test_custom_plans_subdir(self, tmp_path: Path):
+        handler = MagicMock()
+        custom = tmp_path / "output" / "storyboard"
+        custom.mkdir(parents=True)
+        (custom / "day1_plan.json").write_bytes(b"{}")
+        _mock_plans_cfg(handler, custom, tmp_path)
+        handler._send_json = MagicMock()
+
+        handle_delete_plan(handler, {"day": ["day1"]})
+
+        assert not (custom / "day1_plan.json").exists()
+        assert handler._send_json.call_args[0][0]["ok"] is True
+
+    def test_deletes_sanitized_filename(self, tmp_path: Path):
+        handler = MagicMock()
+        plans_dir = tmp_path / "output" / "plans"
+        plans_dir.mkdir(parents=True)
+        (plans_dir / "Ep2_-_agnes-3-flash_plan.json").write_bytes(b"{}")
+        _mock_plans_cfg(handler, plans_dir, tmp_path)
+        handler._send_json = MagicMock()
+
+        handle_delete_plan(handler, {"day": ["Ep2 - agnes-3-flash"]})
+
+        assert not (plans_dir / "Ep2_-_agnes-3-flash_plan.json").exists()
+        assert handler._send_json.call_args[0][0]["ok"] is True
 
 
 class TestHandlePutPlan:

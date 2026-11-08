@@ -97,6 +97,7 @@ from clio.ui.routes.notifications import (
     handle_post_notifications_read_all,
 )
 from clio.ui.routes.plan import (
+    handle_delete_plan,
     handle_get_cut_orphaned_backups,
     handle_get_plan,
     handle_get_plan_preview_media,
@@ -962,6 +963,7 @@ def make_handler(
             Route("POST", "/api/notifications/read-all", "handle_post_notifications_read_all"),
             Route("POST", "/api/notifications/{notification_id}/read", "handle_post_notification_read"),
             Route("POST", "/api/notifications/{notification_id}/unread", "handle_post_notification_unread"),
+            Route("DELETE", "/api/plan", "handle_delete_plan"),
             Route("DELETE", "/api/prompts/{name}", "handle_delete_prompt"),
             Route("DELETE", "/api/providers/{name}", "handle_delete_provider"),
         ]
