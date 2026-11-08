@@ -1,16 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { api } from '../api.js';
+import { api, apiWithMeta } from '../api.js';
 import { state } from '../state.js';
 
-function mockResponse({ status = 200, body = '', ct = 'application/json', jsonBody = null } = {}) {
-  const r = {
+function mockResponse({
+  status = 200,
+  body = '',
+  ct = 'application/json',
+  jsonBody = null,
+  version = null,
+  headers = {},
+} = {}) {
+  const values = {
+    'Content-Type': ct,
+    ...(version ? { 'X-Content-Version': version } : {}),
+    ...headers,
+  };
+  return {
     status,
     ok: status >= 200 && status < 300,
-    headers: { get: (name) => ct },
+    headers: { get: vi.fn((name) => values[name] ?? null) },
     text: vi.fn().mockResolvedValue(typeof body === 'string' ? body : JSON.stringify(body)),
     json: vi.fn().mockResolvedValue(jsonBody),
   };
-  return r;
 }
 
 beforeEach(() => {
@@ -52,6 +63,14 @@ describe('api()', () => {
     await api('GET', '/api/x', undefined, { signal });
     const [, opts] = global.fetch.mock.calls[0];
     expect(opts.signal).toBe(signal);
+  });
+
+  it('passes custom request headers', async () => {
+    global.fetch.mockResolvedValue(mockResponse({ jsonBody: {} }));
+    await api('PUT', '/api/texts', { title: 'x' }, { headers: { 'If-Match': '"abc123"' } });
+    const [, opts] = global.fetch.mock.calls[0];
+    expect(opts.headers['If-Match']).toBe('"abc123"');
+    expect(opts.headers['Content-Type']).toBe('application/json');
   });
 
   it('appends project and project_dir query params', async () => {
@@ -106,5 +125,45 @@ describe('api()', () => {
   it('returns text when Content-Type is not JSON', async () => {
     global.fetch.mockResolvedValue(mockResponse({ body: 'plain', ct: 'text/plain' }));
     await expect(api('GET', '/api/x')).resolves.toBe('plain');
+  });
+});
+
+describe('apiWithMeta()', () => {
+  it('returns both data and the content version', async () => {
+    global.fetch.mockResolvedValue(mockResponse({
+      version: '0123456789abcdef',
+      jsonBody: { ok: true },
+    }));
+
+    await expect(apiWithMeta('GET', '/api/plan')).resolves.toEqual({
+      data: { ok: true },
+      version: '0123456789abcdef',
+    });
+  });
+
+  it('exposes conflict status, body, and current version on 409', async () => {
+    global.fetch.mockResolvedValue(mockResponse({
+      status: 409,
+      body: JSON.stringify({
+        ok: false,
+        code: 'artifact_conflict',
+        error: 'changed elsewhere',
+        current_version: 'fedcba9876543210',
+      }),
+    }));
+
+    const err = await apiWithMeta('PUT', '/api/plan').catch((e) => e);
+    expect(err.status).toBe(409);
+    expect(err.body.code).toBe('artifact_conflict');
+    expect(err.body.current_version).toBe('fedcba9876543210');
+    expect(err.currentVersion).toBe('fedcba9876543210');
+  });
+
+  it('returns a null body and version for 204', async () => {
+    global.fetch.mockResolvedValue(mockResponse({ status: 204, version: '1111111111111111' }));
+    await expect(apiWithMeta('DELETE', '/api/x')).resolves.toEqual({
+      data: null,
+      version: '1111111111111111',
+    });
   });
 });

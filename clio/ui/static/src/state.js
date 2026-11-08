@@ -20,6 +20,7 @@ const state = {
   plan: null,
   planPreviewMedia: null,
   dirty: false,
+  artifactVersions: { plan: {}, texts: {}, voiceover: {} },
   projectName: null,
   projects: [],
   currentProject: null,
@@ -59,4 +60,24 @@ function clearSelection() {
   state.selectedFiles = [];
 }
 
-export { state, clearSelection };
+function artifactVersion(kind, key) {
+  const bucket = state.artifactVersions?.[kind];
+  if (!bucket) return null;
+  return bucket[String(key ?? '')] || null;
+}
+
+function setArtifactVersion(kind, key, version) {
+  if (!state.artifactVersions) return;
+  if (!state.artifactVersions[kind]) state.artifactVersions[kind] = {};
+  const normalized = String(key ?? '');
+  if (!normalized || !version) return;
+  state.artifactVersions[kind][normalized] = version;
+}
+
+function clearArtifactVersion(kind, key) {
+  const bucket = state.artifactVersions?.[kind];
+  if (!bucket) return;
+  delete bucket[String(key ?? '')];
+}
+
+export { state, clearSelection, artifactVersion, setArtifactVersion, clearArtifactVersion };

@@ -1,9 +1,9 @@
-import { state } from './state.js';
+import { state, setArtifactVersion, clearArtifactVersion } from './state.js';
 import {
   $, $$, setStatus, fmtTime,
   updateSidebarDay, updateEntityUI, clearDirty,
 } from './utils.js';
-import { api } from './api.js';
+import { api, apiWithMeta } from './api.js';
 import { seekToGlobal, stopPreview } from './viewer.js';
 import { loadWaveformForCurrentVideo } from './waveform.js';
 import { showRerunProgress, hideRerunProgress } from './sidebar-rerun.js';
@@ -60,8 +60,13 @@ async function selectVideo(file, options = {}) {
 
   const loadArtifact = async (url, label, options = {}) => {
     if (!url) return null;
-    try { return await api('GET', url); }
-    catch (e) {
+    try {
+      const result = await apiWithMeta('GET', url);
+      if (options.versionKind) {
+        setArtifactVersion(options.versionKind, options.versionKey, result.version);
+      }
+      return result.data;
+    } catch (e) {
       const missingOptional = options.optional === true && e.status === 404;
       if (!missingOptional && requestId === _selectVideoRequestId && state.currentVideo === file) {
         setStatus(t('sidebar.artifact_load_failed', { label, detail: e.message }), 'err');
@@ -72,10 +77,16 @@ async function selectVideo(file, options = {}) {
   const hasPlanForDay = (state.availablePlans || []).some(p => p.day_label === state.currentDay);
   const planUrl = hasPlanForDay ? `/api/plan?day=${encodeURIComponent(state.currentDay)}` : null;
   const [texts, voiceover, transcript, plan] = await Promise.all([
-    loadArtifact(v.text_json ? `/api/texts?file=${encodeURIComponent(v.text_json)}` : null, 'texts'),
-    loadArtifact(v.script_json ? `/api/voiceover?file=${encodeURIComponent(v.script_json)}` : null, 'voiceover'),
+    loadArtifact(v.text_json ? `/api/texts?file=${encodeURIComponent(v.text_json)}` : null, 'texts', {
+      versionKind: 'texts', versionKey: v.text_json,
+    }),
+    loadArtifact(v.script_json ? `/api/voiceover?file=${encodeURIComponent(v.script_json)}` : null, 'voiceover', {
+      versionKind: 'voiceover', versionKey: v.script_json,
+    }),
     loadArtifact(v.transcript_file ? `/api/transcripts?video=${encodeURIComponent(v.file)}` : null, 'transcript'),
-    state.plan ? Promise.resolve(state.plan) : loadArtifact(planUrl, 'plan', { optional: true }),
+    state.plan ? Promise.resolve(state.plan) : loadArtifact(planUrl, 'plan', {
+      optional: true, versionKind: 'plan', versionKey: state.currentDay,
+    }),
   ]);
   if (requestId !== _selectVideoRequestId || state.currentVideo !== file) return;
   state.texts = texts;
@@ -98,19 +109,22 @@ async function selectPlan(dayOverride) {
   state.currentEntity = 'plan';
   clearDirty();
   if (dayOverride) state.currentDay = dayOverride;
+  const day = state.currentDay;
   // Keep run SSE alive across entity switches so done/cancel handlers still fire.
   try {
-    const [plan, previewMedia] = await Promise.all([
-      api('GET', `/api/plan?day=${state.currentDay}`),
-      loadPlanPreviewMedia(state.currentDay),
+    const [planResult, previewMedia] = await Promise.all([
+      apiWithMeta('GET', `/api/plan?day=${day}`),
+      loadPlanPreviewMedia(day),
     ]);
-    state.plan = plan;
+    state.plan = planResult.data;
+    setArtifactVersion('plan', day, planResult.version);
     state.planPreviewMedia = previewMedia;
     state.previewCutFallbacks.clear();
     state._previewMedia = null;
   } catch (e) {
     state.plan = null;
     state.planPreviewMedia = null;
+    clearArtifactVersion('plan', day);
   }
   updateSidebarDay();
   updateEntityUI();

@@ -1,11 +1,11 @@
-import { state } from './state.js';
+import { state, setArtifactVersion } from './state.js';
 import {
   $,
   escapeHtml,
   setStatus,
   updateSidebarDay,
 } from './utils.js';
-import { api, icon } from './api.js';
+import { api, apiWithMeta, icon } from './api.js';
 import { beginLatest, endLatest, isLatest, isAbortError } from './latest.js';
 import { addToast } from './toast.js';
 import { registerNotification } from './notification-center.js';
@@ -630,7 +630,11 @@ export async function _handleRunStatus(s) {
       updateSidebarDay();
       import('./sidebar.js').then(mod => mod.renderVideoList());
       import('./sidebar.js').then(mod => mod.saveProject());
-      try { state.plan = await api('GET', `/api/plan?day=${_lastRunDay}`); } catch {}
+      try {
+        const loaded = await apiWithMeta('GET', `/api/plan?day=${_lastRunDay}`);
+        state.plan = loaded.data;
+        setArtifactVersion('plan', _lastRunDay, loaded.version);
+      } catch {}
       await refreshVideosAfterRun();
       const completedSteps = Array.isArray(s.steps) ? s.steps : _lastRunSteps;
       if (state.currentEntity === 'run' && (_expectDoneNavigation || _seenNonTerminal)) {

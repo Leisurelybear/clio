@@ -1,4 +1,4 @@
-import { state } from './state.js';
+import { state, setArtifactVersion } from './state.js';
 import { $, escapeHtml, setStatus } from './utils.js';
 import { api } from './api.js';
 import { t } from './i18n.js';
@@ -52,6 +52,7 @@ export async function refineCurrentFile(type) {
     if (r.error) throw new Error(r.error);
     if (type === 'texts') state.texts = r.data;
     else state.voiceover = r.data;
+    setArtifactVersion(type, refineFile, r.version);
     if (state.refining?.file === refineFile) state.refining = null;
     if (state.currentVideo === v.file && state.currentTab === type) {
       if (type === 'texts') renderTexts();

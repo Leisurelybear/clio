@@ -280,6 +280,17 @@ class TestSendJson:
         handler._send_json({"ok": True})
         handler.send_response.assert_called_once_with(200)
 
+    def test_sends_json_extra_headers(self, handler_cls):
+        handler = _build_handler(handler_cls)
+        extra = {"X-Content-Version": "0123456789abcdef", "ETag": '"0123456789abcdef"'}
+        handler._send_json({"ok": True}, extra_headers=extra)
+
+        assert handler.send_header.call_args_list[-2:] == [
+            call("X-Content-Version", "0123456789abcdef"),
+            call("ETag", '"0123456789abcdef"'),
+        ]
+        handler.end_headers.assert_called_once()
+
     def test_sends_bytes(self, handler_cls):
         handler = _build_handler(handler_cls)
         data = b"some binary data"
@@ -293,6 +304,17 @@ class TestSendJson:
         ]
         handler.end_headers.assert_called_once()
         assert handler.wfile.getvalue() == data
+
+    def test_sends_bytes_extra_headers(self, handler_cls):
+        handler = _build_handler(handler_cls)
+        handler._send_bytes(
+            b"{}",
+            "application/json",
+            extra_headers={"X-Content-Version": "fedcba9876543210"},
+        )
+
+        assert handler.send_header.call_args_list[-1] == call("X-Content-Version", "fedcba9876543210")
+        handler.end_headers.assert_called_once()
 
 
 class TestSendStatic:

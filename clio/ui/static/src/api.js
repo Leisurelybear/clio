@@ -3,8 +3,8 @@ import { t } from './i18n.js';
 
 let _showingAuth = false;
 
-async function api(method, url, body, options = {}) {
-  const opts = { method, headers: {} };
+async function request(method, url, body, options = {}) {
+  const opts = { method, headers: { ...(options.headers || {}) } };
   if (options.signal) {
     opts.signal = options.signal;
   }
@@ -26,6 +26,9 @@ async function api(method, url, body, options = {}) {
     url += `${sep}project_dir=${encodeURIComponent(state.currentProjectDir)}`;
   }
   const r = await fetch(url, opts);
+  const version = typeof r.headers?.get === 'function'
+    ? (r.headers.get('X-Content-Version') || null)
+    : null;
   if (r.status === 401) {
     if (!_showingAuth) {
       _showingAuth = true;
@@ -44,11 +47,21 @@ async function api(method, url, body, options = {}) {
     const err = new Error(`HTTP ${r.status}: ${detail}`);
     err.status = r.status;
     err.body = body;
+    err.currentVersion = version || body?.current_version || null;
     throw err;
   }
-  if (r.status === 204) return null;
+  if (r.status === 204) return { data: null, version };
   const ct = r.headers.get('Content-Type') || '';
-  return ct.includes('json') ? r.json() : r.text();
+  const data = ct.includes('json') ? await r.json() : await r.text();
+  return { data, version };
+}
+
+async function api(method, url, body, options = {}) {
+  return (await request(method, url, body, options)).data;
+}
+
+async function apiWithMeta(method, url, body, options = {}) {
+  return request(method, url, body, options);
 }
 
 // SVG icons (Lucide-style, zero external deps)
@@ -89,4 +102,4 @@ function submitToken() {
   location.reload();
 }
 
-export { api, icon, submitToken };
+export { api, apiWithMeta, icon, submitToken };

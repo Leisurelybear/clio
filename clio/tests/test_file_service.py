@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
+from types import SimpleNamespace
 
+import pytest
 import yaml
 
 from clio.ui.services.file_service import (
+    ArtifactConflictError,
     _coerce_config_types,
     _create_project_yaml,
     _find_compressed_for_original,
@@ -14,7 +18,14 @@ from clio.ui.services.file_service import (
     _find_texts_dirs,
     _is_safe_basename,
     _save_atomic,
+    content_version,
+    parse_if_match,
+    read_with_version,
+    request_version,
+    save_with_version,
+    version_headers,
 )
+from clio.utils import path_write_lock, write_json_atomic
 
 # ===================== _is_safe_basename =====================
 
@@ -119,6 +130,151 @@ class TestFindTextsDirs:
 
     def test_nonexistent_output_returns_empty(self):
         assert _find_texts_dirs(Path("/nonexistent")) == []
+
+
+# ===================== artifact versions =====================
+
+
+class TestArtifactVersions:
+    def test_content_version_is_stable_sha256_prefix(self):
+        assert content_version(b"hello") == "2cf24dba5fb0a30e"
+        assert len(content_version(b"hello")) == 16
+        assert content_version(b"hello") == content_version(b"hello")
+        assert content_version(b"hello") != content_version(b"world")
+
+    def test_read_with_version_returns_bytes_and_hash(self, tmp_path: Path):
+        target = tmp_path / "artifact.json"
+        target.write_bytes(b'{"ok": true}')
+
+        data, version = read_with_version(target)
+
+        assert data == b'{"ok": true}'
+        assert version == content_version(data)
+
+    def test_save_with_matching_version_succeeds(self, tmp_path: Path):
+        target = tmp_path / "artifact.json"
+        target.write_bytes(b"old")
+
+        version = save_with_version(target, b"new", content_version(b"old"))
+
+        assert target.read_bytes() == b"new"
+        assert version == content_version(b"new")
+
+    def test_save_with_stale_version_keeps_current_file(self, tmp_path: Path):
+        target = tmp_path / "artifact.json"
+        target.write_bytes(b"background")
+
+        with pytest.raises(ArtifactConflictError) as exc_info:
+            save_with_version(target, b"editor", content_version(b"old"))
+
+        assert exc_info.value.current_version == content_version(b"background")
+        assert target.read_bytes() == b"background"
+
+    def test_save_with_version_on_missing_file_conflicts(self, tmp_path: Path):
+        target = tmp_path / "missing.json"
+
+        with pytest.raises(ArtifactConflictError) as exc_info:
+            save_with_version(target, b"new", content_version(b"old"))
+
+        assert exc_info.value.current_version is None
+        assert not target.exists()
+
+    def test_save_without_version_remains_backward_compatible(self, tmp_path: Path):
+        target = tmp_path / "artifact.json"
+        target.write_bytes(b"background")
+
+        version = save_with_version(target, b"legacy-writer")
+
+        assert target.read_bytes() == b"legacy-writer"
+        assert version == content_version(b"legacy-writer")
+
+    def test_two_writers_with_same_version_only_one_succeeds(self, tmp_path: Path):
+        target = tmp_path / "artifact.json"
+        target.write_bytes(b"base")
+        expected = content_version(b"base")
+        barrier = threading.Barrier(2)
+        outcomes: list[tuple[str, str | None]] = []
+        outcomes_lock = threading.Lock()
+
+        def writer(data: bytes) -> None:
+            barrier.wait(timeout=2)
+            try:
+                version = save_with_version(target, data, expected)
+            except ArtifactConflictError as exc:
+                result = ("conflict", exc.current_version)
+            else:
+                result = ("ok", version)
+            with outcomes_lock:
+                outcomes.append(result)
+
+        threads = [threading.Thread(target=writer, args=(data,)) for data in (b"one", b"two")]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=2)
+
+        assert all(not thread.is_alive() for thread in threads)
+        assert sum(kind == "ok" for kind, _ in outcomes) == 1
+        assert sum(kind == "conflict" for kind, _ in outcomes) == 1
+        assert target.read_bytes() in {b"one", b"two"}
+
+    def test_writers_wait_on_the_shared_path_lock(self, tmp_path: Path):
+        writers = (
+            lambda path: save_with_version(path, b"versioned"),
+            lambda path: write_json_atomic(path, {"ok": True}),
+        )
+        for index, writer in enumerate(writers):
+            target = tmp_path / f"locked-{index}.json"
+            target.write_bytes(b"base")
+            started = threading.Event()
+            finished = threading.Event()
+
+            def run() -> None:
+                started.set()
+                writer(target)
+                finished.set()
+
+            with path_write_lock(target):
+                thread = threading.Thread(target=run)
+                thread.start()
+                assert started.wait(timeout=1)
+                assert not finished.wait(timeout=0.1)
+            assert finished.wait(timeout=1)
+            thread.join(timeout=1)
+            assert not thread.is_alive()
+
+
+class TestIfMatchParsing:
+    @pytest.mark.parametrize(
+        "value,expected",
+        [
+            ('"0123456789abcdef"', "0123456789abcdef"),
+            ('W/"0123456789abcdef"', "0123456789abcdef"),
+            ("0123456789abcdef", "0123456789abcdef"),
+            ('  "0123456789abcdef"  ', "0123456789abcdef"),
+        ],
+    )
+    def test_accepts_supported_versions(self, value, expected):
+        assert parse_if_match(value) == expected
+
+    @pytest.mark.parametrize(
+        "value",
+        [None, "*", "", "short", '"0123456789ABCDEF"', 'W/"bad"', 123, object()],
+    )
+    def test_invalid_values_fall_back_to_unconditional_write(self, value):
+        assert parse_if_match(value) is None
+
+    def test_request_version_reads_handler_header(self):
+        version = "0123456789abcdef"
+        handler = SimpleNamespace(headers={"If-Match": f'"{version}"'})
+        assert request_version(handler) == version
+
+    def test_version_headers_contain_etag_and_content_version(self):
+        version = "0123456789abcdef"
+        assert version_headers(version) == {
+            "X-Content-Version": version,
+            "ETag": f'"{version}"',
+        }
 
 
 # ===================== _save_atomic =====================

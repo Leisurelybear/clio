@@ -12,6 +12,7 @@ Module-level helpers extracted from server.py:
 
 from __future__ import annotations
 
+import hashlib
 import re
 import shutil
 import string
@@ -25,6 +26,7 @@ import yaml
 from clio._constants import VIDEO_EXTS
 from clio.config.loader import _filter_project_only
 from clio.identity import SEGMENT_SUFFIX_RE
+from clio.utils import path_write_lock
 from clio.vmeta import VideoIndex, VideoMeta
 
 
@@ -90,7 +92,91 @@ def _find_texts_dirs(output_dir: Path, *, preferred_subdir: str | None = None) -
     return found
 
 
+_VERSION_RE = re.compile(r"^[0-9a-f]{16}$")
+
+
+class ArtifactConflictError(Exception):
+    """Raised when an artifact changed after the client loaded it."""
+
+    def __init__(self, current_version: str | None) -> None:
+        super().__init__(current_version or "")
+        self.current_version = current_version
+
+
+def content_version(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()[:16]
+
+
+def read_with_version(path: Path) -> tuple[bytes, str]:
+    """Read *path* and return its bytes with a content hash under the path lock."""
+    with path_write_lock(path):
+        data = path.read_bytes()
+    return data, content_version(data)
+
+
+def save_with_version(
+    path: Path,
+    data: bytes,
+    expected_version: str | None = None,
+) -> str:
+    """Write *data* after checking *expected_version*; return the new version.
+
+    ``expected_version=None`` keeps legacy clients working. The version check
+    and the atomic write share the same per-path lock, so two stale writers
+    cannot both succeed.
+    """
+    with path_write_lock(path):
+        if expected_version is not None:
+            try:
+                current_data = path.read_bytes()
+            except FileNotFoundError:
+                current_version = None
+            else:
+                current_version = content_version(current_data)
+            if current_version != expected_version:
+                raise ArtifactConflictError(current_version)
+        _save_atomic(path, data)
+    return content_version(data)
+
+
+def parse_if_match(value: Any) -> str | None:
+    """Return a supported version from an If-Match header, else None.
+
+    Non-string values (including unittest MagicMock headers) are ignored so
+    old clients and tests keep the unconditional-write behavior.
+    """
+    if not isinstance(value, str):
+        return None
+    candidate = value.strip()
+    if candidate == "*":
+        return None
+    if candidate.startswith("W/"):
+        candidate = candidate[2:].strip()
+    if len(candidate) >= 2 and candidate[0] == '"' and candidate[-1] == '"':
+        candidate = candidate[1:-1]
+    return candidate if _VERSION_RE.fullmatch(candidate) else None
+
+
+def request_version(handler: Any) -> str | None:
+    try:
+        headers = handler.headers
+        raw = headers.get("If-Match")
+    except (AttributeError, TypeError):
+        return None
+    return parse_if_match(raw)
+
+
+def version_headers(version: str) -> dict[str, str]:
+    return {"X-Content-Version": version, "ETag": f'"{version}"'}
+
+
 def _save_atomic(path: Path, data: bytes) -> None:
+    """Serialize writes per resolved path, then write atomically."""
+    with path_write_lock(path):
+        _save_atomic_unlocked(path, data)
+
+
+def _save_atomic_unlocked(path: Path, data: bytes) -> None:
     """Atomically write *data* while preserving prior backups (GAP-P2-02).
 
     - New content is written to an exclusive temp and renamed into place.

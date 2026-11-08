@@ -1,12 +1,12 @@
-import { state } from './state.js';
+import { state, artifactVersion, setArtifactVersion, clearArtifactVersion } from './state.js';
 import { $, escapeHtml, markDirty, clearDirty, updateSidebarDay, setStatus } from './utils.js';
-import { api, icon } from './api.js';
+import { api, apiWithMeta, icon } from './api.js';
 import { beginLatest, endLatest, isLatest, isAbortError } from './latest.js';
 import { renderPreviewBar, startPreview, stopPreview, _playPreviewSegment, seekToGlobal } from './viewer.js';
 import { buildTimeline, clampGlobal } from './plan-timeline.js';
 import { recomposePlanWaveformFromCache, isPlanWaveformMode } from './waveform.js';
 import { addToast } from './toast.js';
-import { resolveEditorSaveTarget } from './editor-save.js';
+import { resolveEditorSaveTarget, artifactIfMatchHeader, isArtifactConflict } from './editor-save.js';
 import { applyLocale, getLocale, onLocaleChange, t } from './i18n.js';
 import { exportJianyingDraft } from './plan-export.js';
 import { waitForTask } from './task-center.js';
@@ -458,9 +458,10 @@ function _prefillSubtitle(li, seg) {
   const v = state.videos.find((x) => String(x.index) === String(seg.index));
   if (!v) { subEl.placeholder = t('plan.subtitle.no_video'); return; }
   if (!v.script_json) { subEl.placeholder = t('plan.subtitle.no_script'); return; }
-  api('GET', `/api/voiceover?file=${encodeURIComponent(v.script_json)}`)
-    .then((d) => {
-      const text = typeof d?.voiceover === 'string' ? d.voiceover : '';
+  apiWithMeta('GET', `/api/voiceover?file=${encodeURIComponent(v.script_json)}`)
+    .then(({ data, version }) => {
+      setArtifactVersion('voiceover', v.script_json, version);
+      const text = typeof data?.voiceover === 'string' ? data.voiceover : '';
       subEl.placeholder = text ? t('plan.subtitle.prefilled') : t('plan.subtitle.none');
       if (subEl.value === '') {
         subEl.value = text;
@@ -487,6 +488,7 @@ export async function deletePlan(day = state.currentDay, options = {}) {
   }
   clearDirty();
   state.plan = null;
+  clearArtifactVersion('plan', label);
   state.planPreviewMedia = null;
   state.previewCutFallbacks?.clear();
   state._previewMedia = null;
@@ -905,7 +907,8 @@ export async function executeCut() {
   try {
     const dayLabel = state.currentDay;
     try {
-      await api('GET', `/api/plan?day=${dayLabel}`);
+      const loaded = await apiWithMeta('GET', `/api/plan?day=${dayLabel}`);
+      setArtifactVersion('plan', dayLabel, loaded.version);
     } catch (e) {
       result.innerHTML = `<p class="err">${t('plan.cut_no_plan', { day: escapeHtml(dayLabel) })}</p>`;
       setStatus(t('plan.cut_failed_no_plan'), 'err');
@@ -1025,26 +1028,50 @@ export async function save() {
       } catch { /* ignore */ }
       return;
     }
+    let versionKind = null;
+    let versionKey = null;
+    let requestUrl = null;
+    let requestBody = null;
     if (target.action === 'plan') {
-      await api('PUT', `/api/plan?day=${day}`, planData);
+      versionKind = 'plan';
+      versionKey = day;
+      requestUrl = `/api/plan?day=${day}`;
+      requestBody = planData;
     } else if (target.action === 'texts') {
       const v = state.videos.find(x => x.file === videoFile);
       if (!v || !v.text_json) throw new Error(t('plan.no_texts_json'));
-      await api('PUT', `/api/texts?file=${encodeURIComponent(v.text_json)}`, textsData);
+      versionKind = 'texts';
+      versionKey = v.text_json;
+      requestUrl = `/api/texts?file=${encodeURIComponent(v.text_json)}`;
+      requestBody = textsData;
     } else if (target.action === 'voiceover') {
       const v = state.videos.find(x => x.file === videoFile);
       if (!v || !v.script_json) throw new Error(t('plan.no_voiceover_json'));
-      await api('PUT', `/api/voiceover?file=${encodeURIComponent(v.script_json)}`, voiceoverData);
+      versionKind = 'voiceover';
+      versionKey = v.script_json;
+      requestUrl = `/api/voiceover?file=${encodeURIComponent(v.script_json)}`;
+      requestBody = voiceoverData;
     } else {
       setStatus(t('plan.no_save_target'), 'warn');
       return;
     }
+    const expected = artifactVersion(versionKind, versionKey);
+    const result = await apiWithMeta('PUT', requestUrl, requestBody, {
+      headers: artifactIfMatchHeader(expected),
+    });
     if (generation !== _saveGeneration) return;
+    setArtifactVersion(versionKind, versionKey, result.version || result.data?.version);
     clearDirty();
     setStatus(t('plan.saved'), 'ok');
     addToast(t('plan.saved'), 'success', undefined, { persist: false });
     if (target.action === 'plan') scheduleReadinessCheck();
   } catch (e) {
+    if (isArtifactConflict(e)) {
+      const msg = t('plan.save_conflict');
+      setStatus(msg, 'err');
+      addToast(msg, 'error', 8000, { title: t('plan.save_conflict_title') });
+      return;
+    }
     const msg = t('plan.save_failed', { detail: e.message });
     setStatus(msg, 'err');
     addToast(msg, 'error', 6000, { title: t('plan.save_failed_title') });

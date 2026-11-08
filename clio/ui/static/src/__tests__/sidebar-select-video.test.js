@@ -17,7 +17,14 @@ function element(id) {
   return elements.get(id);
 }
 
-vi.mock('../api.js', () => ({ api: vi.fn(), icon: vi.fn(() => '') }));
+vi.mock('../api.js', () => {
+  const api = vi.fn();
+  return {
+    api,
+    apiWithMeta: vi.fn(async (...args) => ({ data: await api(...args), version: null })),
+    icon: vi.fn(() => ''),
+  };
+});
 vi.mock('../utils.js', () => ({
   $: vi.fn((id) => element(id)),
   $$: vi.fn(() => []),
@@ -56,6 +63,7 @@ describe('selectVideo request ordering', () => {
       currentDay: 'day1',
       dirty: false,
       plan: {},
+      artifactVersions: { plan: {}, texts: {}, voiceover: {} },
       previewActive: false,
       source: 'compressed',
       texts: null,

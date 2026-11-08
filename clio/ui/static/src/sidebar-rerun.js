@@ -1,6 +1,6 @@
-import { state } from './state.js';
+import { state, setArtifactVersion } from './state.js';
 import { $, escapeHtml, setStatus, updateEntityUI } from './utils.js';
-import { api } from './api.js';
+import { apiWithMeta } from './api.js';
 import { addToast } from './toast.js';
 import { loadVideos, renderVideoList } from './sidebar-data.js';
 import { subscribeTaskEvents, fetchTask } from './task-center.js';
@@ -98,10 +98,14 @@ async function refreshAfterRerun(task, file) {
     if (!v) return;
     try {
       if (shouldReloadTextsAfterRerun(task) && v.text_json) {
-        state.texts = await api('GET', `/api/texts?file=${encodeURIComponent(v.text_json)}`);
+        const loaded = await apiWithMeta('GET', `/api/texts?file=${encodeURIComponent(v.text_json)}`);
+        state.texts = loaded.data;
+        setArtifactVersion('texts', v.text_json, loaded.version);
       }
       if (shouldReloadVoiceoverAfterRerun(task) && v.script_json) {
-        state.voiceover = await api('GET', `/api/voiceover?file=${encodeURIComponent(v.script_json)}`);
+        const loaded = await apiWithMeta('GET', `/api/voiceover?file=${encodeURIComponent(v.script_json)}`);
+        state.voiceover = loaded.data;
+        setArtifactVersion('voiceover', v.script_json, loaded.version);
       }
       import('./editor.js').then(mod => mod.renderActiveTab());
       updateEntityUI();

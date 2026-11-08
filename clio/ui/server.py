@@ -622,7 +622,13 @@ def make_handler(
                 return None, -400  # already sent
             return obj, None
 
-        def _send_json(self, obj, status: int = 200) -> None:
+        def _send_json(
+            self,
+            obj,
+            status: int = 200,
+            *,
+            extra_headers: dict[str, str] | None = None,
+        ) -> None:
             body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
             self._http_response_bytes = len(body)
             self._http_response_body_log = prepare_body(
@@ -635,6 +641,9 @@ def make_handler(
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
+            if extra_headers:
+                for key, value in extra_headers.items():
+                    self.send_header(key, value)
             self.end_headers()
             self.wfile.write(body)
 

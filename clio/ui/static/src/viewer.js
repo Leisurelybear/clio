@@ -1,6 +1,6 @@
-import { state } from './state.js';
+import { state, setArtifactVersion } from './state.js';
 import { $, fmtTime, setStatus, escapeHtml, clearDirty } from './utils.js';
-import { icon, api } from './api.js';
+import { icon, api, apiWithMeta } from './api.js';
 import {
   loadWaveformForCurrentVideo,
   loadPlanWaveform,
@@ -731,10 +731,10 @@ function _autoSwitchSegment(file) {
 
   Promise.all([
     v.text_json
-      ? import('./api.js').then((m) => m.api('GET', `/api/texts?file=${encodeURIComponent(v.text_json)}`)).then((d) => { state.texts = d; }).catch(() => {})
+      ? import('./api.js').then((m) => m.apiWithMeta('GET', `/api/texts?file=${encodeURIComponent(v.text_json)}`)).then(({ data, version }) => { state.texts = data; setArtifactVersion('texts', v.text_json, version); }).catch(() => {})
       : Promise.resolve(),
     v.script_json
-      ? import('./api.js').then((m) => m.api('GET', `/api/voiceover?file=${encodeURIComponent(v.script_json)}`)).then((d) => { state.voiceover = d; }).catch(() => {})
+      ? import('./api.js').then((m) => m.apiWithMeta('GET', `/api/voiceover?file=${encodeURIComponent(v.script_json)}`)).then(({ data, version }) => { state.voiceover = data; setArtifactVersion('voiceover', v.script_json, version); }).catch(() => {})
       : Promise.resolve(),
     v.transcript_file
       ? import('./api.js').then((m) => m.api('GET', `/api/transcripts?video=${encodeURIComponent(v.file)}`)).then((d) => { state.transcript = d; }).catch(() => {})

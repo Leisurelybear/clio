@@ -22,7 +22,13 @@ class HandlerProtocol(Protocol):
     headers: Any
 
     # -- Custom instance methods --
-    def _send_json(self, data: Any, status: int = 200) -> None: ...
+    def _send_json(
+        self,
+        data: Any,
+        status: int = 200,
+        *,
+        extra_headers: dict[str, str] | None = None,
+    ) -> None: ...
     def _send_bytes(
         self,
         data: bytes,

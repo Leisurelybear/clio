@@ -10,7 +10,13 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 from clio.i18n import t
-from clio.ui.services.file_service import _save_atomic
+from clio.ui.services.file_service import (
+    ArtifactConflictError,
+    read_with_version,
+    request_version,
+    save_with_version,
+    version_headers,
+)
 
 if TYPE_CHECKING:
     from clio.ui.handler_protocol import HandlerProtocol
@@ -42,6 +48,20 @@ def _detect_cover_content_type(data: bytes) -> str | None:
     return None
 
 
+def _send_artifact_conflict(handler: HandlerProtocol, exc: ArtifactConflictError) -> None:
+    headers = version_headers(exc.current_version) if exc.current_version else None
+    handler._send_json(
+        {
+            "ok": False,
+            "code": "artifact_conflict",
+            "error": t("api.artifact_conflict"),
+            "current_version": exc.current_version,
+        },
+        409,
+        extra_headers=headers,
+    )
+
+
 def handle_get_texts(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     """Handle GET /api/texts."""
     proj_out = handler._get_project_output(qs)
@@ -49,7 +69,12 @@ def handle_get_texts(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     p = handler._resolve_texts(fname, proj_out)
     if p is None:
         return handler.send_error(HTTPStatus.NOT_FOUND)
-    handler._send_bytes(p.read_bytes(), "application/json; charset=utf-8")
+    data, version = read_with_version(p)
+    handler._send_bytes(
+        data,
+        "application/json; charset=utf-8",
+        extra_headers=version_headers(version),
+    )
 
 
 def handle_get_voiceover(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
@@ -59,7 +84,12 @@ def handle_get_voiceover(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     p = handler._resolve_in("scripts", fname, proj_out)
     if p is None:
         return handler.send_error(HTTPStatus.NOT_FOUND)
-    handler._send_bytes(p.read_bytes(), "application/json; charset=utf-8")
+    data, version = read_with_version(p)
+    handler._send_bytes(
+        data,
+        "application/json; charset=utf-8",
+        extra_headers=version_headers(version),
+    )
 
 
 def handle_get_cover(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
@@ -100,8 +130,14 @@ def handle_put_texts(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) ->
     if p is None:
         return handler._send_json({"ok": False, "error": "forbidden or not found"}, 403)
     data = json.dumps(obj, ensure_ascii=False, indent=2).encode("utf-8")
-    _save_atomic(p, data)
-    handler._send_json({"ok": True, "path": str(p)})
+    try:
+        version = save_with_version(p, data, request_version(handler))
+    except ArtifactConflictError as exc:
+        return _send_artifact_conflict(handler, exc)
+    handler._send_json(
+        {"ok": True, "path": str(p), "version": version},
+        extra_headers=version_headers(version),
+    )
 
 
 def handle_put_voiceover(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
@@ -112,5 +148,11 @@ def handle_put_voiceover(handler: HandlerProtocol, qs: dict[str, Any], obj: dict
     if p is None:
         return handler._send_json({"ok": False, "error": "forbidden or not found"}, 403)
     data = json.dumps(obj, ensure_ascii=False, indent=2).encode("utf-8")
-    _save_atomic(p, data)
-    handler._send_json({"ok": True, "path": str(p)})
+    try:
+        version = save_with_version(p, data, request_version(handler))
+    except ArtifactConflictError as exc:
+        return _send_artifact_conflict(handler, exc)
+    handler._send_json(
+        {"ok": True, "path": str(p), "version": version},
+        extra_headers=version_headers(version),
+    )

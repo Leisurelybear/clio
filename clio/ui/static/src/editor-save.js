@@ -35,3 +35,13 @@ export function shouldConfirmDirtyTabSwitch({ dirty, fromTab, toTab } = {}) {
   if (!toTab || toTab === fromTab) return false;
   return true;
 }
+
+/** Build the optimistic-concurrency header for an artifact save. */
+export function artifactIfMatchHeader(version) {
+  return version ? { 'If-Match': `"${version}"` } : {};
+}
+
+/** True when a save was rejected because another writer changed the file. */
+export function isArtifactConflict(error) {
+  return error?.status === 409 && error?.body?.code === 'artifact_conflict';
+}

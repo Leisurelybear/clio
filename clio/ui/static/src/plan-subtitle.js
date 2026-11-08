@@ -1,7 +1,7 @@
 // Pure helpers for plan-preview floating subtitles. No DOM.
 
-import { api } from './api.js';
-import { state } from './state.js';
+import { apiWithMeta } from './api.js';
+import { state, setArtifactVersion } from './state.js';
 import { buildTimeline } from './plan-timeline.js';
 import { t } from './i18n.js';
 
@@ -226,7 +226,9 @@ const _voiceoverCache = new Map(); // index -> Promise<string|null>
 
 /** Default fetcher: loads the voiceover file via clio api(). */
 async function apiFetch(scriptJson) {
-  return api('GET', `/api/voiceover?file=${encodeURIComponent(scriptJson)}`);
+  const loaded = await apiWithMeta('GET', `/api/voiceover?file=${encodeURIComponent(scriptJson)}`);
+  setArtifactVersion('voiceover', scriptJson, loaded.version);
+  return loaded.data;
 }
 
 /**

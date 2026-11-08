@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from clio.ui.routes.refine import _is_file_busy, _mark_busy, handle_post_refine
+from clio.ui.services.file_service import version_headers
 
 
 @pytest.fixture(autouse=True)
@@ -211,10 +212,12 @@ class TestHandlePostRefineReadError:
 
 class TestHandlePostRefineTextsSuccess:
     @patch("clio.ui.routes.refine.refine_text")
-    @patch("clio.ui.routes.refine._save_atomic")
+    @patch("clio.ui.routes.refine.save_with_version")
     def test_refine_texts_success(self, mock_save, mock_refine):
         refined_data = {"index": 1, "title": "fixed", "_changelog": ["fixed title"]}
+        version = "0123456789abcdef"
         mock_refine.return_value = refined_data
+        mock_save.return_value = version
 
         p = _mock_path(content='{"index": 1, "title": "original"}')
         handler = _make_handler(p)
@@ -227,15 +230,19 @@ class TestHandlePostRefineTextsSuccess:
         assert kwargs.get("context_override") is None
 
         mock_save.assert_called_once()
-        save_path, save_data = mock_save.call_args[0]
+        save_path, save_data = mock_save.call_args.args
         assert save_path is p
         assert json.loads(save_data) == refined_data
-        handler._send_json.assert_called_once_with({"ok": True, "data": refined_data})
+        handler._send_json.assert_called_once_with(
+            {"ok": True, "data": refined_data, "version": version},
+            extra_headers=version_headers(version),
+        )
 
     @patch("clio.ui.routes.refine.refine_text")
-    @patch("clio.ui.routes.refine._save_atomic")
+    @patch("clio.ui.routes.refine.save_with_version")
     def test_refine_texts_with_context(self, mock_save, mock_refine):
         mock_refine.return_value = {"index": 1, "_changelog": []}
+        mock_save.return_value = "0123456789abcdef"
 
         p = _mock_path(content='{"index": 1}')
         handler = _make_handler(p)
@@ -248,9 +255,10 @@ class TestHandlePostRefineTextsSuccess:
         assert mock_refine.call_args.kwargs["context_override"] == "请改为更正式的语气"
 
     @patch("clio.ui.routes.refine.refine_text")
-    @patch("clio.ui.routes.refine._save_atomic")
+    @patch("clio.ui.routes.refine.save_with_version")
     def test_busy_cleared_after_success(self, mock_save, mock_refine):
         mock_refine.return_value = {"index": 1, "_changelog": []}
+        mock_save.return_value = "0123456789abcdef"
 
         resolved = "/some/path.json"
         p = _mock_path(resolved, content='{"index": 1}')
@@ -271,12 +279,14 @@ class TestHandlePostRefineTextsSuccess:
 class TestHandlePostRefineScriptsSuccess:
     @patch("clio.ui.routes.refine.refine_script")
     @patch("clio.ui.routes.refine._load_analysis_for_script")
-    @patch("clio.ui.routes.refine._save_atomic")
+    @patch("clio.ui.routes.refine.save_with_version")
     def test_refine_scripts_success(self, mock_save, mock_load_analysis, mock_refine):
         analysis = {"title": "test", "index": 1}
         mock_load_analysis.return_value = analysis
         refined = {"voiceover": "fixed script", "_changelog": []}
+        version = "fedcba9876543210"
         mock_refine.return_value = refined
+        mock_save.return_value = version
 
         p = _mock_path("/some/scripts/test_voiceover.json", content='{"voiceover": "original"}')
         handler = _make_handler(p)
@@ -290,7 +300,10 @@ class TestHandlePostRefineScriptsSuccess:
         assert args[0][1] == analysis
 
         mock_save.assert_called_once()
-        handler._send_json.assert_called_once_with({"ok": True, "data": refined})
+        handler._send_json.assert_called_once_with(
+            {"ok": True, "data": refined, "version": version},
+            extra_headers=version_headers(version),
+        )
 
 
 # ===========================================================================
@@ -329,7 +342,7 @@ class TestHandlePostRefineError:
         p = _mock_path(content='{"index": 1}')
         handler = _make_handler(p)
 
-        with patch("clio.ui.routes.refine._save_atomic") as mock_save:
+        with patch("clio.ui.routes.refine.save_with_version") as mock_save:
             handle_post_refine(handler, {}, {"file": "test.json", "type": "texts"})
 
         mock_save.assert_not_called()

@@ -7,7 +7,7 @@ import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -22,6 +22,7 @@ from clio.ui.routes.plan import (
     handle_post_plan_readiness,
     handle_put_plan,
 )
+from clio.ui.services.file_service import ArtifactConflictError, content_version, version_headers
 
 
 def _mock_plans_cfg(handler: MagicMock, plans_dir: Path, proj_dir: Path | None = None) -> None:
@@ -96,18 +97,25 @@ class TestHandleGetPlan:
         assert "规划文件不存在" in args[0][0]["error"]
         assert args[0][1] == 404
 
-    def test_found(self, tmp_path: Path):
+    @patch("clio.ui.routes.plan.read_with_version")
+    def test_found_with_version_header(self, mock_read, tmp_path: Path):
+        version = "0123456789abcdef"
+        data = json.dumps({"plan": "test"}).encode("utf-8")
         handler = MagicMock()
         plans_dir = tmp_path / "output" / "plans"
         plans_dir.mkdir(parents=True)
-        (plans_dir / "day1_plan.json").write_text(json.dumps({"plan": "test"}), encoding="utf-8")
+        (plans_dir / "day1_plan.json").write_bytes(data)
         _mock_plans_cfg(handler, plans_dir, tmp_path)
         handler._send_bytes = MagicMock()
+        mock_read.return_value = (data, version)
 
         handle_get_plan(handler, {"day": ["day1"]})
 
-        handler._send_bytes.assert_called_once()
-        assert b"test" in handler._send_bytes.call_args[0][0]
+        handler._send_bytes.assert_called_once_with(
+            data,
+            "application/json; charset=utf-8",
+            extra_headers=version_headers(version),
+        )
 
     def test_found_with_sanitized_filename(self, tmp_path: Path):
         handler = MagicMock()
@@ -210,6 +218,57 @@ class TestHandlePutPlan:
         data = json.loads(saved.read_text(encoding="utf-8"))
         assert data["title"] == "test plan"
         assert "_schema_version" in data
+        payload = handler._send_json.call_args.args[0]
+        version = content_version(saved.read_bytes())
+        assert payload["version"] == version
+        assert handler._send_json.call_args.kwargs["extra_headers"] == version_headers(version)
+
+    def test_saves_plan_with_if_match(self, tmp_path: Path):
+        handler = MagicMock()
+        plans_dir = tmp_path / "output" / "plans"
+        _mock_plans_cfg(handler, plans_dir, tmp_path)
+        handler._send_json = MagicMock()
+        old_version = "aaaaaaaaaaaaaaaa"
+        new_version = "bbbbbbbbbbbbbbbb"
+
+        with (
+            patch("clio.ui.routes.plan.request_version", return_value=old_version) as mock_request,
+            patch("clio.ui.routes.plan.save_with_version", return_value=new_version) as mock_save,
+        ):
+            handle_put_plan(handler, {"day": ["day1"]}, {"title": "test plan"})
+
+        mock_request.assert_called_once_with(handler)
+        saved_path, saved_data, expected_version = mock_save.call_args.args
+        assert saved_path == plans_dir / "day1_plan.json"
+        assert json.loads(saved_data)["title"] == "test plan"
+        assert expected_version == old_version
+        handler._send_json.assert_called_once_with(
+            {"ok": True, "path": str(saved_path), "version": new_version},
+            extra_headers=version_headers(new_version),
+        )
+
+    def test_stale_version_returns_conflict(self, tmp_path: Path):
+        handler = MagicMock()
+        plans_dir = tmp_path / "output" / "plans"
+        _mock_plans_cfg(handler, plans_dir, tmp_path)
+        handler._send_json = MagicMock()
+        current = "cccccccccccccccc"
+
+        with (
+            patch("clio.ui.routes.plan.request_version", return_value="dddddddddddddddd"),
+            patch(
+                "clio.ui.routes.plan.save_with_version",
+                side_effect=ArtifactConflictError(current),
+            ),
+        ):
+            handle_put_plan(handler, {"day": ["day1"]}, {"title": "test plan"})
+
+        payload, status = handler._send_json.call_args.args
+        assert status == 409
+        assert payload["ok"] is False
+        assert payload["code"] == "artifact_conflict"
+        assert payload["current_version"] == current
+        assert handler._send_json.call_args.kwargs["extra_headers"] == version_headers(current)
 
     def test_saves_to_custom_plans_subdir(self, tmp_path: Path):
         handler = MagicMock()

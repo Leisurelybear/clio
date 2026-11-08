@@ -29,7 +29,14 @@ from clio.tasks.cut import (
     resolve_cut_output_dir,
     restore_orphaned_cut_backups,
 )
-from clio.ui.services.file_service import _is_safe_basename, _save_atomic
+from clio.ui.services.file_service import (
+    ArtifactConflictError,
+    _is_safe_basename,
+    read_with_version,
+    request_version,
+    save_with_version,
+    version_headers,
+)
 from clio.utils import (
     media_dependency_error,
     plan_day_stem,
@@ -95,6 +102,20 @@ def _active_cut_task(manager: TaskManager, project_id: str):
     return tasks[0] if tasks else None
 
 
+def _send_artifact_conflict(handler: HandlerProtocol, exc: ArtifactConflictError) -> None:
+    headers = version_headers(exc.current_version) if exc.current_version else None
+    handler._send_json(
+        {
+            "ok": False,
+            "code": "artifact_conflict",
+            "error": t("api.artifact_conflict"),
+            "current_version": exc.current_version,
+        },
+        409,
+        extra_headers=headers,
+    )
+
+
 def _plans_dir(handler: HandlerProtocol, qs: dict[str, Any]) -> Path:
     """Resolve plans directory from AppConfig (honors custom plans_subdir)."""
     proj_dir = handler._resolve_project_dir(qs)
@@ -126,7 +147,12 @@ def handle_get_plan(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
         return handler._send_json({"error": "forbidden"}, 403)
     if not p.is_file():
         return handler._send_json({"error": t("api.plan_missing", {"path": p})}, 404)
-    handler._send_bytes(p.read_bytes(), "application/json; charset=utf-8")
+    data, version = read_with_version(p)
+    handler._send_bytes(
+        data,
+        "application/json; charset=utf-8",
+        extra_headers=version_headers(version),
+    )
 
 
 def handle_get_plan_preview_media(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
@@ -189,8 +215,14 @@ def handle_put_plan(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> 
     data = add_schema_version(plan.to_dict())
     payload = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
     p.parent.mkdir(parents=True, exist_ok=True)
-    _save_atomic(p, payload)
-    handler._send_json({"ok": True, "path": str(p)})
+    try:
+        version = save_with_version(p, payload, request_version(handler))
+    except ArtifactConflictError as exc:
+        return _send_artifact_conflict(handler, exc)
+    handler._send_json(
+        {"ok": True, "path": str(p), "version": version},
+        extra_headers=version_headers(version),
+    )
 
 
 def handle_delete_plan(handler: HandlerProtocol, qs: dict[str, Any]) -> None:

@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { resolveEditorSaveTarget, shouldConfirmDirtyTabSwitch } from '../editor-save.js';
+import {
+  artifactIfMatchHeader,
+  isArtifactConflict,
+  resolveEditorSaveTarget,
+  shouldConfirmDirtyTabSwitch,
+} from '../editor-save.js';
 
 describe('resolveEditorSaveTarget', () => {
   it('saves texts / voiceover for video entity', () => {
@@ -36,5 +41,22 @@ describe('shouldConfirmDirtyTabSwitch', () => {
     expect(shouldConfirmDirtyTabSwitch({ dirty: true, fromTab: 'texts', toTab: 'transcript' })).toBe(true);
     expect(shouldConfirmDirtyTabSwitch({ dirty: true, fromTab: 'texts', toTab: 'texts' })).toBe(false);
     expect(shouldConfirmDirtyTabSwitch({ dirty: false, fromTab: 'texts', toTab: 'voiceover' })).toBe(false);
+  });
+});
+
+describe('artifact save protocol helpers', () => {
+  it('builds a quoted If-Match header only when a version exists', () => {
+    expect(artifactIfMatchHeader('0123456789abcdef')).toEqual({
+      'If-Match': '"0123456789abcdef"',
+    });
+    expect(artifactIfMatchHeader(null)).toEqual({});
+    expect(artifactIfMatchHeader('')).toEqual({});
+  });
+
+  it('recognizes only artifact_conflict 409 responses', () => {
+    expect(isArtifactConflict({ status: 409, body: { code: 'artifact_conflict' } })).toBe(true);
+    expect(isArtifactConflict({ status: 409, body: { code: 'refine_busy' } })).toBe(false);
+    expect(isArtifactConflict({ status: 400, body: { code: 'artifact_conflict' } })).toBe(false);
+    expect(isArtifactConflict(new Error('plain'))).toBe(false);
   });
 });

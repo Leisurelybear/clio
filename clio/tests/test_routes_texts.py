@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from clio.ui.services.file_service import ArtifactConflictError, version_headers
+
 
 @pytest.fixture
 def handler():
@@ -22,15 +24,20 @@ class TestHandleGetTexts:
         handle_get_texts(handler, {"file": ["001.json"]})
         handler.send_error.assert_called_once_with(HTTPStatus.NOT_FOUND)
 
-    def test_sends_file(self, handler):
+    @patch("clio.ui.routes.texts.read_with_version")
+    def test_sends_file_with_version_header(self, mock_read, handler):
+        version = "0123456789abcdef"
         handler._resolve_texts.return_value = MagicMock()
-        handler._resolve_texts.return_value.read_bytes.return_value = b'{"key": "val"}'
+        mock_read.return_value = (b'{"key": "val"}', version)
         from clio.ui.routes.texts import handle_get_texts
 
         handle_get_texts(handler, {"file": ["001.json"]})
-        handler._send_bytes.assert_called_once()
-        data = handler._send_bytes.call_args.args[0]
-        assert json.loads(data) == {"key": "val"}
+
+        handler._send_bytes.assert_called_once_with(
+            b'{"key": "val"}',
+            "application/json; charset=utf-8",
+            extra_headers=version_headers(version),
+        )
 
     def test_passes_query_string(self, handler):
         handler._resolve_texts.return_value = MagicMock()
@@ -49,15 +56,20 @@ class TestHandleGetVoiceover:
         handle_get_voiceover(handler, {"file": ["001.json"]})
         handler.send_error.assert_called_once_with(HTTPStatus.NOT_FOUND)
 
-    def test_sends_file(self, handler):
+    @patch("clio.ui.routes.texts.read_with_version")
+    def test_sends_file_with_version_header(self, mock_read, handler):
+        version = "fedcba9876543210"
         handler._resolve_in.return_value = MagicMock()
-        handler._resolve_in.return_value.read_bytes.return_value = b'{"voiceover": "hello"}'
+        mock_read.return_value = (b'{"voiceover": "hello"}', version)
         from clio.ui.routes.texts import handle_get_voiceover
 
         handle_get_voiceover(handler, {"file": ["001.json"]})
-        handler._send_bytes.assert_called_once()
-        data = handler._send_bytes.call_args.args[0]
-        assert json.loads(data)["voiceover"] == "hello"
+
+        handler._send_bytes.assert_called_once_with(
+            b'{"voiceover": "hello"}',
+            "application/json; charset=utf-8",
+            extra_headers=version_headers(version),
+        )
 
     def test_resolves_in_scripts_dir(self, handler):
         handler._resolve_in.return_value = MagicMock()
@@ -78,14 +90,42 @@ class TestHandlePutTexts:
         resp = handler._send_json.call_args.args[0]
         assert resp["ok"] is False
 
-    @patch("clio.ui.routes.texts._save_atomic")
-    def test_saves_file(self, mock_save, handler):
-        handler._resolve_texts.return_value = MagicMock()
+    def test_saves_file_with_if_match(self, handler):
+        path = handler._resolve_texts.return_value
+        new_version = "1111111111111111"
         from clio.ui.routes.texts import handle_put_texts
 
-        handle_put_texts(handler, {"file": ["001.json"]}, {"key": "val"})
-        mock_save.assert_called_once()
-        handler._send_json.assert_called_once_with({"ok": True, "path": str(handler._resolve_texts.return_value)})
+        with (
+            patch("clio.ui.routes.texts.request_version", return_value="0123456789abcdef") as mock_request,
+            patch("clio.ui.routes.texts.save_with_version", return_value=new_version) as mock_save,
+        ):
+            handle_put_texts(handler, {"file": ["001.json"]}, {"key": "val"})
+
+        mock_request.assert_called_once_with(handler)
+        saved_path, saved_data, expected = mock_save.call_args.args
+        assert saved_path is path
+        assert json.loads(saved_data) == {"key": "val"}
+        assert expected == "0123456789abcdef"
+        handler._send_json.assert_called_once_with(
+            {"ok": True, "path": str(path), "version": new_version},
+            extra_headers=version_headers(new_version),
+        )
+
+    def test_stale_version_returns_conflict(self, handler):
+        current = "aaaaaaaaaaaaaaaa"
+        from clio.ui.routes.texts import handle_put_texts
+
+        with patch(
+            "clio.ui.routes.texts.save_with_version",
+            side_effect=ArtifactConflictError(current),
+        ):
+            handle_put_texts(handler, {"file": ["001.json"]}, {"key": "val"})
+
+        payload, status = handler._send_json.call_args.args
+        assert status == 409
+        assert payload["code"] == "artifact_conflict"
+        assert payload["current_version"] == current
+        assert handler._send_json.call_args.kwargs["extra_headers"] == version_headers(current)
 
 
 class TestHandlePutVoiceover:
@@ -98,14 +138,42 @@ class TestHandlePutVoiceover:
         resp = handler._send_json.call_args.args[0]
         assert resp["ok"] is False
 
-    @patch("clio.ui.routes.texts._save_atomic")
-    def test_saves_file(self, mock_save, handler):
-        handler._resolve_in.return_value = MagicMock()
+    def test_saves_file_with_if_match(self, handler):
+        path = handler._resolve_in.return_value
+        new_version = "2222222222222222"
         from clio.ui.routes.texts import handle_put_voiceover
 
-        handle_put_voiceover(handler, {"file": ["001.json"]}, {"voiceover": "test"})
-        mock_save.assert_called_once()
-        handler._send_json.assert_called_once_with({"ok": True, "path": str(handler._resolve_in.return_value)})
+        with (
+            patch("clio.ui.routes.texts.request_version", return_value="0123456789abcdef") as mock_request,
+            patch("clio.ui.routes.texts.save_with_version", return_value=new_version) as mock_save,
+        ):
+            handle_put_voiceover(handler, {"file": ["001.json"]}, {"voiceover": "test"})
+
+        mock_request.assert_called_once_with(handler)
+        saved_path, saved_data, expected = mock_save.call_args.args
+        assert saved_path is path
+        assert json.loads(saved_data) == {"voiceover": "test"}
+        assert expected == "0123456789abcdef"
+        handler._send_json.assert_called_once_with(
+            {"ok": True, "path": str(path), "version": new_version},
+            extra_headers=version_headers(new_version),
+        )
+
+    def test_stale_version_returns_conflict(self, handler):
+        current = "bbbbbbbbbbbbbbbb"
+        from clio.ui.routes.texts import handle_put_voiceover
+
+        with patch(
+            "clio.ui.routes.texts.save_with_version",
+            side_effect=ArtifactConflictError(current),
+        ):
+            handle_put_voiceover(handler, {"file": ["001.json"]}, {"voiceover": "test"})
+
+        payload, status = handler._send_json.call_args.args
+        assert status == 409
+        assert payload["code"] == "artifact_conflict"
+        assert payload["current_version"] == current
+        assert handler._send_json.call_args.kwargs["extra_headers"] == version_headers(current)
 
 
 class TestHandleGetCover:

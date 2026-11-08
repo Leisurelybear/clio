@@ -73,6 +73,7 @@
   "analyze.window_slice_empty": "分析窗切片失败或为空: {name}",
   "analyze.window_slice_too_large": "分析窗切片仍超过 200MB（{size} MB），请降低 compress 体积或缩短 window_max_min",
   "api.config_builtin_provider_undeletable": "内置 provider 不能删除: {name}",
+  "api.artifact_conflict": "文件已被后台任务更新，请重新加载后再保存",
   "api.config_deprecated_key": "'{key}' 已废弃，不能写入配置",
   "api.config_global_affects_projects": "全局配置变更会影响以下已注册项目",
   "api.config_section_global_only": "'{section}' 属于全局配置，不能写入 project.yaml",

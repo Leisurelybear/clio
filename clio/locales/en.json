@@ -73,6 +73,7 @@
   "analyze.window_slice_empty": "Analyze-window slice failed or is empty: {name}",
   "analyze.window_slice_too_large": "Analyze-window slice still exceeds 200MB ({size} MB); lower the compress size or shorten window_max_min",
   "api.config_builtin_provider_undeletable": "Built-in provider cannot be deleted: {name}",
+  "api.artifact_conflict": "The file was updated by a background task; reload it before saving again",
   "api.config_deprecated_key": "'{key}' is deprecated and cannot be written to the config",
   "api.config_global_affects_projects": "Global config changes affect these registered projects",
   "api.config_section_global_only": "'{section}' belongs to the global config and cannot be written to project.yaml",

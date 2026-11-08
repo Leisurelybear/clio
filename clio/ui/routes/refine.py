@@ -10,7 +10,7 @@ from clio.ai.token_usage import FileTokenUsageStore
 from clio.analyze import refine_script, refine_text
 from clio.i18n import t
 from clio.tasks.refine import _load_analysis_for_script
-from clio.ui.services.file_service import _save_atomic
+from clio.ui.services.file_service import save_with_version, version_headers
 
 if TYPE_CHECKING:
     from clio.ui.handler_protocol import HandlerProtocol
@@ -87,6 +87,9 @@ def handle_post_refine(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) 
         _mark_busy(abs_path, False)
 
     raw = json.dumps(refined, ensure_ascii=False, indent=2).encode("utf-8")
-    _save_atomic(p, raw)
+    version = save_with_version(p, raw)
 
-    handler._send_json({"ok": True, "data": refined})
+    handler._send_json(
+        {"ok": True, "data": refined, "version": version},
+        extra_headers=version_headers(version),
+    )

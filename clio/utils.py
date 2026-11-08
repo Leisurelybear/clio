@@ -24,6 +24,24 @@ _PROBE_INFO_CACHE: dict[tuple[str, str, int, int], dict[str, float]] = {}
 _MEDIA_DETAILS_CACHE_MAX = 512
 _MEDIA_DETAILS_CACHE_LOCK = threading.Lock()
 _MEDIA_DETAILS_CACHE: dict[tuple[str, str, int, int], dict[str, Any]] = {}
+_PATH_WRITE_LOCKS: dict[str, threading.RLock] = {}
+_PATH_WRITE_LOCKS_GUARD = threading.Lock()
+
+
+def path_write_lock(path: Path) -> threading.RLock:
+    """Return the process-wide lock that serializes writes to *path*."""
+    target = Path(path)
+    try:
+        key = str(target.resolve())
+    except OSError:
+        key = str(target.absolute())
+    with _PATH_WRITE_LOCKS_GUARD:
+        lock = _PATH_WRITE_LOCKS.get(key)
+        if lock is None:
+            lock = threading.RLock()
+            _PATH_WRITE_LOCKS[key] = lock
+        return lock
+
 
 # ---- subprocess wrappers for cross-platform encoding safety ----
 # On Chinese Windows text=True defaults to GBK, which crashes on UTF-8
@@ -541,6 +559,11 @@ def write_bytes_atomic(path: Path, data: bytes) -> None:
     Best-effort cleanup of stale ``.<name>.*.tmp`` siblings older than 24h.
     """
     path = Path(path)
+    with path_write_lock(path):
+        _write_bytes_atomic_unlocked(path, data)
+
+
+def _write_bytes_atomic_unlocked(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     _cleanup_stale_atomic_tmps(path)
     existing_mode: int | None = None

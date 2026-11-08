@@ -1,6 +1,6 @@
-import { state } from './state.js';
+import { state, setArtifactVersion } from './state.js';
 import { $, $$, escapeHtml, setStatus, updateSidebarDay, clearDirty } from './utils.js';
-import { api, submitToken } from './api.js';
+import { api, apiWithMeta, submitToken } from './api.js';
 import { initLayout } from './layout.js';
 import { initTheme, toggleTheme } from './theme.js';
 import { initLanguageSwitcher } from './language-switcher.js';
@@ -642,8 +642,11 @@ async function init() {
       const hasDay = state.availablePlans.some(p => p.day_label === state.currentDay);
       if (!hasDay) state.currentDay = state.availablePlans[0].day_label;
       updateSidebarDay();
-      try { state.plan = await api('GET', `/api/plan?day=${state.currentDay}`); }
-      catch (e) { /* ignore */ }
+      try {
+        const loaded = await apiWithMeta('GET', `/api/plan?day=${state.currentDay}`);
+        state.plan = loaded.data;
+        setArtifactVersion('plan', state.currentDay, loaded.version);
+      } catch (e) { /* ignore */ }
     }
     await loadVideos();
     const restore = resolveSessionRestore({
