@@ -5,13 +5,11 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable
-from datetime import timezone
-from email.utils import parsedate_to_datetime
-from math import isfinite
 
 import httpx
 
 from clio.i18n import t
+from clio.utils import parse_retry_after
 
 RETRYABLE_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504})
 
@@ -29,23 +27,7 @@ def _retry_after_seconds(
     *,
     now: Callable[[], float] | None = None,
 ) -> float | None:
-    raw = response.headers.get("Retry-After")
-    if not raw:
-        return None
-    raw = raw.strip()
-    try:
-        seconds = float(raw)
-    except ValueError:
-        try:
-            retry_at = parsedate_to_datetime(raw)
-        except (TypeError, ValueError, OverflowError):
-            return None
-        if retry_at.tzinfo is None:
-            retry_at = retry_at.replace(tzinfo=timezone.utc)  # noqa: UP017
-        seconds = retry_at.timestamp() - (now() if now is not None else time.time())
-    if not isfinite(seconds):
-        return None
-    return max(0.0, seconds)
+    return parse_retry_after(response.headers.get("Retry-After"), now=now)
 
 
 def request_with_retry(

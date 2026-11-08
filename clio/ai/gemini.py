@@ -14,7 +14,7 @@ from clio.ai.base import AIResponse, TokenUsage
 from clio.config import ProviderConfig, ProxyConfig
 from clio.i18n import t
 from clio.ratelimit import make_rate_limiter
-from clio.utils import mask_if_looks_like_key, with_retry
+from clio.utils import mask_if_looks_like_key, retry_after_seconds, with_retry
 
 try:
     from google.genai import errors as _genai_errors
@@ -79,7 +79,7 @@ class GeminiProvider:
             types_list.append(_genai_errors.ServerError)
         return tuple(types_list)
 
-    def _call_with_retry(self, fn, what, model):
+    def _call_with_retry(self, fn, what, model, cancel_event: threading.Event | None = None):
         """统一的重试入口：将非重试 ClientError 转成 RuntimeError 避免误重试。"""
 
         def _wrapped():
@@ -94,10 +94,13 @@ class GeminiProvider:
             _wrapped,
             attempts=self._retry_attempts,
             base_delay=2.0,
+            max_delay=60.0,
             retry_on=self._retryable_types(),
             what=f"Gemini {what}",
             # 用 should_retry 进一步过滤：只有 _is_retryable 为 True 才重试
             should_retry=lambda e: self._is_retryable(e),
+            delay_for=retry_after_seconds,
+            cancel_event=cancel_event,
         )
 
     def _get_file_with_retry(
@@ -162,7 +165,11 @@ class GeminiProvider:
             if on_progress:
                 on_progress(t("ai.waiting_gemini_progress", {"waited": waited}))
             print(t("ai.video_processing_console", {"waited": waited}))
-            time.sleep(self._poll_interval)
+            if cancel_event is not None:
+                if cancel_event.wait(self._poll_interval):
+                    raise RuntimeError(t("ai.video_cancelled"))
+            else:
+                time.sleep(self._poll_interval)
             uploaded = self._get_file_with_retry(
                 uploaded.name,
                 deadline=deadline,
@@ -196,7 +203,12 @@ class GeminiProvider:
             total_tokens=meta.total_token_count or 0,
         )
 
-    def generate_text(self, prompt: str, model: str) -> AIResponse:
+    def generate_text(
+        self,
+        prompt: str,
+        model: str,
+        cancel_event: threading.Event | None = None,
+    ) -> AIResponse:
         def _do() -> AIResponse:
             self._maybe_wait()
             if self._generation_config is None:
@@ -213,7 +225,7 @@ class GeminiProvider:
                 finish_reason=_extract_finish_reason(response),
             )
 
-        return self._call_with_retry(_do, model, model)
+        return self._call_with_retry(_do, model, model, cancel_event)
 
     def analyze_video(
         self,
@@ -268,7 +280,7 @@ class GeminiProvider:
                     finish_reason=_extract_finish_reason(response),
                 )
 
-            return self._call_with_retry(_do, t("ai.retry_what_video", {"model": model}), model)
+            return self._call_with_retry(_do, t("ai.retry_what_video", {"model": model}), model, cancel_event)
         finally:
             if uploaded is not None and uploaded.name is not None:
                 try:

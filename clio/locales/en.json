@@ -739,6 +739,7 @@
   "utils.media.missing_detail_compact": "Could not find {labels}. Run {setup}, or set paths.ffmpeg / paths.ffprobe in config.yaml. Compression, cutting, transcription audio extraction, and waveforms are unavailable.",
   "utils.media.unavailable": "Media dependencies are unavailable",
   "utils.name.invalid": "Invalid file name: {name}",
+  "utils.retry.cancelled": "  [Retry] {what} cancelled",
   "utils.retry.give_up": "  [Retry] {what} failed {attempts} times; giving up: {error}",
   "utils.retry.retrying": "  [Retry] {what} failed ({error}); retrying in {delay}s ({attempt}/{attempts})",
   "utils.secret.insecure": "Refusing to overwrite a secret file with unsafe permissions: {path} (other users can read/write it; run chmod 600 {path} first)",

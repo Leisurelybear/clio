@@ -157,6 +157,15 @@ class TestCallWithRetry:
             self._prov._call_with_retry(fn, "test", "model")
         assert fn.call_count >= 1
 
+    def test_cancel_event_skips_fn(self):
+        cancel = threading.Event()
+        cancel.set()
+        fn = MagicMock(return_value="ok")
+
+        with pytest.raises(InterruptedError):
+            self._prov._call_with_retry(fn, "test", "model", cancel)
+        fn.assert_not_called()
+
 
 class TestWaitForFile:
     @pytest.fixture(autouse=True)
@@ -295,6 +304,21 @@ class TestWaitForFile:
 
         self._client_mock.files.get.assert_not_called()
 
+    def test_cancelled_during_poll_wait_does_not_call_get(self):
+        from google.genai import types
+
+        uploaded = MagicMock(spec=types.File)
+        uploaded.name = "files/test123"
+        uploaded.state = types.FileState.PROCESSING
+        cancel_event = MagicMock()
+        cancel_event.is_set.return_value = False
+        cancel_event.wait.return_value = True
+
+        with pytest.raises(RuntimeError, match="视频处理被用户取消"):
+            self._prov._wait_for_file(uploaded, timeout=300, cancel_event=cancel_event)
+
+        self._client_mock.files.get.assert_not_called()
+
     def test_cancelled_during_retry_backoff(self, fake_time):
         from google.genai import types
 
@@ -304,7 +328,7 @@ class TestWaitForFile:
         self._client_mock.files.get.side_effect = OSError("temporary reset")
         cancel_event = MagicMock()
         cancel_event.is_set.return_value = False
-        cancel_event.wait.return_value = True
+        cancel_event.wait.side_effect = [False, True]
 
         fake_time("clio.ai.gemini", 0.0)
         with pytest.raises(RuntimeError, match="视频处理被用户取消"):
@@ -354,6 +378,15 @@ class TestGenerateText:
 
         result = self._prov.generate_text("hi", "gemini-2.5-flash")
         assert result.text == ""
+
+    def test_forwards_cancel_event_to_retry(self):
+        cancel = threading.Event()
+
+        with patch.object(self._prov, "_call_with_retry", return_value="ok") as retry_mock:
+            result = self._prov.generate_text("hi", "gemini-2.5-flash", cancel_event=cancel)
+
+        assert result == "ok"
+        assert retry_mock.call_args.args[3] is cancel
 
     def test_positive_max_tokens_is_sent(self, proxy_disabled):
         with patch("clio.ai.gemini.genai.Client") as mock_cls:

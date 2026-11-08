@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import re
 import shutil
 import subprocess
 import threading
 import time
 from collections.abc import Callable, Iterable
+from datetime import timezone
+from email.utils import parsedate_to_datetime
+from math import isfinite
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -86,20 +90,64 @@ def popen_subprocess(
     return subprocess.Popen(cmd, **kwargs)
 
 
+def parse_retry_after(raw: str | None, *, now: Callable[[], float] | None = None) -> float | None:
+    """把 Retry-After 头解析为非负秒数；无法解析时返回 None。
+
+    支持 delta-seconds 与 HTTP-date 两种形式。HTTP-date 以当前时间（或 now()）
+    为基准换算成剩余秒数，已过期则归零。
+    """
+    if not raw:
+        return None
+    raw = raw.strip()
+    try:
+        seconds = float(raw)
+    except ValueError:
+        try:
+            retry_at = parsedate_to_datetime(raw)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if retry_at.tzinfo is None:
+            retry_at = retry_at.replace(tzinfo=timezone.utc)  # noqa: UP017
+        seconds = retry_at.timestamp() - (now() if now is not None else time.time())
+    if not isfinite(seconds):
+        return None
+    return max(0.0, seconds)
+
+
+def retry_after_seconds(exc: BaseException) -> float | None:
+    """从携带 HTTP 响应的异常里读取 Retry-After；没有就返回 None。"""
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None)
+    if headers is None:
+        return None
+    try:
+        raw = headers.get("Retry-After")
+    except Exception:
+        return None
+    return parse_retry_after(raw)
+
+
 def with_retry(
     fn: Callable[[], T],
     *,
     attempts: int = 3,
     base_delay: float = 1.0,
+    max_delay: float | None = None,
     retry_on: tuple[type[BaseException], ...] = (),
     what: str = "operation",
     should_retry: Callable[[BaseException], bool] | None = None,
+    delay_for: Callable[[BaseException], float | None] | None = None,
+    jitter: float = 0.25,
+    cancel_event: threading.Event | None = None,
+    sleep: Callable[[float], None] | None = None,
 ) -> T:
     """调用 fn()，按指数退避（1s/2s/4s）重试最多 attempts 次。
 
     只对 retry_on 列出的异常类型重试；其它异常（如 ValueError）立即抛出。
     如果提供了 should_retry 函数，在异常类型匹配后额外调用该函数判断是否应重试。
-    每次重试会打印一行（控制台 + 日志都看得到），最后一次失败时也打印。
+    delay_for 可返回该异常指定的等待秒数（如 429 的 Retry-After），优先于指数退避。
+    指数退避默认叠加 ±25% 抖动，避免多个任务同时重试。
+    提供 cancel_event 时，重试等待期间被取消会立刻抛出 InterruptedError。
 
     用法::
 
@@ -109,8 +157,21 @@ def with_retry(
             what="OpenAI 兼容 API",
         )
     """
+    sleep_fn = sleep if sleep is not None else time.sleep
+
+    def check_cancelled() -> None:
+        if cancel_event is not None and cancel_event.is_set():
+            raise InterruptedError(t("utils.retry.cancelled", {"what": what}))
+
+    def wait(seconds: float) -> None:
+        if cancel_event is None:
+            sleep_fn(seconds)
+        elif cancel_event.wait(seconds):
+            raise InterruptedError(t("utils.retry.cancelled", {"what": what}))
+
     last_exc: BaseException | None = None
     for i in range(attempts):
+        check_cancelled()
         try:
             return fn()
         except BaseException as e:
@@ -119,6 +180,7 @@ def with_retry(
             if should_retry is not None and not should_retry(e):
                 raise
             last_exc = e
+            check_cancelled()
             if i + 1 >= attempts:
                 print(
                     t(
@@ -127,7 +189,19 @@ def with_retry(
                     )
                 )
                 break
-            delay = base_delay * (2**i)
+            delay: float | None = None
+            if delay_for is not None:
+                try:
+                    delay = delay_for(e)
+                except Exception:
+                    delay = None
+            if delay is None:
+                delay = base_delay * (2**i)
+                if jitter > 0:
+                    delay *= 1.0 + random.uniform(-jitter, jitter)
+            if max_delay is not None:
+                delay = min(delay, max_delay)
+            delay = max(0.0, delay)
             print(
                 t(
                     "utils.retry.retrying",
@@ -140,7 +214,7 @@ def with_retry(
                     },
                 )
             )
-            time.sleep(delay)
+            wait(delay)
     assert last_exc is not None
     raise last_exc
 

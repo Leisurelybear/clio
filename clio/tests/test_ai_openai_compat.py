@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -158,6 +159,26 @@ class TestGenerateText:
 
         with pytest.raises(httpx.HTTPStatusError):
             self._prov.generate_text("hello", "deepseek-chat")
+
+    def test_429_uses_retry_after_header(self):
+        resp_429 = self._mock_response(status_code=429)
+        resp_429.headers = {"Retry-After": "2"}
+        self._mock_client.post.side_effect = [resp_429, self._mock_response()]
+        delays = []
+
+        with patch("clio.utils.time.sleep", side_effect=delays.append):
+            result = self._prov.generate_text("hello", "deepseek-chat")
+
+        assert result.text == "ok"
+        assert delays == [2.0]
+
+    def test_cancel_event_skips_request(self):
+        cancel = threading.Event()
+        cancel.set()
+
+        with pytest.raises(InterruptedError):
+            self._prov.generate_text("hello", "deepseek-chat", cancel_event=cancel)
+        self._mock_client.post.assert_not_called()
 
     def test_500_raises_http_status_error(self):
         resp = self._mock_response(status_code=500)

@@ -739,6 +739,7 @@
   "utils.media.missing_detail_compact": "未找到 {labels}。请运行 {setup}，或在 config.yaml 的 paths.ffmpeg / paths.ffprobe 中填写路径。 压缩 / 裁剪 / 转录抽音 / 波形等功能不可用。",
   "utils.media.unavailable": "媒体依赖不可用",
   "utils.name.invalid": "非法的文件名: {name}",
+  "utils.retry.cancelled": "  [重试] {what} 已取消",
   "utils.retry.give_up": "  [重试] {what} 失败 {attempts} 次，放弃: {error}",
   "utils.retry.retrying": "  [重试] {what} 失败 ({error})，{delay}s 后重试 ({attempt}/{attempts})",
   "utils.secret.insecure": "拒绝覆盖权限不安全的密钥文件: {path} (其他用户可读/写，请先 chmod 600 {path})",

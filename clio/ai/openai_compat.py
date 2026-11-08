@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import time
 
 import httpx
@@ -8,7 +9,7 @@ from clio.ai.base import AIResponse, TokenUsage
 from clio.config import ProviderConfig, ProxyConfig
 from clio.i18n import t
 from clio.ratelimit import make_rate_limiter
-from clio.utils import mask_if_looks_like_key, with_retry
+from clio.utils import mask_if_looks_like_key, retry_after_seconds, with_retry
 
 
 class OpenAICompatProvider:
@@ -33,15 +34,23 @@ class OpenAICompatProvider:
     def close(self) -> None:
         self._client.close()
 
-    def _maybe_wait(self) -> None:
+    def _maybe_wait(self, cancel_event: threading.Event | None = None) -> None:
         if self._rl is not None:
             wait = self._rl.acquire()
             if wait:
-                time.sleep(wait)
+                if cancel_event is None:
+                    time.sleep(wait)
+                elif cancel_event.wait(wait):
+                    raise InterruptedError(t("utils.retry.cancelled", {"what": self.provider_id}))
 
-    def generate_text(self, prompt: str, model: str) -> AIResponse:
+    def generate_text(
+        self,
+        prompt: str,
+        model: str,
+        cancel_event: threading.Event | None = None,
+    ) -> AIResponse:
         def _do() -> AIResponse:
-            self._maybe_wait()
+            self._maybe_wait(cancel_event)
             payload: dict = {
                 "model": model,
                 "messages": [{"role": "user", "content": prompt}],
@@ -86,7 +95,10 @@ class OpenAICompatProvider:
             _do,
             attempts=self._retry_attempts,
             base_delay=1.0,
+            max_delay=60.0,
             retry_on=(httpx.HTTPError,),
+            delay_for=retry_after_seconds,
+            cancel_event=cancel_event,
             what=t("ai.retry_what_openai", {"url": self._base_url}),
         )
 

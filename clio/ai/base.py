@@ -40,7 +40,12 @@ class TextAIProvider(Protocol):
 
     provider_id: str
 
-    def generate_text(self, prompt: str, model: str) -> AIResponse: ...
+    def generate_text(
+        self,
+        prompt: str,
+        model: str,
+        cancel_event: threading.Event | None = None,
+    ) -> AIResponse: ...
 
     def close(self) -> None: ...
 

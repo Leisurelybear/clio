@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import os
 import stat
+import threading
+from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -15,7 +18,9 @@ from clio.utils import (
     find_videos,
     format_index,
     mask_if_looks_like_key,
+    parse_retry_after,
     resolve_binary,
+    retry_after_seconds,
     sanitize_name,
     with_retry,
     write_secret_atomic,
@@ -274,6 +279,213 @@ class TestWithRetry:
         with pytest.raises(ValueError):
             with_retry(fn, attempts=1, retry_on=(ValueError,), what="test")
         assert len(calls) == 1
+
+    def test_jitter_expands_exponential_delay(self, monkeypatch):
+        monkeypatch.setattr("clio.utils.random.uniform", lambda low, high: high)
+        delays = []
+        calls = []
+
+        def fn():
+            calls.append(1)
+            if len(calls) == 1:
+                raise ValueError("temporary")
+            return "ok"
+
+        assert (
+            with_retry(
+                fn,
+                attempts=2,
+                base_delay=2.0,
+                retry_on=(ValueError,),
+                what="test",
+                jitter=0.25,
+                sleep=delays.append,
+            )
+            == "ok"
+        )
+        assert delays == [pytest.approx(2.5)]
+
+    def test_jitter_can_be_disabled(self):
+        delays = []
+        calls = []
+
+        def fn():
+            calls.append(1)
+            if len(calls) == 1:
+                raise ValueError("temporary")
+            return "ok"
+
+        with_retry(
+            fn,
+            attempts=2,
+            base_delay=2.0,
+            retry_on=(ValueError,),
+            what="test",
+            jitter=0.0,
+            sleep=delays.append,
+        )
+        assert delays == [2.0]
+
+    def test_delay_for_overrides_backoff(self, monkeypatch):
+        monkeypatch.setattr("clio.utils.random.uniform", lambda low, high: high)
+        delays = []
+        calls = []
+
+        def fn():
+            calls.append(1)
+            if len(calls) == 1:
+                raise ValueError("temporary")
+            return "ok"
+
+        with_retry(
+            fn,
+            attempts=2,
+            base_delay=8.0,
+            retry_on=(ValueError,),
+            what="test",
+            delay_for=lambda exc: 2.0,
+            sleep=delays.append,
+        )
+        assert delays == [2.0]
+
+    def test_delay_for_none_falls_back_to_backoff(self):
+        delays = []
+        calls = []
+
+        def fn():
+            calls.append(1)
+            if len(calls) == 1:
+                raise ValueError("temporary")
+            return "ok"
+
+        with_retry(
+            fn,
+            attempts=2,
+            base_delay=1.0,
+            retry_on=(ValueError,),
+            what="test",
+            delay_for=lambda exc: None,
+            jitter=0.0,
+            sleep=delays.append,
+        )
+        assert delays == [1.0]
+
+    def test_delay_for_error_falls_back_to_backoff(self):
+        delays = []
+        calls = []
+
+        def fn():
+            calls.append(1)
+            if len(calls) == 1:
+                raise ValueError("temporary")
+            return "ok"
+
+        def broken_hook(exc):
+            raise RuntimeError("hook failed")
+
+        with_retry(
+            fn,
+            attempts=2,
+            base_delay=1.0,
+            retry_on=(ValueError,),
+            what="test",
+            delay_for=broken_hook,
+            jitter=0.0,
+            sleep=delays.append,
+        )
+        assert delays == [1.0]
+
+    def test_max_delay_clamps_requested_delay(self):
+        delays = []
+        calls = []
+
+        def fn():
+            calls.append(1)
+            if len(calls) == 1:
+                raise ValueError("temporary")
+            return "ok"
+
+        with_retry(
+            fn,
+            attempts=2,
+            base_delay=1.0,
+            retry_on=(ValueError,),
+            what="test",
+            delay_for=lambda exc: 300.0,
+            max_delay=5.0,
+            sleep=delays.append,
+        )
+        assert delays == [5.0]
+
+    def test_cancel_event_interrupts_wait(self):
+        cancel = threading.Event()
+        calls = []
+
+        def fn():
+            calls.append(1)
+            raise ValueError("temporary")
+
+        timer = threading.Timer(0.05, cancel.set)
+        timer.start()
+        try:
+            with pytest.raises(InterruptedError):
+                with_retry(
+                    fn,
+                    attempts=3,
+                    base_delay=30.0,
+                    retry_on=(ValueError,),
+                    what="test",
+                    cancel_event=cancel,
+                )
+        finally:
+            timer.cancel()
+        assert len(calls) == 1
+
+    def test_already_cancelled_skips_fn(self):
+        cancel = threading.Event()
+        cancel.set()
+        calls = []
+
+        def fn():
+            calls.append(1)
+            return "ok"
+
+        with pytest.raises(InterruptedError):
+            with_retry(fn, retry_on=(ValueError,), what="test", cancel_event=cancel)
+        assert calls == []
+
+
+class TestParseRetryAfter:
+    def test_delta_seconds(self):
+        assert parse_retry_after("2") == 2.0
+        assert parse_retry_after(" 1.5 ") == 1.5
+
+    def test_negative_clamped_to_zero(self):
+        assert parse_retry_after("-3") == 0.0
+
+    def test_http_date_uses_now(self):
+        target = datetime(2026, 10, 21, 7, 28, 0, tzinfo=timezone.utc).timestamp()  # noqa: UP017
+        raw = "Wed, 21 Oct 2026 07:28:00 GMT"
+        assert parse_retry_after(raw, now=lambda: target - 60) == pytest.approx(60.0)
+
+    def test_expired_http_date_clamped_to_zero(self):
+        target = datetime(2026, 10, 21, 7, 28, 0, tzinfo=timezone.utc).timestamp()  # noqa: UP017
+        raw = "Wed, 21 Oct 2026 07:28:00 GMT"
+        assert parse_retry_after(raw, now=lambda: target + 120) == 0.0
+
+    def test_invalid_values(self):
+        assert parse_retry_after(None) is None
+        assert parse_retry_after("") is None
+        assert parse_retry_after("not-a-date") is None
+        assert parse_retry_after("nan") is None
+
+    def test_retry_after_seconds_reads_response_header(self):
+        exc = SimpleNamespace(response=SimpleNamespace(headers={"Retry-After": "7"}))
+        assert retry_after_seconds(exc) == 7.0
+
+    def test_retry_after_seconds_without_response(self):
+        assert retry_after_seconds(ValueError("no response")) is None
+        assert retry_after_seconds(SimpleNamespace(response=None)) is None
 
 
 # ── discover_ffmpeg_bin / resolve_binary ────────────────────────

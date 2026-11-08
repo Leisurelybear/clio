@@ -24,6 +24,7 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
   - [x] B4: share dotenv parsing and preserve shell-only environment variables on UI save
   - [x] B5: whitelist dotenv keys and never expose API key values through the UI API
   - [x] B6: isolate CPU fallback device override from shared Whisper configuration
+  - [x] B7: honor Retry-After, add backoff jitter, and cancel retry waits
   - [x] C3: include effective task settings in analysis, voiceover, and plan lineage fingerprints
   - [x] C4: assign analysis outputs to relative days from capture dates for multi-day planning
   - [x] C5: preserve opening and ending segments when plan output exceeds max clips

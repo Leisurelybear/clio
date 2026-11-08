@@ -704,10 +704,11 @@ def generate_voiceover(
             provider.provider_id,
             model,
             prompt,
-            lambda: provider.generate_text(prompt, model),
+            lambda: provider.generate_text(prompt, model, cancel_event=cancel_event),
             debug_print=config.ai.debug_print_prompt,
             token_store=token_store,
             task_name=TaskName.VOICEOVER,
+            cancel_event=cancel_event,
         )
     return _validate_voiceover(extract_json(text), clip_data.get("title", ""))
 
@@ -900,7 +901,7 @@ def summarize_window_analysis(
                 provider.provider_id,
                 model,
                 prompt,
-                lambda: provider.generate_text(prompt, model),
+                lambda: provider.generate_text(prompt, model, cancel_event=cancel_event),
                 debug_print=config.ai.debug_print_prompt,
                 token_store=token_store,
                 task_name=TaskName.REFINE_TEXT,
