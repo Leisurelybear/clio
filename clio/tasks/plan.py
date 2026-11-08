@@ -123,7 +123,7 @@ def _read_voiceover(config: AppConfig, analysis_path: Path) -> str:
     return value.strip() if isinstance(value, str) else ""
 
 
-def _read_analysis_json(path: Path) -> tuple[dict[str, Any] | None, str | None]:
+def _read_json_object(path: Path) -> tuple[dict[str, Any] | None, str | None]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError, UnicodeError):
@@ -249,7 +249,7 @@ def _discover_day_labels_with_errors(config: AppConfig) -> tuple[list[str], list
     labels: set[str] = set()
     skipped: list[tuple[str, str]] = []
     for json_file in sorted(config.texts_dir.glob("*.json")):
-        data, error = _read_analysis_json(json_file)
+        data, error = _read_json_object(json_file)
         if error is not None:
             skipped.append((json_file.name, error))
             continue
@@ -287,7 +287,7 @@ def run_plan_vlog(
             return
         if selected is not None and not _matches_selected_artifact(json_file, selected):
             continue
-        data, error = _read_analysis_json(json_file)
+        data, error = _read_json_object(json_file)
         if error is not None:
             skipped_inputs.append((json_file.name, error))
             continue
@@ -370,20 +370,21 @@ def run_plan_vlog(
     trans_dir = config.transcripts_dir
     if trans_dir.is_dir() and config.whisper.enabled and config.plan.use_transcripts:
         for tf in sorted(trans_dir.glob("*_transcript.json")):
-            try:
-                data = json.loads(tf.read_text(encoding="utf-8"))
-                identity = load_identity(data)
-                if identity is not None:
-                    stem = identity.compressed_stem
-                else:
-                    stem = data.get("source_stem", "")
-                    if "_" in stem:
-                        stem = stem.split("_", 1)[1]
-                    stem = SEGMENT_SUFFIX_RE.sub("", stem)
-                if stem:
-                    transcripts_map[stem.lower()] = data
-            except (json.JSONDecodeError, KeyError):
+            data, error = _read_json_object(tf)
+            if error is not None or data is None:
                 continue
+            identity = load_identity(data)
+            if identity is not None:
+                stem = identity.compressed_stem
+            else:
+                stem = data.get("source_stem", "")
+                if not isinstance(stem, str):
+                    continue
+                if "_" in stem:
+                    stem = stem.split("_", 1)[1]
+                stem = SEGMENT_SUFFIX_RE.sub("", stem)
+            if stem:
+                transcripts_map[stem.lower()] = data
     if config.plan.use_transcripts and not transcripts_map:
         print(t("task.plan.transcripts_missing"))
         print(t("task.plan.transcripts_missing_hint"))

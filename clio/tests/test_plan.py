@@ -549,15 +549,23 @@ class TestRunPlanVlog:
             run_plan_vlog(loaded_config, "day1")
         assert "gl010683" in mock.call_args.kwargs["transcripts_map"]
 
-    def test_corrupt_transcript_skipped(self, loaded_config: AppConfig) -> None:
+    @pytest.mark.parametrize("content", ["{corrupt", "[]", '{"source_stem": 123}', b"\xff"])
+    def test_corrupt_transcript_skipped(self, loaded_config: AppConfig, content: str | bytes) -> None:
         _write_analysis(loaded_config, _analysis("001"))
         loaded_config.plan.use_transcripts = True
         loaded_config.project_cfg.whisper.enabled = True
         loaded_config.transcripts_dir.mkdir(parents=True, exist_ok=True)
-        (loaded_config.transcripts_dir / "bad_transcript.json").write_text("{corrupt", encoding="utf-8")
+        bad_transcript = loaded_config.transcripts_dir / "000_bad_transcript.json"
+        if isinstance(content, bytes):
+            bad_transcript.write_bytes(content)
+        else:
+            bad_transcript.write_text(content, encoding="utf-8")
+        valid = {"segments": [], "source_stem": "001_GL010683"}
+        (loaded_config.transcripts_dir / "001_GL010683_transcript.json").write_text(json.dumps(valid), encoding="utf-8")
         with patch("clio.tasks.plan.plan_daily_vlog", return_value={"day_title": "day1", "sequence": []}) as mock:
             run_plan_vlog(loaded_config, "day1")
-        assert mock.call_args.kwargs["transcripts_map"] == {}
+        assert mock.called
+        assert mock.call_args.kwargs["transcripts_map"] == {"gl010683": valid}
 
     def test_missing_index_uses_file_stem(self, loaded_config: AppConfig) -> None:
         no_index = _analysis("001", source="SRC3")
