@@ -109,6 +109,59 @@ def test_analysis_lineage_changes_with_window_and_compression_settings(
     assert _analysis_lineage_fingerprint(cfg) != base
 
 
+def test_build_day_labels_uses_capture_dates_and_filename_fallback(monkeypatch, tmp_path: Path):
+    from clio.tasks.analyze import _build_day_labels
+
+    cfg = _cfg(tmp_path)
+    first = tmp_path / "20261108_120000.mp4"
+    second = tmp_path / "20261109_090000.mp4"
+    unknown = tmp_path / "GL010683.mp4"
+    for path in (first, second, unknown):
+        path.write_bytes(b"video")
+
+    def fake_probe(cmd, **kwargs):
+        path = Path(cmd[-1])
+        date = "2026-11-08T12:00:00Z" if path == first else "2026-11-09T09:00:00Z"
+        return type("ProbeResult", (), {"stdout": json.dumps({"format": {"tags": {"creation_time": date}}})})()
+
+    monkeypatch.setattr("clio.tasks.analyze.resolve_binary", lambda *args: "ffprobe")
+    monkeypatch.setattr("clio.tasks.analyze.run_probe", fake_probe)
+    items = [(tmp_path / "001_first.mp4", first, "001"), (tmp_path / "002_second.mp4", second, "002")]
+
+    labels = _build_day_labels(cfg, items)
+
+    assert labels[str(first.resolve())] == "day1"
+    assert labels[str(second.resolve())] == "day2"
+
+
+def test_selected_analysis_keeps_project_day_mapping(monkeypatch, tmp_path: Path):
+    cfg = _cfg(tmp_path)
+    first = _add_original(cfg, "20261108_120000.mp4")
+    _add_original(cfg, "20261109_090000.mp4")
+    (cfg.compressed_dir / "001_20261108_120000.mp4").write_bytes(b"video")
+    (cfg.compressed_dir / "002_20261109_090000.mp4").write_bytes(b"video")
+
+    _common_mocks(monkeypatch)
+    monkeypatch.setattr("clio.tasks.analyze.get_duration_sec", lambda *args: 60.0)
+
+    def fake_probe(cmd, **kwargs):
+        source = Path(cmd[-1])
+        date = "2026-11-08T12:00:00Z" if source == first else "2026-11-09T09:00:00Z"
+        return type("ProbeResult", (), {"stdout": json.dumps({"format": {"tags": {"creation_time": date}}})})()
+
+    monkeypatch.setattr("clio.tasks.analyze.run_probe", fake_probe)
+    monkeypatch.setattr(
+        "clio.tasks.analyze.analyze_video",
+        lambda *args, **kwargs: {"title": "selected", "summary": "s", "location": "x"},
+    )
+
+    records = run_analyze_all(cfg, files=["002_20261109_090000"])
+
+    assert len(records) == 1
+    saved = next(cfg.texts_dir.glob("*.json"))
+    assert json.loads(saved.read_text(encoding="utf-8"))["day_label"] == "day2"
+
+
 class TestRunAnalyzeAll:
     def test_analyze_single_file(self, monkeypatch, tmp_path: Path):
         cfg = _cfg(tmp_path)

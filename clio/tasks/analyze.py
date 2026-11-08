@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import subprocess
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -49,8 +52,71 @@ from clio.tasks._helpers import (
 )
 from clio.tasks.cover import extract_cover_frame
 from clio.tasks.transcript_align import attach_transcript_to_analysis
-from clio.utils import get_duration_sec, resolve_binary, write_json_atomic
+from clio.utils import get_duration_sec, resolve_binary, run_probe, write_json_atomic
 from clio.vmeta import VideoIndex
+
+_CAPTURE_DATE_RE = re.compile(r"(?<!\d)(20\d{2})[-_]?([01]\d)[-_]?([0-3]\d)")
+
+
+def _capture_date_key(value: str) -> str:
+    match = _CAPTURE_DATE_RE.search(value)
+    if not match:
+        return ""
+    try:
+        return datetime.strptime("".join(match.groups()), "%Y%m%d").date().isoformat()
+    except ValueError:
+        return ""
+
+
+def _original_capture_date(original: Path, ffprobe: str) -> str:
+    if ffprobe and original.is_file():
+        try:
+            result = run_probe(
+                [
+                    ffprobe,
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format_tags=creation_time:stream_tags=creation_time",
+                    "-of",
+                    "json",
+                    str(original),
+                ],
+                max_output_bytes=16384,
+            )
+            probe_data = json.loads(result.stdout or "{}")
+            format_tags = (probe_data.get("format") or {}).get("tags") or {}
+            if isinstance(format_tags, dict):
+                for key, value in format_tags.items():
+                    if key.lower() == "creation_time":
+                        date_key = _capture_date_key(str(value))
+                        if date_key:
+                            return date_key
+            for stream in probe_data.get("streams") or []:
+                tags = stream.get("tags") or {}
+                if isinstance(tags, dict):
+                    for key, value in tags.items():
+                        if key.lower() == "creation_time":
+                            date_key = _capture_date_key(str(value))
+                            if date_key:
+                                return date_key
+        except (OSError, RuntimeError, subprocess.SubprocessError, ValueError, TypeError, json.JSONDecodeError):
+            pass
+    return _capture_date_key(original.stem)
+
+
+def _build_day_labels(config: AppConfig, items: list[tuple[Path, Path, str]]) -> dict[str, str]:
+    """Map each source path to a stable relative day label for this project."""
+    if len(items) <= 1:
+        return {str(original.resolve()): "day1" for _, original, _ in items}
+    try:
+        ffprobe = resolve_binary(config.paths.ffprobe, "ffprobe")
+    except OSError:
+        ffprobe = ""
+    dates = {str(original.resolve()): _original_capture_date(original, ffprobe) for _, original, _ in items}
+    known_dates = sorted({date for date in dates.values() if date})
+    labels = {date: f"day{index}" for index, date in enumerate(known_dates, start=1)}
+    return {path: labels.get(date, "day1") for path, date in dates.items()}
 
 
 def _analysis_lineage_fingerprint(
@@ -250,6 +316,7 @@ def _process_video_item(
     tracker: ProgressTracker | None,
     state: ProcessingState,
     error_count: list[int],
+    day_label: str = "day1",
     cancel_event: threading.Event | None = None,
     context_override: str | None = None,
     task_prompts: dict[str, str] | None = None,
@@ -287,6 +354,9 @@ def _process_video_item(
                 existing_data = json.loads(candidate.read_text(encoding="utf-8"))
                 source_matches = existing_data.get("source_file", "") == original.name
                 if source_matches and existing_data.get("_lineage") == current_lineage and json_path is None:
+                    if not str(existing_data.get("day_label") or "").strip():
+                        existing_data["day_label"] = day_label
+                        write_json_atomic(candidate, existing_data)
                     json_path = candidate
                     analysis = existing_data
                     continue
@@ -295,6 +365,8 @@ def _process_video_item(
                     # future prompt/model changes invalidate it.
                     json_path = candidate
                     analysis = existing_data
+                    if not str(analysis.get("day_label") or "").strip():
+                        analysis["day_label"] = day_label
                     analysis["_lineage"] = current_lineage
                     write_json_atomic(candidate, analysis)
                     if tracker:
@@ -404,6 +476,8 @@ def _process_video_item(
     analysis["index"] = idx_val
     analysis["source_file"] = original.name
     analysis["compressed_file"] = compressed.name  # stable lookup key for videos.py
+    if not str(analysis.get("day_label") or "").strip():
+        analysis["day_label"] = day_label
     identity = resolve_identity(compressed, idx_str, project_dir=config.project_dir)
     add_schema_version(analysis)
     analysis["_lineage"] = _analysis_lineage_fingerprint(config, task_prompts, effective_context, transcript_context)
@@ -507,6 +581,19 @@ def run_analyze_all(
             idx_str = parts[0]
             items.append((p, orig_path, idx_str))
 
+    # Keep the complete project item set for day assignment. A selected-file
+    # run must retain the same dayN mapping as a full analysis run.
+    all_items = list(items)
+    if single_file or files is not None:
+        all_items = []
+        for p in _list_compressed(config.compressed_dir):
+            parts = p.stem.split("_", 1)
+            if len(parts) != 2 or not parts[0].isdigit():
+                continue
+            orig_path = _resolve_original(p.stem, stem_cache, config.project_dir)
+            if orig_path is not None:
+                all_items.append((p, orig_path, parts[0]))
+
     if files is not None:
         selected = _selected_stems(files)
         items = [
@@ -516,6 +603,8 @@ def run_analyze_all(
     if not items:
         print(t("task.analyze.compressed_dir_empty", {"path": config.compressed_dir}))
         return []
+
+    day_labels = _build_day_labels(config, all_items)
 
     total = len(items)
     print(t("task.analyze.pending", {"total": total, "path": config.compressed_dir}))
@@ -561,6 +650,7 @@ def run_analyze_all(
                         tracker,
                         state,
                         error_count,
+                        day_labels.get(str(original.resolve()), "day1"),
                         cancel_event,
                         context_override,
                         task_prompts,
