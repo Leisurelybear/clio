@@ -7,8 +7,10 @@ import io
 import json
 import os
 import re
+import subprocess
 from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from clio.config import AppConfig
@@ -19,6 +21,7 @@ from clio.utils import (
     format_index,
     probe_video_info,
     resolve_binary,
+    run_probe,
     sanitize_name,
     write_bytes_atomic,
     write_text_atomic,
@@ -65,6 +68,94 @@ class ClipRecord:
 
 _INDEX_PREFIX_RE = re.compile(r"^\d+_(.+)$")
 _ARTIFACT_SUFFIXES = ("_voiceover", "_transcript", "_labeled")
+
+
+_CAPTURE_TIME_RE = re.compile(r"(?<!\d)(20\d{2}[01]\d[0-3]\d)[_-]?([0-2]\d[0-5]\d[0-5]\d)(?!\d)")
+_CAPTURE_TIME_FORMATS = ("%Y%m%d%H%M%S", "%Y-%m-%d %H:%M:%S", "%Y:%m:%d %H:%M:%S")
+
+
+def _parse_capture_time_text(value: str) -> datetime | None:
+    """Parse an ISO-8601 or compact capture timestamp into a naive sort key.
+
+    Aware timestamps are converted to the machine's wall clock so they line up
+    with the local time cameras usually encode in filenames.
+    """
+    text = str(value).strip()
+    if not text:
+        return None
+    iso_text = f"{text[:-1]}+00:00" if text[-1] in "Zz" else text
+    parsed: datetime | None = None
+    try:
+        parsed = datetime.fromisoformat(iso_text)
+    except ValueError:
+        for fmt in _CAPTURE_TIME_FORMATS:
+            try:
+                parsed = datetime.strptime(text, fmt)
+            except ValueError:
+                continue
+            break
+    if parsed is None:
+        return None
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone().replace(tzinfo=None)
+    return parsed
+
+
+def _filename_capture_time(stem: str) -> datetime | None:
+    """Return the capture time embedded in a filename such as ``20240115_143000``."""
+    match = _CAPTURE_TIME_RE.search(stem)
+    if not match:
+        return None
+    return _parse_capture_time_text("".join(match.groups()))
+
+
+def _probe_creation_time_text(path: Path, ffprobe: str) -> str:
+    """Return the container creation_time tag exactly as written, or ``""``."""
+    if not ffprobe:
+        return ""
+    try:
+        result = run_probe(
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-show_entries",
+                "format_tags=creation_time:stream_tags=creation_time",
+                "-of",
+                "json",
+                str(path),
+            ],
+            max_output_bytes=16384,
+        )
+        probe_data = json.loads(result.stdout or "{}")
+    except (OSError, RuntimeError, subprocess.SubprocessError, TypeError, ValueError, json.JSONDecodeError):
+        return ""
+    if not isinstance(probe_data, dict):
+        return ""
+    fmt = probe_data.get("format")
+    format_tags = (fmt.get("tags") if isinstance(fmt, dict) else None) or {}
+    if isinstance(format_tags, dict):
+        for key, value in format_tags.items():
+            if str(key).lower() == "creation_time" and isinstance(value, str) and value.strip():
+                return value.strip()
+    for stream in probe_data.get("streams") or []:
+        if not isinstance(stream, dict):
+            continue
+        tags = stream.get("tags") or {}
+        if isinstance(tags, dict):
+            for key, value in tags.items():
+                if str(key).lower() == "creation_time" and isinstance(value, str) and value.strip():
+                    return value.strip()
+    return ""
+
+
+def _media_capture_time(path: Path, ffprobe: str = "") -> datetime | None:
+    """Best-effort capture time for sorting: filename first, container tag second."""
+    captured = _filename_capture_time(path.stem)
+    if captured is not None:
+        return captured
+    raw = _probe_creation_time_text(path, ffprobe) if path.is_file() else ""
+    return _parse_capture_time_text(raw) if raw else None
 
 
 def _strip_artifact_suffixes(stem: str) -> str:

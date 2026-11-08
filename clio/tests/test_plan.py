@@ -329,7 +329,7 @@ class TestRunPlanVlog:
 
         with (
             patch("clio.tasks.plan.resolve_binary", return_value="ffprobe-test"),
-            patch("clio.tasks.plan.run_probe", return_value=probe_result),
+            patch("clio.tasks._helpers.run_probe", return_value=probe_result),
             patch("clio.tasks.plan.plan_daily_vlog", return_value={"day_title": "day1", "sequence": []}) as mock,
         ):
             result = run_plan_vlog(loaded_config, "day1", overwrite=True)

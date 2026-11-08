@@ -5,10 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import re
-import subprocess
 import threading
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -24,15 +21,16 @@ from clio.prompt_overrides import resolve_prompt_template
 from clio.prompts import PLAN_PROMPT, TRANSCRIPT_CONTEXT
 from clio.schema import add_schema_version
 from clio.tasks._helpers import (
+    _filename_capture_time,
     _matches_selected_artifact,
+    _probe_creation_time_text,
     _project_selection_stems,
     _selection_from_files,
     _task_lineage_settings,
 )
-from clio.utils import format_index, plan_day_stem, resolve_binary, run_probe, write_json_atomic, write_text_atomic
+from clio.utils import format_index, plan_day_stem, resolve_binary, write_json_atomic, write_text_atomic
 from clio.vmeta import VideoMeta
 
-_CAPTURE_TIME_RE = re.compile(r"(?<!\d)(20\d{2}[01]\d[0-3]\d)[_-]?([0-2]\d[0-5]\d[0-5]\d)(?!\d)")
 _CAPTURE_TIME_KEYS = ("capture_time", "recorded_at", "creation_time", "date_time")
 
 
@@ -91,41 +89,12 @@ def _capture_time(data: dict[str, Any], source_stem: str, source_path: str = "",
                 return value.strip()
 
     if source_path and ffprobe and Path(source_path).is_file():
-        try:
-            result = run_probe(
-                [
-                    ffprobe,
-                    "-v",
-                    "error",
-                    "-show_entries",
-                    "format_tags=creation_time:stream_tags=creation_time",
-                    "-of",
-                    "json",
-                    source_path,
-                ],
-                max_output_bytes=16384,
-            )
-            probe_data = json.loads(result.stdout or "{}")
-            format_tags = (probe_data.get("format") or {}).get("tags") or {}
-            if isinstance(format_tags, dict):
-                for key, value in format_tags.items():
-                    if key.lower() == "creation_time" and isinstance(value, str) and value.strip():
-                        return value.strip()
-            for stream in probe_data.get("streams") or []:
-                tags = stream.get("tags") or {}
-                if isinstance(tags, dict):
-                    for key, value in tags.items():
-                        if key.lower() == "creation_time" and isinstance(value, str) and value.strip():
-                            return value.strip()
-        except (OSError, RuntimeError, subprocess.SubprocessError, TypeError, ValueError, json.JSONDecodeError):
-            pass
+        probed = _probe_creation_time_text(Path(source_path), ffprobe)
+        if probed:
+            return probed
 
-    match = _CAPTURE_TIME_RE.search(source_stem)
-    if match:
-        try:
-            captured = datetime.strptime("".join(match.groups()), "%Y%m%d%H%M%S")
-        except ValueError:
-            return ""
+    captured = _filename_capture_time(source_stem)
+    if captured is not None:
         return captured.isoformat(sep=" ", timespec="seconds")
     return ""
 

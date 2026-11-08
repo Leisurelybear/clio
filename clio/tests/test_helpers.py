@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,10 +13,13 @@ from clio.tasks._helpers import (
     _artifact_source_path,
     _build_stem,
     _eta_line,
+    _filename_capture_time,
     _get_video_info,
     _matches_selected_artifact,
     _matches_selected_stem,
+    _media_capture_time,
     _next_index,
+    _parse_capture_time_text,
     _path_key,
     _rewrite_script_md,
     _rewrite_text_file,
@@ -554,3 +558,37 @@ class TestStemToPathMap:
 
         a = tmp_path / "clip.mp4"
         assert stem_to_path_map([a, a])["clip"] == a
+
+
+class TestCaptureTimeParsing:
+    def test_filename_compact_timestamp(self):
+        assert _filename_capture_time("20240115_143000") == datetime(2024, 1, 15, 14, 30, 0)
+
+    def test_filename_timestamp_inside_longer_name(self):
+        assert _filename_capture_time("GX_20240115-143000_final") == datetime(2024, 1, 15, 14, 30, 0)
+
+    def test_filename_without_timestamp(self):
+        assert _filename_capture_time("GH010123") is None
+
+    def test_iso_utc_timestamp_is_normalized_to_local_wall_clock(self):
+        parsed = _parse_capture_time_text("2024-01-15T06:30:00Z")
+        expected = _parse_capture_time_text("2024-01-15T06:30:00+00:00")
+        assert parsed is not None and parsed.tzinfo is None
+        assert parsed == expected
+
+    def test_quicktime_timestamp(self):
+        assert _parse_capture_time_text("2024:01:15 14:30:00") == datetime(2024, 1, 15, 14, 30, 0)
+
+    def test_invalid_timestamp_returns_none(self):
+        assert _parse_capture_time_text("not a time") is None
+        assert _parse_capture_time_text("") is None
+
+    def test_media_capture_time_falls_back_to_container_tag(self, monkeypatch, tmp_path: Path):
+        video = tmp_path / "GH010123.mp4"
+        video.write_bytes(b"")
+        monkeypatch.setattr(
+            "clio.tasks._helpers._probe_creation_time_text",
+            lambda *a: "2024-01-15T06:30:00Z",
+        )
+        parsed = _media_capture_time(video, "ffprobe")
+        assert parsed is not None and parsed.year == 2024 and parsed.tzinfo is None

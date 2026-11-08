@@ -633,3 +633,35 @@ class TestSelectionPathMatching:
         run_compress_all(cfg, files=["clip.mp4"])
 
         assert seen == [a, b]
+
+
+class TestCaptureTimeOrdering:
+    def _mock_encoder(self, monkeypatch):
+        monkeypatch.setattr("clio.tasks.compress.resolve_binary", lambda *a: "ffmpeg")
+
+        def _mock_compress(inp, outp, c, **kw):
+            outp.write_bytes(b"\x00" * 60_000)
+            return outp
+
+        monkeypatch.setattr("clio.tasks.compress.compress_video", _mock_compress)
+
+    def test_indexes_follow_capture_time_not_add_order(self, monkeypatch, tmp_path: Path):
+        cfg = _cfg(tmp_path)
+        _add_video(cfg, "20240116_180000.mp4")
+        _add_video(cfg, "20240115_090000.mp4")
+        self._mock_encoder(monkeypatch)
+
+        records = run_compress_all(cfg)
+
+        assert [r.stem for r in records] == ["001_20240115_090000", "002_20240116_180000"]
+
+    def test_undated_videos_sort_last_and_keep_input_order(self, monkeypatch, tmp_path: Path):
+        cfg = _cfg(tmp_path)
+        _add_video(cfg, "b_unknown.mp4")
+        _add_video(cfg, "20240115_090000.mp4")
+        _add_video(cfg, "a_unknown.mp4")
+        self._mock_encoder(monkeypatch)
+
+        records = run_compress_all(cfg)
+
+        assert [r.stem for r in records] == ["001_20240115_090000", "002_b_unknown", "003_a_unknown"]

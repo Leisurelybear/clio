@@ -31,6 +31,7 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
   - [x] D10: compare transcript engine, model, and language before cache reuse
   - [x] D11: skip label generation with a warning when no drawtext font is available
   - [x] D14: cache offline originals so startup does not repeat ffprobe work
+  - [x] D16: order new compressions by capture time so indexes follow shooting order
   - [x] D17: match selected originals by full path so same-named clips stay independent
   - [x] D19: validate analysis saves and fail the CLI when batch refinement fails
   - [ ] Next: continue the review backlog; one focused fix per commit

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +15,14 @@ from clio.i18n import t
 from clio.log import timed
 from clio.processing_state import ProcessingState
 from clio.progress import ProgressTracker
-from clio.tasks._helpers import ClipRecord, _eta_line, _matches_selected_stem, _next_index, _selection_from_files
+from clio.tasks._helpers import (
+    ClipRecord,
+    _eta_line,
+    _matches_selected_stem,
+    _media_capture_time,
+    _next_index,
+    _selection_from_files,
+)
 from clio.utils import format_index, get_duration_sec, resolve_binary
 from clio.vmeta import VMETA_EXT, SegmentEntry, VideoIndex, VideoMeta
 
@@ -24,6 +32,19 @@ def _safe_duration(path: Path, ffprobe: str) -> float:
         return get_duration_sec(path, ffprobe)
     except Exception:
         return 0.0
+
+
+def _sort_items_by_capture_time(items: list[tuple[Path, Path]], ffprobe: str) -> list[tuple[Path, Path]]:
+    """Order new compressions by capture time so indexes follow shooting order.
+
+    Files without a usable timestamp sort last and keep their input order.
+    """
+    keyed: list[tuple[bool, datetime, int, tuple[Path, Path]]] = []
+    for position, item in enumerate(items):
+        captured = _media_capture_time(item[0], ffprobe)
+        keyed.append((captured is None, captured or datetime.min, position, item))
+    keyed.sort(key=lambda row: (row[0], row[1], row[2]))
+    return [row[3] for row in keyed]
 
 
 def _compress_settings_fingerprint(config: AppConfig) -> dict:
@@ -232,8 +253,10 @@ def run_compress_all(
         videos = [v for v in videos if _matches_selected_stem(v, selected)]
     config.compressed_dir.mkdir(parents=True, exist_ok=True)
 
-    # Phase 1: one compressed file per original.
+    # Phase 1: one compressed file per original, newest index follows shooting order.
     items: list[tuple[Path, Path]] = [(video, video) for video in videos]
+    if len(items) > 1:
+        items = _sort_items_by_capture_time(items, ffprobe)
 
     # Phase 2: build existing lookup (source path or stem -> (index, Path, VideoMeta))
     # Only include files >= 50KB to skip partially-written files from interrupted runs.
