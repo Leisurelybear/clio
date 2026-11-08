@@ -45,6 +45,8 @@ class TextAIProvider(Protocol):
         prompt: str,
         model: str,
         cancel_event: threading.Event | None = None,
+        *,
+        temperature: float | None = None,
     ) -> AIResponse: ...
 
     def close(self) -> None: ...
@@ -61,6 +63,8 @@ class VideoAIProvider(TextAIProvider, Protocol):
         model: str,
         progress_callback: Callable[[str], None] | None = None,
         cancel_event: threading.Event | None = None,
+        *,
+        temperature: float | None = None,
     ) -> AIResponse: ...
 
 

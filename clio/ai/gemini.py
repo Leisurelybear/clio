@@ -50,9 +50,23 @@ class GeminiProvider:
         self._rl = make_rate_limiter(cfg.requests_per_minute)
         self._poll_interval = cfg.poll_interval_sec
         self._retry_attempts = max(1, cfg.retry_attempts + 1)
+        self._max_tokens = int(cfg.max_tokens)
         self._generation_config = (
-            types.GenerateContentConfig(max_output_tokens=cfg.max_tokens) if cfg.max_tokens > 0 else None
+            types.GenerateContentConfig(max_output_tokens=self._max_tokens) if self._max_tokens > 0 else None
         )
+
+    def _config_for(self, temperature: float | None):
+        """Build a per-call config when a temperature is requested.
+
+        The cached `_generation_config` is shared across concurrent calls, so it
+        must never be mutated in place.
+        """
+        if temperature is None:
+            return self._generation_config
+        kwargs: dict = {"temperature": float(temperature)}
+        if self._max_tokens > 0:
+            kwargs["max_output_tokens"] = self._max_tokens
+        return types.GenerateContentConfig(**kwargs)
 
     def _is_retryable(self, exc: BaseException) -> bool:
         """判断异常是否应该重试。"""
@@ -208,16 +222,19 @@ class GeminiProvider:
         prompt: str,
         model: str,
         cancel_event: threading.Event | None = None,
+        *,
+        temperature: float | None = None,
     ) -> AIResponse:
         def _do() -> AIResponse:
             self._maybe_wait()
-            if self._generation_config is None:
+            config = self._config_for(temperature)
+            if config is None:
                 response = self._client.models.generate_content(model=model, contents=prompt)
             else:
                 response = self._client.models.generate_content(
                     model=model,
                     contents=prompt,
-                    config=self._generation_config,
+                    config=config,
                 )
             return AIResponse(
                 text=response.text or "",
@@ -234,6 +251,8 @@ class GeminiProvider:
         model: str,
         progress_callback: Callable[[str], None] | None = None,
         cancel_event: threading.Event | None = None,
+        *,
+        temperature: float | None = None,
     ) -> AIResponse:
         uploaded = None
         try:
@@ -266,13 +285,14 @@ class GeminiProvider:
 
             def _do() -> AIResponse:
                 self._maybe_wait()
-                if self._generation_config is None:
+                config = self._config_for(temperature)
+                if config is None:
                     response = self._client.models.generate_content(model=model, contents=[uploaded, prompt])
                 else:
                     response = self._client.models.generate_content(
                         model=model,
                         contents=[uploaded, prompt],
-                        config=self._generation_config,
+                        config=config,
                     )
                 return AIResponse(
                     text=response.text or "",

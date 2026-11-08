@@ -869,3 +869,58 @@ def test_voiceover_prompt_tolerates_malformed_timeline(monkeypatch):
     result = generate_voiceover({"title": "t", "timeline": None}, "template", cfg)
 
     assert result["voiceover"] == "hello"
+
+
+def test_generate_voiceover_forwards_task_temperature(monkeypatch):
+    from clio.analyze import generate_voiceover
+    from clio.config.models import TaskConfig
+
+    cfg = _fake_config()
+    cfg.ai.tasks = {"voiceover": TaskConfig(provider="mock", model="model", temperature=0.7)}
+    provider = MagicMock(provider_id="mock")
+    seen: dict = {}
+
+    def fake_generate(*args, **kwargs):
+        seen.update(kwargs)
+        return AIResponse('{"title":"t","voiceover":"hello"}')
+
+    provider.generate_text.side_effect = fake_generate
+    monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (provider, "model"))
+    monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, cfg, **kw: prompt)
+
+    def fake_call(label, pid, model, prompt, fn, **kw):
+        fn()
+        return '{"title":"t","voiceover":"hello"}'
+
+    monkeypatch.setattr("clio.analyze._call_ai", fake_call)
+
+    generate_voiceover({"title": "t", "timeline": []}, "template", cfg)
+
+    assert seen["temperature"] == 0.7
+
+
+def test_generate_voiceover_omits_temperature_when_unconfigured(monkeypatch):
+    from clio.analyze import generate_voiceover
+
+    cfg = _fake_config()
+    cfg.ai.tasks = {}
+    provider = MagicMock(provider_id="mock")
+    seen: dict = {}
+
+    def fake_generate(*args, **kwargs):
+        seen.update(kwargs)
+        return AIResponse('{"title":"t","voiceover":"hello"}')
+
+    provider.generate_text.side_effect = fake_generate
+    monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (provider, "model"))
+    monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, cfg, **kw: prompt)
+
+    def fake_call(label, pid, model, prompt, fn, **kw):
+        fn()
+        return '{"title":"t","voiceover":"hello"}'
+
+    monkeypatch.setattr("clio.analyze._call_ai", fake_call)
+
+    generate_voiceover({"title": "t", "timeline": []}, "template", cfg)
+
+    assert seen["temperature"] is None

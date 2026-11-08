@@ -556,6 +556,25 @@ describe('_renderTaskBinding', () => {
     expect(html).toContain('task-model-select');
   });
 
+  it('renders the configured temperature on each task card', () => {
+    const tasks = { voiceover: { provider: 'deepseek', model: 'deepseek-chat', temperature: 0.3 } };
+    const html = _renderTaskBinding(tasks, { deepseek: OPENAI_PROVIDER });
+    const div = document.createElement('div');
+    div.innerHTML = html;
+    const temp = div.querySelector('.task-temperature-input[data-task="voiceover"]');
+    expect(temp).not.toBeNull();
+    expect(temp.value).toBe('0.3');
+    expect(temp.getAttribute('data-task')).toBe('voiceover');
+  });
+
+  it('leaves the temperature input empty when unset', () => {
+    const tasks = { voiceover: { provider: 'deepseek', model: 'deepseek-chat' } };
+    const html = _renderTaskBinding(tasks, { deepseek: OPENAI_PROVIDER });
+    const div = document.createElement('div');
+    div.innerHTML = html;
+    expect(div.querySelector('.task-temperature-input[data-task="voiceover"]').value).toBe('');
+  });
+
   it('shows warning when provider has no registered models', () => {
     const html = _renderTaskBinding({ video_analyze: { provider: 'nope' } }, { nope: PROVIDER_NO_MODELS });
     expect(html).toContain('该 Provider 没有注册可用模型');

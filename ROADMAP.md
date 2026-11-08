@@ -37,6 +37,7 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
   - [x] D17: match selected originals by full path so same-named clips stay independent
   - [x] D18: validate cover output files and extract covers from the original source
   - [x] D19: validate analysis saves and fail the CLI when batch refinement fails
+  - [x] O6: configure AI sampling temperature per task instead of hardcoding it in one provider
   - [ ] Next: continue the review backlog; one focused fix per commit
   - Keep the existing uncommitted plan-delete/video-selection work isolated.
 - R-048 Higher-detail video analysis and bounded plan input (plan ready; P0a-P0c not started)

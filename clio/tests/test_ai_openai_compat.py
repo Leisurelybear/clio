@@ -139,7 +139,17 @@ class TestGenerateText:
         assert call_kwargs["json"]["model"] == "deepseek-chat"
         assert call_kwargs["json"]["messages"][0]["content"] == "hello"
         assert "max_tokens" not in call_kwargs["json"]  # 0 = unlimited → omit field
+        assert "temperature" not in call_kwargs["json"]  # unset → let the provider decide
         assert call_kwargs["headers"]["Authorization"] == "Bearer sk-test-key"
+
+    def test_sends_configured_temperature(self):
+        resp = self._mock_response()
+        self._mock_client.post.return_value = resp
+
+        self._prov.generate_text("hello", "deepseek-chat", temperature=0.7)
+
+        call_kwargs = self._mock_client.post.call_args.kwargs
+        assert call_kwargs["json"]["temperature"] == 0.7
 
     def test_positive_max_tokens_is_sent(self):
         from clio.ai.openai_compat import OpenAICompatProvider

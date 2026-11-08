@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from clio.ai.base import AIResponse, TaskName
-from clio.ai.factory import get_task_provider, get_video_provider, provider_use
+from clio.ai.factory import get_task_config, get_task_provider, get_video_provider, provider_use
 from clio.config import AppConfig
 from clio.cut import parse_time_range
 from clio.i18n import t
@@ -29,6 +29,16 @@ from clio.prompts import (
 from clio.utils import extract_json
 
 _trip_context_cache: dict[str, str] = {}
+
+
+def _task_temperature(config: AppConfig, task: TaskName) -> float | None:
+    """Return the configured sampling temperature, tolerating unconfigured tasks."""
+    try:
+        return get_task_config(config, task).temperature
+    except Exception:
+        return None
+
+
 _REFINEMENT_IMMUTABLE_FIELDS = {
     "_lineage",
     "_schema_version",
@@ -636,6 +646,7 @@ def analyze_video(
                 model,
                 progress_callback=progress_callback,
                 cancel_event=cancel_event,
+                temperature=_task_temperature(config, TaskName.VIDEO_ANALYZE),
             ),
             debug_print=config.ai.debug_print_prompt,
             token_store=token_store,
@@ -704,7 +715,12 @@ def generate_voiceover(
             provider.provider_id,
             model,
             prompt,
-            lambda: provider.generate_text(prompt, model, cancel_event=cancel_event),
+            lambda: provider.generate_text(
+                prompt,
+                model,
+                cancel_event=cancel_event,
+                temperature=_task_temperature(config, TaskName.VOICEOVER),
+            ),
             debug_print=config.ai.debug_print_prompt,
             token_store=token_store,
             task_name=TaskName.VOICEOVER,
@@ -776,7 +792,11 @@ def plan_daily_vlog(
             provider.provider_id,
             model,
             call_prompt,
-            lambda: provider.generate_text(call_prompt, model),
+            lambda: provider.generate_text(
+                call_prompt,
+                model,
+                temperature=_task_temperature(config, TaskName.VLOG_PLAN),
+            ),
             debug_print=config.ai.debug_print_prompt,
             token_store=token_store,
             task_name=TaskName.VLOG_PLAN,
@@ -861,7 +881,11 @@ def refine_text(
             provider.provider_id,
             model,
             prompt,
-            lambda: provider.generate_text(prompt, model),
+            lambda: provider.generate_text(
+                prompt,
+                model,
+                temperature=_task_temperature(config, TaskName.REFINE_TEXT),
+            ),
             debug_print=config.ai.debug_print_prompt,
             token_store=token_store,
             task_name=TaskName.REFINE_TEXT,
@@ -901,7 +925,12 @@ def summarize_window_analysis(
                 provider.provider_id,
                 model,
                 prompt,
-                lambda: provider.generate_text(prompt, model, cancel_event=cancel_event),
+                lambda: provider.generate_text(
+                    prompt,
+                    model,
+                    cancel_event=cancel_event,
+                    temperature=_task_temperature(config, TaskName.REFINE_TEXT),
+                ),
                 debug_print=config.ai.debug_print_prompt,
                 token_store=token_store,
                 task_name=TaskName.REFINE_TEXT,
@@ -975,7 +1004,11 @@ def refine_script(
             provider.provider_id,
             model,
             prompt,
-            lambda: provider.generate_text(prompt, model),
+            lambda: provider.generate_text(
+                prompt,
+                model,
+                temperature=_task_temperature(config, TaskName.REFINE_TEXT),
+            ),
             debug_print=config.ai.debug_print_prompt,
             token_store=token_store,
             task_name=TaskName.REFINE_TEXT,

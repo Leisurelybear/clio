@@ -402,6 +402,36 @@ class TestGenerateText:
             config = client.models.generate_content.call_args.kwargs["config"]
             assert config.max_output_tokens == 2048
 
+    def test_temperature_is_sent_in_config(self, proxy_disabled):
+        with patch("clio.ai.gemini.genai.Client") as mock_cls:
+            from clio.ai.gemini import GeminiProvider
+
+            client = MagicMock()
+            mock_cls.return_value = client
+            client.models.generate_content.return_value = MagicMock(text="ok", usage_metadata=None)
+            provider = GeminiProvider(_make_cfg(), proxy_disabled)
+
+            provider.generate_text("hi", "gemini-2.5-flash", temperature=0.7)
+
+            config = client.models.generate_content.call_args.kwargs["config"]
+            assert config.temperature == 0.7
+            assert config.max_output_tokens is None
+
+    def test_temperature_and_max_tokens_coexist(self, proxy_disabled):
+        with patch("clio.ai.gemini.genai.Client") as mock_cls:
+            from clio.ai.gemini import GeminiProvider
+
+            client = MagicMock()
+            mock_cls.return_value = client
+            client.models.generate_content.return_value = MagicMock(text="ok", usage_metadata=None)
+            provider = GeminiProvider(_make_cfg(max_tokens=2048), proxy_disabled)
+
+            provider.generate_text("hi", "gemini-2.5-flash", temperature=0.2)
+
+            config = client.models.generate_content.call_args.kwargs["config"]
+            assert config.temperature == 0.2
+            assert config.max_output_tokens == 2048
+
 
 class TestAnalyzeVideo:
     @pytest.fixture(autouse=True)
@@ -435,6 +465,21 @@ class TestAnalyzeVideo:
         assert result.text == "analysis result"
         assert result.finish_reason == "STOP"
         self._client_mock.files.delete.assert_called_once_with(name="files/test123")
+
+    def test_temperature_is_sent_in_video_config(self, tmp_path):
+        from google.genai import types
+
+        uploaded = MagicMock(spec=types.File)
+        uploaded.name = "files/test123"
+        uploaded.state = types.FileState.ACTIVE
+        self._client_mock.files.upload.return_value = uploaded
+        self._client_mock.files.get.return_value = uploaded
+        self._client_mock.models.generate_content.return_value = MagicMock(text="ok", usage_metadata=None)
+
+        self._prov.analyze_video(str(self._video), "desc", "gemini-2.5-flash", temperature=0.4)
+
+        config = self._client_mock.models.generate_content.call_args.kwargs["config"]
+        assert config.temperature == 0.4
 
     def test_file_too_large(self, tmp_path):
         big = tmp_path / "big.mp4"

@@ -748,6 +748,13 @@ export function _renderTaskBinding(tasks, providersObj, descs, opts = {}) {
         html += `<span class="muted">${t('settings.provider.select_provider_first')}</span>`;
       }
       html += '</div>';
+
+      const currentTemp = taskCfg?.temperature;
+      const tempValue = currentTemp === undefined || currentTemp === null ? '' : currentTemp;
+      html += '<div class="task-binding-row">';
+      html += `<label class="task-binding-label">${t('settings.task_binding.temperature_label')}</label>`;
+      html += `<input type="number" class="form-input task-temperature-input" data-task="${taskKey}" min="0" max="2" step="0.1" value="${escapeHtml(String(tempValue))}" placeholder="${t('settings.task_binding.temperature_placeholder')}">`;
+      html += '</div>';
     }
 
     html += '</div>';
@@ -1225,6 +1232,30 @@ function _attachTaskBindingHandlers(pane, cfg, opts = {}) {
     sel.onchange = () => {
       const taskKey = sel.dataset.task;
       setDeep(cfg, `${taskBase}.${taskKey}.model`, sel.value);
+      markDirty();
+    };
+  });
+
+  pane.querySelectorAll('.task-temperature-input').forEach(inp => {
+    inp.onchange = () => {
+      const taskKey = inp.dataset.task;
+      const raw = inp.value.trim();
+      const inherited = (opts.defaults || {})[taskKey] || {};
+      const existing = cfg.ai?.[tasksField]?.[taskKey] || {};
+      const taskCfg = { ...inherited, ...existing };
+      if (!raw) {
+        delete taskCfg.temperature;
+      } else {
+        const num = Number(raw);
+        if (!Number.isFinite(num) || num < 0 || num > 2) {
+          inp.value = existing.temperature ?? '';
+          return;
+        }
+        taskCfg.temperature = num;
+      }
+      if (!cfg.ai) cfg.ai = {};
+      if (!cfg.ai[tasksField]) cfg.ai[tasksField] = {};
+      cfg.ai[tasksField][taskKey] = taskCfg;
       markDirty();
     };
   });

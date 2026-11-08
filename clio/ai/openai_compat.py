@@ -48,14 +48,17 @@ class OpenAICompatProvider:
         prompt: str,
         model: str,
         cancel_event: threading.Event | None = None,
+        *,
+        temperature: float | None = None,
     ) -> AIResponse:
         def _do() -> AIResponse:
             self._maybe_wait(cancel_event)
             payload: dict = {
                 "model": model,
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.3,
             }
+            if temperature is not None:
+                payload["temperature"] = float(temperature)
             # 0 / negative → omit max_tokens (provider default / unlimited)
             if self._max_tokens and self._max_tokens > 0:
                 payload["max_tokens"] = int(self._max_tokens)
