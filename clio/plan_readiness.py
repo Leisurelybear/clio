@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import math
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -13,7 +15,8 @@ from clio.i18n import t
 from clio.identity import load_identity
 from clio.plan_model import Plan, PlanIssue
 from clio.tasks._helpers import _matches_selected_artifact, _matches_selected_stem, _project_selection_stems
-from clio.utils import format_index
+from clio.utils import format_index, get_duration_sec, resolve_binary
+from clio.vmeta import VideoMeta
 
 
 @dataclass
@@ -71,15 +74,46 @@ def _index_width_from_cfg(cfg: Any) -> int:
         return 3
 
 
+def _positive_duration(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        duration = float(value)
+    except (TypeError, ValueError):
+        return None
+    return duration if math.isfinite(duration) and duration > 0 else None
+
+
+def _duration_for_index(
+    durations: Mapping[str, float] | None,
+    index: str,
+    *,
+    index_width: int,
+) -> float | None:
+    if not durations:
+        return None
+    for key in expand_index_keys(index, index_width=index_width):
+        duration = _positive_duration(durations.get(key))
+        if duration is not None:
+            return duration
+    return None
+
+
+def _normalized_media_key(index: str) -> str:
+    value = index.strip().lower()
+    return str(int(value)) if value.isdigit() else value
+
+
 def check_plan_export_readiness(
     plan: Plan,
     *,
     known_indices: set[str] | None = None,
     offline_indices: set[str] | None = None,
+    media_durations: Mapping[str, float] | None = None,
     source: str = "compressed",
     index_width: int = 3,
 ) -> ReadinessResult:
-    del source  # reserved for original-vs-compressed nuance in callers
+    source = str(source or "compressed").strip().lower()
     result = ReadinessResult()
     if not plan.sequence:
         result.errors.append(
@@ -120,6 +154,7 @@ def check_plan_export_readiness(
         for x in offline_indices:
             offline.update(expand_index_keys(x, index_width=index_width))
 
+    ranges: dict[str, list[tuple[int, float, float]]] = {}
     for i, seg in enumerate(plan.sequence):
         idx = (seg.index or "").strip()
         if not idx:
@@ -141,14 +176,17 @@ def check_plan_export_readiness(
                 )
             )
         elif index_in_set(idx, offline, index_width=index_width):
-            result.warnings.append(
-                PlanIssue(
-                    level="warning",
-                    code="video_offline",
-                    message=t("plan.readiness.video_offline", {"index": i + 1, "media": idx}),
-                    segment_index=i,
-                )
+            offline_level = "error" if source == "original" else "warning"
+            issue = PlanIssue(
+                level=offline_level,
+                code="video_offline",
+                message=t("plan.readiness.video_offline", {"index": i + 1, "media": idx}),
+                segment_index=i,
             )
+            if offline_level == "error":
+                result.errors.append(issue)
+            else:
+                result.warnings.append(issue)
 
         tl = (seg.use_timeline or "").strip()
         if not tl:
@@ -162,7 +200,7 @@ def check_plan_export_readiness(
             )
         else:
             try:
-                parse_time_range(tl)
+                start, end = parse_time_range(tl)
             except ValueError as e:
                 result.errors.append(
                     PlanIssue(
@@ -172,6 +210,36 @@ def check_plan_export_readiness(
                         segment_index=i,
                     )
                 )
+            else:
+                duration = _duration_for_index(media_durations, idx, index_width=index_width)
+                if duration is not None and end > duration + 0.05:
+                    result.errors.append(
+                        PlanIssue(
+                            level="error",
+                            code="timeline_out_of_bounds",
+                            message=t(
+                                "plan.readiness.timeline_out_of_bounds",
+                                {"index": i + 1, "end": end, "duration": duration},
+                            ),
+                            segment_index=i,
+                        )
+                    )
+
+                media_key = _normalized_media_key(idx)
+                for previous_position, previous_start, previous_end in ranges.get(media_key, []):
+                    if start < previous_end - 0.05 and end > previous_start + 0.05:
+                        result.warnings.append(
+                            PlanIssue(
+                                level="warning",
+                                code="timeline_overlap",
+                                message=t(
+                                    "plan.readiness.timeline_overlap",
+                                    {"index": i + 1, "previous": previous_position + 1, "media": idx},
+                                ),
+                                segment_index=i,
+                            )
+                        )
+                ranges.setdefault(media_key, []).append((i, start, end))
 
         if not (seg.title or "").strip():
             result.warnings.append(
@@ -293,6 +361,50 @@ def collect_project_indices(cfg: Any) -> tuple[set[str], set[str]]:
             pass
 
     return known, offline
+
+
+def collect_project_media_durations(cfg: Any) -> dict[str, float]:
+    """Return compressed clip durations keyed by plan index.
+
+    Plan timelines are expressed in compressed-clip time for both cut sources;
+    ``source=original`` only changes how an offline original is reported and
+    how cutting resolves the file. Prefer .vmeta because it is cheap, then
+    probe only when older artifacts have no trustworthy target duration.
+    """
+    compressed_dir = getattr(cfg, "compressed_dir", None)
+    if not isinstance(compressed_dir, Path) or not compressed_dir.is_dir():
+        return {}
+
+    selection = _project_selection_stems(cfg)
+    durations: dict[str, float] = {}
+    ffprobe = ""
+    try:
+        for path in compressed_dir.iterdir():
+            if not path.is_file() or path.suffix.lower() not in VIDEO_EXTS:
+                continue
+            if selection is not None and not _matches_selected_stem(path, selection):
+                continue
+            index = path.stem.split("_", 1)[0].strip()
+            if not index:
+                continue
+
+            meta = VideoMeta.read(path)
+            duration = _positive_duration(meta.target_duration_sec) if meta is not None else None
+            if duration is None:
+                if not ffprobe:
+                    try:
+                        ffprobe = resolve_binary(getattr(getattr(cfg, "paths", None), "ffprobe", ""), "ffprobe")
+                    except (FileNotFoundError, OSError):
+                        break
+                try:
+                    duration = _positive_duration(get_duration_sec(path, ffprobe))
+                except (FileNotFoundError, OSError, RuntimeError, ValueError):
+                    duration = None
+            if duration is not None:
+                durations[index] = max(duration, durations.get(index, 0.0))
+    except OSError:
+        pass
+    return durations
 
 
 def readiness_block_payload(result: ReadinessResult, *, force: bool) -> dict[str, Any] | None:

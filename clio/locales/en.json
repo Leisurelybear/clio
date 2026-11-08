@@ -428,6 +428,8 @@
   "plan.readiness.sequence_empty": "The plan sequence is empty; nothing to export or cut",
   "plan.readiness.timeline_empty": "Segment {index} has no use_timeline",
   "plan.readiness.timeline_invalid": "Segment {index} has an invalid timeline: {detail}",
+  "plan.readiness.timeline_out_of_bounds": "Segment {index} ends at {end}s, beyond video [{media}] duration {duration}s",
+  "plan.readiness.timeline_overlap": "Segment {index} overlaps video [{media}] range used by segment {previous}",
   "plan.readiness.title_empty": "Segment {index} has an empty title",
   "plan.readiness.video_offline": "Segment {index} video [{media}] is currently offline",
   "plan.validate.index_empty": "Segment {index} is missing a video index",

@@ -428,6 +428,8 @@
   "plan.readiness.sequence_empty": "规划 sequence 为空，无法导出/裁剪",
   "plan.readiness.timeline_empty": "第 {index} 段未填写 use_timeline",
   "plan.readiness.timeline_invalid": "第 {index} 段时间轴无效: {detail}",
+  "plan.readiness.timeline_out_of_bounds": "第 {index} 段结束于 {end} 秒，超出视频 [{media}] 时长 {duration} 秒",
+  "plan.readiness.timeline_overlap": "第 {index} 段与第 {previous} 段使用的视频 [{media}] 区间重叠",
   "plan.readiness.title_empty": "第 {index} 段标题为空",
   "plan.readiness.video_offline": "第 {index} 段视频 [{media}] 当前离线",
   "plan.validate.index_empty": "第 {index} 段缺少视频 index",

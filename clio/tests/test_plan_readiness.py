@@ -238,3 +238,79 @@ def test_removed_video_index_fails_readiness(tmp_path):
 
     assert not result.ok
     assert any(issue.code == "index_missing" for issue in result.errors)
+
+
+def test_original_offline_is_error_but_compressed_is_warning():
+    plan = _plan([{"index": "001", "use_timeline": "00:00-00:05", "title": "t", "reason": "r"}])
+
+    compressed = check_plan_export_readiness(
+        plan,
+        known_indices={"001"},
+        offline_indices={"001"},
+        source="compressed",
+    )
+    original = check_plan_export_readiness(
+        plan,
+        known_indices={"001"},
+        offline_indices={"001"},
+        source="original",
+    )
+
+    assert compressed.ok
+    assert any(issue.code == "video_offline" for issue in compressed.warnings)
+    assert not original.ok
+    assert any(issue.code == "video_offline" for issue in original.errors)
+
+
+def test_timeline_out_of_bounds_and_overlap_are_reported():
+    plan = _plan(
+        [
+            {"index": "001", "use_timeline": "00:00-00:08", "title": "first", "reason": "r"},
+            {"index": "001", "use_timeline": "00:06-00:12", "title": "second", "reason": "r"},
+        ]
+    )
+
+    result = check_plan_export_readiness(
+        plan,
+        known_indices={"001"},
+        media_durations={"001": 10.0},
+    )
+
+    assert any(issue.code == "timeline_out_of_bounds" for issue in result.errors)
+    assert any(issue.code == "timeline_overlap" for issue in result.warnings)
+
+
+def test_collect_project_media_durations_prefers_vmeta(tmp_path, monkeypatch):
+    import json
+    from types import SimpleNamespace
+
+    from clio.plan_readiness import collect_project_media_durations
+
+    compressed = tmp_path / "compressed"
+    compressed.mkdir()
+    clip = compressed / "001_clip.mp4"
+    clip.write_bytes(b"x")
+    clip.with_suffix(".vmeta").write_text(
+        json.dumps(
+            {
+                "source_path": str(tmp_path / "clip.mp4"),
+                "target_path": clip.name,
+                "source_modifyTime": 0,
+                "source_size": 1,
+                "target_modifyTime": 0,
+                "target_size": 1,
+                "source_duration_sec": 12.0,
+                "target_duration_sec": 10.0,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("clio.plan_readiness.get_duration_sec", lambda *args: 99.0)
+    cfg = SimpleNamespace(
+        compressed_dir=compressed,
+        project_dir=None,
+        naming=SimpleNamespace(index_width=3),
+        paths=SimpleNamespace(ffprobe=""),
+    )
+
+    assert collect_project_media_durations(cfg) == {"001": 10.0}

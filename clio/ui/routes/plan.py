@@ -15,6 +15,7 @@ from clio.plan_preview import build_preview_media
 from clio.plan_readiness import (
     check_plan_export_readiness,
     collect_project_indices,
+    collect_project_media_durations,
     readiness_block_payload,
 )
 from clio.schema import add_schema_version
@@ -284,7 +285,13 @@ def handle_post_plan_readiness(handler: HandlerProtocol, qs: dict[str, Any], obj
         plan = Plan.from_dict(raw if isinstance(raw, dict) else {})
 
     known, offline = collect_project_indices(cfg)
-    result = check_plan_export_readiness(plan, known_indices=known, offline_indices=offline, source=source)
+    result = check_plan_export_readiness(
+        plan,
+        known_indices=known,
+        offline_indices=offline,
+        media_durations=collect_project_media_durations(cfg),
+        source=source,
+    )
     handler._send_json(result.to_dict())
 
 
@@ -326,7 +333,13 @@ def handle_post_cut(handler: HandlerProtocol, qs: dict[str, list[str]], obj: dic
     except (json.JSONDecodeError, OSError) as e:
         return handler._send_json({"ok": False, "error": str(e)}, 400)
     known, offline = collect_project_indices(cfg)
-    result = check_plan_export_readiness(plan, known_indices=known, offline_indices=offline, source=str(source))
+    result = check_plan_export_readiness(
+        plan,
+        known_indices=known,
+        offline_indices=offline,
+        media_durations=collect_project_media_durations(cfg),
+        source=str(source),
+    )
     blocked = readiness_block_payload(result, force=force)
     if blocked is not None:
         return handler._send_json(blocked, 400)

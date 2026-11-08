@@ -540,6 +540,7 @@ def main(argv: list[str] | None = None) -> int:
             from clio.plan_readiness import (
                 check_plan_export_readiness,
                 collect_project_indices,
+                collect_project_media_durations,
                 readiness_block_payload,
             )
             from clio.tasks.reindex import auto_reindex_if_needed
@@ -551,7 +552,13 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             plan = Plan.from_dict(json.loads(plan_path.read_text(encoding="utf-8")))
             known, offline = collect_project_indices(config)
-            ready = check_plan_export_readiness(plan, known_indices=known, offline_indices=offline, source=args.source)
+            ready = check_plan_export_readiness(
+                plan,
+                known_indices=known,
+                offline_indices=offline,
+                media_durations=collect_project_media_durations(config),
+                source=args.source,
+            )
             blocked = readiness_block_payload(ready, force=bool(getattr(args, "force", False)))
             if blocked is not None:
                 print(t("cli.error", {"detail": blocked["error"]}), file=sys.stderr)
@@ -609,6 +616,7 @@ def main(argv: list[str] | None = None) -> int:
             from clio.plan_readiness import (
                 check_plan_export_readiness,
                 collect_project_indices,
+                collect_project_media_durations,
                 readiness_block_payload,
             )
 
@@ -618,7 +626,13 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             plan = Plan.from_dict(json.loads(plan_path.read_text(encoding="utf-8")))
             known, offline = collect_project_indices(config)
-            ready = check_plan_export_readiness(plan, known_indices=known, offline_indices=offline, source="original")
+            ready = check_plan_export_readiness(
+                plan,
+                known_indices=known,
+                offline_indices=offline,
+                media_durations=collect_project_media_durations(config),
+                source="original",
+            )
             blocked = readiness_block_payload(ready, force=bool(getattr(args, "force", False)))
             if blocked is not None:
                 print(t("cli.error", {"detail": blocked["error"]}), file=sys.stderr)
