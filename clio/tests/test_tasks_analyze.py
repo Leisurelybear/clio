@@ -457,6 +457,44 @@ class TestRunAnalyzeAll:
         assert len(rows2) == 2, f"expected merge keep 2 rows, got {len(rows2)}: {stems_after}"
         assert stems_before == stems_after
 
+    def test_slow_video_does_not_block_worker_refill(self, monkeypatch, tmp_path: Path):
+        cfg = _cfg(tmp_path)
+        cfg.analyze.max_workers = 2
+        for name in ("GL010695.mp4", "GL010696.mp4", "GL010697.mp4"):
+            _add_original(cfg, name)
+        for index, name in enumerate(("GL010695", "GL010696", "GL010697"), start=1):
+            (cfg.compressed_dir / f"{index:03d}_{name}.mp4").write_bytes(b"video")
+
+        _common_mocks(monkeypatch)
+        monkeypatch.setattr("clio.tasks.analyze._build_day_labels", lambda *args: {})
+        second_finished = threading.Event()
+        third_started = threading.Event()
+        started: list[str] = []
+        started_lock = threading.Lock()
+
+        def fake_process(compressed, *args, **kwargs):
+            name = compressed.name
+            with started_lock:
+                started.append(name)
+            if name == "001_GL010695.mp4":
+                assert third_started.wait(2), "third video never started"
+            elif name == "002_GL010696.mp4":
+                second_finished.set()
+            elif name == "003_GL010697.mp4":
+                assert second_finished.is_set()
+                third_started.set()
+            return None
+
+        monkeypatch.setattr("clio.tasks.analyze._process_video_item", fake_process)
+
+        run_analyze_all(cfg)
+
+        assert set(started) == {
+            "001_GL010695.mp4",
+            "002_GL010696.mp4",
+            "003_GL010697.mp4",
+        }
+
     def test_single_file_with_vindex_includes_all_segments(self, monkeypatch, tmp_path: Path):
         cfg = _cfg(tmp_path)
         src = _add_original(cfg, "GL010695.mp4")

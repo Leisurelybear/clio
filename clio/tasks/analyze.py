@@ -8,7 +8,7 @@ import re
 import subprocess
 import threading
 import time
-from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -696,42 +696,47 @@ def run_analyze_all(
                 print(t("task.analyze.cancelled_step"))
                 return records
 
-            # Submit a bounded number of futures (avoid queueing all at once)
-            batch_size = min(max_workers, len(items))
-            for i in range(0, len(items), batch_size):
-                batch = items[i : i + batch_size]
-                # Check cancel_event before each batch submission
+            item_iter = iter(items)
+            pending: dict[Future, None] = {}
+
+            def _submit_next() -> bool:
+                try:
+                    compressed, original, idx_str = next(item_iter)
+                except StopIteration:
+                    return False
+                future = pool.submit(
+                    _process_video_item,
+                    compressed,
+                    original,
+                    idx_str,
+                    config,
+                    token_store,
+                    overwrite,
+                    tracker,
+                    state,
+                    error_count,
+                    day_labels.get(str(original.resolve()), "day1"),
+                    cancel_event,
+                    context_override,
+                    task_prompts,
+                )
+                pending[future] = None
+                return True
+
+            for _ in range(min(max_workers, len(items))):
+                _submit_next()
+
+            while pending:
                 if cancel_event and cancel_event.is_set():
-                    print(t("task.analyze.cancel_remaining"))
+                    print(t("task.analyze.cancel_pending"))
+                    for future in pending:
+                        if not future.done():
+                            future.cancel()
                     break
 
-                batch_futures: list[Future] = []
-                for compressed, original, idx_str in batch:
-                    # Check cancel_event before each submission
-                    if cancel_event and cancel_event.is_set():
-                        print(t("task.analyze.cancel_remaining"))
-                        break
-
-                    f = pool.submit(
-                        _process_video_item,
-                        compressed,
-                        original,
-                        idx_str,
-                        config,
-                        token_store,
-                        overwrite,
-                        tracker,
-                        state,
-                        error_count,
-                        day_labels.get(str(original.resolve()), "day1"),
-                        cancel_event,
-                        context_override,
-                        task_prompts,
-                    )
-                    batch_futures.append(f)
-
-                # Process completed futures from this batch before submitting next
-                for future in as_completed(batch_futures):
+                done, _ = wait(pending, return_when=FIRST_COMPLETED)
+                for future in done:
+                    pending.pop(future, None)
                     try:
                         result = future.result()
                         if result is not None:
@@ -740,12 +745,15 @@ def run_analyze_all(
                         print(t("task.analyze.task_failed", {"detail": e}))
                         error_count[0] += 1
 
-                # Cancel remaining pending futures if cancelled mid-batch
+                    if cancel_event and cancel_event.is_set():
+                        break
+                    _submit_next()
+
                 if cancel_event and cancel_event.is_set():
                     print(t("task.analyze.cancel_pending"))
-                    for f in batch_futures:
-                        if not f.done():
-                            f.cancel()
+                    for future in pending:
+                        if not future.done():
+                            future.cancel()
                     break
 
     records.sort(key=lambda r: r.index)
