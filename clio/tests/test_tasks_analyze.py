@@ -178,6 +178,43 @@ def test_selected_analysis_keeps_project_day_mapping(monkeypatch, tmp_path: Path
     assert json.loads(saved.read_text(encoding="utf-8"))["day_label"] == "day2"
 
 
+def test_same_named_originals_only_analyze_selected_path(monkeypatch, tmp_path: Path):
+    from clio.tasks._video_loader import save_selected_videos
+
+    cfg = _cfg(tmp_path)
+    a_dir = tmp_path / "a"
+    b_dir = tmp_path / "b"
+    a_dir.mkdir()
+    b_dir.mkdir()
+    a = a_dir / "clip.mp4"
+    b = b_dir / "clip.mp4"
+    a.write_bytes(b"a")
+    b.write_bytes(b"b")
+    save_selected_videos(cfg.project_dir, [a, b])
+
+    comp_a = cfg.compressed_dir / "001_clip.mp4"
+    comp_b = cfg.compressed_dir / "002_clip.mp4"
+    comp_a.write_bytes(b"ca")
+    comp_b.write_bytes(b"cb")
+    VideoMeta.build(a, comp_a, 60.0, 60.0).write(comp_a)
+    VideoMeta.build(b, comp_b, 60.0, 60.0).write(comp_b)
+
+    _common_mocks(monkeypatch)
+    monkeypatch.setattr("clio.tasks.analyze.get_duration_sec", lambda *args: 60.0)
+    seen: list[str] = []
+
+    def _fake_analyze(video_path, *args, **kwargs):
+        seen.append(str(video_path))
+        return {"title": "clip", "summary": "s", "location": "x"}
+
+    monkeypatch.setattr("clio.tasks.analyze.analyze_video", _fake_analyze)
+
+    records = run_analyze_all(cfg, files=[str(a)])
+
+    assert len(records) == 1
+    assert seen == [str(comp_a)]
+
+
 class TestRunAnalyzeAll:
     def test_analyze_single_file(self, monkeypatch, tmp_path: Path):
         cfg = _cfg(tmp_path)

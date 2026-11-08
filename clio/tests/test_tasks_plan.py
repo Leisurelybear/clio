@@ -133,6 +133,52 @@ class TestRunPlanVlogFilesFilter:
         assert len(result.get("sequence", [])) == 1
         assert result["sequence"][0]["title"] == "A"
 
+    def test_same_named_originals_only_plan_selected_path(self, cfg: AppConfig):
+        from clio.tasks._video_loader import save_selected_videos
+        from clio.tasks.plan import run_plan_vlog
+
+        a_dir = cfg.project_dir / "a"
+        b_dir = cfg.project_dir / "b"
+        a_dir.mkdir()
+        b_dir.mkdir()
+        a = a_dir / "clip.mp4"
+        b = b_dir / "clip.mp4"
+        a.write_bytes(b"a")
+        b.write_bytes(b"b")
+        save_selected_videos(cfg.project_dir, [a, b])
+
+        for index, path in ((1, a), (2, b)):
+            payload = {
+                "index": index,
+                "title": path.parent.name,
+                "summary": "s",
+                "source_file": path.name,
+                "media_identity": {
+                    "original_stem": "clip",
+                    "original_path": str(path),
+                    "compressed_stem": f"{index:03d}_clip",
+                    "compressed_path": "",
+                    "index": f"{index:03d}",
+                },
+            }
+            (cfg.texts_dir / f"{index:03d}_clip.json").write_text(json.dumps(payload), encoding="utf-8")
+
+        captured: dict = {}
+
+        def _fake_plan(clips, config, day_label="day1", **kwargs):
+            captured["clips"] = list(clips)
+            return {
+                "day_title": "Selected",
+                "theme": "subset",
+                "total_estimated_sec": 10,
+                "sequence": [{"index": c["index"], "title": c["title"], "use_timeline": "00:00-00:05"} for c in clips],
+            }
+
+        with patch("clio.tasks.plan.plan_daily_vlog", side_effect=_fake_plan):
+            run_plan_vlog(cfg, day_label="day1", files=[str(a)], overwrite=True)
+
+        assert [clip["index"] for clip in captured["clips"]] == ["001"]
+
     def test_existing_json_requires_confirmation(self, cfg: AppConfig):
         from clio.tasks.plan import PlanOverwriteConfirmationRequired, run_plan_vlog
 

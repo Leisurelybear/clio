@@ -8,18 +8,22 @@ from types import SimpleNamespace
 
 from clio.tasks._helpers import (
     ClipRecord,
+    MediaSelection,
+    _artifact_source_path,
     _build_stem,
     _eta_line,
     _get_video_info,
     _matches_selected_artifact,
     _matches_selected_stem,
     _next_index,
+    _path_key,
     _rewrite_script_md,
     _rewrite_text_file,
+    _selection_from_files,
     _write_csv,
     _write_text_file,
 )
-from clio.vmeta import VideoMeta
+from clio.vmeta import SegmentEntry, VideoIndex, VideoMeta
 
 
 def _fake_config(index_width: int = 3) -> SimpleNamespace:
@@ -341,3 +345,212 @@ class TestMatchesSelected:
             p = tmp_path / f"001_GL010683_{suffix}.mp4"
             p.write_bytes(b"")
             assert _matches_selected_stem(p, {"gl010683"}) is True
+
+
+class TestMediaSelectionPaths:
+    @staticmethod
+    def _clips(tmp_path: Path) -> tuple[Path, Path]:
+        a = tmp_path / "a" / "clip.mp4"
+        b = tmp_path / "b" / "clip.mp4"
+        a.parent.mkdir()
+        b.parent.mkdir()
+        a.write_bytes(b"")
+        b.write_bytes(b"")
+        return a, b
+
+    def test_same_basename_in_different_dirs_only_selects_one(self, tmp_path: Path):
+        a, b = self._clips(tmp_path)
+        sel = _selection_from_files([str(a)])
+        assert sel.paths == frozenset({_path_key(a)})
+        assert _matches_selected_stem(a, sel) is True
+        assert _matches_selected_stem(b, sel) is False
+
+    def test_bare_name_keeps_legacy_stem_matching(self, tmp_path: Path):
+        a, b = self._clips(tmp_path)
+        sel = _selection_from_files(["clip.mp4"])
+        assert sel.paths == frozenset()
+        assert _matches_selected_stem(a, sel) is True
+        assert _matches_selected_stem(b, sel) is True
+
+    def test_plain_set_argument_keeps_legacy_behavior(self, tmp_path: Path):
+        a, b = self._clips(tmp_path)
+        assert _matches_selected_stem(a, {"clip"}) is True
+        assert _matches_selected_stem(b, {"clip"}) is True
+
+    def test_len_counts_selected_inputs(self, tmp_path: Path):
+        a, b = self._clips(tmp_path)
+        assert len(_selection_from_files([str(a), str(b)])) == 2
+        assert len(_selection_from_files(["clip.mp4"])) == 1
+        assert len(MediaSelection()) == 0
+
+    def test_mixed_inputs_keep_paths_authoritative(self, tmp_path: Path):
+        a, b = self._clips(tmp_path)
+        sel = _selection_from_files([str(a), "other.mp4"])
+        assert _matches_selected_stem(b, sel) is False
+
+
+class TestArtifactSourceResolution:
+    def test_matches_artifact_by_vmeta_source_path(self, tmp_path: Path):
+        a = tmp_path / "a" / "clip.mp4"
+        b = tmp_path / "b" / "clip.mp4"
+        a.parent.mkdir()
+        b.parent.mkdir()
+        a.write_bytes(b"aaaa")
+        b.write_bytes(b"bbbb")
+        comp_a = tmp_path / "001_clip.mp4"
+        comp_a.write_bytes(b"ca")
+        comp_b = tmp_path / "002_clip.mp4"
+        comp_b.write_bytes(b"cb")
+        VideoMeta.build(a, comp_a, 1.0, 1.0).write(comp_a)
+        VideoMeta.build(b, comp_b, 1.0, 1.0).write(comp_b)
+
+        sel = _selection_from_files([str(a)])
+        assert _artifact_source_path(comp_a) == a.resolve()
+        assert _matches_selected_stem(comp_a, sel, artifact=True) is True
+        assert _matches_selected_stem(comp_b, sel, artifact=True) is False
+
+    def test_stale_vmeta_falls_back_to_unique_stem(self, tmp_path: Path):
+        old = tmp_path / "old" / "clip.mp4"
+        new = tmp_path / "new" / "clip.mp4"
+        old.parent.mkdir()
+        new.parent.mkdir()
+        old.write_bytes(b"old")
+        new.write_bytes(b"new")
+        comp = tmp_path / "001_clip.mp4"
+        comp.write_bytes(b"c")
+        VideoMeta.build(old, comp, 1.0, 1.0).write(comp)
+        old.unlink()
+
+        sel = _selection_from_files([str(new)])
+        assert _matches_selected_stem(comp, sel, artifact=True) is True
+
+    def test_vindex_declares_artifact_source(self, tmp_path: Path):
+        source = tmp_path / "videos" / "clip.mp4"
+        source.parent.mkdir()
+        source.write_bytes(b"src")
+        comp = tmp_path / "001_clip.mp4"
+        comp.write_bytes(b"c")
+        index = VideoIndex.build(
+            source,
+            1.0,
+            [
+                SegmentEntry(
+                    index="001",
+                    filename=comp.name,
+                    offset_sec=0.0,
+                    duration_sec=1.0,
+                    segment_number=1,
+                    total_segments=1,
+                )
+            ],
+        )
+        index.write(tmp_path)
+
+        assert _artifact_source_path(comp) == source.resolve()
+
+    def test_artifact_without_metadata_needs_unique_stem(self, tmp_path: Path):
+        a = tmp_path / "a" / "clip.mp4"
+        b = tmp_path / "b" / "clip.mp4"
+        a.parent.mkdir()
+        b.parent.mkdir()
+        a.write_bytes(b"a")
+        b.write_bytes(b"b")
+        comp = tmp_path / "001_clip.mp4"
+        comp.write_bytes(b"c")
+
+        assert _matches_selected_stem(comp, _selection_from_files([str(a)]), artifact=True) is True
+        both = _selection_from_files([str(a), str(b)])
+        assert _matches_selected_stem(comp, both, artifact=True) is False
+
+    def test_live_foreign_source_never_matches(self, tmp_path: Path):
+        a = tmp_path / "a" / "clip.mp4"
+        b = tmp_path / "b" / "clip.mp4"
+        a.parent.mkdir()
+        b.parent.mkdir()
+        a.write_bytes(b"a")
+        b.write_bytes(b"b")
+        comp = tmp_path / "001_clip.mp4"
+        comp.write_bytes(b"c")
+        VideoMeta.build(b, comp, 1.0, 1.0).write(comp)
+
+        sel = _selection_from_files([str(a)])
+        assert _matches_selected_stem(comp, sel, artifact=True) is False
+
+
+class TestSelectedArtifactPaths:
+    def test_media_identity_original_path_wins_over_same_stem(self, tmp_path: Path):
+        a = tmp_path / "a" / "clip.mp4"
+        b = tmp_path / "b" / "clip.mp4"
+        a.parent.mkdir()
+        b.parent.mkdir()
+        a.write_bytes(b"a")
+        b.write_bytes(b"b")
+        art_a = tmp_path / "001_clip.json"
+        art_a.write_text(
+            json.dumps({"media_identity": {"original_path": str(a), "original_stem": "clip"}}), encoding="utf-8"
+        )
+        art_b = tmp_path / "002_clip.json"
+        art_b.write_text(
+            json.dumps({"media_identity": {"original_path": str(b), "original_stem": "clip"}}), encoding="utf-8"
+        )
+
+        sel = _selection_from_files([str(a)])
+        assert _matches_selected_artifact(art_a, sel) is True
+        assert _matches_selected_artifact(art_b, sel) is False
+
+    def test_ambiguous_legacy_stem_matches_neither(self, tmp_path: Path):
+        a = tmp_path / "a" / "clip.mp4"
+        b = tmp_path / "b" / "clip.mp4"
+        a.parent.mkdir()
+        b.parent.mkdir()
+        a.write_bytes(b"a")
+        b.write_bytes(b"b")
+        art = tmp_path / "001_clip.json"
+        art.write_text(json.dumps({"media_identity": {"original_stem": "clip"}}), encoding="utf-8")
+
+        sel = _selection_from_files([str(a), str(b)])
+        assert _matches_selected_artifact(art, sel) is False
+
+    def test_legacy_unique_stem_still_matches(self, tmp_path: Path):
+        a = tmp_path / "a" / "clip.mp4"
+        a.parent.mkdir()
+        a.write_bytes(b"a")
+        art = tmp_path / "001_clip.json"
+        art.write_text(json.dumps({"media_identity": {"original_stem": "clip"}}), encoding="utf-8")
+
+        assert _matches_selected_artifact(art, _selection_from_files([str(a)])) is True
+
+    def test_removed_live_source_rejected(self, tmp_path: Path):
+        a = tmp_path / "a" / "clip.mp4"
+        b = tmp_path / "b" / "clip.mp4"
+        a.parent.mkdir()
+        b.parent.mkdir()
+        a.write_bytes(b"a")
+        b.write_bytes(b"b")
+        art = tmp_path / "001_clip.json"
+        art.write_text(
+            json.dumps({"source_file": str(b), "media_identity": {"original_stem": "clip"}}),
+            encoding="utf-8",
+        )
+
+        sel = _selection_from_files([str(a)])
+        assert _matches_selected_artifact(art, sel) is False
+
+
+class TestStemToPathMap:
+    def test_duplicate_stems_map_to_none(self, tmp_path: Path):
+        from clio.tasks._video_loader import stem_to_path_map
+
+        a = tmp_path / "a" / "clip.mp4"
+        b = tmp_path / "b" / "clip.mp4"
+        other = tmp_path / "other.mov"
+        mapping = stem_to_path_map([a, b, other])
+
+        assert mapping["clip"] is None
+        assert mapping["other"] == other
+
+    def test_repeated_same_path_stays_unique(self, tmp_path: Path):
+        from clio.tasks._video_loader import stem_to_path_map
+
+        a = tmp_path / "clip.mp4"
+        assert stem_to_path_map([a, a])["clip"] == a

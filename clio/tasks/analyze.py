@@ -41,11 +41,14 @@ from clio.prompts import ANALYZE_PROMPT, TRANSCRIPT_CONTEXT, WINDOW_SUMMARY_PROM
 from clio.schema import add_schema_version
 from clio.tasks._helpers import (
     ClipRecord,
+    _artifact_source_path,
     _build_stem,
     _clip_records_from_csv,
     _matches_selected_stem,
     _merge_summary_records,
-    _selected_stems,
+    _path_key,
+    _project_selection_stems,
+    _selection_from_files,
     _task_lineage_settings,
     _write_csv,
     _write_text_file,
@@ -215,8 +218,8 @@ def _effective_analysis_context(config: AppConfig, original: Path, context_overr
         return context_override
 
 
-def _build_stem_to_path(project_dir: Path | None = None) -> dict[str, Path]:
-    """Build a one-time {stem_lower: path} map from videos.json."""
+def _build_stem_to_path(project_dir: Path | None = None) -> dict[str, Path | None]:
+    """Build a one-time {stem_lower: path} map from videos.json (None = ambiguous)."""
     from clio.tasks._video_loader import load_selected_videos, stem_to_path_map
 
     return stem_to_path_map(load_selected_videos(project_dir))
@@ -224,33 +227,52 @@ def _build_stem_to_path(project_dir: Path | None = None) -> dict[str, Path]:
 
 def _resolve_original(
     compressed_stem: str,
-    stem_cache: dict[str, Path] | None = None,
+    stem_cache: dict[str, Path | None] | None = None,
     project_dir: Path | None = None,
+    compressed_path: Path | None = None,
+    selected_paths: frozenset[str] | None = None,
 ) -> Path | None:
-    """Resolve original video path from a compressed file stem via videos.json cache."""
+    """Resolve the original video for a compressed artifact.
+
+    The sidecar source path wins over any filename guess; duplicate stems in
+    videos.json resolve to None instead of silently picking the first file.
+    A sidecar that names a live source outside ``selected_paths`` is rejected
+    so a removed original never comes back through its leftover compressed file.
+    """
+    if compressed_path is not None:
+        source = _artifact_source_path(compressed_path)
+        if source is not None:
+            if selected_paths is None or _path_key(source) in selected_paths:
+                return source
+            if source.is_file():
+                return None
+
     if "_" not in compressed_stem:
         orig_stem = compressed_stem
     else:
         _, orig_stem = compressed_stem.split("_", 1)
 
-    def _try_find(stem: str) -> Path | None:
+    def _try_find(stem: str) -> tuple[bool, Path | None]:
         key = stem.lower()
         if stem_cache is not None:
-            return stem_cache.get(key)
+            if key in stem_cache:
+                return True, stem_cache[key]
+            return False, None
         from clio.tasks._video_loader import load_selected_videos
 
-        for p in load_selected_videos(project_dir):
-            if p.stem.lower() == key:
-                return p
-        return None
+        hits = [p for p in load_selected_videos(project_dir) if p.stem.lower() == key]
+        if hits:
+            return True, hits[0] if len(hits) == 1 else None
+        return False, None
 
-    result = _try_find(orig_stem)
-    if result is not None:
+    found, result = _try_find(orig_stem)
+    if found:
         return result
 
     m = SEGMENT_SUFFIX_RE.search(orig_stem)
     if m:
-        return _try_find(SEGMENT_SUFFIX_RE.sub("", orig_stem))
+        _, result = _try_find(SEGMENT_SUFFIX_RE.sub("", orig_stem))
+        return result
     return None
 
 
@@ -582,6 +604,8 @@ def run_analyze_all(
 
     # Build one-time stem→path cache to avoid per-video rglob
     stem_cache = _build_stem_to_path(config.project_dir)
+    project_selection = _project_selection_stems(config)
+    selected_paths = project_selection.paths if project_selection is not None else None
 
     def _list_compressed(d: Path) -> list[Path]:
         paths = sorted(p for p in d.iterdir() if p.suffix.lower() in VIDEO_EXTS and p.is_file())
@@ -617,7 +641,7 @@ def run_analyze_all(
             parts = p.stem.split("_", 1)
             if len(parts) != 2 or not parts[0].isdigit():
                 continue
-            orig_path = _resolve_original(p.stem, stem_cache, config.project_dir)
+            orig_path = _resolve_original(p.stem, stem_cache, config.project_dir, p, selected_paths)
             if orig_path is None:
                 print(t("task.analyze.original_missing", {"name": p.name}))
                 continue
@@ -633,14 +657,16 @@ def run_analyze_all(
             parts = p.stem.split("_", 1)
             if len(parts) != 2 or not parts[0].isdigit():
                 continue
-            orig_path = _resolve_original(p.stem, stem_cache, config.project_dir)
+            orig_path = _resolve_original(p.stem, stem_cache, config.project_dir, p, selected_paths)
             if orig_path is not None:
                 all_items.append((p, orig_path, parts[0]))
 
     if files is not None:
-        selected = _selected_stems(files)
+        selected = _selection_from_files(files)
         items = [
-            it for it in items if _matches_selected_stem(it[0], selected) or _matches_selected_stem(it[1], selected)
+            it
+            for it in items
+            if _matches_selected_stem(it[0], selected, artifact=True) or _matches_selected_stem(it[1], selected)
         ]
 
     if not items:

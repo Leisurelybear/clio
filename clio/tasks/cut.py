@@ -388,22 +388,22 @@ def run_cut_all(
             stem = stem.split("_", 1)[1]
         return SEGMENT_SUFFIX_RE.sub("", stem)
 
-    def _selected_media(path: Path) -> bool:
-        return project_selection is None or _matches_selected_stem(path, project_selection)
+    def _selected_media(path: Path, *, artifact: bool = False) -> bool:
+        return project_selection is None or _matches_selected_stem(path, project_selection, artifact=artifact)
 
     def _resolve_video_path(idx: str) -> Path | None:
         if source == "compressed":
             candidates = [
                 path
                 for path in _indexed_files(comp_dir, idx, index_width=config.naming.index_width)
-                if path.suffix.lower() in VIDEO_EXTS and _selected_media(path)
+                if path.suffix.lower() in VIDEO_EXTS and _selected_media(path, artifact=True)
             ]
             return candidates[0] if candidates else None
         else:
             comp_candidates = [
                 path
                 for path in _indexed_files(comp_dir, idx, index_width=config.naming.index_width)
-                if path.suffix.lower() in VIDEO_EXTS and _selected_media(path)
+                if path.suffix.lower() in VIDEO_EXTS and _selected_media(path, artifact=True)
             ]
             if not comp_candidates:
                 return None
@@ -413,8 +413,8 @@ def run_cut_all(
             meta = VideoMeta.read(compressed)
             if meta is not None:
                 src = meta.source_path_obj()
-                if src.is_file() and _selected_media(src):
-                    return src
+                if src.is_file():
+                    return src if _selected_media(src) else None
 
             # 降级：regex 反解 + videos.json。先按完整 stem 匹配，避免把自然文件名
             # 末尾的 _partNN 误认为历史分段后缀。
@@ -422,14 +422,17 @@ def run_cut_all(
             from clio.tasks._video_loader import source_videos
 
             videos = source_videos(config)
-            for p in videos:
-                if p.stem.lower() == suffix:
-                    return p
+
+            def _unique_stem_hit(needle: str) -> Path | None:
+                hits = [p for p in videos if p.stem.lower() == needle]
+                return hits[0] if len(hits) == 1 else None
+
+            hit = _unique_stem_hit(suffix)
+            if hit is not None:
+                return hit
             orig_stem = SEGMENT_SUFFIX_RE.sub("", suffix)
             if orig_stem != suffix:
-                for p in videos:
-                    if p.stem.lower() == orig_stem:
-                        return p
+                return _unique_stem_hit(orig_stem)
             return None
 
     clips: list[dict] = []
@@ -518,7 +521,7 @@ def run_cut_all(
                     comp_candidates = [
                         path
                         for path in _indexed_files(comp_dir, idx, index_width=config.naming.index_width)
-                        if path.suffix.lower() in VIDEO_EXTS and _selected_media(path)
+                        if path.suffix.lower() in VIDEO_EXTS and _selected_media(path, artifact=True)
                     ]
                     if comp_candidates:
                         stem = comp_candidates[0].stem
@@ -566,7 +569,7 @@ def run_cut_all(
             matching_texts = [
                 path
                 for path in _indexed_files(config.texts_dir, idx, index_width=config.naming.index_width, suffix=".json")
-                if _selected_media(path)
+                if _selected_media(path, artifact=True)
             ]
             if matching_texts:
                 text_path = matching_texts[0]

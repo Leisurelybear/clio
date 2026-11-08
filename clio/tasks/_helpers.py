@@ -5,7 +5,9 @@ from __future__ import annotations
 import csv
 import io
 import json
+import os
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -21,7 +23,7 @@ from clio.utils import (
     write_bytes_atomic,
     write_text_atomic,
 )
-from clio.vmeta import VideoMeta
+from clio.vmeta import VideoIndex, VideoMeta
 
 
 def _task_lineage_settings(config: AppConfig, task_name: str) -> dict[str, object]:
@@ -91,29 +93,138 @@ def _stem_variants(stem: str, *, include_segment_base: bool = False) -> set[str]
     return variants
 
 
+@dataclass(frozen=True)
+class MediaSelection:
+    """Explicit source paths plus legacy stem variants for one run selection.
+
+    ``paths`` always wins: two originals with the same basename in different
+    directories must never match each other. ``stems`` is only consulted for
+    callers that still pass bare names, and for artifacts that carry no usable
+    path metadata.
+    """
+
+    paths: frozenset[str] = frozenset()
+    stems: frozenset[str] = frozenset()
+
+    def __len__(self) -> int:
+        return len(self.paths) if self.paths else len(self.stems)
+
+
+def _path_key(value: str | Path) -> str:
+    raw = os.fspath(value)
+    try:
+        resolved = os.path.abspath(raw)
+    except (OSError, ValueError):
+        resolved = raw
+    return os.path.normcase(resolved).replace("\\", "/")
+
+
+def _looks_like_path(value: str) -> bool:
+    text = str(value).strip()
+    if not text:
+        return False
+    if "/" in text or "\\" in text:
+        return True
+    return bool(re.match(r"^[A-Za-z]:", text))
+
+
+def _coerce_selection(selected: MediaSelection | set[str] | frozenset[str]) -> MediaSelection:
+    if isinstance(selected, MediaSelection):
+        return selected
+    return MediaSelection(frozenset(), frozenset(selected))
+
+
+def _selection_from_files(files: Iterable[str]) -> MediaSelection:
+    paths: set[str] = set()
+    stems: set[str] = set()
+    for raw in files:
+        text = str(raw).strip()
+        if not text:
+            continue
+        if _looks_like_path(text):
+            paths.add(_path_key(text))
+            stems.update(_stem_variants(Path(text).stem))
+        else:
+            stems.update(_stem_variants(text))
+    return MediaSelection(frozenset(paths), frozenset(stems))
+
+
 def _selected_stems(files: list[str]) -> set[str]:
-    selected: set[str] = set()
-    for name in files:
-        selected.update(_stem_variants(name))
-    return selected
+    """Legacy helper: bare-name stem variants only."""
+    return set(_selection_from_files(files).stems)
 
 
-def _matches_selected_stem(path: Path, selected: set[str]) -> bool:
-    return bool(_stem_variants(path.stem, include_segment_base=True) & selected)
+def _unique_selected_stem_hit(stem: str, selected: MediaSelection) -> bool:
+    """True only when exactly one explicitly selected path shares this stem."""
+    if not selected.paths:
+        return False
+    variants = _stem_variants(stem, include_segment_base=True)
+    hits = {path for path in selected.paths if _stem_variants(Path(path).stem, include_segment_base=True) & variants}
+    return len(hits) == 1
 
 
-def _project_selection_stems(config: AppConfig) -> set[str] | None:
-    """Selected video stem variants, or None for a legacy project without videos.json."""
+def _artifact_source_path(path: Path) -> Path | None:
+    """Resolve the original source of a compressed artifact, if it declares one."""
+    meta = VideoMeta.read(path)
+    if meta is not None and meta.source_path:
+        return Path(meta.source_path)
+    indexed = path.stem.split("_", 1)[1] if "_" in path.stem else path.stem
+    candidates = [indexed, SEGMENT_SUFFIX_RE.sub("", indexed)]
+    seen: set[str] = set()
+    for stem in candidates:
+        if stem in seen:
+            continue
+        seen.add(stem)
+        vindex = VideoIndex.read(stem, path.parent)
+        if vindex is not None and any(segment.filename == path.name for segment in vindex.segments):
+            return Path(vindex.source_path)
+    return None
+
+
+def _matches_selected_stem(
+    path: Path,
+    selected: MediaSelection | set[str] | frozenset[str],
+    *,
+    artifact: bool = False,
+) -> bool:
+    """True when ``path`` belongs to the selection.
+
+    Source paths match by absolute path only, so two originals with the same
+    basename in different directories never select each other. Compressed
+    artifacts additionally resolve their declared source (sidecar / index).
+    The stem fallback exists only for legacy artifacts without metadata and
+    for stale sidecar paths left behind by a relink; it requires a unique hit.
+    """
+    sel = _coerce_selection(selected)
+    if not sel.paths:
+        return bool(_stem_variants(path.stem, include_segment_base=True) & sel.stems)
+    if _path_key(path) in sel.paths:
+        return True
+    if not artifact:
+        return False
+    source = _artifact_source_path(path)
+    if source is not None:
+        if _path_key(source) in sel.paths:
+            return True
+        if source.is_file():
+            # The artifact declares a live source outside this selection.
+            return False
+    return _unique_selected_stem_hit(path.stem, sel)
+
+
+def _project_selection_stems(config: AppConfig) -> MediaSelection | None:
+    """Selected originals by absolute path, or None for a legacy project without videos.json."""
     project_dir = getattr(config, "project_dir", None)
     if project_dir is None or not (Path(project_dir) / "videos.json").is_file():
         return None
     from clio.tasks._video_loader import source_videos
 
-    return _selected_stems([path.stem for path in source_videos(config) if path.stem])
+    return _selection_from_files(str(path) for path in source_videos(config) if path.stem)
 
 
-def _matches_selected_artifact(path: Path, selected: set[str]) -> bool:
-    if _matches_selected_stem(path, selected):
+def _matches_selected_artifact(path: Path, selected: MediaSelection | set[str] | frozenset[str]) -> bool:
+    sel = _coerce_selection(selected)
+    if not sel.paths and _matches_selected_stem(path, sel):
         return True
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -121,20 +232,48 @@ def _matches_selected_artifact(path: Path, selected: set[str]) -> bool:
         return False
     if not isinstance(data, dict):
         return False
-    candidates: list[str] = []
+
+    source_candidates: list[str] = []
+    artifact_candidates: list[str] = []
     identity = data.get("media_identity")
     if isinstance(identity, dict):
-        candidates.extend(
-            str(value) for value in (identity.get("compressed_stem"), identity.get("original_stem")) if value
-        )
-    for key in ("compressed_file", "source_file", "index"):
+        for key in ("original_path", "source_path"):
+            value = identity.get(key)
+            if value:
+                source_candidates.append(str(value))
+        for key in ("compressed_path", "compressed_stem", "original_stem"):
+            value = identity.get(key)
+            if value:
+                artifact_candidates.append(str(value))
+    source_value = data.get("source_path")
+    if source_value:
+        source_candidates.append(str(source_value))
+    # ``source_file`` holds the original basename in current analyses, but
+    # older writers stored a full path there.
+    source_file = data.get("source_file")
+    if source_file:
+        source_candidates.append(str(source_file))
+    for key in ("compressed_file", "index"):
         value = data.get(key)
         if value:
-            candidates.append(str(value))
+            artifact_candidates.append(str(value))
+
+    candidates = source_candidates + artifact_candidates
+    if not sel.paths:
+        return any(_stem_variants(candidate, include_segment_base=True) & sel.stems for candidate in candidates)
+
     for candidate in candidates:
-        if _stem_variants(candidate, include_segment_base=True) & selected:
+        if _looks_like_path(candidate) and _path_key(candidate) in sel.paths:
             return True
-    return False
+    live_sources = [
+        Path(candidate)
+        for candidate in source_candidates
+        if _looks_like_path(candidate) and Path(candidate).is_absolute() and Path(candidate).is_file()
+    ]
+    if live_sources:
+        # The artifact names an existing source that is not selected.
+        return False
+    return any(_unique_selected_stem_hit(candidate, sel) for candidate in candidates)
 
 
 def _build_stem(index: int, title: str, config: AppConfig) -> str:

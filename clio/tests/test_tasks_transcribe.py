@@ -11,6 +11,7 @@ import pytest
 
 from clio.config import WhisperConfig
 from clio.progress import ProgressTracker
+from clio.vmeta import VideoMeta
 
 
 @pytest.fixture(autouse=True)
@@ -396,6 +397,51 @@ class TestRunTranscribeAll:
             result = run_transcribe_all(cfg, files=["001_GL010683"])
         assert result == 0
         assert call_count == 1
+
+    def test_same_named_originals_only_transcribe_selected_path(self, cfg, tmp_path):
+        from clio.tasks._video_loader import save_selected_videos
+        from clio.tasks.transcribe import run_transcribe_all
+
+        output = tmp_path / "output"
+        compressed = output / "compressed"
+        compressed.mkdir(parents=True)
+        project = tmp_path / "input"
+        a_dir = project / "a"
+        b_dir = project / "b"
+        a_dir.mkdir(parents=True)
+        b_dir.mkdir(parents=True)
+        a = a_dir / "clip.mp4"
+        b = b_dir / "clip.mp4"
+        a.write_bytes(b"a")
+        b.write_bytes(b"b")
+        save_selected_videos(project, [a, b])
+
+        comp_a = compressed / "001_clip.mp4"
+        comp_b = compressed / "002_clip.mp4"
+        comp_a.write_bytes(b"ca")
+        comp_b.write_bytes(b"cb")
+        VideoMeta.build(a, comp_a, 10.0, 10.0).write(comp_a)
+        VideoMeta.build(b, comp_b, 10.0, 10.0).write(comp_b)
+
+        cfg.project_dir = project
+        cfg.paths.output_dir = output
+        cfg.analyze.skip_existing = False
+        cfg.transcripts_dir = output / "transcripts"
+        cfg.transcripts_dir.mkdir(parents=True)
+
+        wav = tmp_path / "fake.wav"
+        wav.touch()
+        with (
+            patch("clio.tasks.transcribe.resolve_binary", return_value="ffmpeg"),
+            patch("clio.tasks.transcribe._extract_audio", return_value=wav) as mock_extract,
+            patch("clio.tasks.transcribe.transcribe_audio", return_value=[]) as mock_transcribe,
+        ):
+            result = run_transcribe_all(cfg, files=[str(a)])
+
+        assert result == 0
+        mock_extract.assert_called_once()
+        assert mock_extract.call_args.args[0] == a
+        mock_transcribe.assert_called_once()
 
 
 class TestRunTranscribeOne:

@@ -1267,3 +1267,91 @@ class TestVideosP2P39:
         assert videos["001_GL010695_seg01.mp4"]["offset_sec"] == 0.0
         assert videos["002_GL010695_seg02.mp4"]["offset_sec"] == 30.0
         assert videos["003_GL010695_seg03.mp4"]["offset_sec"] == 60.0
+
+
+class TestCompressedSelectionSameName:
+    def setup_method(self):
+        _clear_videos_cache()
+
+    @staticmethod
+    def _handler(proj_dir: Path, proj_out: Path) -> MagicMock:
+        handler = MagicMock()
+        handler._resolve_project_dir.return_value = proj_dir
+        handler._get_project_output.return_value = proj_out
+        handler._get_config.return_value = SimpleNamespace(
+            paths=SimpleNamespace(ffprobe=""),
+            whisper=SimpleNamespace(transcripts_subdir="transcripts"),
+        )
+        handler._send_json = MagicMock()
+        return handler
+
+    def test_only_compressed_artifact_of_selected_duplicate_stem_is_listed(self, tmp_path: Path):
+        import json
+
+        proj_dir = tmp_path / "project"
+        proj_out = tmp_path / "out"
+        comp_dir = proj_out / "compressed"
+        a_dir = tmp_path / "a"
+        b_dir = tmp_path / "b"
+        for path in (proj_dir, a_dir, b_dir, comp_dir):
+            path.mkdir(parents=True)
+        a = a_dir / "clip.mp4"
+        b = b_dir / "clip.mp4"
+        a.write_bytes(b"a")
+        b.write_bytes(b"b")
+        comp_a = comp_dir / "001_clip.mp4"
+        comp_b = comp_dir / "002_clip.mp4"
+        comp_a.write_bytes(b"ca")
+        comp_b.write_bytes(b"cb")
+        VideoMeta.build(a, comp_a, 10.0, 10.0).write(comp_a)
+        VideoMeta.build(b, comp_b, 10.0, 10.0).write(comp_b)
+        (proj_dir / "videos.json").write_text(json.dumps([str(a)]), encoding="utf-8")
+
+        handler = self._handler(proj_dir, proj_out)
+        handle_get_videos(handler, {"source": ["compressed"]})
+
+        payload = handler._send_json.call_args[0][0]
+        assert [video["file"] for video in payload["videos"]] == ["001_clip.mp4"]
+
+    def test_legacy_artifact_without_metadata_uses_unique_stem(self, tmp_path: Path):
+        import json
+
+        proj_dir = tmp_path / "project"
+        proj_out = tmp_path / "out"
+        comp_dir = proj_out / "compressed"
+        a_dir = tmp_path / "a"
+        for path in (proj_dir, a_dir, comp_dir):
+            path.mkdir(parents=True)
+        a = a_dir / "clip.mp4"
+        a.write_bytes(b"a")
+        (comp_dir / "001_clip.mp4").write_bytes(b"c")
+        (proj_dir / "videos.json").write_text(json.dumps([str(a)]), encoding="utf-8")
+
+        handler = self._handler(proj_dir, proj_out)
+        handle_get_videos(handler, {"source": ["compressed"]})
+
+        payload = handler._send_json.call_args[0][0]
+        assert [video["file"] for video in payload["videos"]] == ["001_clip.mp4"]
+
+    def test_ambiguous_legacy_artifact_without_metadata_is_excluded(self, tmp_path: Path):
+        import json
+
+        proj_dir = tmp_path / "project"
+        proj_out = tmp_path / "out"
+        comp_dir = proj_out / "compressed"
+        a_dir = tmp_path / "a"
+        b_dir = tmp_path / "b"
+        for path in (proj_dir, a_dir, b_dir, comp_dir):
+            path.mkdir(parents=True)
+        a = a_dir / "clip.mp4"
+        b = b_dir / "clip.mp4"
+        a.write_bytes(b"a")
+        b.write_bytes(b"b")
+        (comp_dir / "001_clip.mp4").write_bytes(b"c")
+        (proj_dir / "videos.json").write_text(json.dumps([str(a), str(b)]), encoding="utf-8")
+
+        handler = self._handler(proj_dir, proj_out)
+        handle_get_videos(handler, {"source": ["compressed"]})
+
+        payload = handler._send_json.call_args[0][0]
+        assert payload["videos"] == []

@@ -10,7 +10,12 @@ from clio.config.models import AppConfig
 from clio.i18n import t
 from clio.identity import SEGMENT_SUFFIX_RE
 from clio.index import ArtifactIndex
-from clio.tasks._helpers import _matches_selected_artifact, _matches_selected_stem, _selected_stems
+from clio.tasks._helpers import (
+    MediaSelection,
+    _matches_selected_artifact,
+    _matches_selected_stem,
+    _selection_from_files,
+)
 from clio.tasks.plan import plan_overwrite_confirmation_required
 from clio.utils import plan_day_stem
 
@@ -30,7 +35,7 @@ def build_run_preview(
     day_label: str = "day1",
 ) -> dict[str, Any]:
     selected_steps = list(steps)
-    selected = _selected_stems(files) if files is not None else None
+    selected = _selection_from_files(files) if files is not None else None
 
     source_input_info, all_source_videos = _source_input_info(config)
     from clio.tasks._video_loader import source_videos as _load_source_videos
@@ -49,7 +54,7 @@ def build_run_preview(
     index.build()
 
     filtered_source_videos = _filter_stem_paths(all_source_videos, selected)
-    compressed_videos = _filter_stem_paths(all_compressed_videos, selected)
+    compressed_videos = _filter_stem_paths(all_compressed_videos, selected, artifact=True)
     analysis_jsons = _filter_artifact_paths(all_analysis_jsons, selected)
 
     input_info = compressed_input_info if _starts_from_compressed(selected_steps) else source_input_info
@@ -289,13 +294,13 @@ def _find_texts_dirs(texts_dir: Path) -> list[Path]:
     return sorted(path for path in output_dir.rglob(texts_dir.name) if path.is_dir())
 
 
-def _filter_stem_paths(paths: list[Path], selected: set[str] | None) -> list[Path]:
+def _filter_stem_paths(paths: list[Path], selected: MediaSelection | None, *, artifact: bool = False) -> list[Path]:
     if selected is None:
         return paths
-    return [path for path in paths if _matches_selected_stem(path, selected)]
+    return [path for path in paths if _matches_selected_stem(path, selected, artifact=artifact)]
 
 
-def _filter_artifact_paths(paths: list[Path], selected: set[str] | None) -> list[Path]:
+def _filter_artifact_paths(paths: list[Path], selected: MediaSelection | None) -> list[Path]:
     if selected is None:
         return paths
     return [path for path in paths if _matches_selected_artifact(path, selected)]

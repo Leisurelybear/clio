@@ -314,3 +314,42 @@ def test_collect_project_media_durations_prefers_vmeta(tmp_path, monkeypatch):
     )
 
     assert collect_project_media_durations(cfg) == {"001": 10.0}
+
+
+def test_collect_project_indices_ignores_same_named_unselected_original(tmp_path):
+    import json
+    from types import SimpleNamespace
+
+    from clio.plan_readiness import collect_project_indices
+    from clio.vmeta import VideoMeta
+
+    comp = tmp_path / "compressed"
+    comp.mkdir()
+    a_dir = tmp_path / "videos" / "a"
+    b_dir = tmp_path / "videos" / "b"
+    a_dir.mkdir(parents=True)
+    b_dir.mkdir(parents=True)
+    a = a_dir / "clip.mp4"
+    b = b_dir / "clip.mp4"
+    a.write_bytes(b"a")
+    b.write_bytes(b"b")
+    comp_a = comp / "001_clip.mp4"
+    comp_b = comp / "002_clip.mp4"
+    comp_a.write_bytes(b"ca")
+    comp_b.write_bytes(b"cb")
+    VideoMeta.build(a, comp_a, 10.0, 10.0).write(comp_a)
+    VideoMeta.build(b, comp_b, 10.0, 10.0).write(comp_b)
+    (tmp_path / "videos" / "videos.json").write_text(json.dumps([str(a)]), encoding="utf-8")
+
+    cfg = SimpleNamespace(
+        compressed_dir=comp,
+        texts_dir=tmp_path / "texts",
+        project_dir=tmp_path / "videos",
+        naming=SimpleNamespace(index_width=3),
+    )
+
+    known, offline = collect_project_indices(cfg)
+
+    assert "001" in known
+    assert "002" not in known
+    assert offline == set()

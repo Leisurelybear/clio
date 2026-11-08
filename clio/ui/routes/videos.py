@@ -15,6 +15,7 @@ from clio._constants import VIDEO_EXTENSIONS, VIDEO_EXTS
 from clio.i18n import t
 from clio.identity import prefer_canonical_compressed
 from clio.index import ArtifactIndex
+from clio.tasks._helpers import _path_key, _stem_variants
 from clio.tasks._video_loader import load_selected_videos, save_selected_videos
 from clio.ui.services.file_service import (
     _find_compressed_for_original,
@@ -147,10 +148,6 @@ def _find_selected_original_for_request(proj_dir: Path, requested: str) -> Path 
     return None
 
 
-def _selection_stems(selected_set: set[Path]) -> set[str]:
-    return {p.stem.lower() for p in selected_set}
-
-
 def _compressed_matches_selection(
     compressed: Path,
     stem: str,
@@ -159,43 +156,33 @@ def _compressed_matches_selection(
 ) -> bool:
     """True if this compressed artifact belongs to the curated selection.
 
-    Matches absolute source path first, then basename / original stem. After
-    relink, .vmeta may still hold the old path while videos.json has the new
-    one — stem/basename matching keeps the compressed file visible.
+    Absolute source paths win. A basename/stem fallback is kept for artifacts
+    without sidecar metadata and for relinked sources, but it only applies when
+    exactly one selected path shares the stem — never when two originals in
+    different directories collide.
     """
-    meta = VideoMeta.read(compressed)
+    selected_keys = {_path_key(path) for path in selected_set}
     candidates: list[Path] = []
+    meta = VideoMeta.read(compressed)
     if meta is not None and meta.source_path:
         candidates.append(Path(meta.source_path))
     if orig:
         candidates.append(Path(orig))
 
     for cand in candidates:
-        try:
-            resolved = cand.resolve() if cand.is_absolute() or cand.exists() else cand
-        except OSError:
-            resolved = cand
-        if resolved in selected_set:
+        if _path_key(cand) in selected_keys:
             return True
-        if any(s.name.lower() == cand.name.lower() for s in selected_set):
-            return True
-        if cand.stem.lower() in _selection_stems(selected_set):
-            return True
+    if any(cand.is_absolute() and cand.is_file() for cand in candidates):
+        # The artifact names a live source outside the curated selection.
+        return False
 
-    # compressed stem like 001_GL010695 or 001_GL010695_seg01
+    fallback_stems: set[str] = set()
+    for cand in candidates:
+        fallback_stems.update(_stem_variants(cand.stem))
     suffix = stem.split("_", 1)[1] if "_" in stem else stem
-    suffix_l = suffix.lower()
-    stems = _selection_stems(selected_set)
-    if suffix_l in stems:
-        return True
-    m = _SEG_RE.match(suffix)
-    if m and m.group(1).lower() in stems:
-        return True
-    # strip _segNN manually if regex only matched full stem form
-    base = re.sub(r"_(?:seg|part|pt|chunk)\d+$", "", suffix_l, flags=re.IGNORECASE)
-    if base in stems:
-        return True
-    return False
+    fallback_stems.update(_stem_variants(suffix, include_segment_base=True))
+    hits = {path for path in selected_set if _stem_variants(path.stem, include_segment_base=True) & fallback_stems}
+    return len(hits) == 1
 
 
 def _load_videos_json_selection(proj_dir: Path) -> list[Path] | None:

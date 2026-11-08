@@ -22,6 +22,17 @@ export function normPath(p) {
 }
 
 /**
+ * Stable identity for one sidebar row in selection mode.
+ * Original rows use the absolute path so same-named clips in different
+ * directories never toggle together; compressed rows use the artifact name.
+ */
+export function videoSelectionKey(video) {
+  if (!video) return '';
+  if (video.source === 'original') return video.abs_path || video.file || '';
+  return video.file || '';
+}
+
+/**
  * Find which index in selected paths to remove.
  * Prefer absolute path equality; basename fallback only when unique.
  * @returns {{ index: number, error?: string }}

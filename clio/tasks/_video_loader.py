@@ -57,6 +57,15 @@ def source_videos(config: AppConfig) -> list[Path]:
     return load_selected_videos(getattr(config, "project_dir", None))
 
 
-def stem_to_path_map(videos: list[Path]) -> dict[str, Path]:
-    """Build {stem_lower: path} from a video path list."""
-    return {p.stem.lower(): p for p in videos if p.suffix}
+def stem_to_path_map(videos: list[Path]) -> dict[str, Path | None]:
+    """Build {stem_lower: path}; duplicate stems map to None (ambiguous)."""
+    out: dict[str, Path | None] = {}
+    for path in videos:
+        if not path.suffix:
+            continue
+        key = path.stem.lower()
+        if key in out and out[key] != path:
+            out[key] = None
+        else:
+            out[key] = path
+    return out

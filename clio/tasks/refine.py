@@ -16,7 +16,7 @@ from clio.tasks._helpers import (
     _matches_selected_artifact,
     _rewrite_script_md,
     _rewrite_text_file,
-    _selected_stems,
+    _selection_from_files,
 )
 from clio.utils import write_json_atomic
 
@@ -63,7 +63,7 @@ def run_refine_texts(
         raise ValueError(t("task.refine.fix_requires_file"))
     target_files = _collect_target_files(path, config.texts_dir)
     if files is not None:
-        selected = _selected_stems(files)
+        selected = _selection_from_files(files)
         target_files = [f for f in target_files if _matches_selected_artifact(f, selected)]
     token_store = FileTokenUsageStore(str(config.paths.output_dir))
     if not target_files:
@@ -123,7 +123,7 @@ def run_refine_scripts(
         raise ValueError(t("task.refine.fix_requires_file"))
     target_files = _collect_target_files(path, config.scripts_dir, pattern="*_voiceover.json")
     if files is not None:
-        selected = _selected_stems(files)
+        selected = _selection_from_files(files)
         target_files = [f for f in target_files if _matches_selected_artifact(f, selected)]
     token_store = FileTokenUsageStore(str(config.paths.output_dir))
     if not target_files:

@@ -5,6 +5,7 @@ import {
   normPath,
   removeSelectedVideos,
   toggleSelectionFor,
+  videoSelectionKey,
 } from '../video-selection.js';
 
 describe('normPath', () => {
@@ -171,5 +172,26 @@ describe('toggleSelectionFor', () => {
       '001_a.mp4',
       '002_b.mp4',
     ]);
+  });
+});
+
+describe('videoSelectionKey', () => {
+  it('uses the absolute path for original rows', () => {
+    expect(videoSelectionKey({ source: 'original', file: 'clip.mp4', abs_path: 'D:/a/clip.mp4' }))
+      .toBe('D:/a/clip.mp4');
+  });
+
+  it('falls back to the file name for original rows without abs_path', () => {
+    expect(videoSelectionKey({ source: 'original', file: 'clip.mp4' })).toBe('clip.mp4');
+  });
+
+  it('keeps the artifact name for compressed rows', () => {
+    expect(videoSelectionKey({ source: 'compressed', file: '001_clip.mp4', abs_path: 'D:/out/001_clip.mp4' }))
+      .toBe('001_clip.mp4');
+  });
+
+  it('returns an empty key for missing rows', () => {
+    expect(videoSelectionKey(null)).toBe('');
+    expect(videoSelectionKey({})).toBe('');
   });
 });

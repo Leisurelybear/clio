@@ -20,7 +20,13 @@ from clio.log import format_duration
 from clio.processing_state import ProcessingState
 from clio.progress import ProgressTracker
 from clio.schema import add_schema_version
-from clio.tasks._helpers import _matches_selected_stem, _selected_stems
+from clio.tasks._helpers import (
+    _artifact_source_path,
+    _matches_selected_stem,
+    _path_key,
+    _project_selection_stems,
+    _selection_from_files,
+)
 from clio.tasks.transcript_align import enrich_matching_analysis_files
 from clio.transcribe import transcribe_audio
 from clio.utils import find_videos, no_console_kwargs, popen_subprocess, resolve_binary, write_json_atomic
@@ -66,17 +72,35 @@ def _extract_orig_stem(compressed_stem: str) -> str:
     return SEGMENT_SUFFIX_RE.sub("", orig_stem)
 
 
-def _find_original_video(compressed_stem: str, original_cache: dict[str, Path]) -> Path | None:
-    """Match the full source stem first so natural ``_partNN`` names stay intact."""
+def _find_original_video(
+    compressed_stem: str,
+    original_cache: dict[str, Path | None],
+    compressed_path: Path | None = None,
+    selected_paths: frozenset[str] | None = None,
+) -> Path | None:
+    """Match the sidecar source first, then the full source stem.
+
+    The full stem wins over the segment base so natural ``_partNN`` names stay
+    intact. Duplicate stems mean ambiguity, never a silent first match.
+    """
+    if compressed_path is not None:
+        source = _artifact_source_path(compressed_path)
+        if source is not None:
+            if selected_paths is None or _path_key(source) in selected_paths:
+                return source
+            if source.is_file():
+                return None
     source_stem = compressed_stem.split("_", 1)[1] if "_" in compressed_stem else compressed_stem
-    exact = original_cache.get(source_stem.lower())
-    if exact is not None:
-        return exact
+    key = source_stem.lower()
+    if key in original_cache:
+        return original_cache[key]
     stripped = SEGMENT_SUFFIX_RE.sub("", source_stem)
-    return original_cache.get(stripped.lower()) if stripped != source_stem else None
+    if stripped != source_stem:
+        return original_cache.get(stripped.lower())
+    return None
 
 
-def _build_original_stem_map(project_dir: Path | None = None) -> dict[str, Path]:
+def _build_original_stem_map(project_dir: Path | None = None) -> dict[str, Path | None]:
     from clio.tasks._video_loader import load_selected_videos, stem_to_path_map
 
     return stem_to_path_map(load_selected_videos(project_dir))
@@ -245,8 +269,8 @@ def run_transcribe_all(
         return 0
     videos = find_videos(compressed_dir)
     if files is not None:
-        selected = _selected_stems(files)
-        videos = [v for v in videos if _matches_selected_stem(v, selected)]
+        selected = _selection_from_files(files)
+        videos = [v for v in videos if _matches_selected_stem(v, selected, artifact=True)]
     total = len(videos)
     if total == 0:
         print(t("task.transcribe.no_videos"))
@@ -256,6 +280,8 @@ def run_transcribe_all(
         tracker.update(phase="transcribe", total=total, current=0, message=t("task.transcribe.phase_title"))
     state = ProcessingState(config.paths.output_dir)
     original_cache = _build_original_stem_map(config.project_dir)
+    project_selection = _project_selection_stems(config)
+    selected_paths = project_selection.paths if project_selection is not None else None
     error_count = 0
 
     tmp_dir = _transcribe_tmp_dir(config)
@@ -265,7 +291,7 @@ def run_transcribe_all(
     for i, compressed_video in enumerate(videos):
         compressed_stem = compressed_video.stem
         out_path = transcripts_dir / f"{compressed_stem}_transcript.json"
-        original_video = _find_original_video(compressed_stem, original_cache)
+        original_video = _find_original_video(compressed_stem, original_cache, compressed_video, selected_paths)
         if original_video is None:
             orig_stem = _extract_orig_stem(compressed_stem)
             print(t("task.transcribe.skip_no_original", {"name": compressed_stem}))

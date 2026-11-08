@@ -578,3 +578,58 @@ class TestRunCompressAll:
 
         assert old.exists(), "old artifact retained when replacement fails"
         assert old.with_suffix(".vmeta").exists()
+
+
+class TestSelectionPathMatching:
+    def test_same_basename_in_different_dirs_only_compresses_selected(self, monkeypatch, tmp_path: Path):
+        cfg = _cfg(tmp_path)
+        a_dir = tmp_path / "a"
+        b_dir = tmp_path / "b"
+        a_dir.mkdir()
+        b_dir.mkdir()
+        a = a_dir / "clip.mp4"
+        b = b_dir / "clip.mp4"
+        a.write_bytes(b"\x00" * 1000)
+        b.write_bytes(b"\x00" * 1000)
+        (cfg.project_dir / "videos.json").write_text(json.dumps([str(a), str(b)]), encoding="utf-8")
+
+        monkeypatch.setattr("clio.tasks.compress.resolve_binary", lambda *args: "ffmpeg")
+        seen: list[Path] = []
+
+        def _mock_compress(inp, outp, *args, **kwargs):
+            seen.append(Path(inp))
+            outp.write_bytes(b"\x00" * 300)
+            return outp
+
+        monkeypatch.setattr("clio.tasks.compress.compress_video", _mock_compress)
+
+        records = run_compress_all(cfg, files=[str(a)])
+
+        assert seen == [a]
+        assert [record.stem for record in records] == ["001_clip"]
+
+    def test_bare_name_still_matches_both(self, monkeypatch, tmp_path: Path):
+        cfg = _cfg(tmp_path)
+        a_dir = tmp_path / "a"
+        b_dir = tmp_path / "b"
+        a_dir.mkdir()
+        b_dir.mkdir()
+        a = a_dir / "clip.mp4"
+        b = b_dir / "clip.mp4"
+        a.write_bytes(b"\x00" * 1000)
+        b.write_bytes(b"\x00" * 1000)
+        (cfg.project_dir / "videos.json").write_text(json.dumps([str(a), str(b)]), encoding="utf-8")
+
+        monkeypatch.setattr("clio.tasks.compress.resolve_binary", lambda *args: "ffmpeg")
+        seen: list[Path] = []
+
+        def _mock_compress(inp, outp, *args, **kwargs):
+            seen.append(Path(inp))
+            outp.write_bytes(b"\x00" * 300)
+            return outp
+
+        monkeypatch.setattr("clio.tasks.compress.compress_video", _mock_compress)
+
+        run_compress_all(cfg, files=["clip.mp4"])
+
+        assert seen == [a, b]

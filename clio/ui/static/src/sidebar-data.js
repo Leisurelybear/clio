@@ -19,7 +19,7 @@ import {
   stageLabel,
   STAGE_CELLS,
 } from './sidebar-video-filter.js';
-import { toggleSelectionFor } from './video-selection.js';
+import { toggleSelectionFor, videoSelectionKey } from './video-selection.js';
 import { selectVideosButtonHtml } from './select-btn.js';
 import { bindVideoInfoHover, clearVideoInfoCache } from './video-info.js';
 import { t, onLocaleChange } from './i18n.js';
@@ -66,7 +66,7 @@ function _removeTarget(v) {
 async function _selectedVideoTargets(files) {
   const wanted = new Set((files || []).map(f => String(f)));
   return (state.videos || [])
-    .filter(v => wanted.has(v.file))
+    .filter(v => wanted.has(videoSelectionKey(v)))
     .map(_removeTarget);
 }
 
@@ -85,7 +85,7 @@ async function _removeVideos(targets) {
     await api('PUT', '/api/videos/selected', { videos: remaining });
     await loadVideos();
     if (state.selectedFiles.length) {
-      const present = new Set((state.videos || []).map(v => v.file));
+      const present = new Set((state.videos || []).map(videoSelectionKey));
       const next = state.selectedFiles.filter(f => present.has(f));
       if (next.length !== state.selectedFiles.length) {
         state.selectedFiles = next;
@@ -430,10 +430,11 @@ function renderVideoItem(v) {
   let checkboxHtml = '';
   let selectedClass = '';
   if (state.selectionMode) {
-    const isSelected = state.selectedFiles.includes(v.file);
+    const selectKey = videoSelectionKey(v);
+    const isSelected = state.selectedFiles.includes(selectKey);
     selectedClass = isSelected ? ' selected' : '';
     const disabled = v.missing ? `disabled title="${t('sidebar.offline_not_selectable')}"` : '';
-    checkboxHtml = `<input type="checkbox" class="video-checkbox" data-file="${escapeHtml(v.file)}" ${isSelected ? 'checked' : ''} ${disabled}>`;
+    checkboxHtml = `<input type="checkbox" class="video-checkbox" data-file="${escapeHtml(selectKey)}" ${isSelected ? 'checked' : ''} ${disabled}>`;
   }
   li.className = 'video-item' + selectedClass;
   if (state.currentVideo === v.file) li.classList.add('active');
@@ -590,10 +591,11 @@ function renderVideoItem(v) {
     if (cb) {
       cb.addEventListener('change', (e) => {
         e.stopPropagation();
+        const selectKey = videoSelectionKey(v);
         if (cb.checked) {
-          if (!state.selectedFiles.includes(v.file)) state.selectedFiles.push(v.file);
+          if (!state.selectedFiles.includes(selectKey)) state.selectedFiles.push(selectKey);
         } else {
-          state.selectedFiles = state.selectedFiles.filter(f => f !== v.file);
+          state.selectedFiles = state.selectedFiles.filter(f => f !== selectKey);
         }
         renderVideoList();
       });
@@ -672,7 +674,7 @@ export function renderVideoList() {
 
   if (state.selectionMode) {
     const selectable = visible.filter(v => !v.missing);
-    const allSelected = selectable.length > 0 && selectable.every(v => state.selectedFiles.includes(v.file));
+    const allSelected = selectable.length > 0 && selectable.every(v => state.selectedFiles.includes(videoSelectionKey(v)));
     const totalSelectable = state.videos.filter(v => !v.missing).length;
     const headerDiv = document.createElement('div');
     headerDiv.className = 'selection-header';
@@ -688,7 +690,7 @@ export function renderVideoList() {
       removeAction.onclick = () => { removeSelectedVideosFromProject(); };
     }
     headerDiv.querySelector('[data-action="all"]').onclick = () => {
-      state.selectedFiles = toggleSelectionFor(state.selectedFiles, selectable.map(v => v.file));
+      state.selectedFiles = toggleSelectionFor(state.selectedFiles, selectable.map(videoSelectionKey));
       renderVideoList();
     };
     ul.appendChild(headerDiv);

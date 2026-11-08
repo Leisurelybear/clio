@@ -26,7 +26,7 @@ from clio.schema import add_schema_version
 from clio.tasks._helpers import (
     _matches_selected_artifact,
     _project_selection_stems,
-    _selected_stems,
+    _selection_from_files,
     _task_lineage_settings,
 )
 from clio.utils import format_index, plan_day_stem, resolve_binary, run_probe, write_json_atomic, write_text_atomic
@@ -296,7 +296,7 @@ def run_plan_vlog(
     token_store = FileTokenUsageStore(str(config.paths.output_dir))
     safe_day = plan_day_stem(day_label)
 
-    selected = _selected_stems(files) if files is not None else None
+    selected = _selection_from_files(files) if files is not None else None
     project_selection = _project_selection_stems(config)
     if selected is not None:
         print(t("task.plan.filter_selected", {"count": len(selected)}))

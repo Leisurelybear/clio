@@ -15,6 +15,7 @@ from clio.config.models import (
     ScriptConfig,
 )
 from clio.ui.services.run_preview import build_run_preview
+from clio.vmeta import VideoMeta
 
 
 def _config(project_dir: Path, output_dir: Path) -> AppConfig:
@@ -781,3 +782,41 @@ def test_preview_unknown_steps_are_reported_as_warnings(tmp_path: Path) -> None:
     }
     assert preview["totals"]["selected_steps"] == 2
     assert preview["totals"]["warnings"] == 1
+
+
+def test_preview_files_selection_keeps_same_named_originals_apart(tmp_path: Path) -> None:
+    input_dir = tmp_path / "videos"
+    output_dir = tmp_path / "output"
+    compressed_dir = output_dir / "compressed"
+    input_dir.mkdir()
+    compressed_dir.mkdir(parents=True)
+    a_dir = input_dir / "a"
+    b_dir = input_dir / "b"
+    a_dir.mkdir()
+    b_dir.mkdir()
+    a = a_dir / "clip.mp4"
+    b = b_dir / "clip.mp4"
+    a.write_bytes(b"a")
+    b.write_bytes(b"b")
+    comp_a = compressed_dir / "001_clip.mp4"
+    comp_b = compressed_dir / "002_clip.mp4"
+    comp_a.write_bytes(b"ca")
+    comp_b.write_bytes(b"cb")
+    VideoMeta.build(a, comp_a, 10.0, 10.0).write(comp_a)
+    VideoMeta.build(b, comp_b, 10.0, 10.0).write(comp_b)
+
+    from clio.tasks._video_loader import save_selected_videos
+
+    save_selected_videos(input_dir, [a, b])
+    preview = build_run_preview(
+        _config(input_dir, output_dir),
+        steps=["compress", "transcribe"],
+        force=False,
+        use_transcripts=True,
+        files=[str(a)],
+    )
+
+    assert [(step["name"], step["total"]) for step in preview["steps"]] == [
+        ("compress", 1),
+        ("transcribe", 1),
+    ]

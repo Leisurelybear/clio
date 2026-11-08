@@ -295,7 +295,7 @@ def collect_project_indices(cfg: Any) -> tuple[set[str], set[str]]:
         try:
             for p in comp.iterdir():
                 if p.is_file() and p.suffix.lower() in VIDEO_EXTS:
-                    if selection is not None and not _matches_selected_stem(p, selection):
+                    if selection is not None and not _matches_selected_stem(p, selection, artifact=True):
                         continue
                     stem = p.stem
                     idx = stem.split("_", 1)[0]
@@ -382,7 +382,7 @@ def collect_project_media_durations(cfg: Any) -> dict[str, float]:
         for path in compressed_dir.iterdir():
             if not path.is_file() or path.suffix.lower() not in VIDEO_EXTS:
                 continue
-            if selection is not None and not _matches_selected_stem(path, selection):
+            if selection is not None and not _matches_selected_stem(path, selection, artifact=True):
                 continue
             index = path.stem.split("_", 1)[0].strip()
             if not index:

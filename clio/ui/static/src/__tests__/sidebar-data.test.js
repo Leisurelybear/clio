@@ -252,11 +252,11 @@ describe('removeSelectedVideosFromProject', () => {
     const { api } = await import('../api.js');
     const { state } = await import('../state.js');
     state.videos = [
-      { file: '001_a.mp4', abs_path: 'D:/clips/001_a.mp4' },
-      { file: '002_b.mp4', abs_path: 'D:/clips/002_b.mp4' },
-      { file: '003_c.mp4', abs_path: 'D:/clips/003_c.mp4' },
+      { source: 'original', file: '001_a.mp4', abs_path: 'D:/clips/001_a.mp4' },
+      { source: 'original', file: '002_b.mp4', abs_path: 'D:/clips/002_b.mp4' },
+      { source: 'original', file: '003_c.mp4', abs_path: 'D:/clips/003_c.mp4' },
     ];
-    state.selectedFiles = ['001_a.mp4', '003_c.mp4'];
+    state.selectedFiles = ['D:/clips/001_a.mp4', 'D:/clips/003_c.mp4'];
     state.selectionMode = true;
     state.currentEntity = 'run';
     state.source = 'original';
@@ -296,11 +296,13 @@ describe('removeSelectedVideosFromProject', () => {
     const { state } = await import('../state.js');
     state.videos = [
       {
+        source: 'compressed',
         file: '002_a_compressed.mp4',
         abs_path: 'D:/compressed/002_a_compressed.mp4',
         match: { file: '001_a.mp4', abs_path: 'D:/clips/001_a.mp4' },
       },
       {
+        source: 'compressed',
         file: '003_b_compressed.mp4',
         abs_path: 'D:/compressed/003_b_compressed.mp4',
         match: { file: '002_b.mp4', abs_path: 'D:/clips/002_b.mp4' },

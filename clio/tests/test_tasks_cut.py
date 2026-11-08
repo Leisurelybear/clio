@@ -896,3 +896,57 @@ class TestResolveCutOutputDir:
         sub.mkdir(parents=True, exist_ok=True)
         out = resolve_cut_output_dir(cfg, "day1", sub)
         assert out == sub.resolve()
+
+
+class TestResolveVideoPathSameStem:
+    def test_sidecar_source_outside_selection_is_skipped(self, cfg):
+        a_dir = cfg.project_dir / "a"
+        b_dir = cfg.project_dir / "b"
+        a_dir.mkdir()
+        b_dir.mkdir()
+        a = a_dir / "clip.mp4"
+        b = b_dir / "clip.mp4"
+        a.write_bytes(b"a")
+        b.write_bytes(b"b")
+        save_selected_videos(cfg.project_dir, [a])
+
+        compressed = cfg.compressed_dir / "001_clip.mp4"
+        compressed.write_bytes(b"c")
+        VideoMeta.build(b, compressed, 10.0, 10.0).write(compressed)
+        _write_plan(cfg, seq=[{"index": "001", "title": "A", "use_timeline": "00:00-00:10"}])
+
+        with (
+            patch("clio.tasks.cut.cut_one") as mock_cut,
+            patch("clio.tasks.cut.resolve_binary", return_value="ffmpeg"),
+        ):
+            from clio.tasks.cut import run_cut_all
+
+            result = run_cut_all(cfg, "day1", source="original")
+
+        assert result == []
+        mock_cut.assert_not_called()
+
+    def test_ambiguous_same_stem_artifact_is_not_cut(self, cfg):
+        a_dir = cfg.project_dir / "a"
+        b_dir = cfg.project_dir / "b"
+        a_dir.mkdir()
+        b_dir.mkdir()
+        a = a_dir / "clip.mp4"
+        b = b_dir / "clip.mp4"
+        a.write_bytes(b"a")
+        b.write_bytes(b"b")
+        save_selected_videos(cfg.project_dir, [a, b])
+
+        (cfg.compressed_dir / "001_clip.mp4").write_bytes(b"c")
+        _write_plan(cfg, seq=[{"index": "001", "title": "A", "use_timeline": "00:00-00:10"}])
+
+        with (
+            patch("clio.tasks.cut.cut_one") as mock_cut,
+            patch("clio.tasks.cut.resolve_binary", return_value="ffmpeg"),
+        ):
+            from clio.tasks.cut import run_cut_all
+
+            result = run_cut_all(cfg, "day1", source="original")
+
+        assert result == []
+        mock_cut.assert_not_called()

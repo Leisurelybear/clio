@@ -30,6 +30,7 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
   - [x] C6: retry daily plans once when timeline selections overlap, are empty, or miss the duration target
   - [x] D10: compare transcript engine, model, and language before cache reuse
   - [x] D11: skip label generation with a warning when no drawtext font is available
+  - [x] D17: match selected originals by full path so same-named clips stay independent
   - [ ] Next: continue the review backlog; one focused fix per commit
   - Keep the existing uncommitted plan-delete/video-selection work isolated.
 - R-048 Higher-detail video analysis and bounded plan input (plan ready; P0a-P0c not started)

@@ -20,7 +20,7 @@ from clio.progress import ProgressTracker
 from clio.prompts import SCRIPT_PROMPT
 from clio.resources import find_resource
 from clio.schema import add_schema_version
-from clio.tasks._helpers import _matches_selected_artifact, _selected_stems, _task_lineage_settings
+from clio.tasks._helpers import _matches_selected_artifact, _selection_from_files, _task_lineage_settings
 from clio.utils import write_json_atomic, write_text_atomic
 
 
@@ -169,7 +169,7 @@ def run_generate_scripts(
     else:
         input_files = sorted(config.texts_dir.glob("*.json"))
     if files is not None:
-        selected = _selected_stems(files)
+        selected = _selection_from_files(files)
         input_files = [f for f in input_files if _matches_selected_artifact(f, selected)]
     if not input_files:
         return
