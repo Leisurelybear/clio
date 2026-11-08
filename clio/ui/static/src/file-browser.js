@@ -1,6 +1,7 @@
 import { api, icon } from './api.js';
 import { addToast } from './toast.js';
 import { onLocaleChange, t } from './i18n.js';
+import { escapeHtml } from './utils.js';
 
 const NETWORK_ROOT = 'network://';
 const NETWORK_MANUAL = 'network-manual://';
@@ -120,6 +121,47 @@ function pathInput() {
 
 function filterInput() {
   return pickerRoot.querySelector('#fs-picker-filter');
+}
+
+function openTextInputModal({ title, label, value = '' } = {}) {
+  return new Promise(resolve => {
+    const modal = document.createElement('div');
+    modal.className = 'modal fs-input-modal';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.innerHTML = `
+      <div class="modal-backdrop"></div>
+      <div class="modal-dialog" role="document">
+        <h3>${escapeHtml(title)}</h3>
+        <label>
+          <span>${escapeHtml(label)}</span>
+          <input type="text" class="form-input" value="${escapeHtml(value)}">
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" data-input-cancel>${escapeHtml(t('common.cancel'))}</button>
+          <button type="button" class="btn-primary" data-input-confirm>${escapeHtml(t('common.confirm'))}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    const input = modal.querySelector('input');
+    const finish = result => {
+      document.removeEventListener('keydown', onKeyDown, true);
+      modal.remove();
+      resolve(result);
+    };
+    const onKeyDown = event => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      finish(null);
+    };
+    modal.querySelector('[data-input-cancel]').addEventListener('click', () => finish(null));
+    modal.querySelector('[data-input-confirm]').addEventListener('click', () => finish(input.value));
+    modal.querySelector('.modal-backdrop').addEventListener('click', () => finish(null));
+    document.addEventListener('keydown', onKeyDown, true);
+    input.focus();
+    input.select();
+  });
 }
 
 function entriesList() {
@@ -546,9 +588,13 @@ async function loadNetworkShares(server) {
   }
 }
 
-function promptNetworkServer() {
+async function promptNetworkServer() {
   if (!activePicker) return;
-  const value = window.prompt(t('file_browser.network_prompt'), activePicker.networkServer || '\\\\');
+  const value = await openTextInputModal({
+    title: t('file_browser.network_prompt'),
+    label: t('file_browser.input_value'),
+    value: activePicker.networkServer || '\\\\',
+  });
   if (value == null) return;
   const parsed = parseNetworkInput(value);
   if (!parsed) {
@@ -562,7 +608,10 @@ function promptNetworkServer() {
 async function createDirectory() {
   const picker = activePicker;
   if (!picker?.currentPath) return;
-  const name = prompt(t('file_browser.new_folder_prompt'));
+  const name = await openTextInputModal({
+    title: t('file_browser.new_folder_prompt'),
+    label: t('file_browser.input_value'),
+  });
   if (!name?.trim()) return;
   const status = pickerRoot.querySelector('#fs-picker-status');
   try {

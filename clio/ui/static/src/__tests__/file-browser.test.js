@@ -239,8 +239,6 @@ describe('file-browser', () => {
       server: '\\\\nas',
       shares: [{ name: 'video', path: '\\\\nas\\video', comment: 'Videos' }],
     });
-    const prompt = vi.fn(() => '\\\\nas');
-    vi.stubGlobal('prompt', prompt);
     openServerPicker({ initialDir: '', kind: 'video', multiple: true });
     await flushPicker();
 
@@ -253,15 +251,52 @@ describe('file-browser', () => {
     expect(manual).toBeTruthy();
 
     manual.click();
+    const inputModal = document.querySelector('.fs-input-modal');
+    expect(inputModal).toBeTruthy();
+    inputModal.querySelector('input').value = '\\\\nas';
+    inputModal.querySelector('[data-input-confirm]').click();
     await flushPicker();
 
-    expect(prompt).toHaveBeenCalledOnce();
     expect(api).toHaveBeenLastCalledWith(
       'GET',
       `/api/fs/network?server=${encodeURIComponent('\\\\nas')}`,
     );
     expect(document.querySelector('.fs-picker-entry').textContent).toContain('video');
 
+    document.querySelector('[data-fs-action="cancel"]').click();
+  });
+
+  it('creates a folder through the input modal', async () => {
+    api.mockResolvedValueOnce({
+      path: 'D:\\trip',
+      parent: 'D:\\',
+      dirs: [],
+      files: [],
+      is_drive_list: false,
+    });
+    api.mockResolvedValueOnce({ path: 'D:\\trip\\day2' });
+    api.mockResolvedValueOnce({
+      path: 'D:\\trip\\day2',
+      parent: 'D:\\trip',
+      dirs: [],
+      files: [],
+      is_drive_list: false,
+    });
+    openServerPicker({ initialDir: 'D:\\trip', mode: 'folder' });
+    await flushPicker();
+
+    document.querySelector('[data-fs-action="mkdir"]').click();
+    const inputModal = document.querySelector('.fs-input-modal');
+    expect(inputModal).toBeTruthy();
+    inputModal.querySelector('input').value = 'day2';
+    inputModal.querySelector('[data-input-confirm]').click();
+
+    await vi.waitFor(() => expect(api).toHaveBeenCalledWith('POST', '/api/fs/mkdir', {
+      parent: 'D:\\trip',
+      name: 'day2',
+    }));
+    await flushPicker();
+    expect(document.querySelector('#fs-picker-path').value).toBe('D:\\trip\\day2');
     document.querySelector('[data-fs-action="cancel"]').click();
   });
 

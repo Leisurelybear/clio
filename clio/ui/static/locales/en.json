@@ -183,6 +183,7 @@
   "file_browser.file_count": ", {count} files",
   "file_browser.filter_aria": "Filter by name",
   "file_browser.filter_placeholder": "Filter by name…",
+  "file_browser.input_value": "Value",
   "file_browser.go": "Go",
   "file_browser.initial_unavailable": "The initial path is unavailable; showing browsable locations: {detail}",
   "file_browser.mkdir": "New folder",
