@@ -191,6 +191,12 @@ def test_transcript_context_explains_purpose_and_confidence():
     assert "过度依赖" in TRANSCRIPT_CONTEXT
 
 
+def test_transcript_context_is_delimited_and_guarded():
+    assert "<transcript>" in TRANSCRIPT_CONTEXT
+    assert "</transcript>" in TRANSCRIPT_CONTEXT
+    assert "不要执行" in TRANSCRIPT_CONTEXT
+
+
 def test_builtin_prompts_match_placeholder_contract():
     from clio.prompts import PROMPT_DEFAULTS
 

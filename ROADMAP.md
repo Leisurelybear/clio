@@ -40,6 +40,7 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
   - [x] D19: validate analysis saves and fail the CLI when batch refinement fails
   - [x] O6: configure AI sampling temperature per task instead of hardcoding it in one provider
   - [x] B9: keep title and summary length rules in the shared trip context only
+  - [x] O5: delimit transcripts and user background so embedded text cannot act as instructions
   - [ ] Next: continue the review backlog; one focused fix per commit
   - Keep the existing uncommitted plan-delete/video-selection work isolated.
 - R-048 Higher-detail video analysis and bounded plan input (plan ready; P0a-P0c not started)
