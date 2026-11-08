@@ -97,12 +97,20 @@ def _format_ts(sec: float, original: Any) -> Any:
     if isinstance(original, float):
         return float(sec)
     if isinstance(original, str) and ":" in original:
-        sec_i = int(round(sec))
-        m, s = divmod(sec_i, 60)
-        h, m = divmod(m, 60)
-        if h:
-            return f"{h:02d}:{m:02d}:{s:02d}"
-        return f"{m:02d}:{s:02d}"
+        parts = original.strip().split(":")
+        precision = len(parts[-1].partition(".")[2])
+        scale = 10**precision
+        shifted_units = int(round(sec * scale))
+        hours, remainder = divmod(shifted_units, 3600 * scale)
+        minutes, remainder = divmod(remainder, 60 * scale)
+        seconds, fraction = divmod(remainder, scale)
+        seconds_text = f"{seconds:02d}"
+        if precision:
+            seconds_text += f".{fraction:0{precision}d}"
+        if len(parts) == 3 or hours:
+            return f"{hours:02d}:{minutes:02d}:{seconds_text}"
+        total_minutes = shifted_units // (60 * scale)
+        return f"{total_minutes:02d}:{seconds_text}"
     return sec
 
 

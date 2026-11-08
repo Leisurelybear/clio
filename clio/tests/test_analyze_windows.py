@@ -46,6 +46,18 @@ class TestShiftAndMerge:
         assert out["timeline"][0]["end"] == 120
         assert raw["timeline"][0]["start"] == 10
 
+    @pytest.mark.parametrize(
+        ("timestamp", "offset_sec", "expected"),
+        [("00:00:01.250", 120, "00:02:01.250"), ("00:01.5", 60, "01:01.5")],
+    )
+    def test_shift_timestamp_string_preserves_fractional_seconds(self, timestamp, offset_sec, expected):
+        raw = {"timeline": [{"start": timestamp}]}
+
+        out = shift_analysis_times(raw, offset_sec)
+
+        assert out["timeline"][0]["start"] == expected
+        assert raw["timeline"][0]["start"] == timestamp
+
     def test_merge_prefers_title_window0_and_sorts_timeline(self):
         w0 = AnalyzeWindow(0, 0, 900)
         w1 = AnalyzeWindow(1, 880, 1800)
