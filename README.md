@@ -193,7 +193,7 @@ python main.py compare-models \
   --models gemini:gemini-2.5-flash gemini:gemini-2.0-flash
 ```
 
-输出写入 `output/model_compare/`，包含完整 JSON 和 Markdown 摘要表，方便比较标题、地点、摘要、时间轴数量、highlight 数量和 `_confidence`。
+输出写入 `output/model_compare/`，包含完整 JSON 和 Markdown 摘要表，方便比较标题、地点、摘要、时间轴数量和 highlight 数量。
 
 ## 🎯 典型工作流
 

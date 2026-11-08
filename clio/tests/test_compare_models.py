@@ -113,20 +113,17 @@ class TestSummarizeResult:
                 "summary": "漫步",
                 "mood": "放松",
                 "suggested_use": "片头",
-                "_confidence": 0.8,
                 "timeline": [{"start": 0}, {"start": 1}],
                 "highlights": [{"start": 2}],
             }
         )
         assert summary["title"] == "沙滩日落"
-        assert summary["confidence"] == 0.8
         assert summary["timeline_count"] == 2
         assert summary["highlights_count"] == 1
 
     def test_missing_fields_defaults(self) -> None:
         summary = _summarize_result({})
         assert summary["title"] == ""
-        assert summary["confidence"] == 0.0
         assert summary["timeline_count"] == 0
         assert summary["highlights_count"] == 0
 
@@ -158,7 +155,6 @@ class TestRenderReport:
                         "mood": "M",
                         "suggested_use": "U",
                         "summary": "S",
-                        "confidence": 0.5,
                         "timeline_count": 2,
                         "highlights_count": 1,
                     },
@@ -167,7 +163,7 @@ class TestRenderReport:
             ],
         )
         assert "# Model Compare: clip.mp4" in report
-        assert "| gemini:g1 | ok | T | L | 0.5 | 2 | 1 |" in report
+        assert "| gemini:g1 | ok | T | L | 2 | 1 |" in report
         assert "| deepseek:d1 | error | boom" in report
         assert "### gemini:g1" in report
         assert "- Title: T" in report
@@ -183,7 +179,6 @@ class TestRunCompareModels:
                 "summary": "S",
                 "mood": "M",
                 "suggested_use": "U",
-                "_confidence": 0.9,
                 "timeline": [],
                 "highlights": [],
             }

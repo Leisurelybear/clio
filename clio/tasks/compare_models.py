@@ -69,7 +69,6 @@ def _summarize_result(data: dict[str, Any]) -> dict[str, Any]:
         "summary": data.get("summary", ""),
         "mood": data.get("mood", ""),
         "suggested_use": data.get("suggested_use", ""),
-        "confidence": data.get("_confidence", 0.0),
         "timeline_count": len(data.get("timeline", []) or []),
         "highlights_count": len(data.get("highlights", []) or []),
     }
@@ -83,8 +82,8 @@ def _render_report(video_path: Path, results: list[dict[str, Any]]) -> str:
     lines = [
         f"# Model Compare: {video_path.name}",
         "",
-        "| Model | Status | Title | Location | Confidence | Timeline | Highlights |",
-        "|---|---|---|---|---:|---:|---:|",
+        "| Model | Status | Title | Location | Timeline | Highlights |",
+        "|---|---|---|---|---:|---:|",
     ]
     for item in results:
         if item["ok"]:
@@ -97,7 +96,6 @@ def _render_report(video_path: Path, results: list[dict[str, Any]]) -> str:
                         "ok",
                         _md_cell(s["title"]),
                         _md_cell(s["location"]),
-                        _md_cell(s["confidence"]),
                         _md_cell(s["timeline_count"]),
                         _md_cell(s["highlights_count"]),
                     ]
@@ -105,7 +103,7 @@ def _render_report(video_path: Path, results: list[dict[str, Any]]) -> str:
                 + " |"
             )
         else:
-            lines.append(f"| {item['model']} | error | {_md_cell(item['error'])} |  |  |  |  |")
+            lines.append(f"| {item['model']} | error | {_md_cell(item['error'])} |  |  |  |")
 
     lines.extend(["", "## Summaries", ""])
     for item in results:
