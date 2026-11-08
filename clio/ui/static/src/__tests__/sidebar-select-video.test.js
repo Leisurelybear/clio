@@ -61,6 +61,7 @@ describe('selectVideo request ordering', () => {
       texts: null,
       voiceover: null,
       transcript: null,
+      availablePlans: [],
       videos: [
         { file: 'a.mp4', text_json: 'a.json' },
         { file: 'b.mp4', text_json: 'b.json' },
@@ -102,5 +103,90 @@ describe('selectVideo request ordering', () => {
 
     expect(player.currentTime).toBe(135);
     expect(player.play).toHaveBeenCalledOnce();
+  });
+
+  it('does not request a plan when the current day has none', async () => {
+    const { state } = await import('../state.js');
+    const { api } = await import('../api.js');
+    const { setStatus } = await import('../utils.js');
+    const { selectVideo } = await import('../sidebar.js');
+    state.plan = null;
+    state.availablePlans = [];
+    api.mockReset();
+    api.mockResolvedValue({});
+    setStatus.mockClear();
+
+    await selectVideo('a.mp4');
+
+    expect(api.mock.calls.some(([, url]) => String(url).includes('/api/plan'))).toBe(false);
+    expect(setStatus).not.toHaveBeenCalled();
+  });
+
+  it('loads the plan listed for the current day', async () => {
+    const { state } = await import('../state.js');
+    const { api } = await import('../api.js');
+    const { selectVideo } = await import('../sidebar.js');
+    const plan = { day: 'day1', sequence: [] };
+    state.plan = null;
+    state.availablePlans = [{ day_label: 'day1' }];
+    api.mockReset();
+    api.mockImplementation((_method, url) => (
+      String(url).includes('/api/plan') ? Promise.resolve(plan) : Promise.resolve({})
+    ));
+
+    await selectVideo('a.mp4');
+
+    expect(state.plan).toEqual(plan);
+  });
+
+  it('treats a listed but missing plan file as absent, not an error', async () => {
+    const { state } = await import('../state.js');
+    const { api } = await import('../api.js');
+    const { setStatus } = await import('../utils.js');
+    const { selectVideo } = await import('../sidebar.js');
+    state.plan = null;
+    state.availablePlans = [{ day_label: 'day1' }];
+    api.mockReset();
+    api.mockImplementation((_method, url) => {
+      if (String(url).includes('/api/plan')) {
+        const err = new Error('HTTP 404: plan not found');
+        err.status = 404;
+        return Promise.reject(err);
+      }
+      return Promise.resolve({});
+    });
+    setStatus.mockClear();
+
+    await selectVideo('a.mp4');
+
+    expect(state.plan).toBeNull();
+    expect(setStatus).not.toHaveBeenCalled();
+  });
+
+  it('still reports non-404 plan failures', async () => {
+    const { state } = await import('../state.js');
+    const { api } = await import('../api.js');
+    const { setStatus } = await import('../utils.js');
+    const { selectVideo } = await import('../sidebar.js');
+    state.plan = null;
+    state.availablePlans = [{ day_label: 'day1' }];
+    api.mockReset();
+    api.mockImplementation((_method, url) => {
+      if (String(url).includes('/api/plan')) {
+        const err = new Error('HTTP 500: server error');
+        err.status = 500;
+        return Promise.reject(err);
+      }
+      return Promise.resolve({});
+    });
+    setStatus.mockClear();
+
+    await selectVideo('a.mp4');
+
+    const { t } = await import('../i18n.js');
+    expect(setStatus).toHaveBeenCalledWith(
+      t('sidebar.artifact_load_failed', { label: 'plan', detail: 'HTTP 500: server error' }),
+      'err',
+    );
   });
 });

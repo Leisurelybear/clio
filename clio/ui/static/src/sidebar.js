@@ -58,21 +58,24 @@ async function selectVideo(file, options = {}) {
   };
   loadWaveformForCurrentVideo();
 
-  const loadArtifact = async (url, label) => {
+  const loadArtifact = async (url, label, options = {}) => {
     if (!url) return null;
     try { return await api('GET', url); }
     catch (e) {
-      if (requestId === _selectVideoRequestId && state.currentVideo === file) {
+      const missingOptional = options.optional === true && e.status === 404;
+      if (!missingOptional && requestId === _selectVideoRequestId && state.currentVideo === file) {
         setStatus(t('sidebar.artifact_load_failed', { label, detail: e.message }), 'err');
       }
       return null;
     }
   };
+  const hasPlanForDay = (state.availablePlans || []).some(p => p.day_label === state.currentDay);
+  const planUrl = hasPlanForDay ? `/api/plan?day=${encodeURIComponent(state.currentDay)}` : null;
   const [texts, voiceover, transcript, plan] = await Promise.all([
     loadArtifact(v.text_json ? `/api/texts?file=${encodeURIComponent(v.text_json)}` : null, 'texts'),
     loadArtifact(v.script_json ? `/api/voiceover?file=${encodeURIComponent(v.script_json)}` : null, 'voiceover'),
     loadArtifact(v.transcript_file ? `/api/transcripts?video=${encodeURIComponent(v.file)}` : null, 'transcript'),
-    state.plan ? Promise.resolve(state.plan) : loadArtifact(`/api/plan?day=${state.currentDay}`, 'plan'),
+    state.plan ? Promise.resolve(state.plan) : loadArtifact(planUrl, 'plan', { optional: true }),
   ]);
   if (requestId !== _selectVideoRequestId || state.currentVideo !== file) return;
   state.texts = texts;
