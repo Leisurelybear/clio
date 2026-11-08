@@ -25,6 +25,7 @@
   "ai.waiting_gemini_progress": "等待 Gemini 处理（{waited}s）...",
   "analyze.cancelled": "分析被用户取消",
   "analyze.cancelled_by_user": "{label} 被用户取消",
+  "analyze.aligned_transcript": "  对齐转录: {text}",
   "analyze.label.refine_script": "AI refine 脚本",
   "analyze.label.refine_script_targeted": "AI refine 脚本 (定向)",
   "analyze.label.refine_text": "AI refine 素材",

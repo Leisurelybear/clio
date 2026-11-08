@@ -662,7 +662,7 @@ def generate_voiceover(
         line = f"- {item.get('start', '?')}-{item.get('end', '?')}: {item.get('description', '')}"
         transcript = str(item.get("transcript") or "").strip()
         if transcript:
-            line += f"\n  对齐转录: {transcript}"
+            line += "\n" + t("analyze.aligned_transcript", {"text": transcript})
         timeline_lines_list.append(line)
     timeline_lines = "\n".join(timeline_lines_list)
     intervals = _timeline_intervals(clip_data)

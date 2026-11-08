@@ -25,6 +25,7 @@
   "ai.waiting_gemini_progress": "Waiting for Gemini to process ({waited}s)...",
   "analyze.cancelled": "Analysis cancelled by the user",
   "analyze.cancelled_by_user": "{label} was cancelled by the user",
+  "analyze.aligned_transcript": "  Aligned transcript: {text}",
   "analyze.label.refine_script": "AI refine script",
   "analyze.label.refine_script_targeted": "AI refine script (targeted)",
   "analyze.label.refine_text": "AI refine texts",
