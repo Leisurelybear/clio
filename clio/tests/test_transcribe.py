@@ -361,7 +361,7 @@ class TestTranscribeAudio:
 
 class TestRunTranscribeAll:
     def test_transcribe_enabled_check_no_deps(self):
-        """当 faster-whisper 不可导入时，run_transcribe_all 打印警告并返回 1（错误退出码）"""
+        """ASR 不可用时只打印警告并返回 0，让后续流水线步骤继续执行"""
         config = AppConfig(
             global_cfg=GlobalConfig(),
             project_cfg=ProjectConfig(
@@ -374,7 +374,7 @@ class TestRunTranscribeAll:
             patch("builtins.print"),
         ):
             result = run_transcribe_all(config)
-            assert result == 1
+            assert result == 0
 
     def test_transcribe_skipped_when_disabled(self):
         """whisper.enabled=False 时跳过转录"""
