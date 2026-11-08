@@ -43,6 +43,11 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
   - [x] O5: delimit transcripts and user background so embedded text cannot act as instructions
   - [x] O3: stop asking the model for an unused self-assessed confidence score
   - [x] C12: summarize per-clip transcripts by timeline entry instead of ASR confidence
+  - [x] C9: make frame-accurate re-encoding the default for cut jobs
+  - [x] C13: skip unreadable transcript files without aborting daily planning
+  - [x] C14: preserve fractional seconds when shifting analysis-window timestamps
+  - [x] D13: validate cut/export source availability and timeline bounds
+  - [x] O12: remove the i18n helper shadowing in voiceover generation
   - [ ] Next: continue the review backlog; one focused fix per commit
   - Keep the existing uncommitted plan-delete/video-selection work isolated.
 - R-048 Higher-detail video analysis and bounded plan input (plan ready; P0a-P0c not started)
