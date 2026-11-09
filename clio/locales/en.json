@@ -14,6 +14,7 @@
   "ai.provider_type_unsupported": "Unsupported provider type '{type}'; available: {available}",
   "ai.provider_undefined": "Undefined AI provider: {name}",
   "ai.retry_what_openai": "OpenAI-compatible {url}",
+  "ai.retry_what_upload": "video upload to Gemini",
   "ai.retry_what_video": "video {model}",
   "ai.task_not_configured": "AI task is not configured: {task}",
   "ai.task_provider_no_video": "The provider used by task '{task}' does not support video analysis",

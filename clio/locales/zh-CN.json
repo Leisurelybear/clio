@@ -14,6 +14,7 @@
   "ai.provider_type_unsupported": "不支持的厂家类型 '{type}'，可选: {available}",
   "ai.provider_undefined": "未定义的 AI 厂家: {name}",
   "ai.retry_what_openai": "OpenAI 兼容 {url}",
+  "ai.retry_what_upload": "Gemini 视频上传",
   "ai.retry_what_video": "视频 {model}",
   "ai.task_not_configured": "未配置 AI 任务: {task}",
   "ai.task_provider_no_video": "任务 '{task}' 使用的厂家不支持视频分析",

@@ -281,23 +281,36 @@ class GeminiProvider:
         try:
             if progress_callback:
                 progress_callback(t("ai.progress_uploading"))
-            self._maybe_wait()
-            # Check cancellation before upload
-            if cancel_event and cancel_event.is_set():
-                raise RuntimeError(t("ai.video_analysis_cancelled"))
-
-            # 用 BytesIO 避免 google-genai 2.8.0 的 bug：
+            # 用二进制流避免 google-genai 2.8.0 的 bug：
             # 非 ASCII 文件名会作为 HTTP header 值发送，导致
             # UnicodeEncodeError: 'ascii' codec can't encode character
             p = Path(video_path)
-            if p.stat().st_size > 200 * 1024 * 1024:
-                raise ValueError(t("ai.file_too_large", {"size": f"{p.stat().st_size / 1024 / 1024:.0f}"}))
+            size = p.stat().st_size
+            if size > 200 * 1024 * 1024:
+                raise ValueError(t("ai.file_too_large", {"size": f"{size / 1024 / 1024:.0f}"}))
             mime_type, _ = mimetypes.guess_type(str(p))
-            with open(video_path, "rb") as f:
-                uploaded = self._client.files.upload(
-                    file=f,
-                    config=types.UploadFileConfig(mime_type=mime_type or "video/mp4"),
-                )
+
+            def _upload():
+                if cancel_event and cancel_event.is_set():
+                    raise RuntimeError(t("ai.video_analysis_cancelled"))
+                self._maybe_wait()
+                with open(video_path, "rb") as f:
+                    return self._client.files.upload(
+                        file=f,
+                        config=types.UploadFileConfig(mime_type=mime_type or "video/mp4"),
+                    )
+
+            uploaded = with_retry(
+                _upload,
+                attempts=self._retry_attempts,
+                base_delay=2.0,
+                max_delay=60.0,
+                retry_on=self._retryable_types(),
+                what=t("ai.retry_what_upload"),
+                should_retry=self._is_retryable,
+                delay_for=retry_after_seconds,
+                cancel_event=cancel_event,
+            )
             if progress_callback:
                 progress_callback(t("ai.progress_waiting"))
             # Pass cancel_event to _wait_for_file

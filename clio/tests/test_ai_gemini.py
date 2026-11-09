@@ -510,6 +510,40 @@ class TestAnalyzeVideo:
         with pytest.raises(ValueError, match="文件过大"):
             self._prov.analyze_video(str(big), "desc", "gemini-2.5-flash")
 
+    def test_upload_retries_transient_failure_with_fresh_stream(self, tmp_path):
+        from google.genai import types
+
+        uploaded = MagicMock(spec=types.File)
+        uploaded.name = "files/test123"
+        uploaded.state = types.FileState.ACTIVE
+        self._client_mock.files.upload.side_effect = [OSError("connection reset"), uploaded]
+        self._client_mock.files.get.return_value = uploaded
+        self._client_mock.models.generate_content.return_value = SimpleNamespace(
+            text="ok",
+            usage_metadata=None,
+            candidates=[],
+        )
+
+        with patch("clio.utils.time.sleep"):
+            result = self._prov.analyze_video(str(self._video), "desc", "gemini-2.5-flash")
+
+        assert result.text == "ok"
+        assert self._client_mock.files.upload.call_count == 2
+        first_stream = self._client_mock.files.upload.call_args_list[0].kwargs["file"]
+        second_stream = self._client_mock.files.upload.call_args_list[1].kwargs["file"]
+        assert first_stream is not second_stream
+        assert first_stream.closed
+        assert second_stream.closed
+        self._client_mock.files.delete.assert_called_once_with(name="files/test123")
+
+    def test_upload_does_not_retry_non_retryable_failure(self):
+        self._client_mock.files.upload.side_effect = ValueError("bad upload")
+
+        with pytest.raises(ValueError, match="bad upload"):
+            self._prov.analyze_video(str(self._video), "desc", "gemini-2.5-flash")
+
+        self._client_mock.files.upload.assert_called_once()
+
     def test_cleanup_on_failure(self, tmp_path):
         from google.genai import types
 
