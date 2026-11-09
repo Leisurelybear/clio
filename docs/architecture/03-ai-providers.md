@@ -50,6 +50,8 @@ instead of a half-closed one (P2-P05). `_clear_provider_cache()` (used at config
 
 Notable behaviors:
 
+- **Upload limit**: `video_upload_max_mb` (default 200 MB) rejects oversized files before
+  opening an upload stream; callers should compress larger media first.
 - **File API flow**: `analyze_video` uploads the media file, `_wait_for_file` polls until
   `PROCESSING`→`ACTIVE` (interval from `poll_interval_sec`, cancel-aware), then calls
   `generate_content` with the model + prompt.

@@ -504,11 +504,24 @@ class TestAnalyzeVideo:
         config = self._client_mock.models.generate_content.call_args.kwargs["config"]
         assert config.temperature == 0.4
 
-    def test_file_too_large(self, tmp_path):
+    def test_file_too_large_reports_configured_limit(self, tmp_path):
+        from clio.ai.gemini import GeminiProvider
+
+        prov = GeminiProvider(_make_cfg(video_upload_max_mb=1), ProxyConfig(enabled=False, url=""))
         big = tmp_path / "big.mp4"
-        big.write_bytes(b"\x00" * (201 * 1024 * 1024))
+        big.write_bytes(b"\x00" * (2 * 1024 * 1024))
+        with pytest.raises(ValueError, match="文件过大") as exc_info:
+            prov.analyze_video(str(big), "desc", "gemini-2.5-flash")
+        assert "1 MB" in str(exc_info.value)
+
+    def test_custom_upload_limit_is_enforced(self, tmp_path):
+        from clio.ai.gemini import GeminiProvider
+
+        prov = GeminiProvider(_make_cfg(video_upload_max_mb=1), ProxyConfig(enabled=False, url=""))
+        just_over = tmp_path / "over.mp4"
+        just_over.write_bytes(b"\x00" * (1024 * 1024 + 1))
         with pytest.raises(ValueError, match="文件过大"):
-            self._prov.analyze_video(str(big), "desc", "gemini-2.5-flash")
+            prov.analyze_video(str(just_over), "desc", "gemini-2.5-flash")
 
     def test_upload_retries_transient_failure_with_fresh_stream(self, tmp_path):
         from google.genai import types

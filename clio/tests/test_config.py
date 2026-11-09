@@ -398,6 +398,23 @@ class TestValidateConfig:
         with pytest.raises(ValueError, match="ai.providers.gemini"):
             _validate_config(cfg)
 
+    def test_rejects_non_positive_gemini_upload_limit(self):
+        provider = ProviderConfig(name="gemini", type="gemini", api_key="k", video_upload_max_mb=0)
+        cfg = AppConfig(global_cfg=GlobalConfig(ai=GlobalAIConfig(providers={"gemini": provider})))
+        with pytest.raises(ValueError, match="video_upload_max_mb"):
+            _validate_config(cfg)
+
+    def test_non_gemini_upload_limit_is_not_rejected(self):
+        provider = ProviderConfig(
+            name="deepseek",
+            type="openai",
+            api_key="k",
+            base_url="https://api.deepseek.com/v1",
+            video_upload_max_mb=0,
+        )
+        cfg = AppConfig(global_cfg=GlobalConfig(ai=GlobalAIConfig(providers={"deepseek": provider})))
+        _validate_config(cfg)
+
     def test_rejects_unknown_canvas_ratio(self):
         cfg = AppConfig(
             global_cfg=GlobalConfig(),
@@ -599,6 +616,23 @@ class TestLoadConfig:
         g = cfg.ai.providers.get("gemini")
         assert g is not None
         assert g.models == ["gemini-2.5-flash", "gemini-2.0-flash"]
+
+    def test_provider_upload_limit_default_and_override(self, tmp_path):
+        cfg_path = tmp_path / "config.yaml"
+        cfg_path.write_text(
+            "proxy:\n  enabled: false\n"
+            "ai:\n  providers:\n    g:\n      type: gemini\n      api_key: k\n"
+            "  tasks:\n    t:\n      provider: g\n      model: m\n",
+            encoding="utf-8",
+        )
+        cfg = load_config(cfg_path)
+        assert cfg.ai.providers["g"].video_upload_max_mb == 200
+
+        raw = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+        raw["ai"]["providers"]["g"]["video_upload_max_mb"] = "300"
+        cfg_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+        cfg = load_config(cfg_path)
+        assert cfg.ai.providers["g"].video_upload_max_mb == 300
 
     def test_provider_models_defaults_to_empty(self, tmp_path):
         cfg_path = tmp_path / "config.yaml"

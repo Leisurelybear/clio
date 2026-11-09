@@ -253,6 +253,7 @@ def _validate_config(config: AppConfig) -> None:
         _require_positive(f"ai.providers.{provider_name}.timeout_sec", provider_cfg.timeout_sec)
         if provider_cfg.type == "gemini":
             _require_positive(f"ai.providers.{provider_name}.poll_interval_sec", provider_cfg.poll_interval_sec)
+            _require_positive(f"ai.providers.{provider_name}.video_upload_max_mb", provider_cfg.video_upload_max_mb)
 
     for task_name, task_cfg in config.ai.tasks.items():
         if task_cfg.provider not in provider_names:
@@ -290,6 +291,7 @@ def validate_global_config(config: GlobalConfig) -> None:
         _require_positive(f"ai.providers.{provider_name}.timeout_sec", provider_cfg.timeout_sec)
         if provider_cfg.type == "gemini":
             _require_positive(f"ai.providers.{provider_name}.poll_interval_sec", provider_cfg.poll_interval_sec)
+            _require_positive(f"ai.providers.{provider_name}.video_upload_max_mb", provider_cfg.video_upload_max_mb)
     provider_names = set(config.ai.providers)
     for task_name, task_cfg in config.ai.default_tasks.items():
         if task_cfg.provider not in provider_names:

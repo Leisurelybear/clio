@@ -92,6 +92,7 @@ ai:
       api_key_env: GEMINI_API_KEY
       # base_url: 留空即可，SDK 自动使用 Google 官方 API 地址
       poll_interval_sec: 5
+      video_upload_max_mb: 200
       retry_attempts: 5
       requests_per_minute: 0
       capabilities: [video, text]

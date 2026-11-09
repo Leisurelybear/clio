@@ -36,6 +36,7 @@ class ProviderConfig:
     timeout_sec: float = 120.0
     # 0 = unlimited (do not send max_tokens to the API)
     max_tokens: int = 0
+    video_upload_max_mb: int = 200
     models: list[str] = field(default_factory=list)
     capabilities: list[str] = field(default_factory=list)
 

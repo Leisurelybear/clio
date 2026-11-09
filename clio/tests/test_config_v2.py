@@ -495,6 +495,28 @@ class TestGlobalDefaultTasks:
         assert cfg.ai.tasks["voiceover"].model == "deepseek-chat"
         assert cfg.ai.tasks["refine_text"] == cfg.ai.tasks["video_analyze"]
 
+    def test_parses_quoted_gemini_upload_limit(self, tmp_path: Path):
+        cfg_path = tmp_path / "config.yaml"
+        cfg_path.write_text(
+            yaml.dump(
+                {
+                    "ai": {
+                        "providers": {
+                            "gemini": {
+                                "type": "gemini",
+                                "api_key": "g",
+                                "video_upload_max_mb": "150",
+                            },
+                        },
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        cfg = load_config(cfg_path, project_dir=tmp_path)
+        assert cfg.ai.providers["gemini"].video_upload_max_mb == 150
+
     def test_parses_and_coerces_task_temperature(self, tmp_path: Path):
         cfg_path = tmp_path / "config.yaml"
         cfg_path.write_text(

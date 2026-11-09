@@ -129,6 +129,7 @@ class TestProviderCrud:
                     "timeout_sec": "90",
                     "retry_attempts": "3",
                     "max_tokens": "2048",
+                    "video_upload_max_mb": "150",
                     "poll_interval_sec": "7",
                     "requests_per_minute": "30",
                 },
@@ -140,6 +141,7 @@ class TestProviderCrud:
         assert saved["timeout_sec"] == 90.0
         assert saved["retry_attempts"] == 3
         assert saved["max_tokens"] == 2048
+        assert saved["video_upload_max_mb"] == 150
         assert saved["poll_interval_sec"] == 7
         assert saved["requests_per_minute"] == 30
 

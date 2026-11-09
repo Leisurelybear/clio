@@ -606,6 +606,7 @@ def _normalize_provider(name: str, obj: dict[str, Any]) -> dict[str, Any]:
         "requests_per_minute": obj.get("requests_per_minute", 0),
         "timeout_sec": obj.get("timeout_sec", 120.0),
         "max_tokens": obj.get("max_tokens", 0),
+        "video_upload_max_mb": obj.get("video_upload_max_mb", 200),
         "models": obj.get("models", []),
         "capabilities": obj.get("capabilities") or _infer_provider_capabilities(provider_type),
     }

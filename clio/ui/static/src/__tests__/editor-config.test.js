@@ -355,6 +355,15 @@ describe('_renderProviderList', () => {
     expect(html).not.toContain('接口地址');
   });
 
+  it('shows the Gemini upload limit only for gemini providers', () => {
+    const geminiHtml = _renderProviderList({ gemini: { ...GEMINI_PROVIDER, video_upload_max_mb: 50 } });
+    expect(geminiHtml).toContain('video_upload_max_mb');
+    expect(geminiHtml).toContain('50 MB');
+
+    const openaiHtml = _renderProviderList({ deepseek: OPENAI_PROVIDER });
+    expect(openaiHtml).not.toContain('video_upload_max_mb');
+  });
+
   it('renders multiple provider cards', () => {
     const html = _renderProviderList({ gemini: GEMINI_PROVIDER, deepseek: OPENAI_PROVIDER });
     const matches = html.match(/class="provider-card"/g);

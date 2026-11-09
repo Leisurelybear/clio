@@ -1,7 +1,7 @@
 {
   "ai.api_error_response": "API {url} returned {status}: {body}",
   "ai.env_not_set": "<not set>",
-  "ai.file_too_large": "File too large ({size} MB); compress it first",
+  "ai.file_too_large": "File too large ({size} MB); the Gemini upload limit is {limit} MB. Compress it first",
   "ai.gemini_blocked": "Gemini blocked the response (block_reason={reason}); adjust the input and retry",
   "ai.gemini_missing_key": "Provider '{provider}' is missing an API Key.\n  Set the environment variable {env}=your_key in .env\n  (api_key_env holds the variable name; never put the secret in config.yaml)",
   "ai.gemini_non_retryable": "Gemini API non-retryable error: {error}",

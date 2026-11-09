@@ -803,6 +803,7 @@ export function _renderProviderList(providers, descs) {
         <div class="provider-card-field"><span class="provider-card-label">${t('settings.provider.field.capabilities')}</span><span class="provider-card-models">${capabilityTags}</span></div>
         <div class="provider-card-field"><span class="provider-card-label">${t('settings.provider.field.models')}</span><span class="provider-card-models">${modelTags}</span></div>
         <div class="provider-card-field"><span class="provider-card-label">max_tokens</span><span>${p.max_tokens === 0 || p.max_tokens == null ? t('settings.provider.field.unlimited') : escapeHtml(String(p.max_tokens))}</span></div>
+        ${p.type === 'gemini' ? `<div class="provider-card-field"><span class="provider-card-label">video_upload_max_mb</span><span>${escapeHtml(String(p.video_upload_max_mb ?? 200))} MB</span></div>` : ''}
         <div class="provider-card-field"><span class="provider-card-label">timeout</span><span>${escapeHtml(String(p.timeout_sec ?? 120))}s</span></div>
         <div class="provider-test-status" data-provider="${escapeHtml(name)}"></div>
       </div>
@@ -892,6 +893,12 @@ function _showProviderModal(providersObj, name, onSave) {
             value="${existing?.poll_interval_sec ?? 5}">
           <span class="hint">${t('settings.provider.field.poll_hint')}</span>
         </div>
+        <div id="modal-video-upload-group" style="${(existing?.type || 'gemini') === 'gemini' ? '' : 'display:none'}">
+          <label class="form-label">video_upload_max_mb</label>
+          <input id="modal-provider-upload-max" class="form-input" type="number" min="1" step="1"
+            value="${existing?.video_upload_max_mb ?? 200}">
+          <span class="hint">${t('settings.provider.field.video_upload_max_mb_hint')}</span>
+        </div>
       </div>
       <div class="modal-actions">
         <button id="modal-cancel" class="btn-secondary">${t('common.cancel')}</button>
@@ -926,6 +933,8 @@ function _showProviderModal(providersObj, name, onSave) {
     backdrop.querySelector('#modal-base-url-group').style.display = isGemini ? 'none' : '';
     const pollGrp = backdrop.querySelector('#modal-poll-group');
     if (pollGrp) pollGrp.style.display = isGemini ? '' : 'none';
+    const uploadGrp = backdrop.querySelector('#modal-video-upload-group');
+    if (uploadGrp) uploadGrp.style.display = isGemini ? '' : 'none';
     if (!isEdit) {
       capabilitiesList = [...providerCapabilities({ type: e.target.value })];
       renderCapabilitiesInput();
@@ -957,12 +966,17 @@ function _showProviderModal(providersObj, name, onSave) {
     const newRetry = parseNum('#modal-provider-retry', 2);
     const newRpm = parseNum('#modal-provider-rpm', 0);
     const newPoll = parseNum('#modal-provider-poll', 5);
+    const newUploadMax = parseNum('#modal-provider-upload-max', 200);
 
     if (!newName) { setStatus(t('settings.provider.name_required'), 'warn'); return; }
     if (isEdit && newName !== name) { setStatus(t('settings.provider.name_immutable'), 'warn'); return; }
     if (!isEdit && providersObj[newName]) { setStatus(t('settings.provider.name_exists', { name: newName }), 'warn'); return; }
     if (newMaxTokens < 0 || newTimeout < 0 || newRetry < 0 || newRpm < 0 || newPoll < 0) {
       setStatus(t('settings.provider.negative_numbers'), 'warn');
+      return;
+    }
+    if (newType === 'gemini' && newUploadMax < 1) {
+      setStatus(t('settings.provider.upload_limit_positive'), 'warn');
       return;
     }
 
@@ -996,6 +1010,7 @@ function _showProviderModal(providersObj, name, onSave) {
       models: modelsList,
       capabilities: capabilitiesList,
       max_tokens: newMaxTokens,
+      video_upload_max_mb: newUploadMax,
       timeout_sec: newTimeout,
       retry_attempts: newRetry,
       requests_per_minute: newRpm,
@@ -1018,6 +1033,7 @@ function _showProviderModal(providersObj, name, onSave) {
         models: [...modelsList],
         capabilities: [...capabilitiesList],
         max_tokens: newMaxTokens,
+        video_upload_max_mb: newUploadMax,
         timeout_sec: newTimeout,
         retry_attempts: newRetry,
         requests_per_minute: newRpm,

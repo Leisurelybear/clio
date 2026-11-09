@@ -1,7 +1,7 @@
 {
   "ai.api_error_response": "API {url} 返回 {status}: {body}",
   "ai.env_not_set": "<未设置>",
-  "ai.file_too_large": "文件过大 ({size} MB)，请先压缩",
+  "ai.file_too_large": "文件过大 ({size} MB)，Gemini 上传上限为 {limit} MB，请先压缩",
   "ai.gemini_blocked": "Gemini 拒绝生成内容（block_reason={reason}）；请调整输入后重试",
   "ai.gemini_missing_key": "Provider '{provider}' 缺少 API Key。\n  请在 .env 中设置环境变量 {env}=你的key\n  （api_key_env 填环境变量名，不要把密钥写进 config.yaml）",
   "ai.gemini_non_retryable": "Gemini API 不可重试错误: {error}",

@@ -74,6 +74,7 @@ class GeminiProvider:
         self._poll_interval = cfg.poll_interval_sec
         self._retry_attempts = max(1, cfg.retry_attempts + 1)
         self._max_tokens = int(cfg.max_tokens)
+        self._video_upload_max_mb = int(cfg.video_upload_max_mb)
         self._generation_config = (
             types.GenerateContentConfig(max_output_tokens=self._max_tokens) if self._max_tokens > 0 else None
         )
@@ -286,8 +287,16 @@ class GeminiProvider:
             # UnicodeEncodeError: 'ascii' codec can't encode character
             p = Path(video_path)
             size = p.stat().st_size
-            if size > 200 * 1024 * 1024:
-                raise ValueError(t("ai.file_too_large", {"size": f"{size / 1024 / 1024:.0f}"}))
+            if size > self._video_upload_max_mb * 1024 * 1024:
+                raise ValueError(
+                    t(
+                        "ai.file_too_large",
+                        {
+                            "size": f"{size / 1024 / 1024:.0f}",
+                            "limit": str(self._video_upload_max_mb),
+                        },
+                    )
+                )
             mime_type, _ = mimetypes.guess_type(str(p))
 
             def _upload():
