@@ -169,13 +169,19 @@ def _coerce_list(value: Any) -> tuple[list[Any], bool]:
     return [], False
 
 
-def _validate_analysis(data: dict, source: str) -> dict:
+def _record_validation_issue(issues: list[str] | None, message: str) -> None:
+    print(message)
+    if issues is not None:
+        issues.append(message)
+
+
+def _validate_analysis(data: dict, source: str, *, issues: list[str] | None = None) -> dict:
     """校验 AI 分析结果，缺失字段补默认值并对错误类型告警归一。"""
     data = copy.deepcopy(data) if isinstance(data, dict) else {}
     required = {"title", "summary", "timeline"}
     missing = required - data.keys()
     if missing:
-        print(t("analyze.warn_missing_field", {"source": source, "missing": missing}))
+        _record_validation_issue(issues, t("analyze.warn_missing_field", {"source": source, "missing": missing}))
     data.setdefault("title", Path(source).stem)
     data.setdefault("summary", "")
     data.setdefault("timeline", [])
@@ -196,37 +202,57 @@ def _validate_analysis(data: dict, source: str) -> dict:
     ):
         value, ok = _coerce_str(data[key], default)
         if not ok:
-            print(
+            _record_validation_issue(
+                issues,
                 t(
                     "analyze.warn_invalid_field_type",
                     {"source": source, "key": key, "type_name": type(data[key]).__name__},
-                )
+                ),
             )
         data[key] = value
     for key in ("timeline", "highlights"):
         value, ok = _coerce_list(data[key])
         if not ok:
-            print(
+            _record_validation_issue(
+                issues,
                 t(
                     "analyze.warn_invalid_field_type_empty_list",
                     {"source": source, "key": key, "type_name": type(data[key]).__name__},
-                )
+                ),
             )
         data[key] = value
     # Downstream prompt construction expects mapping-shaped timeline entries.
     # Keep valid entries and discard malformed model output before it can crash.
+    malformed_timeline = sum(not isinstance(item, dict) for item in data["timeline"])
+    malformed_highlights = sum(not isinstance(item, (dict, str)) for item in data["highlights"])
+    if malformed_timeline:
+        _record_validation_issue(
+            issues,
+            t(
+                "analyze.warn_invalid_entries",
+                {"source": source, "key": "timeline", "count": malformed_timeline},
+            ),
+        )
+    if malformed_highlights:
+        _record_validation_issue(
+            issues,
+            t(
+                "analyze.warn_invalid_entries",
+                {"source": source, "key": "highlights", "count": malformed_highlights},
+            ),
+        )
     data["timeline"] = [item for item in data["timeline"] if isinstance(item, dict)]
     data["highlights"] = [item for item in data["highlights"] if isinstance(item, (dict, str))]
     return data
 
 
-def _validate_voiceover(data: dict, source: str) -> dict:
+def _validate_voiceover(data: dict, source: str, *, issues: list[str] | None = None) -> dict:
     """校验 AI 口播文案结果。"""
     data = copy.deepcopy(data) if isinstance(data, dict) else {}
     required = {"voiceover", "title"}
     missing = required - data.keys()
     if missing:
-        print(t("analyze.warn_missing_field", {"source": source, "missing": missing}))
+        _record_validation_issue(issues, t("analyze.warn_missing_field", {"source": source, "missing": missing}))
     data.setdefault("title", Path(source).stem)
     data.setdefault("voiceover", "")
     data.setdefault("duration_hint_sec", 20)
@@ -236,11 +262,11 @@ def _validate_voiceover(data: dict, source: str) -> dict:
     for key, default in (("title", Path(source).stem), ("voiceover", ""), ("edit_tip", "")):
         value, ok = _coerce_str(data[key], default)
         if not ok:
-            print(t("analyze.warn_invalid_field", {"source": source, "key": key}))
+            _record_validation_issue(issues, t("analyze.warn_invalid_field", {"source": source, "key": key}))
         data[key] = value
     value, ok = _coerce_number(data["duration_hint_sec"], 20)
     if not ok:
-        print(t("analyze.warn_duration_hint_invalid", {"source": source}))
+        _record_validation_issue(issues, t("analyze.warn_duration_hint_invalid", {"source": source}))
     data["duration_hint_sec"] = max(0.0, value)
     return data
 
@@ -760,6 +786,51 @@ def _validate_plan_ranges(result: dict, clips: list[dict], max_clips: int, targe
     return result
 
 
+def _validation_retry_prompt(
+    prompt: str,
+    result: dict,
+    issues: list[str],
+    *,
+    analysis: bool,
+) -> str:
+    key = "analyze.validation_prompt_analysis" if analysis else "analyze.validation_prompt_voiceover"
+    return (
+        prompt
+        + "\n\n"
+        + t(
+            key,
+            {
+                "errors": "；".join(issues),
+                "previous_json": json.dumps(result, ensure_ascii=False),
+            },
+        )
+    )
+
+
+def _validate_with_retry(
+    text: str,
+    source: str,
+    *,
+    validate: Callable[..., dict],
+    retry: Callable[[str], str],
+    analysis: bool,
+) -> dict:
+    for attempt in range(2):
+        issues: list[str] = []
+        result = validate(extract_json(text), source, issues=issues)
+        if not issues:
+            return result
+
+        issue_text = "；".join(issues)
+        if attempt == 1:
+            key = "analyze.validation_failed_analysis" if analysis else "analyze.validation_failed_voiceover"
+            raise RuntimeError(t(key, {"errors": issue_text}))
+        print(t("analyze.validation_retry", {"errors": issue_text}))
+        text = retry(_validation_retry_prompt(text, result, issues, analysis=analysis))
+
+    raise AssertionError("validation retry loop exited unexpectedly")
+
+
 def analyze_video(
     video_path: str,
     config: AppConfig,
@@ -778,15 +849,16 @@ def analyze_video(
             "transcript_context", transcript_template, transcripts_json=transcript_context
         )
     prompt = _wrap_with_context(base, config, context_override=context_override)
-    with provider_use(provider):
-        text = _call_ai(
+
+    def call_analyze(call_prompt: str) -> str:
+        return _call_ai(
             t("analyze.label.video_analysis"),
             provider.provider_id,
             model,
-            prompt,
+            call_prompt,
             lambda: provider.analyze_video(
                 video_path,
-                prompt,
+                call_prompt,
                 model,
                 progress_callback=progress_callback,
                 cancel_event=cancel_event,
@@ -797,11 +869,19 @@ def analyze_video(
             task_name=TaskName.VIDEO_ANALYZE,
             cancel_event=cancel_event,
         )
-    # Check cancel_event after AI call but before validation
-    if cancel_event and cancel_event.is_set():
-        raise RuntimeError(t("analyze.cancelled"))
 
-    return _validate_analysis(extract_json(text), video_path)
+    with provider_use(provider):
+        text = call_analyze(prompt)
+        # Check cancel_event after AI call but before validation
+        if cancel_event and cancel_event.is_set():
+            raise RuntimeError(t("analyze.cancelled"))
+        return _validate_with_retry(
+            text,
+            video_path,
+            validate=_validate_analysis,
+            retry=call_analyze,
+            analysis=True,
+        )
 
 
 def generate_voiceover(
@@ -853,14 +933,15 @@ def generate_voiceover(
         target_words=config.script.target_words,
     )
     prompt = _wrap_with_context(base, config, context_override=context_override)
-    with provider_use(provider):
-        text = _call_ai(
+
+    def call_voiceover(call_prompt: str) -> str:
+        return _call_ai(
             t("analyze.label.voiceover"),
             provider.provider_id,
             model,
-            prompt,
+            call_prompt,
             lambda: provider.generate_text(
-                prompt,
+                call_prompt,
                 model,
                 cancel_event=cancel_event,
                 temperature=_task_temperature(config, TaskName.VOICEOVER),
@@ -870,7 +951,16 @@ def generate_voiceover(
             task_name=TaskName.VOICEOVER,
             cancel_event=cancel_event,
         )
-    return _validate_voiceover(extract_json(text), clip_data.get("title", ""))
+
+    with provider_use(provider):
+        text = call_voiceover(prompt)
+        return _validate_with_retry(
+            text,
+            clip_data.get("title", ""),
+            validate=_validate_voiceover,
+            retry=call_voiceover,
+            analysis=False,
+        )
 
 
 def plan_daily_vlog(

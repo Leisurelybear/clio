@@ -497,6 +497,123 @@ def test_validators_drop_malformed_timeline_entries():
     assert analysis["highlights"] == [{"start": "00:01"}]
 
 
+def test_validate_analysis_collects_missing_required_fields():
+    issues: list[str] = []
+
+    result = _validate_analysis({"title": "x", "summary": "y"}, "clip.mp4", issues=issues)
+
+    assert result["timeline"] == []
+    assert len(issues) == 1
+    assert "timeline" in issues[0]
+
+
+def test_validate_analysis_collects_malformed_timeline_entries():
+    issues: list[str] = []
+
+    result = _validate_analysis(
+        {"title": "x", "summary": "y", "timeline": ["bad", {"start": "00:00"}]},
+        "clip.mp4",
+        issues=issues,
+    )
+
+    assert result["timeline"] == [{"start": "00:00"}]
+    assert len(issues) == 1
+    assert "timeline" in issues[0]
+
+
+def test_validate_voiceover_collects_all_structure_issues():
+    issues: list[str] = []
+
+    result = _validate_voiceover(
+        {"title": 1, "voiceover": None, "duration_hint_sec": "long"},
+        "clip.mp4",
+        issues=issues,
+    )
+
+    assert result["title"] == "clip"
+    assert result["voiceover"] == ""
+    assert result["duration_hint_sec"] == 20.0
+    assert len(issues) == 3
+    assert any("title" in issue for issue in issues)
+    assert any("voiceover" in issue for issue in issues)
+    assert any("duration_hint_sec" in issue for issue in issues)
+
+
+def test_analyze_video_retries_invalid_structure_once(monkeypatch):
+    from clio.analyze import analyze_video
+
+    cfg = _fake_config()
+    provider = MagicMock(provider_id="mock")
+    provider.analyze_video.side_effect = [
+        AIResponse('{"title":"draft","summary":"summary","timeline":"bad"}'),
+        AIResponse('{"title":"fixed","summary":"summary","timeline":[]}'),
+    ]
+    monkeypatch.setattr("clio.analyze.get_video_provider", lambda *a: (provider, "model"))
+    monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, *a, **kw: prompt)
+
+    result = analyze_video("clip.mp4", cfg)
+
+    assert result["title"] == "fixed"
+    assert provider.analyze_video.call_count == 2
+    retry_prompt = provider.analyze_video.call_args_list[1].args[1]
+    assert '"summary": "summary"' in retry_prompt
+    assert '"timeline": []' in retry_prompt
+
+
+def test_analyze_video_fails_after_second_invalid_structure(monkeypatch):
+    from clio.analyze import analyze_video
+
+    cfg = _fake_config()
+    provider = MagicMock(provider_id="mock")
+    provider.analyze_video.side_effect = [
+        AIResponse('{"title":"draft","summary":"summary","timeline":"bad"}'),
+        AIResponse('{"title":"draft","summary":"summary","timeline":"still-bad"}'),
+    ]
+    monkeypatch.setattr("clio.analyze.get_video_provider", lambda *a: (provider, "model"))
+    monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, *a, **kw: prompt)
+
+    with pytest.raises(RuntimeError, match="timeline"):
+        analyze_video("clip.mp4", cfg)
+
+    assert provider.analyze_video.call_count == 2
+
+
+def test_generate_voiceover_retries_invalid_structure_once(monkeypatch):
+    from clio.analyze import generate_voiceover
+
+    cfg = _fake_config()
+    provider = MagicMock(provider_id="mock")
+    provider.generate_text.side_effect = [
+        AIResponse('{"title":"draft"}'),
+        AIResponse('{"title":"fixed","voiceover":"hello"}'),
+    ]
+    monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (provider, "model"))
+    monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, *a, **kw: prompt)
+
+    result = generate_voiceover({"title": "clip", "timeline": []}, "template", cfg)
+
+    assert result == {"title": "fixed", "voiceover": "hello", "duration_hint_sec": 20, "edit_tip": ""}
+    assert provider.generate_text.call_count == 2
+    retry_prompt = provider.generate_text.call_args_list[1].args[0]
+    assert '"title": "draft"' in retry_prompt
+    assert '"voiceover": ""' in retry_prompt
+
+
+def test_generate_voiceover_fails_after_second_invalid_structure(monkeypatch):
+    from clio.analyze import generate_voiceover
+
+    cfg = _fake_config()
+    provider = MagicMock(provider_id="mock")
+    provider.generate_text.side_effect = [AIResponse('{"title":"draft"}'), AIResponse('{"title":"draft"}')]
+    monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (provider, "model"))
+    monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, *a, **kw: prompt)
+
+    with pytest.raises(RuntimeError, match="voiceover"):
+        generate_voiceover({"title": "clip", "timeline": []}, "template", cfg)
+
+    assert provider.generate_text.call_count == 2
+
+
 def test_merge_refinement_preserves_original_fields_and_ignores_unknowns():
     original = {"index": "001", "title": "old", "summary": "keep", "location": "Paris"}
     merged = _merge_refinement_result(
