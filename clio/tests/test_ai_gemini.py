@@ -357,6 +357,29 @@ class TestGenerateText:
         assert result.text == "hello world"
         self._client_mock.models.generate_content.assert_called_once_with(model="gemini-2.5-flash", contents="hi")
 
+    def test_safety_block_reason_raises_clear_error(self):
+        self._client_mock.models.generate_content.return_value = SimpleNamespace(
+            text="",
+            usage_metadata=None,
+            candidates=[],
+            prompt_feedback=SimpleNamespace(block_reason="SAFETY"),
+        )
+
+        with pytest.raises(RuntimeError, match="block_reason=SAFETY"):
+            self._prov.generate_text("blocked prompt", "gemini-2.5-flash")
+
+    def test_unspecified_block_reason_does_not_raise(self):
+        self._client_mock.models.generate_content.return_value = SimpleNamespace(
+            text="ok",
+            usage_metadata=None,
+            candidates=[],
+            prompt_feedback=SimpleNamespace(block_reason="BLOCK_REASON_UNSPECIFIED"),
+        )
+
+        result = self._prov.generate_text("hello", "gemini-2.5-flash")
+
+        assert result.text == "ok"
+
     def test_returns_finish_reason(self):
         from google.genai import types
 
@@ -499,6 +522,25 @@ class TestAnalyzeVideo:
         self._client_mock.models.generate_content.side_effect = RuntimeError("AI failed")
 
         with pytest.raises(RuntimeError, match="AI failed"):
+            self._prov.analyze_video(str(self._video), "desc", "gemini-2.5-flash")
+        self._client_mock.files.delete.assert_called_once_with(name="files/test123")
+
+    def test_blocked_response_raises_and_cleans_up(self, tmp_path):
+        from google.genai import types
+
+        uploaded = MagicMock(spec=types.File)
+        uploaded.name = "files/test123"
+        uploaded.state = types.FileState.ACTIVE
+        self._client_mock.files.upload.return_value = uploaded
+        self._client_mock.files.get.return_value = uploaded
+        self._client_mock.models.generate_content.return_value = SimpleNamespace(
+            text="",
+            usage_metadata=None,
+            candidates=[],
+            prompt_feedback=SimpleNamespace(block_reason="SAFETY"),
+        )
+
+        with pytest.raises(RuntimeError, match="block_reason=SAFETY"):
             self._prov.analyze_video(str(self._video), "desc", "gemini-2.5-flash")
         self._client_mock.files.delete.assert_called_once_with(name="files/test123")
 

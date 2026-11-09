@@ -34,6 +34,29 @@ def _extract_finish_reason(response) -> str | None:
     return getattr(reason, "name", None) or getattr(reason, "value", None) or str(reason)
 
 
+def _extract_block_reason(response) -> str | None:
+    feedback = getattr(response, "prompt_feedback", None)
+    if feedback is None:
+        return None
+    reason = getattr(feedback, "block_reason", None)
+    if reason is None:
+        return None
+    normalized = getattr(reason, "name", None) or getattr(reason, "value", None) or str(reason)
+    if not isinstance(normalized, str):
+        return None
+    normalized = normalized.strip()
+    if not normalized or normalized == "BLOCK_REASON_UNSPECIFIED":
+        return None
+    return normalized
+
+
+def _response_text(response) -> str:
+    block_reason = _extract_block_reason(response)
+    if block_reason is not None:
+        raise RuntimeError(t("ai.gemini_blocked", {"reason": block_reason}))
+    return response.text or ""
+
+
 class GeminiProvider:
     provider_id = "gemini"
 
@@ -237,7 +260,7 @@ class GeminiProvider:
                     config=config,
                 )
             return AIResponse(
-                text=response.text or "",
+                text=_response_text(response),
                 token_usage=self._extract_usage(response),
                 finish_reason=_extract_finish_reason(response),
             )
@@ -295,7 +318,7 @@ class GeminiProvider:
                         config=config,
                     )
                 return AIResponse(
-                    text=response.text or "",
+                    text=_response_text(response),
                     token_usage=self._extract_usage(response),
                     finish_reason=_extract_finish_reason(response),
                 )
