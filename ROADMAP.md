@@ -5,56 +5,48 @@ Mark `[ ]` as `[x]` when done, `[~]` for in-progress, `[!]` for blocked.
 
 Design discussions / decision history in `AGENTS.md`, implementation details in git log.
 
-## Active backlog (2026-10-22)
+## Active backlog (2026-11-09)
 
 - 2026-11 P0/P1/P2 review remediation from `docs/analysis/2026-11-05-P0-P2-Issues.md`:
-  - [x] B1: reject opaque origins and local write requests without JSON Content-Type
-  - [x] B2: detect Gemini truncation, retry once, and reject repeated incomplete output
-  - [x] C1: make original media the default source for cut jobs and editor actions
-  - [x] D1: remove every superseded same-source analysis artifact after successful overwrite
-  - [x] D2: skip unavailable Whisper transcription with a warning so later steps continue
-  - [x] D3: resolve rerun voiceover input after fresh analysis completes
-  - [x] Q1: keep duration-based compression above an 800 kbps analysis bitrate floor
-  - [x] Q2: preserve mono low-bitrate audio in compressed analysis media
-  - [x] Q8: add short-hook, B-roll pacing, narrative beat, and transition guidance to plan prompts
-  - [x] Q3: transcribe before analysis and inject transcript context into video analysis
-  - [x] Q9: use the DeepSeek reasoning model for the daily vlog plan
-  - [x] Q10: pass clip duration, capture time, mood, and saved voiceover into plan inputs
-  - [x] B3: defer expired provider closure until active AI calls finish
-  - [x] B4: share dotenv parsing and preserve shell-only environment variables on UI save
-  - [x] B5: whitelist dotenv keys and never expose API key values through the UI API
-  - [x] B6: isolate CPU fallback device override from shared Whisper configuration
-  - [x] B7: honor Retry-After, add backoff jitter, and cancel retry waits
-  - [x] C3: include effective task settings in analysis, voiceover, and plan lineage fingerprints
-  - [x] C4: assign analysis outputs to relative days from capture dates for multi-day planning
-  - [x] C5: preserve opening and ending segments when plan output exceeds max clips
-  - [x] C6: retry daily plans once when timeline selections overlap, are empty, or miss the duration target
-  - [x] C11: document that cut runs separately from the full pipeline
-  - [x] D10: compare transcript engine, model, and language before cache reuse
-  - [x] D11: skip label generation with a warning when no drawtext font is available
-  - [x] D14: cache offline originals so startup does not repeat ffprobe work
-  - [x] D15: recalculate the plan's total duration when a manual save changes the sequence
-  - [x] D16: order new compressions by capture time so indexes follow shooting order
-  - [x] D17: match selected originals by full path so same-named clips stay independent
-  - [x] D18: validate cover output files and extract covers from the original source
-  - [x] D19: validate analysis saves and fail the CLI when batch refinement fails
-  - [x] O6: configure AI sampling temperature per task instead of hardcoding it in one provider
-  - [x] B9: keep title and summary length rules in the shared trip context only
-  - [x] O5: delimit transcripts and user background so embedded text cannot act as instructions
-  - [x] O3: stop asking the model for an unused self-assessed confidence score
-  - [x] C12: summarize per-clip transcripts by timeline entry instead of ASR confidence
-  - [x] C9: make frame-accurate re-encoding the default for cut jobs
-  - [x] C13: skip unreadable transcript files without aborting daily planning
-  - [x] C14: preserve fractional seconds when shifting analysis-window timestamps
-  - [x] D13: validate cut/export source availability and timeline bounds
-  - [x] O12: remove the i18n helper shadowing in voiceover generation
-  - [ ] Next: continue the review backlog; one focused fix per commit
-  - Keep the existing uncommitted plan-delete/video-selection work isolated.
+  - Snapshot: 83 items; 50 completed in local commits, 5 partial, 2 awaiting
+    real-environment verification, and 26 pending.
+  - Verification: targeted `test_analyze_funcs.py` (59 passed), full Vitest (851 passed),
+    and `git diff --check`; full pytest, Ruff, mypy, and the three-platform CI matrix were
+    not run for this snapshot.
+  - [x] P0 completed (12): B1 `a01b156`; B2 `a436315`; C1 `14b873b`; D1 `e2f626b`;
+    D2 `1698309`; D3 `3a45b18`; Q1 `719f715`; Q2 `c06515c`; Q8 `89d5d7e`;
+    Q3 `3ad0e5f`; Q9 `325a599`; Q10 `b452c60`.
+  - [~] P0 partial (1): C2 `a79cfbc` adds partial-selection overwrite confirmation; editing
+    markers, pre-overwrite backup, and voiceover overwrite protection remain.
+  - [!] P0 blocked (1): O19 waits for an approved push and the Python 3.11/3.12 CI matrix.
+  - [x] P1 completed (17): B3 `b47a32c`; B4 `7bb652b`; B5 `e8b2060`; B6 `1c78b68`;
+    C3 `bb1a190`; C4 `d2dccef`; C5 `127d840`; C6 `9b45130`; C7 `7e6c1c7`;
+    C8 `b6f76da`; D4 `459eada`; D5 `90a92de`; D6 `5a8fb85`; D7 `e1fe20f`;
+    D8 `5ec84b5`; D9 `a79cfbc`; O2 `80d3e3f`.
+  - [ ] P1 pending (10): O1; O17; Q4; Q5; Q6; Q7; Q11; Q12; F1; F2.
+  - [x] P2 completed (21): B8 `9be0401` / `a45f1e5` / `56d6c87`; C9 `cc2d1c5`;
+    C11 `8636449` / `e40fb24`; C13 `35bbc3f`; C14 `d702223`; D10 `9374720`;
+    D11 `2c00587`; D13 `fab38aa`; D15 `8aa6740`; D17 `f209b48`;
+    D18 `e073076`; D19 `2c14970` / `787deb1`; B7 `443e900`; B9 `87792ba`;
+    C12 `2821c43`; D14 `f18d4cd`; D16 `70c4a66`; O3 `47f3fe1` / `4ca2c77`;
+    O5 `77698a0`; O6 `52aa7ff` / `ebdd738`; O12 `b6f76da`.
+  - [~] P2 partial (4): C15 `7681cff` / `3171639` (window cache remains);
+    C16 `c75c067` / `8aca38e` (all dialogs and undo stack remain);
+    O7 `a436315` / `9be0401` (provider contract and contract tests remain);
+    F8 `7b8bfa0` (SRT and transitions remain).
+  - [ ] P2 awaiting real-environment verification (2): C10; D12.
+  - [ ] P2 pending (15): B10; O4; O8; O9; O10; O11; O13; O14; O15; O16; O18;
+    Q13; F4; F5; F9.
+  - [ ] Next: close the remaining partial items, then continue the backlog one focused
+    fix per commit.
+  - Keep unrelated working-tree changes isolated. The branch is currently 69 commits ahead of
+    `origin/main`; do not push without explicit user approval.
 - R-048 Higher-detail video analysis and bounded plan input (plan ready; P0a-P0c not started)
 - R-047-FU Optional Baidu ASR provider (deferred; Aliyun cloud transcription is complete)
 - R-043 Frontend module decomposition and remaining legacy mypy debt
 - R-032e Optional ffmpeg bundling and signed desktop installer
-- Release gate: run the Python 3.11/3.12 CI matrix for the 2026-10-21/22 batches after an approved push
+- Release gate: O19 remains blocked until the 69 local commits receive an approved push and the
+  Python 3.11/3.12 CI matrix passes.
 
 Detailed sections and historical delivery notes remain below.
 
