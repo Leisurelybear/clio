@@ -230,8 +230,11 @@ class TestHandlePutVoiceover:
 
         mock_request.assert_called_once_with(handler)
         saved_path, saved_data, expected = mock_save.call_args.args
+        saved = json.loads(saved_data)
         assert saved_path is path
-        assert json.loads(saved_data) == {"voiceover": "test"}
+        assert saved["voiceover"] == "test"
+        assert saved["_user_edited"] is True
+        assert saved["_user_edited_at"]
         assert expected == "0123456789abcdef"
         handler._send_json.assert_called_once_with(
             {"ok": True, "path": str(path), "version": new_version},

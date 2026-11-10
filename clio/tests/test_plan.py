@@ -469,16 +469,25 @@ class TestRunPlanVlog:
         assert clips[0]["source_stem"] == "SRC"
         assert clips[0]["segment_offset_sec"] == 0.0
 
-    def test_corrupt_existing_plan_recomputes(self, loaded_config: AppConfig, capsys) -> None:
+    def test_corrupt_existing_plan_requires_confirmation_then_recomputes(
+        self, loaded_config: AppConfig, capsys
+    ) -> None:
+        from clio.artifact_guard import ArtifactOverwriteConfirmationRequired
+
         _write_analysis(loaded_config, _analysis("001"))
         loaded_config.plans_dir.mkdir(parents=True, exist_ok=True)
         (loaded_config.plans_dir / "day1_plan.json").write_text("{corrupt", encoding="utf-8")
         (loaded_config.plans_dir / "day1_plan.md").write_text("old", encoding="utf-8")
         with patch("clio.tasks.plan.plan_daily_vlog", return_value={"day_title": "day1", "sequence": []}) as mock:
-            result = run_plan_vlog(loaded_config, "day1")
+            with pytest.raises(ArtifactOverwriteConfirmationRequired):
+                run_plan_vlog(loaded_config, "day1")
+        mock.assert_not_called()
+        assert "已有规划文件损坏" in capsys.readouterr().out
+
+        with patch("clio.tasks.plan.plan_daily_vlog", return_value={"day_title": "day1", "sequence": []}) as mock:
+            result = run_plan_vlog(loaded_config, "day1", confirm_artifact_overwrite=True)
         assert mock.call_count == 1
         assert result is not None
-        assert "已有规划文件损坏" in capsys.readouterr().out
 
     def test_legacy_cache_without_lineage_stamped(self, loaded_config: AppConfig, capsys) -> None:
         _write_analysis(loaded_config, _analysis("001"))

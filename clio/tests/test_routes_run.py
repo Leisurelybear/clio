@@ -301,6 +301,62 @@ class TestHandlePostRunStart:
         )
         manager.submit.assert_not_called()
 
+    def test_rejects_non_boolean_artifact_overwrite_confirmation(self, tmp_path):
+        manager = MagicMock()
+        handler, _, _ = _managed_handler(tmp_path, manager)
+
+        handle_post_run_start(handler, {}, {"confirm_artifact_overwrite": "true"})
+
+        handler._send_json.assert_called_once_with(
+            {"ok": False, "error": "confirm_artifact_overwrite must be a boolean"}, 400
+        )
+        manager.submit.assert_not_called()
+
+    def test_edited_artifact_requires_confirmation(self, tmp_path, monkeypatch):
+        manager = MagicMock()
+        handler, _, output_dir = _managed_handler(tmp_path, manager)
+        artifact = output_dir / "plans" / "day1_plan.json"
+        artifact.parent.mkdir()
+        artifact.write_text("{}", encoding="utf-8")
+        monkeypatch.setattr(
+            "clio.ui.routes.run.artifact_overwrite_paths",
+            lambda *args, **kwargs: [artifact],
+        )
+
+        handle_post_run_start(handler, {}, {"steps": ["plan"]})
+
+        payload, status = handler._send_json.call_args.args
+        assert status == 409
+        assert payload["code"] == "artifact_overwrite_confirmation_required"
+        assert payload["items"] == ["day1_plan.json"]
+        manager.submit.assert_not_called()
+
+    def test_confirmed_artifact_overwrite_is_stored_on_task(self, tmp_path, monkeypatch):
+        from clio.task_center.manager import TaskManager
+        from clio.task_center.store import TaskStore
+
+        _allow_media_preflight(monkeypatch)
+        monkeypatch.setattr("clio.ui.routes.run._run_pipeline_task", lambda context: {"ok": True})
+        artifact = tmp_path / "output" / "plans" / "day1_plan.json"
+        artifact.parent.mkdir(parents=True)
+        artifact.write_text("{}", encoding="utf-8")
+        monkeypatch.setattr(
+            "clio.ui.routes.run.artifact_overwrite_paths",
+            lambda *args, **kwargs: [artifact],
+        )
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+        handler, _, _ = _managed_handler(tmp_path, manager)
+
+        handle_post_run_start(
+            handler,
+            {},
+            {"steps": ["plan"], "confirm_artifact_overwrite": True},
+        )
+
+        payload = handler._send_json.call_args.args[0]
+        task = manager.wait(payload["task_id"])
+        assert task.input_data["confirm_artifact_overwrite"] is True
+
     def test_pipeline_with_ephemeral_context_is_not_retryable(self, tmp_path, monkeypatch):
         from clio.task_center.manager import TaskManager
         from clio.task_center.store import TaskStore
@@ -389,6 +445,8 @@ class TestHandlePostRunPreview:
             use_transcripts=False,
             files=["A.mp4"],
             day_label="day3",
+            context_override=None,
+            task_prompts=None,
         )
         handler._send_json.assert_called_once_with({"ok": True, "preview": expected})
 
@@ -465,6 +523,8 @@ class TestHandlePostRunPreview:
             use_transcripts=True,
             files=None,
             day_label="day1",
+            context_override=None,
+            task_prompts=None,
         )
 
 

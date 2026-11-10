@@ -223,6 +223,25 @@ class TestHandlePutPlan:
         assert payload["version"] == version
         assert handler._send_json.call_args.kwargs["extra_headers"] == version_headers(version)
 
+    def test_marks_saved_plan_as_user_edited_and_keeps_extras(self, tmp_path: Path):
+        handler = MagicMock()
+        plans_dir = tmp_path / "output" / "plans"
+        _mock_plans_cfg(handler, plans_dir, tmp_path)
+        handler._send_json = MagicMock()
+
+        handle_put_plan(
+            handler,
+            {"day": ["day1"]},
+            {"title": "edited plan", "_lineage": "abc", "custom": 1},
+        )
+
+        data = json.loads((plans_dir / "day1_plan.json").read_text(encoding="utf-8"))
+        assert data["title"] == "edited plan"
+        assert data["_user_edited"] is True
+        assert data["_user_edited_at"]
+        assert data["_lineage"] == "abc"
+        assert data["custom"] == 1
+
     def test_saves_plan_with_if_match(self, tmp_path: Path):
         handler = MagicMock()
         plans_dir = tmp_path / "output" / "plans"

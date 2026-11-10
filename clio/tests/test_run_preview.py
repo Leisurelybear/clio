@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 from clio.config.models import (
     AnalyzeConfig,
@@ -820,3 +821,87 @@ def test_preview_files_selection_keeps_same_named_originals_apart(tmp_path: Path
         ("compress", 1),
         ("transcribe", 1),
     ]
+
+
+def _write_analysis(config: AppConfig, summary: str) -> None:
+    (config.texts_dir / "001_A.json").write_text(
+        json.dumps(
+            {
+                "index": 1,
+                "title": "A",
+                "summary": summary,
+                "source_file": "A.mp4",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_preview_reports_user_edited_plan_after_input_change(tmp_path: Path) -> None:
+    from clio.artifact_guard import mark_user_edited
+    from clio.tasks.plan import run_plan_vlog
+
+    input_dir = tmp_path / "videos"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+    (output_dir / "texts").mkdir(parents=True)
+    config = _config(input_dir, output_dir)
+    _write_analysis(config, "before")
+    generated = {
+        "day_title": "Day 1",
+        "theme": "trip",
+        "total_estimated_sec": 60,
+        "sequence": [{"index": "001", "title": "A", "use_timeline": "00:00-00:10"}],
+    }
+    with patch("clio.tasks.plan.plan_daily_vlog", return_value=generated):
+        run_plan_vlog(config, day_label="day1", overwrite=True)
+
+    plan_path = config.plans_dir / "day1_plan.json"
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    mark_user_edited(plan, edited_at="2026-11-10T00:00:00Z")
+    plan_path.write_text(json.dumps(plan), encoding="utf-8")
+    _write_analysis(config, "after")
+
+    preview = build_run_preview(config, steps=["plan"], force=False, use_transcripts=True)
+
+    assert preview["artifact_overwrite"] == {
+        "required": True,
+        "items": ["day1_plan.json", "day1_plan.md"],
+    }
+
+
+def test_preview_reports_user_edited_voiceover_after_prompt_context_change(tmp_path: Path) -> None:
+    from clio.artifact_guard import mark_user_edited
+    from clio.tasks.scripts import run_generate_scripts
+
+    input_dir = tmp_path / "videos"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+    (output_dir / "texts").mkdir(parents=True)
+    config = _config(input_dir, output_dir)
+    _write_analysis(config, "same")
+    with patch(
+        "clio.tasks.scripts.generate_voiceover",
+        return_value={"title": "A", "voiceover": "old", "edit_tip": ""},
+    ):
+        run_generate_scripts(config)
+
+    out = config.scripts_dir / "001_A_voiceover.json"
+    voiceover = json.loads(out.read_text(encoding="utf-8"))
+    mark_user_edited(voiceover, edited_at="2026-11-10T00:00:00Z")
+    out.write_text(json.dumps(voiceover), encoding="utf-8")
+
+    unchanged = build_run_preview(config, steps=["voiceover"], force=False, use_transcripts=True)
+    changed_context = build_run_preview(
+        config,
+        steps=["voiceover"],
+        force=False,
+        use_transcripts=True,
+        context_override="关注海边镜头",
+    )
+
+    assert "artifact_overwrite" not in unchanged
+    assert changed_context["artifact_overwrite"] == {
+        "required": True,
+        "items": ["001_A_voiceover.json", "001_A_voiceover.md"],
+    }

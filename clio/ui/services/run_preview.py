@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from collections.abc import Iterable
 from pathlib import Path
@@ -16,7 +17,8 @@ from clio.tasks._helpers import (
     _matches_selected_stem,
     _selection_from_files,
 )
-from clio.tasks.plan import plan_overwrite_confirmation_required
+from clio.tasks.plan import plan_artifact_overwrite_required, plan_overwrite_confirmation_required
+from clio.tasks.scripts import voiceover_artifact_overwrite_required
 from clio.utils import plan_day_stem
 
 
@@ -33,6 +35,8 @@ def build_run_preview(
     use_transcripts: bool,
     files: list[str] | None = None,
     day_label: str = "day1",
+    context_override: str | None = None,
+    task_prompts: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     selected_steps = list(steps)
     selected = _selection_from_files(files) if files is not None else None
@@ -102,7 +106,71 @@ def build_run_preview(
     }
     if "plan" in selected_steps and plan_overwrite_confirmation_required(config, day_label, files):
         result["plan_overwrite"] = {"required": True, "day_label": day_label}
+    overwrite_paths = artifact_overwrite_paths(
+        config,
+        selected_steps,
+        force=force,
+        use_transcripts=use_transcripts,
+        files=files,
+        day_label=day_label,
+        context_override=context_override,
+        task_prompts=task_prompts,
+    )
+    if overwrite_paths:
+        result["artifact_overwrite"] = {
+            "required": True,
+            "items": [path.name for path in overwrite_paths],
+        }
     return result
+
+
+def artifact_overwrite_paths(
+    config: AppConfig,
+    steps: Iterable[str],
+    *,
+    force: bool,
+    use_transcripts: bool,
+    files: list[str] | None = None,
+    day_label: str = "day1",
+    context_override: str | None = None,
+    task_prompts: dict[str, str] | None = None,
+) -> list[Path]:
+    """Return user-edited artifacts a run would replace."""
+    selected_steps = set(steps)
+    artifact_config = copy.deepcopy(config)
+    artifact_config.plan.use_transcripts = use_transcripts
+    paths: list[Path] = []
+    if "plan" in selected_steps and plan_artifact_overwrite_required(
+        artifact_config,
+        day_label,
+        files,
+        overwrite=force,
+        context_override=context_override,
+        task_prompts=task_prompts,
+    ):
+        safe_day = plan_day_stem(day_label)
+        paths.extend(
+            path
+            for path in (
+                artifact_config.plans_dir / f"{safe_day}_plan.json",
+                artifact_config.plans_dir / f"{safe_day}_plan.md",
+            )
+            if path.is_file()
+        )
+    if "voiceover" in selected_steps:
+        paths.extend(
+            voiceover_artifact_overwrite_required(
+                artifact_config,
+                files,
+                overwrite=force,
+                context_override=context_override,
+                task_prompts=task_prompts,
+            )
+        )
+    unique: dict[Path, Path] = {}
+    for path in paths:
+        unique.setdefault(path.resolve(), path)
+    return list(unique.values())
 
 
 def _starts_from_compressed(steps: list[str]) -> bool:

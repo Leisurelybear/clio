@@ -279,6 +279,119 @@ class TestRunPlanVlogProjectSelection:
         assert result is None
 
 
+class TestPlanArtifactProtection:
+    def _generate_plan(self, cfg: AppConfig) -> Path:
+        from clio.tasks.plan import run_plan_vlog
+
+        _write_text(cfg, "001_A.json", "A", 1)
+        with patch("clio.tasks.plan.plan_daily_vlog", side_effect=_fake_plan_payload):
+            run_plan_vlog(cfg, day_label="day1", overwrite=True)
+        return cfg.plans_dir / "day1_plan.json"
+
+    def _mark_edited(self, path: Path) -> None:
+        from clio.artifact_guard import mark_user_edited
+
+        data = json.loads(path.read_text(encoding="utf-8"))
+        mark_user_edited(data, edited_at="2026-11-10T00:00:00Z")
+        path.write_text(json.dumps(data), encoding="utf-8")
+
+    def test_same_lineage_skip_preserves_user_edit_without_backup(self, cfg: AppConfig):
+        from clio.tasks.plan import run_plan_vlog
+
+        plan_path = self._generate_plan(cfg)
+        self._mark_edited(plan_path)
+        old_json = plan_path.read_bytes()
+        old_md = (cfg.plans_dir / "day1_plan.md").read_bytes()
+
+        with patch("clio.tasks.plan.plan_daily_vlog") as mock_plan:
+            result = run_plan_vlog(cfg, day_label="day1", overwrite=False)
+
+        mock_plan.assert_not_called()
+        assert result is not None
+        assert result["_user_edited"] is True
+        assert plan_path.read_bytes() == old_json
+        assert (cfg.plans_dir / "day1_plan.md").read_bytes() == old_md
+        assert not list(cfg.plans_dir.glob("*.bak.*"))
+
+    def test_new_lineage_requires_confirmation_before_ai(self, cfg: AppConfig):
+        from clio.artifact_guard import ArtifactOverwriteConfirmationRequired
+        from clio.tasks.plan import run_plan_vlog
+
+        plan_path = self._generate_plan(cfg)
+        self._mark_edited(plan_path)
+        old_json = plan_path.read_bytes()
+        old_md = (cfg.plans_dir / "day1_plan.md").read_bytes()
+        _write_text(cfg, "001_A.json", "A2", 1)
+
+        with patch("clio.tasks.plan.plan_daily_vlog") as mock_plan:
+            with pytest.raises(ArtifactOverwriteConfirmationRequired):
+                run_plan_vlog(cfg, day_label="day1", overwrite=False)
+
+        mock_plan.assert_not_called()
+        assert plan_path.read_bytes() == old_json
+        assert (cfg.plans_dir / "day1_plan.md").read_bytes() == old_md
+        assert not list(cfg.plans_dir.glob("*.bak.*"))
+
+    def test_corrupt_existing_plan_requires_confirmation_then_backs_up(self, cfg: AppConfig):
+        from clio.artifact_guard import ArtifactOverwriteConfirmationRequired
+        from clio.tasks.plan import run_plan_vlog
+
+        _write_text(cfg, "001_A.json", "A", 1)
+        plan_path = cfg.plans_dir / "day1_plan.json"
+        md_path = cfg.plans_dir / "day1_plan.md"
+        plan_path.write_text("{corrupt", encoding="utf-8")
+        md_path.write_text("# user plan", encoding="utf-8")
+
+        with patch("clio.tasks.plan.plan_daily_vlog", side_effect=_fake_plan_payload) as mock_plan:
+            with pytest.raises(ArtifactOverwriteConfirmationRequired):
+                run_plan_vlog(cfg, day_label="day1", overwrite=False)
+
+        mock_plan.assert_not_called()
+        assert plan_path.read_text(encoding="utf-8") == "{corrupt"
+        assert md_path.read_text(encoding="utf-8") == "# user plan"
+        assert not list(cfg.plans_dir.glob("*.bak.*"))
+
+        with patch("clio.tasks.plan.plan_daily_vlog", side_effect=_fake_plan_payload) as mock_plan:
+            result = run_plan_vlog(
+                cfg,
+                day_label="day1",
+                overwrite=False,
+                confirm_artifact_overwrite=True,
+            )
+
+        mock_plan.assert_called_once()
+        assert result is not None
+        assert "_user_edited" not in json.loads(plan_path.read_text(encoding="utf-8"))
+        backups = sorted(cfg.plans_dir.glob("*.bak.*"))
+        assert {path.name.split(".bak.", 1)[0] for path in backups} == {"day1_plan.json", "day1_plan.md"}
+        backup_json = next(path for path in backups if path.name.startswith("day1_plan.json.bak."))
+        assert backup_json.read_text(encoding="utf-8") == "{corrupt"
+
+    def test_confirmed_overwrite_backs_up_old_plan_and_clears_marker(self, cfg: AppConfig):
+        from clio.tasks.plan import run_plan_vlog
+
+        plan_path = self._generate_plan(cfg)
+        self._mark_edited(plan_path)
+        _write_text(cfg, "001_A.json", "A2", 1)
+
+        with patch("clio.tasks.plan.plan_daily_vlog", side_effect=_fake_plan_payload) as mock_plan:
+            result = run_plan_vlog(
+                cfg,
+                day_label="day1",
+                overwrite=False,
+                confirm_artifact_overwrite=True,
+            )
+
+        mock_plan.assert_called_once()
+        assert result is not None
+        assert "_user_edited" not in result
+        backups = sorted(cfg.plans_dir.glob("*.bak.*"))
+        assert {path.name.split(".bak.", 1)[0] for path in backups} == {"day1_plan.json", "day1_plan.md"}
+        backup_json = next(path for path in backups if path.name.startswith("day1_plan.json.bak."))
+        assert json.loads(backup_json.read_text(encoding="utf-8"))["_user_edited"] is True
+        assert json.loads(plan_path.read_text(encoding="utf-8")).get("_user_edited") is None
+
+
 def _fake_plan_payload(clips, config=None, day_label="day1", **kwargs):
     return {
         "day_title": "Selected",

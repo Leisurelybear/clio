@@ -22,7 +22,7 @@ from clio.tasks.plan import plan_overwrite_confirmation_required
 from clio.tasks.transcribe import run_transcribe_one
 from clio.ui.services.file_service import _find_original_for_compressed, _find_texts_dirs, _is_safe_basename
 from clio.ui.services.project_service import _project_output_dir, collect_allowed_project_paths
-from clio.ui.services.run_preview import build_run_preview
+from clio.ui.services.run_preview import artifact_overwrite_paths, build_run_preview
 from clio.utils import media_dependencies_for_steps, media_dependency_error, preflight_config_media_deps
 from clio.vmeta import VideoMeta
 
@@ -97,6 +97,7 @@ def _run_pipeline_task(context) -> dict[str, Any]:
             files=input_data.get("files"),
             overwrite=bool(input_data.get("overwrite", False)),
             confirm_plan_overwrite=bool(input_data.get("confirm_plan_overwrite", False)),
+            confirm_artifact_overwrite=bool(input_data.get("confirm_artifact_overwrite", False)),
             context_override=input_data.get("context_override"),
             task_prompts=input_data.get("task_prompts"),
         )
@@ -327,6 +328,9 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
     confirm_plan_overwrite = obj.get("confirm_plan_overwrite", False)
     if not isinstance(confirm_plan_overwrite, bool):
         return handler._send_json({"ok": False, "error": "confirm_plan_overwrite must be a boolean"}, 400)
+    confirm_artifact_overwrite = obj.get("confirm_artifact_overwrite", False)
+    if not isinstance(confirm_artifact_overwrite, bool):
+        return handler._send_json({"ok": False, "error": "confirm_artifact_overwrite must be a boolean"}, 400)
     context_override = obj.get("context_override")
     if context_override is not None and not isinstance(context_override, str):
         return handler._send_json({"ok": False, "error": "context_override must be a string"}, 400)
@@ -359,6 +363,28 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
             409,
         )
 
+    artifact_paths = artifact_overwrite_paths(
+        cfg,
+        selected_steps,
+        force=overwrite,
+        use_transcripts=cfg.plan.use_transcripts,
+        files=files_list,
+        day_label=day_label,
+        context_override=context_override,
+        task_prompts=task_prompts,
+    )
+    if artifact_paths and not confirm_artifact_overwrite:
+        items = [path.name for path in artifact_paths]
+        return handler._send_json(
+            {
+                "ok": False,
+                "code": "artifact_overwrite_confirmation_required",
+                "error": t("task.artifact.overwrite_confirmation_required", {"items": ", ".join(items)}),
+                "items": items,
+            },
+            409,
+        )
+
     preflight = preflight_config_media_deps(cfg, required=media_dependencies_for_steps(steps))
     if not preflight["ok"]:
         return handler._send_json(media_dependency_error(preflight), 424)
@@ -378,6 +404,7 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
         "files": files_list,
         "overwrite": overwrite,
         "confirm_plan_overwrite": confirm_plan_overwrite,
+        "confirm_artifact_overwrite": confirm_artifact_overwrite,
         "use_transcripts": cfg.plan.use_transcripts,
     }
     retryable = not (context_override or task_prompts)
@@ -441,6 +468,21 @@ def handle_post_run_preview(handler: HandlerProtocol, qs: dict[str, Any], obj: d
         unknown = sorted(set(steps) - set(PIPELINE_STEPS))
         if unknown:
             return handler._send_json({"ok": False, "error": f"unknown pipeline step(s): {', '.join(unknown)}"}, 400)
+    context_override = obj.get("context_override")
+    if context_override is not None and not isinstance(context_override, str):
+        return handler._send_json({"ok": False, "error": "context_override must be a string"}, 400)
+    if isinstance(context_override, str) and len(context_override) > 100_000:
+        return handler._send_json({"ok": False, "error": "context_override is too large"}, 400)
+    context_override = context_override or None
+    task_prompts = obj.get("task_prompts")
+    if task_prompts is not None and (
+        not isinstance(task_prompts, dict)
+        or not all(isinstance(key, str) and isinstance(value, str) for key, value in task_prompts.items())
+    ):
+        return handler._send_json({"ok": False, "error": "task_prompts must be an object of strings"}, 400)
+    task_prompts = task_prompts or None
+    if task_prompts and (len(task_prompts) > 20 or any(len(value) > 100_000 for value in task_prompts.values())):
+        return handler._send_json({"ok": False, "error": "task_prompts is too large"}, 400)
 
     proj_dir = handler._resolve_project_dir(qs)
     config_path = getattr(handler, "config_path", None)
@@ -463,6 +505,8 @@ def handle_post_run_preview(handler: HandlerProtocol, qs: dict[str, Any], obj: d
         use_transcripts=use_transcripts,
         files=files_list,
         day_label=day_label,
+        context_override=context_override,
+        task_prompts=task_prompts,
     )
     if isinstance(preview, dict):
         preview["preflight"] = preflight_config_media_deps(

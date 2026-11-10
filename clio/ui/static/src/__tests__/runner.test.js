@@ -7,6 +7,7 @@ import {
   renderSkippedDiagnosticsHtml,
   collectRunOptions,
   needsPlanOverwriteConfirmation,
+  needsArtifactOverwriteConfirmation,
   startRun,
   getRunButtonText,
   _shouldResetRunNavigationOnRender,
@@ -99,6 +100,20 @@ describe('renderRunPreviewHtml', () => {
     expect(html).toContain('缺少 ffmpeg');
   });
 
+  it('renders the edited-artifact overwrite warning with escaped names', () => {
+    const html = renderRunPreviewHtml({
+      input: { path: 'D:/trip/videos', count: 1 },
+      totals: { selected_steps: 1, will_run: 1, will_skip: 0, warnings: 0 },
+      steps: [],
+      artifact_overwrite: { required: true, items: ['<a>.json', 'b.md'] },
+    });
+
+    expect(html).toContain('run-artifact-overwrite-warning');
+    expect(html).toContain('已人工编辑的文件');
+    expect(html).toContain('&lt;a&gt;.json');
+    expect(html).not.toContain('<a>.json');
+  });
+
   it('renders the partial-plan overwrite warning with an escaped day label', () => {
     const html = renderRunPreviewHtml({
       input: { path: 'D:/trip/videos', count: 1 },
@@ -129,6 +144,21 @@ describe('needsPlanOverwriteConfirmation', () => {
       files: ['A.mp4'],
     })).toBe(false);
     expect(needsPlanOverwriteConfirmation({}, { steps: ['plan'], files: ['A.mp4'] })).toBe(false);
+  });
+});
+
+describe('needsArtifactOverwriteConfirmation', () => {
+  const riskyPreview = { artifact_overwrite: { required: true, items: ['day1_plan.json'] } };
+
+  it('requires confirmation for plan or voiceover when artifacts are at risk', () => {
+    expect(needsArtifactOverwriteConfirmation(riskyPreview, { steps: ['plan'] })).toBe(true);
+    expect(needsArtifactOverwriteConfirmation(riskyPreview, { steps: ['voiceover'] })).toBe(true);
+  });
+
+  it('does not require confirmation for other steps or risk-free previews', () => {
+    expect(needsArtifactOverwriteConfirmation(riskyPreview, { steps: ['analyze'] })).toBe(false);
+    expect(needsArtifactOverwriteConfirmation({}, { steps: ['plan'] })).toBe(false);
+    expect(needsArtifactOverwriteConfirmation(null, { steps: ['voiceover'] })).toBe(false);
   });
 });
 
@@ -301,6 +331,61 @@ describe('startRun', () => {
       steps: ['plan'],
       confirm_plan_overwrite: true,
     }));
+  });
+
+  it('stops without starting when the artifact overwrite confirmation is declined', async () => {
+    const { api } = await import('../api.js');
+    api.mockResolvedValueOnce({
+      preview: { artifact_overwrite: { required: true, items: ['001_A_voiceover.json'] } },
+    });
+    vi.mocked(confirm).mockReturnValue(false);
+
+    await startRun();
+
+    expect(api).toHaveBeenCalledTimes(1);
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('001_A_voiceover.json'));
+    expect(api).not.toHaveBeenCalledWith('POST', '/api/run/start', expect.anything());
+  });
+
+  it('sends the artifact confirmation flag after the user accepts', async () => {
+    const { api } = await import('../api.js');
+    api.mockResolvedValueOnce({
+      preview: { artifact_overwrite: { required: true, items: ['001_A_voiceover.json'] } },
+    });
+    api.mockResolvedValueOnce({ ok: true, task_id: 'task-artifact' });
+
+    await startRun();
+
+    const startCall = api.mock.calls.find(([method, url]) => method === 'POST' && url === '/api/run/start');
+    expect(startCall?.[2]).toEqual(expect.objectContaining({
+      steps: ['plan'],
+      confirm_artifact_overwrite: true,
+    }));
+    expect(startCall?.[2]).not.toHaveProperty('confirm_plan_overwrite');
+  });
+
+  it('refreshes the preview for a voiceover-only run', async () => {
+    document.body.innerHTML = `
+      <button id="btn-run-start"></button>
+      <div id="run-preview"></div>
+      <div id="run-progress"></div>
+      <input class="run-step-cb" data-step="plan" type="checkbox">
+      <input class="run-step-cb" data-step="voiceover" type="checkbox" checked>
+      <input id="run-day" value="day1">
+      <input id="run-use-transcripts" type="checkbox" checked>
+      <input id="run-overwrite" type="checkbox">
+    `;
+    const { api } = await import('../api.js');
+    api.mockResolvedValueOnce({ preview: {} });
+    api.mockResolvedValueOnce({ ok: true, task_id: 'task-voiceover' });
+
+    await startRun();
+
+    expect(api).toHaveBeenNthCalledWith(1, 'POST', '/api/run/preview', expect.objectContaining({
+      steps: ['voiceover'],
+    }));
+    const startCall = api.mock.calls.find(([method, url]) => method === 'POST' && url === '/api/run/start');
+    expect(startCall?.[2]).toEqual(expect.objectContaining({ steps: ['voiceover'] }));
   });
 
   it('does not ask when the fresh preview reports no overwrite risk', async () => {

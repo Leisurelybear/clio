@@ -68,6 +68,7 @@ def run_pipeline_steps(
     files: list[str] | None = None,
     overwrite: bool = False,
     confirm_plan_overwrite: bool = False,
+    confirm_artifact_overwrite: bool = False,
     context_override: str | None = None,
     task_prompts: dict[str, str] | None = None,
 ) -> dict[str, Any]:
@@ -112,6 +113,8 @@ def run_pipeline_steps(
                     kwargs["overwrite"] = True
                 if step == "plan" and confirm_plan_overwrite:
                     kwargs["confirm_plan_overwrite"] = True
+                if step in {"plan", "voiceover"} and confirm_artifact_overwrite:
+                    kwargs["confirm_artifact_overwrite"] = True
                 if context_override:
                     kwargs["context_override"] = context_override
                 if task_prompts:

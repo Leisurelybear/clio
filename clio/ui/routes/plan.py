@@ -7,6 +7,7 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from clio.artifact_guard import mark_user_edited
 from clio.config import load_config
 from clio.i18n import t
 from clio.pipeline import run_cut_all
@@ -214,7 +215,9 @@ def handle_put_plan(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> 
             400,
         )
     plan.recalculate_total_estimated_sec()
-    data = add_schema_version(plan.to_dict())
+    data = plan.to_dict()
+    mark_user_edited(data)
+    data = add_schema_version(data)
     payload = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
     p.parent.mkdir(parents=True, exist_ok=True)
     try:

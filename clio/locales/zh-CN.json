@@ -461,6 +461,7 @@
   "shutdown.terminate_failed": "  [beforeStop]   ffmpeg (pid={pid}) 终止失败（可能已退出）",
   "shutdown.terminated": "  [beforeStop]   ffmpeg (pid={pid}) 已终止",
   "shutdown.terminating": "  [beforeStop] 终止 {count} 个运行中的 ffmpeg 子进程...",
+  "task.artifact.overwrite_confirmation_required": "以下已人工编辑的文件将被覆盖：{items}；请确认后再运行",
   "task.analyze.analyzing": "  [{name}] 分析中...",
   "task.analyze.cancel_item": "  [取消] 分析 {name} 被取消",
   "task.analyze.cancel_log": "分析 {name} 被用户取消",

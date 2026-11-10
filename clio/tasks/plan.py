@@ -11,6 +11,12 @@ from typing import Any
 
 from clio.ai.token_usage import FileTokenUsageStore
 from clio.analyze import plan_daily_vlog
+from clio.artifact_guard import (
+    ArtifactOverwriteConfirmationRequired,
+    artifact_requires_overwrite_confirmation,
+    backup_artifacts,
+    clear_user_edited,
+)
 from clio.config import AppConfig
 from clio.i18n import t
 from clio.identity import SEGMENT_SUFFIX_RE, legacy_segment_offset_sec, load_identity
@@ -44,6 +50,51 @@ def plan_overwrite_confirmation_required(config: AppConfig, day_label: str, file
         return False
     safe_day = plan_day_stem(day_label)
     return (config.plans_dir / f"{safe_day}_plan.json").exists() or (config.plans_dir / f"{safe_day}_plan.md").exists()
+
+
+def plan_artifact_overwrite_required(
+    config: AppConfig,
+    day_label: str,
+    files: list[str] | None = None,
+    *,
+    overwrite: bool = False,
+    context_override: str | None = None,
+    task_prompts: dict[str, str] | None = None,
+) -> bool:
+    """Return whether a run would replace a user-edited plan."""
+    safe_day = plan_day_stem(day_label)
+    out_json = config.plans_dir / f"{safe_day}_plan.json"
+    out_md = config.plans_dir / f"{safe_day}_plan.md"
+    if not artifact_requires_overwrite_confirmation(out_json):
+        return False
+    if files is not None:
+        clips, _, _ = _collect_plan_clips(
+            config,
+            day_label,
+            files,
+            filter_by_day=False,
+            cancel_event=None,
+            report=False,
+        )
+        return bool(clips)
+    if overwrite or not config.analyze.skip_existing or not out_json.is_file() or not out_md.is_file():
+        return True
+    existing, error = _read_json_object(out_json)
+    if error is not None or existing is None:
+        return True
+    clips, _, _ = _collect_plan_clips(
+        config,
+        day_label,
+        None,
+        filter_by_day=False,
+        cancel_event=None,
+        report=False,
+    )
+    if not clips:
+        return False
+    current = _plan_lineage_fingerprint(config, clips, task_prompts, context_override)
+    stored = existing.get("_lineage")
+    return stored is not None and stored != current
 
 
 def _positive_number(value: Any) -> float | None:
@@ -249,38 +300,25 @@ def _discover_day_labels_with_errors(config: AppConfig) -> tuple[list[str], list
     return sorted(labels), skipped
 
 
-def run_plan_vlog(
+def _collect_plan_clips(
     config: AppConfig,
-    day_label: str = "day1",
-    tracker: ProgressTracker | None = None,
-    cancel_event: threading.Event | None = None,
-    files: list[str] | None = None,
-    overwrite: bool = False,
-    confirm_plan_overwrite: bool = False,
-    context_override: str | None = None,
-    filter_by_day: bool = False,
-    task_prompts: dict[str, str] | None = None,
-) -> dict[str, Any] | None:
-    config.plans_dir.mkdir(parents=True, exist_ok=True)
-    token_store = FileTokenUsageStore(str(config.paths.output_dir))
-    safe_day = plan_day_stem(day_label)
-
+    day_label: str,
+    files: list[str] | None,
+    *,
+    filter_by_day: bool,
+    cancel_event: threading.Event | None,
+    report: bool = True,
+) -> tuple[list[dict[str, Any]], list[tuple[str, str]], bool]:
     selected = _selection_from_files(files) if files is not None else None
     project_selection = _project_selection_stems(config)
-    if selected is not None:
+    if report and selected is not None:
         print(t("task.plan.filter_selected", {"count": len(selected)}))
 
-    out_json = config.plans_dir / f"{safe_day}_plan.json"
-    out_md = config.plans_dir / f"{safe_day}_plan.md"
-    if not confirm_plan_overwrite and plan_overwrite_confirmation_required(config, day_label, files):
-        raise PlanOverwriteConfirmationRequired(t("task.plan.overwrite_confirmation_required", {"day": day_label}))
-
-    clips = []
+    clips: list[dict[str, Any]] = []
     skipped_inputs: list[tuple[str, str]] = []
     for json_file in sorted(config.texts_dir.glob("*.json")):
         if cancel_event and cancel_event.is_set():
-            print(t("task.plan.cancelled"))
-            return
+            return clips, skipped_inputs, True
         if selected is not None and not _matches_selected_artifact(json_file, selected):
             continue
         if project_selection is not None and not _matches_selected_artifact(json_file, project_selection):
@@ -297,7 +335,8 @@ def run_plan_vlog(
         try:
             idx = int(raw_idx)
         except (ValueError, TypeError):
-            print(t("task.plan.invalid_index", {"index": raw_idx, "name": json_file.name}))
+            if report:
+                print(t("task.plan.invalid_index", {"index": raw_idx, "name": json_file.name}))
             skipped_inputs.append((json_file.name, t("task.plan.index_invalid_reason")))
             continue
         identity = load_identity(data)
@@ -334,6 +373,41 @@ def run_plan_vlog(
                 "segment_offset_sec": segment_offset,
             }
         )
+    return clips, skipped_inputs, False
+
+
+def run_plan_vlog(
+    config: AppConfig,
+    day_label: str = "day1",
+    tracker: ProgressTracker | None = None,
+    cancel_event: threading.Event | None = None,
+    files: list[str] | None = None,
+    overwrite: bool = False,
+    confirm_plan_overwrite: bool = False,
+    confirm_artifact_overwrite: bool = False,
+    context_override: str | None = None,
+    filter_by_day: bool = False,
+    task_prompts: dict[str, str] | None = None,
+) -> dict[str, Any] | None:
+    config.plans_dir.mkdir(parents=True, exist_ok=True)
+    token_store = FileTokenUsageStore(str(config.paths.output_dir))
+    safe_day = plan_day_stem(day_label)
+
+    out_json = config.plans_dir / f"{safe_day}_plan.json"
+    out_md = config.plans_dir / f"{safe_day}_plan.md"
+    if not confirm_plan_overwrite and plan_overwrite_confirmation_required(config, day_label, files):
+        raise PlanOverwriteConfirmationRequired(t("task.plan.overwrite_confirmation_required", {"day": day_label}))
+
+    clips, skipped_inputs, cancelled = _collect_plan_clips(
+        config,
+        day_label,
+        files,
+        filter_by_day=filter_by_day,
+        cancel_event=cancel_event,
+    )
+    if cancelled:
+        print(t("task.plan.cancelled"))
+        return
 
     _report_skipped_inputs(skipped_inputs)
     if not clips:
@@ -346,24 +420,35 @@ def run_plan_vlog(
     if files is None and not overwrite and config.analyze.skip_existing and out_json.exists() and out_md.exists():
         try:
             existing = json.loads(out_json.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError, UnicodeError):
             print(t("task.plan.replan_corrupt", {"day": day_label}))
         else:
-            stored = existing.get("_lineage")
-            current = _plan_lineage_fingerprint(config, clips, task_prompts, context_override)
-            if stored == current:
-                print(t("task.plan.skip_existing", {"day": day_label}))
-                return existing
-            print(t("task.plan.replan_lineage", {"day": day_label}))
-            if stored is None:
-                # Legacy cache without lineage: accept it (best effort) by stamping
-                # a fresh marker so only genuinely-new inputs invalidate it.
-                existing["_lineage"] = current
-                write_json_atomic(out_json, existing)
-                print(t("task.plan.skip_existing", {"day": day_label}))
-                return existing
-            # Mismatched/newer lineage: recompute below.
+            if not isinstance(existing, dict):
+                print(t("task.plan.replan_corrupt", {"day": day_label}))
+            else:
+                stored = existing.get("_lineage")
+                current = _plan_lineage_fingerprint(config, clips, task_prompts, context_override)
+                if stored == current:
+                    print(t("task.plan.skip_existing", {"day": day_label}))
+                    return existing
+                print(t("task.plan.replan_lineage", {"day": day_label}))
+                if stored is None:
+                    # Legacy cache without lineage: accept it (best effort) by stamping
+                    # a fresh marker so only genuinely-new inputs invalidate it.
+                    existing["_lineage"] = current
+                    write_json_atomic(out_json, existing)
+                    print(t("task.plan.skip_existing", {"day": day_label}))
+                    return existing
+                # Mismatched/newer lineage: recompute below.
 
+    protected_overwrite = artifact_requires_overwrite_confirmation(out_json)
+    if protected_overwrite and not confirm_artifact_overwrite:
+        raise ArtifactOverwriteConfirmationRequired(
+            t("task.artifact.overwrite_confirmation_required", {"items": out_json.name}),
+            [out_json, out_md],
+        )
+
+    project_selection = _project_selection_stems(config)
     transcripts_map: dict[str, dict] = {}
     trans_dir = config.transcripts_dir
     if trans_dir.is_dir() and config.whisper.enabled and config.plan.use_transcripts:
@@ -411,7 +496,10 @@ def run_plan_vlog(
     if config.plan.use_transcripts:
         plan["_transcripts_missing"] = not transcripts_map
     plan = add_schema_version(plan)
+    clear_user_edited(plan)
     plan["_lineage"] = _plan_lineage_fingerprint(config, clips, task_prompts, context_override)
+    if protected_overwrite:
+        backup_artifacts([out_json, out_md])
     write_json_atomic(out_json, plan)
     if tracker:
         tracker.log(t("task.plan.log_done", {"day": day_label}))

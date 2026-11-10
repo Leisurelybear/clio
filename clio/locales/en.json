@@ -461,6 +461,7 @@
   "shutdown.terminate_failed": "  [beforeStop]   ffmpeg (pid={pid}) failed to terminate (may have exited)",
   "shutdown.terminated": "  [beforeStop]   ffmpeg (pid={pid}) terminated",
   "shutdown.terminating": "  [beforeStop] terminating {count} running ffmpeg child process(es)...",
+  "task.artifact.overwrite_confirmation_required": "Manually edited file(s) would be overwritten: {items}; confirm before running",
   "task.analyze.analyzing": "  [{name}] analyzing...",
   "task.analyze.cancel_item": "  [cancel] analysis of {name} was cancelled",
   "task.analyze.cancel_log": "Analysis of {name} was cancelled by the user",

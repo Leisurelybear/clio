@@ -245,6 +245,14 @@ export function needsPlanOverwriteConfirmation(preview, options) {
   );
 }
 
+export function needsArtifactOverwriteConfirmation(preview, options) {
+  return Boolean(
+    Array.isArray(options?.steps)
+    && (options.steps.includes('plan') || options.steps.includes('voiceover'))
+    && preview?.artifact_overwrite?.required,
+  );
+}
+
 function renderRunPreviewHtml(preview) {
   if (!preview) {
     return `<p class="muted">${t('run.preview.empty')}</p>`;
@@ -254,12 +262,17 @@ function renderRunPreviewHtml(preview) {
   const steps = Array.isArray(preview.steps) ? preview.steps : [];
   const preflight = preview.preflight;
   const missing = Array.isArray(preflight?.missing) ? preflight.missing : [];
+  const separator = t('common.list_separator');
   const planOverwrite = preview.plan_overwrite?.required
     ? `<p class="warn run-plan-overwrite-warning">${t('run.preview.plan_overwrite', {
       day: escapeHtml(preview.plan_overwrite.day_label || ''),
     })}</p>`
     : '';
-  const separator = t('common.list_separator');
+  const artifactOverwrite = preview.artifact_overwrite?.required
+    ? `<p class="warn run-artifact-overwrite-warning">${t('run.preview.artifact_overwrite', {
+      items: escapeHtml((preview.artifact_overwrite.items || []).join(separator)),
+    })}</p>`
+    : '';
   const preflightLine = preflight && preflight.ok === false
     ? `<p class="err run-preflight-error">${t('run.preview.preflight_error', { detail: escapeHtml(preflight.detail || t('run.preview.step_unrunnable')) })}\n` +
       `${missing.length ? t('run.preview.missing', { items: escapeHtml(missing.join(separator)) }) : ''}</p>`
@@ -291,6 +304,7 @@ function renderRunPreviewHtml(preview) {
       ${preflightLine}
       ${warningLine}
       ${planOverwrite}
+      ${artifactOverwrite}
       <div class="run-preview-steps">${stepRows}</div>
     </section>
   `;
@@ -379,7 +393,7 @@ async function startRun() {
     return;
   }
   try {
-    if (options.files && options.steps.includes('plan')) {
+    if (options.steps.includes('plan') || options.steps.includes('voiceover')) {
       const previewResponse = await api('POST', '/api/run/preview', options);
       const preview = previewResponse?.preview || null;
       if (needsPlanOverwriteConfirmation(preview, options)) {
@@ -389,6 +403,14 @@ async function startRun() {
           return;
         }
         options.confirm_plan_overwrite = true;
+      }
+      if (needsArtifactOverwriteConfirmation(preview, options)) {
+        const items = (preview.artifact_overwrite.items || []).join(t('common.list_separator'));
+        if (!confirm(t('run.confirm_artifact_overwrite', { items }))) {
+          updateRunStartButtonState();
+          return;
+        }
+        options.confirm_artifact_overwrite = true;
       }
     }
     _lastRunDay = options.day_label;

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
+from clio.artifact_guard import mark_user_edited
 from clio.i18n import t
 from clio.ui.services.file_service import (
     ArtifactConflictError,
@@ -190,7 +191,9 @@ def handle_put_voiceover(handler: HandlerProtocol, qs: dict[str, Any], obj: dict
     p = handler._resolve_in("scripts", fname, proj_out)
     if p is None:
         return handler._send_json({"ok": False, "error": "forbidden or not found"}, 403)
-    data = json.dumps(obj, ensure_ascii=False, indent=2).encode("utf-8")
+    saved = dict(obj)
+    mark_user_edited(saved)
+    data = json.dumps(saved, ensure_ascii=False, indent=2).encode("utf-8")
     try:
         version = save_with_version(p, data, request_version(handler))
     except ArtifactConflictError as exc:

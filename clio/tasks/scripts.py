@@ -12,6 +12,12 @@ from typing import Any
 
 from clio.ai.token_usage import FileTokenUsageStore
 from clio.analyze import generate_voiceover
+from clio.artifact_guard import (
+    ArtifactOverwriteConfirmationRequired,
+    backup_artifacts,
+    clear_user_edited,
+    is_user_edited,
+)
 from clio.config import AppConfig
 from clio.i18n import t
 from clio.log import timed
@@ -70,6 +76,77 @@ def _voiceover_lineage_fingerprint(
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _voiceover_output_paths(json_file: Path, config: AppConfig) -> tuple[Path, Path]:
+    return (
+        config.scripts_dir / f"{json_file.stem}_voiceover.json",
+        config.scripts_dir / f"{json_file.stem}_voiceover.md",
+    )
+
+
+def _voiceover_needs_overwrite(
+    json_file: Path,
+    config: AppConfig,
+    template: str,
+    *,
+    overwrite: bool,
+    context_override: str | None = None,
+    task_prompts: dict[str, str] | None = None,
+) -> bool:
+    """Return whether this input would regenerate a protected voiceover."""
+    out, _ = _voiceover_output_paths(json_file, config)
+    if not out.is_file():
+        return False
+    try:
+        data = json.loads(json_file.read_text(encoding="utf-8"))
+        existing = json.loads(out.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeError):
+        return True
+    if not isinstance(data, dict) or not isinstance(existing, dict):
+        return True
+    if overwrite or not config.analyze.skip_existing:
+        return is_user_edited(existing)
+    data["index"] = data.get("index", json_file.stem[:3])
+    current = _voiceover_lineage_fingerprint(config, data, template, task_prompts, context_override)
+    if existing.get("_lineage") is None:
+        return False
+    return is_user_edited(existing) and existing.get("_lineage") != current
+
+
+def voiceover_artifact_overwrite_required(
+    config: AppConfig,
+    files: list[str] | None = None,
+    *,
+    single_file: Path | None = None,
+    overwrite: bool = False,
+    context_override: str | None = None,
+    task_prompts: dict[str, str] | None = None,
+) -> list[Path]:
+    """Return existing voiceover artifacts that this run would replace."""
+    if single_file is not None:
+        input_files = [Path(single_file)]
+    else:
+        input_files = sorted(config.texts_dir.glob("*.json"))
+    if files is not None:
+        selected = _selection_from_files(files)
+        input_files = [path for path in input_files if _matches_selected_artifact(path, selected)]
+    template = _load_script_template(config)
+    risky: list[Path] = []
+    for json_file in input_files:
+        json_file = Path(json_file)
+        if not _voiceover_needs_overwrite(
+            json_file,
+            config,
+            template,
+            overwrite=overwrite,
+            context_override=context_override,
+            task_prompts=task_prompts,
+        ):
+            continue
+        out, md_out = _voiceover_output_paths(json_file, config)
+        risky.extend(path for path in (out, md_out) if path.is_file())
+    return risky
+
+
 def _process_one_script(
     json_file: Path,
     config: AppConfig,
@@ -81,6 +158,7 @@ def _process_one_script(
     tracker: ProgressTracker | None,
     context_override: str | None = None,
     task_prompts: dict[str, str] | None = None,
+    confirm_artifact_overwrite: bool = False,
 ) -> bool | str:
     """Process a single voiceover script. Returns True (ok), False (skipped), or error string."""
     if cancel_event and cancel_event.is_set():
@@ -89,14 +167,20 @@ def _process_one_script(
     data = json.loads(json_file.read_text(encoding="utf-8"))
     data["index"] = data.get("index", json_file.stem[:3])
     orig_stem = Path(data.get("source_file") or json_file.stem).stem
-    out = config.scripts_dir / f"{json_file.stem}_voiceover.json"
+    out, md_out = _voiceover_output_paths(json_file, config)
     if not overwrite and config.analyze.skip_existing and out.exists():
         try:
             existing = json.loads(out.read_text(encoding="utf-8"))
-            current = _voiceover_lineage_fingerprint(config, data, template, task_prompts, context_override)
-        except (json.JSONDecodeError, OSError):
+            if not isinstance(existing, dict):
+                existing = None
+            current = (
+                _voiceover_lineage_fingerprint(config, data, template, task_prompts, context_override)
+                if existing is not None
+                else None
+            )
+        except (json.JSONDecodeError, OSError, UnicodeError):
             existing, current = None, None
-        else:
+        if isinstance(existing, dict):
             if existing.get("_lineage") == current:
                 state.mark(orig_stem, "voiceover", "skipped")
                 if tracker:
@@ -115,6 +199,20 @@ def _process_one_script(
                 return False
             # Mismatched provider/prompt: regenerate below.
 
+    protected_overwrite = _voiceover_needs_overwrite(
+        json_file,
+        config,
+        template,
+        overwrite=overwrite,
+        context_override=context_override,
+        task_prompts=task_prompts,
+    )
+    if protected_overwrite and not confirm_artifact_overwrite:
+        raise ArtifactOverwriteConfirmationRequired(
+            t("task.artifact.overwrite_confirmation_required", {"items": out.name}),
+            [out, md_out],
+        )
+
     if tracker:
         tracker.next(message=t("task.scripts.next", {"name": json_file.stem}))
     script = generate_voiceover(
@@ -129,13 +227,15 @@ def _process_one_script(
     if cancel_event and cancel_event.is_set():
         return "cancelled"
     add_schema_version(script)
+    clear_user_edited(script)
     script["_lineage"] = _voiceover_lineage_fingerprint(config, data, template, task_prompts, context_override)
+    if protected_overwrite:
+        backup_artifacts([out, md_out])
     write_json_atomic(out, script)
     state.mark(orig_stem, "voiceover", "done")
     if tracker:
         tracker.log(t("task.scripts.done_log", {"name": orig_stem}))
 
-    md_out = config.scripts_dir / f"{json_file.stem}_voiceover.md"
     md_content = (
         t("md.script_header", {"title": script.get("title", json_file.stem)})
         + "\n\n"
@@ -157,6 +257,7 @@ def run_generate_scripts(
     overwrite: bool = False,
     context_override: str | None = None,
     task_prompts: dict[str, str] | None = None,
+    confirm_artifact_overwrite: bool = False,
     **kwargs: Any,
 ) -> None:
     config.scripts_dir.mkdir(parents=True, exist_ok=True)
@@ -173,6 +274,20 @@ def run_generate_scripts(
         input_files = [f for f in input_files if _matches_selected_artifact(f, selected)]
     if not input_files:
         return
+    risky_artifacts = voiceover_artifact_overwrite_required(
+        config,
+        files,
+        single_file=single_file,
+        overwrite=overwrite,
+        context_override=context_override,
+        task_prompts=task_prompts,
+    )
+    if risky_artifacts and not confirm_artifact_overwrite:
+        names = ", ".join(path.name for path in risky_artifacts)
+        raise ArtifactOverwriteConfirmationRequired(
+            t("task.artifact.overwrite_confirmation_required", {"items": names}),
+            risky_artifacts,
+        )
     if tracker:
         tracker.update(
             phase="voiceover",
@@ -205,6 +320,7 @@ def run_generate_scripts(
                         tracker,
                         context_override,
                         task_prompts,
+                        confirm_artifact_overwrite,
                     )
                 except Exception as e:
                     print(t("task.scripts.error", {"name": json_file.stem, "detail": e}))
@@ -242,6 +358,7 @@ def run_generate_scripts(
                         tracker,
                         context_override,
                         task_prompts,
+                        confirm_artifact_overwrite,
                     )
                     futures[f] = json_file
 

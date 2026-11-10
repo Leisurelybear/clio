@@ -268,19 +268,171 @@ class TestRunGenerateScripts:
         mock_gen.assert_not_called()
 
     @patch("clio.tasks.scripts.generate_voiceover")
-    def test_corrupt_existing_cache_regenerates(self, mock_gen, cfg):
+    def test_corrupt_existing_cache_requires_confirmation_then_backs_up(self, mock_gen, cfg):
         data = {"title": "t"}
         (cfg.texts_dir / "001.json").write_text(json.dumps(data))
         out = cfg.scripts_dir / "001_voiceover.json"
-        out.write_text("{corrupt")
+        out.write_text("{corrupt", encoding="utf-8")
         mock_gen.return_value = {"title": "t", "voiceover": "new", "edit_tip": ""}
+
+        from clio.artifact_guard import ArtifactOverwriteConfirmationRequired
+        from clio.tasks.scripts import run_generate_scripts
+
+        with pytest.raises(ArtifactOverwriteConfirmationRequired):
+            run_generate_scripts(cfg)
+        mock_gen.assert_not_called()
+        assert out.read_text(encoding="utf-8") == "{corrupt"
+        assert not list(cfg.scripts_dir.glob("*.bak.*"))
+
+        run_generate_scripts(cfg, confirm_artifact_overwrite=True)
+        assert mock_gen.call_count == 1
+        result = json.loads(out.read_text(encoding="utf-8"))
+        assert result["voiceover"] == "new"
+        assert result["_lineage"]
+        assert "_user_edited" not in result
+        backups = sorted(cfg.scripts_dir.glob("001_voiceover.json.bak.*"))
+        assert len(backups) == 1
+        assert backups[0].read_text(encoding="utf-8") == "{corrupt"
+
+    @patch("clio.tasks.scripts.generate_voiceover")
+    def test_non_object_cache_requires_confirmation_then_backs_up(self, mock_gen, cfg):
+        (cfg.texts_dir / "001.json").write_text(json.dumps({"title": "t"}), encoding="utf-8")
+        out = cfg.scripts_dir / "001_voiceover.json"
+        out.write_text("[]", encoding="utf-8")
+        mock_gen.return_value = {"title": "t", "voiceover": "new", "edit_tip": ""}
+
+        from clio.artifact_guard import ArtifactOverwriteConfirmationRequired
+        from clio.tasks.scripts import run_generate_scripts
+
+        with pytest.raises(ArtifactOverwriteConfirmationRequired):
+            run_generate_scripts(cfg)
+
+        mock_gen.assert_not_called()
+        assert out.read_text(encoding="utf-8") == "[]"
+        assert not list(cfg.scripts_dir.glob("*.bak.*"))
+
+        run_generate_scripts(cfg, confirm_artifact_overwrite=True)
+
+        mock_gen.assert_called_once()
+        result = json.loads(out.read_text(encoding="utf-8"))
+        assert result["voiceover"] == "new"
+        assert "_user_edited" not in result
+        backups = sorted(cfg.scripts_dir.glob("001_voiceover.json.bak.*"))
+        assert len(backups) == 1
+        assert backups[0].read_text(encoding="utf-8") == "[]"
+
+    @patch("clio.tasks.scripts.generate_voiceover")
+    def test_same_lineage_skip_preserves_user_edit_without_backup(self, mock_gen, cfg):
+        data = {"title": "t"}
+        (cfg.texts_dir / "001.json").write_text(json.dumps(data))
+        mock_gen.return_value = {"title": "t", "voiceover": "old", "edit_tip": ""}
+
+        from clio.artifact_guard import mark_user_edited
+        from clio.tasks.scripts import run_generate_scripts
+
+        run_generate_scripts(cfg)
+        out = cfg.scripts_dir / "001_voiceover.json"
+        existing = json.loads(out.read_text(encoding="utf-8"))
+        mark_user_edited(existing, edited_at="2026-11-10T00:00:00Z")
+        out.write_text(json.dumps(existing), encoding="utf-8")
+        old = out.read_bytes()
+        mock_gen.reset_mock()
+
+        run_generate_scripts(cfg)
+
+        mock_gen.assert_not_called()
+        assert out.read_bytes() == old
+        assert json.loads(old)["_user_edited"] is True
+        assert not list(cfg.scripts_dir.glob("*.bak.*"))
+
+    @patch("clio.tasks.scripts.generate_voiceover")
+    def test_lineage_change_requires_confirmation_before_ai(self, mock_gen, cfg):
+        data = {"title": "t"}
+        (cfg.texts_dir / "001.json").write_text(json.dumps(data))
+        mock_gen.return_value = {"title": "t", "voiceover": "old", "edit_tip": ""}
+
+        from clio.artifact_guard import ArtifactOverwriteConfirmationRequired, mark_user_edited
+        from clio.tasks.scripts import run_generate_scripts
+
+        run_generate_scripts(cfg)
+        out = cfg.scripts_dir / "001_voiceover.json"
+        existing = json.loads(out.read_text(encoding="utf-8"))
+        mark_user_edited(existing)
+        out.write_text(json.dumps(existing), encoding="utf-8")
+        old = out.read_bytes()
+        mock_gen.reset_mock()
+        (cfg.texts_dir / "001.json").write_text(json.dumps({"title": "t", "summary": "changed"}))
+
+        with pytest.raises(ArtifactOverwriteConfirmationRequired):
+            run_generate_scripts(cfg)
+
+        mock_gen.assert_not_called()
+        assert out.read_bytes() == old
+        assert not list(cfg.scripts_dir.glob("*.bak.*"))
+
+    @patch("clio.tasks.scripts.generate_voiceover")
+    def test_confirmed_overwrite_backs_up_user_edit_and_clears_marker(self, mock_gen, cfg):
+        data = {"title": "t"}
+        (cfg.texts_dir / "001.json").write_text(json.dumps(data))
+        mock_gen.return_value = {"title": "t", "voiceover": "old", "edit_tip": ""}
+
+        from clio.artifact_guard import mark_user_edited
+        from clio.tasks.scripts import run_generate_scripts
+
+        run_generate_scripts(cfg)
+        out = cfg.scripts_dir / "001_voiceover.json"
+        existing = json.loads(out.read_text(encoding="utf-8"))
+        mark_user_edited(existing)
+        out.write_text(json.dumps(existing), encoding="utf-8")
+        mock_gen.reset_mock()
+        mock_gen.return_value = {"title": "t", "voiceover": "new", "edit_tip": ""}
+        (cfg.texts_dir / "001.json").write_text(json.dumps({"title": "t", "summary": "changed"}))
+
+        run_generate_scripts(cfg, confirm_artifact_overwrite=True)
+
+        mock_gen.assert_called_once()
+        result = json.loads(out.read_text(encoding="utf-8"))
+        assert result["voiceover"] == "new"
+        assert "_user_edited" not in result
+        backups = sorted(cfg.scripts_dir.glob("001_voiceover.json.bak.*"))
+        assert len(backups) == 1
+        assert json.loads(backups[0].read_text(encoding="utf-8"))["_user_edited"] is True
+
+    @patch("clio.tasks.scripts.generate_voiceover")
+    def test_parallel_mode_checks_confirmation_before_submit(self, mock_gen, cfg):
+        cfg.project_cfg.analyze.max_workers = 4
+        (cfg.texts_dir / "001.json").write_text(json.dumps({"title": "t"}), encoding="utf-8")
+        (cfg.scripts_dir / "001_voiceover.json").write_text("{corrupt", encoding="utf-8")
+
+        from clio.artifact_guard import ArtifactOverwriteConfirmationRequired
+        from clio.tasks.scripts import run_generate_scripts
+
+        with (
+            patch("clio.tasks.scripts.ThreadPoolExecutor") as pool,
+            pytest.raises(ArtifactOverwriteConfirmationRequired),
+        ):
+            run_generate_scripts(cfg)
+
+        pool.assert_not_called()
+        mock_gen.assert_not_called()
+
+    @patch("clio.tasks.scripts.generate_voiceover")
+    def test_legacy_user_edited_cache_is_stamped_and_skipped(self, mock_gen, cfg):
+        (cfg.texts_dir / "001.json").write_text(json.dumps({"title": "t"}), encoding="utf-8")
+        out = cfg.scripts_dir / "001_voiceover.json"
+        out.write_text(
+            json.dumps({"voiceover": "legacy", "_user_edited": True, "_user_edited_at": "2026-11-10T00:00:00Z"}),
+            encoding="utf-8",
+        )
 
         from clio.tasks.scripts import run_generate_scripts
 
         run_generate_scripts(cfg)
-        assert mock_gen.call_count == 1
+
+        mock_gen.assert_not_called()
         result = json.loads(out.read_text(encoding="utf-8"))
-        assert result["voiceover"] == "new"
+        assert result["voiceover"] == "legacy"
+        assert result["_user_edited"] is True
         assert result["_lineage"]
 
     @patch("clio.tasks.scripts.generate_voiceover")
