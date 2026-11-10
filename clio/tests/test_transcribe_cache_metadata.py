@@ -48,6 +48,7 @@ def _run_with_mocks(cfg, video, tmp_path: Path):
     fake_wav.touch()
     with (
         patch("clio.tasks.transcribe.find_videos", return_value=[video]),
+        patch("clio.transcribe.check_whisper", return_value=True),
         patch("clio.tasks.transcribe._build_original_stem_map", return_value={"test": video.parent}),
         patch("clio.tasks.transcribe.resolve_identity"),
         patch("clio.tasks.transcribe._identity_to_dict", return_value={}),
