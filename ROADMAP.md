@@ -5,20 +5,18 @@ Mark `[ ]` as `[x]` when done, `[~]` for in-progress, `[!]` for blocked.
 
 Design discussions / decision history in `AGENTS.md`, implementation details in git log.
 
-## Active backlog (2026-11-09)
+## Active backlog (2026-11-10)
 
 - 2026-11 P0/P1/P2 review remediation from `docs/analysis/2026-11-05-P0-P2-Issues.md`:
-  - Snapshot: 83 items; 50 completed in local commits, 5 partial, 2 awaiting
+  - Snapshot: 83 items; 51 completed in local commits, 4 partial, 2 awaiting
     real-environment verification, and 26 pending.
-  - Verification: targeted `test_analyze_funcs.py` (59 passed), full Vitest (851 passed),
-    and `git diff --check`; full pytest, Ruff, mypy, and the three-platform CI matrix were
-    not run for this snapshot.
-  - [x] P0 completed (12): B1 `a01b156`; B2 `a436315`; C1 `14b873b`; D1 `e2f626b`;
-    D2 `1698309`; D3 `3a45b18`; Q1 `719f715`; Q2 `c06515c`; Q8 `89d5d7e`;
-    Q3 `3ad0e5f`; Q9 `325a599`; Q10 `b452c60`.
-  - [~] P0 partial (1): C2 `a79cfbc` adds partial-selection overwrite confirmation; editing
-    markers, pre-overwrite backup, and voiceover overwrite protection remain.
-  - [!] P0 blocked (1): O19 waits for an approved push and the Python 3.11/3.12 CI matrix.
+  - Verification: targeted C2 pytest (270 passed), full pytest (2832 passed, 12 skipped;
+    4 Windows symlink-permission tests failed), full Vitest (857 passed), Ruff on changed
+    Python files, and `git diff --check`. The three-platform CI matrix runs after push.
+  - [x] P0 completed (13): B1 `a01b156`; B2 `a436315`; C1 `14b873b`; C2 `91e4699`;
+    D1 `e2f626b`; D2 `1698309`; D3 `3a45b18`; Q1 `719f715`; Q2 `c06515c`;
+    Q8 `89d5d7e`; Q3 `3ad0e5f`; Q9 `325a599`; Q10 `b452c60`.
+  - [!] P0 blocked (1): O19 waits for the Python 3.11/3.12 CI matrix; push is approved.
   - [x] P1 completed (17): B3 `b47a32c`; B4 `7bb652b`; B5 `e8b2060`; B6 `1c78b68`;
     C3 `bb1a190`; C4 `d2dccef`; C5 `127d840`; C6 `9b45130`; C7 `7e6c1c7`;
     C8 `b6f76da`; D4 `459eada`; D5 `90a92de`; D6 `5a8fb85`; D7 `e1fe20f`;
@@ -39,14 +37,13 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
     Q13; F4; F5; F9.
   - [ ] Next: close the remaining partial items, then continue the backlog one focused
     fix per commit.
-  - Keep unrelated working-tree changes isolated. The branch is currently 69 commits ahead of
-    `origin/main`; do not push without explicit user approval.
+  - Keep unrelated working-tree changes isolated. The branch is currently 72 commits ahead of
+    `origin/main`; the user approved pushing these local commits.
 - R-048 Higher-detail video analysis and bounded plan input (plan ready; P0a-P0c not started)
 - R-047-FU Optional Baidu ASR provider (deferred; Aliyun cloud transcription is complete)
 - R-043 Frontend module decomposition and remaining legacy mypy debt
 - R-032e Optional ffmpeg bundling and signed desktop installer
-- Release gate: O19 remains blocked until the 69 local commits receive an approved push and the
-  Python 3.11/3.12 CI matrix passes.
+- Release gate: O19 remains blocked until the pushed branch passes the Python 3.11/3.12 CI matrix.
 
 Detailed sections and historical delivery notes remain below.
 

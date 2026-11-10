@@ -310,6 +310,20 @@ Provider management is a frontend-only experience - no new backend APIs needed:
 - The row menu always exposes `info` first (enabled for offline rows too); it must stay outside the
   ffmpeg dependency gate.
 
+### 4.17 Artifact Overwrite Protection
+
+- `clio/artifact_guard.py` owns the `_user_edited` / `_user_edited_at` markers and the
+  confirmation gate for regenerated plan and voiceover artifacts.
+- `PUT /api/plan` and `PUT /api/voiceover` mark saved artifacts as user-edited. New AI output
+  clears the markers but preserves `_lineage`.
+- Regeneration with a matching `_lineage` skips normally. A changed lineage, `--force`, or
+  unreadable/non-object JSON on a user-edited artifact raises
+  `ArtifactOverwriteConfirmationRequired`; confirmed overwrites back up the JSON/Markdown first.
+- `POST /api/run/preview` reports `artifact_overwrite.items`; `POST /api/run/start` returns 409
+  `artifact_overwrite_confirmation_required` until `confirm_artifact_overwrite=true` is sent.
+- `clio/ui/static/src/runner.js` owns the second confirmation dialog and must refresh the preview
+  for both `plan` and `voiceover` steps.
+
 ## 5. User Preferences
 
 - Language: Chinese for conversation, English for commits/docs/AGENTS.md
