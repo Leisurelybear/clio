@@ -4,8 +4,10 @@ import re
 import time
 from typing import Any
 
+from clio.ai.base import AIResponse
 from clio.ai.factory import _build_provider, provider_use
 from clio.config import AppConfig, ProviderConfig
+from clio.i18n import t
 from clio.utils import mask_if_looks_like_key
 
 _TEST_PROMPT = "Reply with exactly: ok"
@@ -74,7 +76,11 @@ def test_provider_connection(config: AppConfig, *, provider_name: str, model: st
     try:
         provider = _build_provider(config, provider_name)
         with provider_use(provider):
-            provider.generate_text(_TEST_PROMPT, model)
+            response = provider.generate_text(_TEST_PROMPT, model)
+        if not isinstance(response, AIResponse):
+            raise TypeError("AI provider returned an invalid response type")
+        if response.blocked:
+            raise RuntimeError(t("ai.response_blocked", {"reason": response.block_reason}))
     except Exception as exc:
         return {
             "ok": False,

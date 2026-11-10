@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+from clio.ai.base import AIResponse
 from clio.config import AppConfig, GlobalAIConfig, GlobalConfig, ProviderConfig, TaskConfig
 
 
@@ -73,6 +74,7 @@ def test_zero_models_require_model() -> None:
 
 def test_real_global_only_app_config_can_test_single_model(monkeypatch) -> None:
     fake_provider = MagicMock()
+    fake_provider.generate_text.return_value = AIResponse("ok")
     provider_cfg = ProviderConfig(
         name="deepseek",
         type="openai",
@@ -99,7 +101,7 @@ def test_real_global_only_app_config_can_test_single_model(monkeypatch) -> None:
 
 def test_single_model_can_be_inferred(monkeypatch) -> None:
     fake_provider = MagicMock()
-    fake_provider.generate_text.return_value.text = "ok"
+    fake_provider.generate_text.return_value = AIResponse("ok")
     monkeypatch.setattr("clio.ui.services.ai_test_service._build_provider", lambda cfg, name: fake_provider)
 
     from clio.ui.services.ai_test_service import test_provider_connection
@@ -116,6 +118,7 @@ def test_single_model_can_be_inferred(monkeypatch) -> None:
 
 def test_success_uses_explicit_model(monkeypatch) -> None:
     fake_provider = MagicMock()
+    fake_provider.generate_text.return_value = AIResponse("ok")
     monkeypatch.setattr("clio.ui.services.ai_test_service._build_provider", lambda cfg, name: fake_provider)
 
     from clio.ui.services.ai_test_service import test_provider_connection
@@ -126,6 +129,22 @@ def test_success_uses_explicit_model(monkeypatch) -> None:
     assert result["provider"] == "deepseek"
     assert result["model"] == "b"
     fake_provider.generate_text.assert_called_once_with("Reply with exactly: ok", "b")
+
+
+def test_blocked_provider_response_is_reported_as_failure(monkeypatch) -> None:
+    fake_provider = MagicMock()
+    fake_provider.generate_text.return_value = AIResponse(
+        "", finish_reason="content_filter", block_reason="content_filter"
+    )
+    monkeypatch.setattr("clio.ui.services.ai_test_service._build_provider", lambda cfg, name: fake_provider)
+
+    from clio.ui.services.ai_test_service import test_provider_connection
+
+    result = test_provider_connection(_config(), provider_name="deepseek", model="deepseek-chat")
+
+    assert result["ok"] is False
+    assert "内容" in result["error"]
+    assert "content_filter" in result["error"]
 
 
 def test_provider_exception_is_sanitized(monkeypatch) -> None:

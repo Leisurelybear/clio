@@ -394,6 +394,8 @@ def _call_ai(
         print(t("analyze.response_size", {"size": format_size(len(resp.text.encode("utf-8")))}))
         if token_store and resp.token_usage:
             token_store.record(task_name or label, model, resp.token_usage)
+        if resp.blocked:
+            raise RuntimeError(t("ai.response_blocked", {"reason": resp.block_reason}))
         if not _is_truncated_response(resp):
             return resp.text
         print(t("analyze.truncated_output", {"reason": resp.finish_reason}))

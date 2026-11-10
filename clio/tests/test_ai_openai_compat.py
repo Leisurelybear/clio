@@ -130,6 +130,41 @@ class TestGenerateText:
         assert result.text == "ok"
         self._mock_client.post.assert_called_once()
 
+    def test_returns_normalized_completion_metadata(self):
+        resp = self._mock_response()
+        resp.json.return_value = {
+            "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5},
+        }
+        self._mock_client.post.return_value = resp
+
+        result = self._prov.generate_text("hello", "deepseek-chat")
+
+        assert result.text == "ok"
+        assert result.finish_reason == "stop"
+        assert result.block_reason is None
+        assert result.token_usage is not None
+        assert result.token_usage.total_tokens == 5
+
+    def test_content_filter_returns_blocked_completion(self):
+        resp = self._mock_response()
+        resp.json.return_value = {
+            "choices": [
+                {
+                    "message": {"content": "unexpected text"},
+                    "finish_reason": "content_filter",
+                }
+            ]
+        }
+        self._mock_client.post.return_value = resp
+
+        result = self._prov.generate_text("hello", "deepseek-chat")
+
+        assert result.text == ""
+        assert result.finish_reason == "content_filter"
+        assert result.block_reason == "content_filter"
+        assert result.blocked is True
+
     def test_sends_correct_payload(self):
         resp = self._mock_response()
         self._mock_client.post.return_value = resp

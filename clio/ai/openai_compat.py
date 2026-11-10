@@ -5,11 +5,15 @@ import time
 
 import httpx
 
-from clio.ai.base import AIResponse, TokenUsage
+from clio.ai.base import AIResponse, TokenUsage, normalize_response_reason
 from clio.config import ProviderConfig, ProxyConfig
 from clio.i18n import t
 from clio.ratelimit import make_rate_limiter
 from clio.utils import mask_if_looks_like_key, retry_after_seconds, with_retry
+
+
+def _usage_count(value: object) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
 
 
 class OpenAICompatProvider:
@@ -81,17 +85,22 @@ class OpenAICompatProvider:
             usage = None
             if usage_raw:
                 usage = TokenUsage(
-                    prompt_tokens=usage_raw.get("prompt_tokens", 0),
-                    completion_tokens=usage_raw.get("completion_tokens", 0),
-                    total_tokens=usage_raw.get("total_tokens", 0),
+                    prompt_tokens=_usage_count(usage_raw.get("prompt_tokens")),
+                    completion_tokens=_usage_count(usage_raw.get("completion_tokens")),
+                    total_tokens=_usage_count(usage_raw.get("total_tokens")),
                 )
             choice0 = (data.get("choices") or [{}])[0]
-            finish_reason = choice0.get("finish_reason")
-            content = (choice0.get("message") or {}).get("content") or ""
+            finish_reason = normalize_response_reason(choice0.get("finish_reason"))
+            raw_content = (choice0.get("message") or {}).get("content")
+            content = raw_content if isinstance(raw_content, str) else ""
+            block_reason = None
+            if finish_reason in {"content_filter", "content_filtered"}:
+                block_reason = finish_reason
             return AIResponse(
-                text=content,
+                text="" if block_reason is not None else content,
                 token_usage=usage,
                 finish_reason=finish_reason,
+                block_reason=block_reason,
             )
 
         return with_retry(

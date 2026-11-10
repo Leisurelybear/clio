@@ -10,7 +10,7 @@ import httpx
 from google import genai
 from google.genai import types
 
-from clio.ai.base import AIResponse, TokenUsage
+from clio.ai.base import AIResponse, TokenUsage, normalize_response_reason
 from clio.config import ProviderConfig, ProxyConfig
 from clio.i18n import t
 from clio.ratelimit import make_rate_limiter
@@ -24,14 +24,21 @@ except ImportError:
     _HAS_GENAI_ERRORS = False
 
 
+def _normalize_gemini_reason(reason: object) -> str | None:
+    candidate = getattr(reason, "name", None) or getattr(reason, "value", None)
+    if candidate is None and isinstance(reason, str):
+        candidate = reason
+    if not isinstance(candidate, str):
+        return None
+    return normalize_response_reason(candidate)
+
+
 def _extract_finish_reason(response) -> str | None:
     candidates = getattr(response, "candidates", None)
     if not isinstance(candidates, (list, tuple)) or not candidates:
         return None
     reason = getattr(candidates[0], "finish_reason", None)
-    if reason is None:
-        return None
-    return getattr(reason, "name", None) or getattr(reason, "value", None) or str(reason)
+    return _normalize_gemini_reason(reason)
 
 
 def _extract_block_reason(response) -> str | None:
@@ -39,22 +46,35 @@ def _extract_block_reason(response) -> str | None:
     if feedback is None:
         return None
     reason = getattr(feedback, "block_reason", None)
-    if reason is None:
-        return None
-    normalized = getattr(reason, "name", None) or getattr(reason, "value", None) or str(reason)
-    if not isinstance(normalized, str):
-        return None
-    normalized = normalized.strip()
-    if not normalized or normalized == "BLOCK_REASON_UNSPECIFIED":
+    normalized = _normalize_gemini_reason(reason)
+    if normalized is None or normalized == "BLOCK_REASON_UNSPECIFIED":
         return None
     return normalized
 
 
-def _response_text(response) -> str:
+def _response_from(response) -> AIResponse:
     block_reason = _extract_block_reason(response)
-    if block_reason is not None:
-        raise RuntimeError(t("ai.gemini_blocked", {"reason": block_reason}))
-    return response.text or ""
+    return AIResponse(
+        text="" if block_reason is not None else (response.text or ""),
+        token_usage=_extract_usage(response),
+        finish_reason=_extract_finish_reason(response),
+        block_reason=block_reason,
+    )
+
+
+def _usage_count(value: object) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
+
+
+def _extract_usage(response) -> TokenUsage | None:
+    meta = getattr(response, "usage_metadata", None)
+    if meta is None:
+        return None
+    return TokenUsage(
+        prompt_tokens=_usage_count(getattr(meta, "prompt_token_count", None)),
+        completion_tokens=_usage_count(getattr(meta, "candidates_token_count", None)),
+        total_tokens=_usage_count(getattr(meta, "total_token_count", None)),
+    )
 
 
 class GeminiProvider:
@@ -231,16 +251,6 @@ class GeminiProvider:
             if wait:
                 time.sleep(wait)
 
-    def _extract_usage(self, response) -> TokenUsage | None:
-        if not response.usage_metadata:
-            return None
-        meta = response.usage_metadata
-        return TokenUsage(
-            prompt_tokens=meta.prompt_token_count or 0,
-            completion_tokens=meta.candidates_token_count or 0,
-            total_tokens=meta.total_token_count or 0,
-        )
-
     def generate_text(
         self,
         prompt: str,
@@ -260,11 +270,7 @@ class GeminiProvider:
                     contents=prompt,
                     config=config,
                 )
-            return AIResponse(
-                text=_response_text(response),
-                token_usage=self._extract_usage(response),
-                finish_reason=_extract_finish_reason(response),
-            )
+            return _response_from(response)
 
         return self._call_with_retry(_do, model, model, cancel_event)
 
@@ -339,11 +345,7 @@ class GeminiProvider:
                         contents=[uploaded, prompt],
                         config=config,
                     )
-                return AIResponse(
-                    text=_response_text(response),
-                    token_usage=self._extract_usage(response),
-                    finish_reason=_extract_finish_reason(response),
-                )
+                return _response_from(response)
 
             return self._call_with_retry(_do, t("ai.retry_what_video", {"model": model}), model, cancel_event)
         finally:

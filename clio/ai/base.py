@@ -26,12 +26,51 @@ class TokenUsage:
     completion_tokens: int = 0
     total_tokens: int = 0
 
+    def __post_init__(self) -> None:
+        for field_name in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            value = getattr(self, field_name)
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                raise ValueError(f"TokenUsage.{field_name} must be a non-negative int")
 
-@dataclass
+
+def normalize_response_reason(value: object) -> str | None:
+    """Normalize a provider reason while preserving its meaningful raw value."""
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
+@dataclass(frozen=True)
 class AIResponse:
+    """Normalized completion returned by every AI provider.
+
+    ``finish_reason`` and ``block_reason`` always use the provider's raw,
+    non-empty reason string when it is available.  A provider must return a
+    blocked completion instead of raising so callers can handle every
+    completion outcome through this one carrier.
+    """
+
     text: str
     token_usage: TokenUsage | None = None
     finish_reason: str | None = None
+    block_reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.text, str):
+            raise TypeError("AIResponse.text must be str")
+        if self.token_usage is not None and not isinstance(self.token_usage, TokenUsage):
+            raise TypeError("AIResponse.token_usage must be TokenUsage or None")
+        for field_name in ("finish_reason", "block_reason"):
+            value = getattr(self, field_name)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"AIResponse.{field_name} must be a non-empty str or None")
+        if self.block_reason is not None and self.text:
+            raise ValueError("A blocked AIResponse must not contain text")
+
+    @property
+    def blocked(self) -> bool:
+        return self.block_reason is not None
 
 
 @runtime_checkable

@@ -59,6 +59,31 @@ def test_call_ai_retries_truncated_response_once():
     assert token_store.record.call_count == 2
 
 
+def test_call_ai_rejects_blocked_response_and_records_usage():
+    provider_call = MagicMock(
+        return_value=AIResponse(
+            "",
+            TokenUsage(total_tokens=5),
+            finish_reason="content_filter",
+            block_reason="content_filter",
+        )
+    )
+    token_store = MagicMock()
+
+    with pytest.raises(RuntimeError, match="模型拒绝生成内容"):
+        _call_ai(
+            "video analysis",
+            "openai_compat",
+            "model",
+            "prompt",
+            provider_call,
+            token_store=token_store,
+        )
+
+    assert provider_call.call_count == 1
+    token_store.record.assert_called_once()
+
+
 def test_call_ai_rejects_repeated_truncation():
     provider_call = MagicMock(return_value=AIResponse('{"partial":', finish_reason="length"))
 

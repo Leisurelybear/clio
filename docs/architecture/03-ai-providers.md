@@ -46,6 +46,21 @@ after its last call finishes; idle entries close immediately. Concurrent callers
 instead of a half-closed one (P2-P05). `_clear_provider_cache()` (used at config/`.env` write and
 `before_stop`) force-closes everything so rotated API keys apply immediately.
 
+### Completion response contract
+
+Every `generate_text()` / `analyze_video()` completion must return the frozen `AIResponse` carrier:
+
+- `text`: always a string.
+- `token_usage`: a validated `TokenUsage` value or `None` when the upstream API did not report it.
+- `finish_reason`: a non-empty provider reason or `None`.
+- `block_reason`: a non-empty provider reason or `None`; a blocked response always has empty `text`.
+
+Providers do not raise provider-specific errors for a completed-but-blocked generation. Gemini maps
+its prompt feedback and OpenAI-compatible providers map `content_filter` / `content_filtered` into
+`block_reason`. `_call_ai()` and the provider connection test convert that shared signal into a
+localized failure after token accounting. `clio/tests/test_ai_response_contract.py` exercises the
+shared shape and the normal/blocked paths for every bundled provider.
+
 ## 4. Gemini Provider (`gemini.py`)
 
 Notable behaviors:
@@ -61,13 +76,16 @@ Notable behaviors:
   reachability.
 - **Output budget**: `max_output_tokens` caps responses; when a video is longer than practical
   limits the caller sliced it upstream (`clio/tasks/analyze.py` logical windows).
+- **Completion metadata**: candidate `finish_reason` and prompt-feedback `block_reason` are
+  normalized into the shared response contract.
 
 ## 5. OpenAI-Compatible Provider (`openai_compat.py`)
 
 - One `httpx.Client` per provider; `chat(messages, model)` posts to
-  `{base_url}/chat/completions` with `temperature=0.3`, optional `max_tokens`.
+  `{base_url}/chat/completions` with per-task `temperature` and optional `max_tokens`.
 - `analyze_video` is intentionally `NotImplementedError` — matching `capabilities: [text]`.
-- Token accounting extracted from the `usage` payload.
+- Token accounting is extracted from the `usage` payload; `content_filter` / `content_filtered`
+  completions become shared blocked responses.
 
 ## 6. Task Functions & JSON Validation (`analyze.py`)
 
@@ -89,9 +107,9 @@ context_override (transient, CLI --context / UI textarea)
   → templates/trip_context.md (package default, cached per project+mtime via _read_trip_context:51)
 ```
 
-`_call_ai` (`:284`) records elapsed time + token usage when a `TokenUsageStore` is passed and
-warns when `finish_reason == "length"` (truncated JSON risk). AI JSON is parsed with
-`extract_json()` (first `json.loads`, then regex `{…}`).
+`_call_ai` (`:284`) records elapsed time + token usage when a `TokenUsageStore` is passed,
+rejects shared blocked responses, and warns when `finish_reason == "length"` (truncated JSON risk).
+AI JSON is parsed with `extract_json()` (first `json.loads`, then regex `{…}`).
 
 ## 7. Token Accounting (`token_usage.py`)
 
