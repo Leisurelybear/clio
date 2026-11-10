@@ -8,7 +8,9 @@ docs/superpowers/specs/2026-07-18-remove-physical-split-design.md.
 from __future__ import annotations
 
 import copy
+import json
 import re
+import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
 from difflib import SequenceMatcher
@@ -17,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from clio.i18n import t
-from clio.utils import get_duration_sec
+from clio.utils import get_duration_sec, write_json_atomic
 
 MAX_ANALYZE_WINDOWS = 1000
 
@@ -267,6 +269,80 @@ def merge_window_analyses(
         for w, _ in windows
     ]
     return base
+
+
+WINDOW_CACHE_VERSION = 1
+
+
+def window_cache_dir(output_dir: Path, stem: str) -> Path:
+    return output_dir / ".analyze_windows_cache" / stem
+
+
+def _window_cache_path(cache_dir: Path, window: AnalyzeWindow) -> Path:
+    return cache_dir / f"w{window.index:03d}_{int(window.start_sec)}-{int(window.end_sec)}.json"
+
+
+def save_window_cache(
+    cache_dir: Path,
+    *,
+    window: AnalyzeWindow,
+    lineage: str,
+    source_size: int,
+    source_mtime_ns: int,
+    analysis: dict,
+) -> Path:
+    """Persist one completed window so a failed run can resume without re-paying."""
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    path = _window_cache_path(cache_dir, window)
+    write_json_atomic(
+        path,
+        {
+            "version": WINDOW_CACHE_VERSION,
+            "lineage": lineage,
+            "window": {"index": window.index, "start_sec": window.start_sec, "end_sec": window.end_sec},
+            "source_size": source_size,
+            "source_mtime_ns": source_mtime_ns,
+            "analysis": analysis,
+        },
+    )
+    return path
+
+
+def load_window_cache(
+    cache_dir: Path,
+    *,
+    window: AnalyzeWindow,
+    lineage: str,
+    source_size: int,
+    source_mtime_ns: int,
+) -> dict | None:
+    path = _window_cache_path(cache_dir, window)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict) or data.get("version") != WINDOW_CACHE_VERSION:
+        return None
+    if data.get("lineage") != lineage:
+        return None
+    if data.get("source_size") != source_size or data.get("source_mtime_ns") != source_mtime_ns:
+        return None
+    cached_window = data.get("window")
+    if not isinstance(cached_window, dict):
+        return None
+    if (
+        cached_window.get("index") != window.index
+        or cached_window.get("start_sec") != window.start_sec
+        or cached_window.get("end_sec") != window.end_sec
+    ):
+        return None
+    analysis = data.get("analysis")
+    return analysis if isinstance(analysis, dict) else None
+
+
+def cleanup_window_cache_dir(cache_dir: Path) -> None:
+    """Drop cached windows after the whole clip is committed to texts/."""
+    shutil.rmtree(cache_dir, ignore_errors=True)
 
 
 def slice_window_video(

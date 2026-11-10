@@ -496,6 +496,7 @@
   "task.analyze.skip_no_duration": "  [skip] cannot read the duration of {name}; skipping analysis",
   "task.analyze.skip_too_long": "  [skip] {name} duration {duration} exceeds the {max} minute limit",
   "task.analyze.task_failed": "  [error] task execution failed: {detail}",
+  "task.analyze.window_cache_hit": "  [cache] {name} window {index} reused a completed AI result",
   "task.analyze.vindex_missing_compressed": "[error] .vindex exists but the compressed file is missing: {name}; re-run compression",
   "task.cancelled": "Task cancelled",
   "task.cancelling": "Cancelling",

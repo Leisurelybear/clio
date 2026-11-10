@@ -8,12 +8,13 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
 ## Active backlog (2026-11-10)
 
 - 2026-11 P0/P1/P2 review remediation from `docs/analysis/2026-11-05-P0-P2-Issues.md`:
-  - Snapshot: 83 items; 52 completed (pushed; three-platform CI green), 4 partial, 2 awaiting
-    real-environment verification, and 25 pending.
-  - Verification: targeted C2 pytest (270 passed), full pytest (2832 passed, 12 skipped;
-    4 Windows symlink-permission tests failed), full Vitest (857 passed), Ruff on changed
-    Python files, and `git diff --check`. CI run 42820037572 (head `262abde`) passed all
-    Python 3.11/3.12 platform jobs plus quality, package, and Vitest jobs.
+  - Snapshot: 83 items; 53 completed in local commits (52 already pushed with three-platform
+    CI green; C15 is the current locally verified batch), 3 partial, 2 awaiting real-environment
+    verification, and 25 pending.
+  - Verification: targeted C2 pytest (270 passed), C15 pytest (58 passed), full pytest
+    (2837 passed, 12 skipped; 4 Windows symlink-permission tests failed), full Vitest
+    (857 passed), Ruff on changed Python files, and `git diff --check`. CI run 42820037572
+    (head `262abde`) passed all Python 3.11/3.12 platform jobs plus quality, package, and Vitest jobs.
   - [x] P0 completed (14): B1 `a01b156`; B2 `a436315`; C1 `14b873b`; C2 `91e4699`;
     D1 `e2f626b`; D2 `1698309`; D3 `3a45b18`; Q1 `719f715`; Q2 `c06515c`;
     Q8 `89d5d7e`; Q3 `3ad0e5f`; Q9 `325a599`; Q10 `b452c60`; O19 `262abde`.
@@ -28,8 +29,8 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
     D18 `e073076`; D19 `2c14970` / `787deb1`; B7 `443e900`; B9 `87792ba`;
     C12 `2821c43`; D14 `f18d4cd`; D16 `70c4a66`; O3 `47f3fe1` / `4ca2c77`;
     O5 `77698a0`; O6 `52aa7ff` / `ebdd738`; O12 `b6f76da`.
-  - [~] P2 partial (4): C15 `7681cff` / `3171639` (window cache remains);
-    C16 `c75c067` / `8aca38e` (all dialogs and undo stack remain);
+  - [x] P2 completed increment: C15 `7681cff` / `3171639` (window cache).
+  - [~] P2 partial (3): C16 `c75c067` / `8aca38e` (all dialogs and undo stack remain);
     O7 `a436315` / `9be0401` (provider contract and contract tests remain);
     F8 `7b8bfa0` (SRT and transitions remain).
   - [ ] P2 awaiting real-environment verification (2): C10; D12.
@@ -37,8 +38,8 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
     Q13; F4; F5; F9.
   - [ ] Next: close the remaining partial items, then continue the backlog one focused
     fix per commit.
-  - Keep unrelated working-tree changes isolated. The branch is pushed and in sync with
-    `origin/main` at `262abde`.
+  - Keep unrelated working-tree changes isolated. The last validated remote head is
+    `dbae812`; push each completed batch before moving to the next item.
 - R-048 Higher-detail video analysis and bounded plan input (plan ready; P0a-P0c not started)
 - R-047-FU Optional Baidu ASR provider (deferred; Aliyun cloud transcription is complete)
 - R-043 Frontend module decomposition and remaining legacy mypy debt

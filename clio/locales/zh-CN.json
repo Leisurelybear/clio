@@ -496,6 +496,7 @@
   "task.analyze.skip_no_duration": "  [跳过] {name} 无法读取时长，跳过分析",
   "task.analyze.skip_too_long": "  [跳过] {name} 时长 {duration} 超过限制 {max} 分钟",
   "task.analyze.task_failed": "  [错误] 任务执行失败: {detail}",
+  "task.analyze.window_cache_hit": "  [缓存] {name} 第 {index} 段窗口命中已完成的 AI 结果",
   "task.analyze.vindex_missing_compressed": "[错误] .vindex 存在但压缩文件缺失: {name}，请重新压缩",
   "task.cancelled": "任务已取消",
   "task.cancelling": "正在取消",

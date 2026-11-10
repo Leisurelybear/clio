@@ -19,9 +19,13 @@ from clio.analyze import _prompt_context_parts, analyze_video, summarize_window_
 from clio.analyze_windows import (
     build_analyze_windows,
     cleanup_analyze_windows_dir,
+    cleanup_window_cache_dir,
+    load_window_cache,
     merge_window_analyses,
+    save_window_cache,
     shift_analysis_times,
     slice_window_video,
+    window_cache_dir,
 )
 from clio.config import AppConfig
 from clio.i18n import t
@@ -302,6 +306,7 @@ def _analyze_with_optional_windows(
     effective_context: str | None,
     task_prompts: dict[str, str] | None,
     transcript_context: str = "",
+    lineage: str = "",
 ) -> dict:
     """Run Gemini analyze: legacy split files stay single-call; else use windows."""
 
@@ -338,11 +343,26 @@ def _analyze_with_optional_windows(
     # Per-clip temp dir so concurrent max_workers cannot wipe sibling slices.
     dest = config.paths.output_dir / ".analyze_windows" / compressed.stem
     dest.mkdir(parents=True, exist_ok=True)
+    cache_dir = window_cache_dir(config.paths.output_dir, compressed.stem)
+    try:
+        source_stat = compressed.stat()
+        cache_key = {
+            "lineage": lineage,
+            "source_size": source_stat.st_size,
+            "source_mtime_ns": source_stat.st_mtime_ns,
+        }
+    except OSError:
+        cache_key = None
     partials: list = []
     try:
         for w in windows:
             if cancel_event is not None and cancel_event.is_set():
                 raise InterruptedError(t("task.analyze.cancelled"))
+            part = load_window_cache(cache_dir, window=w, **cache_key) if cache_key is not None and lineage else None
+            if part is not None:
+                print(t("task.analyze.window_cache_hit", {"name": compressed.name, "index": w.index}))
+                partials.append((w, part))
+                continue
             slice_path = slice_window_video(
                 source=compressed,
                 window=w,
@@ -354,6 +374,8 @@ def _analyze_with_optional_windows(
             try:
                 part = _one_call(str(slice_path))
                 part = shift_analysis_times(part, w.start_sec)
+                if cache_key is not None and lineage:
+                    save_window_cache(cache_dir, window=w, analysis=part, **cache_key)
                 partials.append((w, part))
             finally:
                 slice_path.unlink(missing_ok=True)
@@ -409,6 +431,13 @@ def _process_video_item(
     effective_context = _effective_analysis_context(config, original, context_override)
     transcript_context = _load_transcript_context(config, compressed)
     multi_window = _uses_multiple_windows(compressed, duration_sec, config)
+    current_lineage = _analysis_lineage_fingerprint(
+        config,
+        task_prompts,
+        effective_context,
+        transcript_context,
+        multi_window=multi_window,
+    )
 
     existing = sorted(config.texts_dir.glob(f"{idx_str}_*.json"))
     json_path = None
@@ -417,13 +446,6 @@ def _process_video_item(
     # has been committed, so a failed re-run never loses the previous result.
     stale_candidates: list[Path] = list(existing) if overwrite or not config.analyze.skip_existing else []
     if not overwrite and config.analyze.skip_existing and existing:
-        current_lineage = _analysis_lineage_fingerprint(
-            config,
-            task_prompts,
-            effective_context,
-            transcript_context,
-            multi_window=multi_window,
-        )
         for candidate in existing:
             try:
                 existing_data = json.loads(candidate.read_text(encoding="utf-8"))
@@ -523,6 +545,7 @@ def _process_video_item(
             effective_context=effective_context,
             task_prompts=task_prompts,
             transcript_context=transcript_context,
+            lineage=current_lineage,
         )
     except InterruptedError:
         if cancel_event is not None:
@@ -555,13 +578,7 @@ def _process_video_item(
         analysis["day_label"] = day_label
     identity = resolve_identity(compressed, idx_str, project_dir=config.project_dir)
     add_schema_version(analysis)
-    analysis["_lineage"] = _analysis_lineage_fingerprint(
-        config,
-        task_prompts,
-        effective_context,
-        transcript_context,
-        multi_window=multi_window,
-    )
+    analysis["_lineage"] = current_lineage
     analysis["media_identity"] = _identity_to_dict(identity)
     attach_transcript_to_analysis(config, analysis)
 
@@ -576,6 +593,7 @@ def _process_video_item(
         analysis["cover_file"] = str(cover_path.relative_to(config.paths.output_dir))
     _write_text_file(final_text, analysis, original, compressed)
     write_json_atomic(json_path, analysis)
+    cleanup_window_cache_dir(window_cache_dir(config.paths.output_dir, compressed.stem))
 
     # Old results were only kept until here; drop them now that fresh output
     # is committed, so the next glob still resolves this video's own JSON.
