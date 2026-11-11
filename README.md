@@ -96,7 +96,7 @@ graph LR
 
 | 步骤 | AI 引擎 | 命令 | 输入 → 输出 |
 |------|---------|------|------------|
-| 1️⃣ 压缩 | | `compress` | 4K 原片 → 640p / ~5MB / 单声道低码率音频（1 原片 1 压缩文件） |
+| 1️⃣ 压缩 | | `compress` | 4K 原片 → 640p / 时长自适应码率 / ~5MB 目标体积 / 单声道低码率音频（1 原片 1 压缩文件） |
 | 2️⃣ 🧠 **AI 转录** | **Whisper** / 云端 ASR | `transcribe` | 压缩视频 → 语音字幕（本地或云端） |
 | 3️⃣ 🤖 **AI 分析** | **Gemini** 2.5 Flash | `analyze` | 压缩视频 + 转录 → AI 摘要 + 时间轴 JSON |
 | 4️⃣ ✍️ **AI 口播** | **DeepSeek** / OpenAI | `scripts` | 分析 JSON → AI 生成旁白文案 |
@@ -282,7 +282,7 @@ python -m pytest clio/tests/ -v
 # 前端单测需要 Node.js 22.12+（Web UI 运行本身仍然无需 Node）
 npm test
 
-# 2409 pytest（12 skipped）+ 720 Vitest（本机 Python 3.11 验证）
+# 测试数量以 GitHub Actions CI 的 Python 3.11 / 3.12 平台矩阵为准
 # GitHub Actions CI（Ubuntu + Windows + macOS · Python 3.11 / 3.12；Node 22.12+）
 # 代码风格: ruff (format + lint)
 ```
@@ -304,8 +304,7 @@ npm test
 | 🧪 vmeta | 13 | 侧边栏元数据 / 索引 / 过期检测 |
 | 其他 | ~96 | pipeline / plan / log / ratelimit / 主入口等 |
 
-> 全量套件基线（2026-10-22，本机 Python 3.11.9）：2182 pytest passed / 12 skipped，
-> 562 Vitest passed（54 files）。项目声明 Python 3.11+，最终以 CI 的 Python 3.11 / 3.12 矩阵为准。
+> 本地可运行全量 pytest 与 Vitest；最终测试数量以 CI 的 Python 3.11 / 3.12 平台矩阵和 Node 22.12+ 结果为准。
 
 ---
 
