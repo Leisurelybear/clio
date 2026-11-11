@@ -296,6 +296,32 @@ class TestBuildTracks:
         assert len(tracks[0]["segments"]) == 2
         assert len(tracks[1]["segments"]) == 1
 
+    def test_clamps_timeline_to_material_duration(self) -> None:
+        plan_data = {
+            "sequence": [
+                {"index": "001", "use_timeline": "00:15-00:25"},
+            ]
+        }
+
+        with patch("clio.export.jianying.parse_time_range", return_value=(15.0, 25.0)):
+            tracks = _build_tracks(plan_data, {"001": "mat-001"}, {}, index_to_duration_us={"001": 20_000_000})
+
+        segment = tracks[0]["segments"][0]
+        assert segment["source_timerange"] == {"start": 15_000_000, "duration": 5_000_000}
+        assert segment["target_timerange"] == {"start": 0, "duration": 5_000_000}
+
+    def test_skips_timeline_starting_beyond_material(self) -> None:
+        plan_data = {
+            "sequence": [
+                {"index": "001", "use_timeline": "00:12-00:20"},
+            ]
+        }
+
+        with patch("clio.export.jianying.parse_time_range", return_value=(12.0, 20.0)):
+            tracks = _build_tracks(plan_data, {"001": "mat-001"}, {}, index_to_duration_us={"001": 10_000_000})
+
+        assert tracks == []
+
     def test_skips_unknown_index(self) -> None:
         plan_data = {
             "sequence": [
@@ -366,6 +392,8 @@ class TestExportPlanToJianying:
         with (
             patch("clio.utils.find_videos", return_value=[video_path]),
             patch("clio.export.jianying.get_duration_sec", return_value=60.0),
+            patch("clio.export.jianying.probe_media_details", return_value={"fps": 29.97}),
+            patch("clio.export.jianying.platform.system", return_value="Darwin"),
         ):
             result = export_plan_to_jianying(plan_path, output_dir, input_dir, "day1", "ffprobe", texts_dir)
 
@@ -376,6 +404,7 @@ class TestExportPlanToJianying:
         draft = json.loads(draft_path.read_text(encoding="utf-8"))
         assert draft["name"] == "Day 1"
         assert draft["fps"] == 30
+        assert draft["platform"]["os"] == "mac"
         assert len(draft["materials"]["videos"]) == 1
         assert len(draft["materials"]["texts"]) == 2
         assert len(draft["tracks"]) >= 1
@@ -383,6 +412,13 @@ class TestExportPlanToJianying:
         assert (output_dir / "subtitles.srt").read_text(encoding="utf-8") == (
             "1\n00:00:00,000 --> 00:00:10,000\nHello\n\n2\n00:00:10,000 --> 00:00:15,000\nWorld\n"
         )
+
+        meta = json.loads((output_dir / "draft_meta_info.json").read_text(encoding="utf-8"))
+        assert meta["draft_id"] == draft["id"]
+        assert meta["draft_name"] == "Day 1"
+        assert meta["draft_root_path"] == str(output_dir)
+        assert meta["tm_duration"] == draft["duration"]
+        assert meta["draft_materials"] == []
 
     def test_raises_when_no_video_material_resolves(self, tmp_path: Path) -> None:
         """A plan with segments but zero resolvable videos must NOT export an

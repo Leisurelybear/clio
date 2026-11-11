@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import logging
+import platform
+import time
 import uuid
 from pathlib import Path
 
@@ -16,7 +18,7 @@ from clio.cut import parse_time_range
 from clio.i18n import t
 from clio.identity import legacy_segment_offset_sec, load_identity
 from clio.plan_readiness import expand_index_keys
-from clio.utils import get_duration_sec, write_text_atomic
+from clio.utils import get_duration_sec, probe_media_details, write_text_atomic
 
 logger = logging.getLogger("clio.export.jianying")
 
@@ -279,13 +281,19 @@ def _build_tracks(
     index_to_material_id: dict[str, str],
     seq_text_ids: dict[int, str] | None = None,
     index_to_offset: dict[str, float] | None = None,
+    index_to_duration_us: dict[str, int] | None = None,
 ) -> list[dict]:
-    """Build video and text tracks from plan sequence."""
+    """Build video and text tracks from plan sequence.
+
+    index_to_duration_us clamps each timeline to the material's real length so
+    a plan that overshoots the source never references missing footage.
+    """
     video_segments: list[dict] = []
     text_segments: list[dict] = []
     accumulated_us = 0
     skipped_count = 0
     index_to_offset = index_to_offset or {}
+    index_to_duration_us = index_to_duration_us or {}
 
     for i, seg in enumerate(plan_data.get("sequence", [])):
         idx = seg.get("index", "")
@@ -308,6 +316,16 @@ def _build_tracks(
             continue
 
         offset = index_to_offset.get(idx, 0.0)
+        source_start_us = _to_microseconds(start_sec + offset)
+        material_duration_us = index_to_duration_us.get(idx)
+        if material_duration_us is not None:
+            remaining_us = material_duration_us - source_start_us
+            if remaining_us <= 0:
+                skipped_count += 1
+                print(t("export.skip_zero_duration", {"index": idx, "timeline": timeline_str}))
+                continue
+            duration_us = min(duration_us, remaining_us)
+
         material_id = index_to_material_id[idx]
         seg_uuid = str(uuid.uuid4())
 
@@ -320,7 +338,7 @@ def _build_tracks(
                     "duration": duration_us,
                 },
                 "source_timerange": {
-                    "start": _to_microseconds(start_sec + offset),
+                    "start": source_start_us,
                     "duration": duration_us,
                 },
             }
@@ -364,6 +382,47 @@ def _build_tracks(
         print(t("export.skipped_summary", {"count": skipped_count}))
 
     return tracks
+
+
+def _draft_fps(materials: dict, ffprobe: str | None) -> int:
+    """Use the first source clip's frame rate; fall back to 30 fps."""
+    if not ffprobe or not materials.get("videos"):
+        return 30
+    try:
+        details = probe_media_details(Path(materials["videos"][0]["path"]), ffprobe)
+    except Exception:
+        return 30
+    fps = details.get("fps")
+    if not isinstance(fps, (int, float)) or fps <= 0:
+        return 30
+    return int(round(fps))
+
+
+def _draft_os() -> str:
+    return {
+        "Windows": "windows",
+        "Darwin": "mac",
+        "Linux": "linux",
+    }.get(platform.system(), platform.system().lower() or "windows")
+
+
+def _build_draft_meta(draft: dict, output_dir: Path) -> dict:
+    """Minimal draft_meta_info.json for JianYing 5.9 draft discovery."""
+    now_us = int(time.time() * 1_000_000)
+    return {
+        "draft_id": draft["id"],
+        "draft_name": draft["name"],
+        "draft_root_path": str(output_dir),
+        "draft_fold_path": str(output_dir),
+        "draft_cover": "",
+        "draft_timeline_materials_size": 0,
+        "tm_duration": draft["duration"],
+        "tm_draft_create": now_us,
+        "tm_draft_modified": now_us,
+        "draft_materials": [],
+        "draft_virtual_store": [],
+        "draft_settings": {},
+    }
 
 
 def export_plan_to_jianying(
@@ -419,7 +478,19 @@ def export_plan_to_jianying(
     materials, index_to_material_id, seq_text_ids = _build_materials(
         plan_data, videos, ffprobe, index_to_source, index_width=index_width
     )
-    tracks = _build_tracks(plan_data, index_to_material_id, seq_text_ids, index_to_offset)
+    duration_by_material_id = {mat["id"]: mat["duration"] for mat in materials["videos"]}
+    index_to_duration_us = {
+        idx: duration_by_material_id[mat_id]
+        for idx, mat_id in index_to_material_id.items()
+        if mat_id in duration_by_material_id
+    }
+    tracks = _build_tracks(
+        plan_data,
+        index_to_material_id,
+        seq_text_ids,
+        index_to_offset,
+        index_to_duration_us,
+    )
 
     if sequence and not materials["videos"]:
         raise RuntimeError(t("export.no_usable_materials", {"count": len(sequence)}))
@@ -435,12 +506,12 @@ def export_plan_to_jianying(
         "id": str(uuid.uuid4()),
         "name": plan_data.get("day_title", day_label),
         "duration": total_duration_us,
-        "fps": 30,
+        "fps": _draft_fps(materials, ffprobe),
         "canvas_config": CANVAS_PRESETS.get(canvas_ratio, CANVAS_PRESETS["16:9"]),
         "platform": {
             "app_source": "lv",
             "app_version": "5.9.0",
-            "os": "windows",
+            "os": _draft_os(),
         },
         "materials": materials,
         "tracks": tracks,
@@ -449,6 +520,10 @@ def export_plan_to_jianying(
     output_dir.mkdir(parents=True, exist_ok=True)
     draft_path = output_dir / "draft_content.json"
     write_text_atomic(draft_path, json.dumps(draft, indent=2, ensure_ascii=False))
+    write_text_atomic(
+        output_dir / "draft_meta_info.json",
+        json.dumps(_build_draft_meta(draft, output_dir), indent=2, ensure_ascii=False),
+    )
 
     srt_path = output_dir / "subtitles.srt"
     srt_content = _build_srt(materials, tracks)
