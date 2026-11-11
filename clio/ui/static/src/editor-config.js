@@ -24,6 +24,16 @@ import { ensureGlobalUiDefaults } from './language-switcher.js';
 // Dynamic import avoids static cycle: editor.js → editor-config.js → editor.js (A-006)
 
 const DEFAULT_PROVIDERS = ['gemini', 'openai', 'deepseek'];
+
+export function providerTypeLabel(type, long = false) {
+  if (type === 'ollama') {
+    return t(long ? 'settings.provider.type.ollama_long' : 'settings.provider.type.ollama');
+  }
+  if (type === 'gemini') {
+    return t(long ? 'settings.provider.type.gemini_long' : 'settings.provider.type.gemini');
+  }
+  return t(long ? 'settings.provider.type.openai_compat_long' : 'settings.provider.type.openai_compat');
+}
 const FNV_OFFSET_BASIS = 0x811c9dc5;
 const FNV_PRIME = 0x01000193;
 const NON_ASCII_RE = /[^\x00-\x7F]/;
@@ -718,7 +728,7 @@ export function _renderTaskBinding(tasks, providersObj, descs, opts = {}) {
       html += `<option value="">${t('settings.provider.select_placeholder')}</option>`;
       for (const pk of eligibleProviders) {
         const p = providersObj[pk];
-        const typeLabel = p?.type === 'gemini' ? t('settings.provider.type.gemini') : t('settings.provider.type.openai_compat');
+        const typeLabel = providerTypeLabel(p?.type);
         const selected = pk === currentProvider ? ' selected' : '';
         html += `<option value="${escapeHtml(pk)}"${selected}>${escapeHtml(pk)} (${typeLabel})</option>`;
       }
@@ -777,7 +787,7 @@ export function _renderProviderList(providers, descs) {
 
   for (const name of keys) {
     const p = providersObj[name];
-    const typeLabel = p.type === 'gemini' ? t('settings.provider.type.gemini') : t('settings.provider.type.openai_compat');
+    const typeLabel = providerTypeLabel(p.type);
     const hasModels = p.models && p.models.length > 0;
     const modelTags = hasModels
       ? p.models.map(m => `<span class="tag-chip">${escapeHtml(m)}</span>`).join(' ')
@@ -828,8 +838,8 @@ function _showProviderModal(providersObj, name, onSave) {
   backdrop.className = 'modal';
   backdrop.style.display = 'flex';
 
-  const typeOptions = ['gemini', 'openai'].map(type =>
-    `<option value="${type}"${existing?.type === type ? ' selected' : ''}>${type === 'gemini' ? t('settings.provider.type.gemini_long') : t('settings.provider.type.openai_compat_long')}</option>`
+  const typeOptions = ['gemini', 'openai', 'ollama'].map(type =>
+    `<option value="${type}"${existing?.type === type ? ' selected' : ''}>${providerTypeLabel(type, true)}</option>`
   ).join('');
 
   backdrop.innerHTML = `

@@ -8,7 +8,7 @@ from clio.i18n import t
 
 logger = logging.getLogger("clio.config")
 
-_SUPPORTED_PROVIDER_TYPES = {"gemini", "openai", "openai_compat"}
+_SUPPORTED_PROVIDER_TYPES = {"gemini", "openai", "openai_compat", "ollama"}
 _TRUE_STRINGS = frozenset({"true", "1", "yes", "on"})
 _FALSE_STRINGS = frozenset({"false", "0", "no", "off", ""})
 

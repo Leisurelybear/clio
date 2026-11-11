@@ -127,6 +127,8 @@ def _provider_key_detail(provider) -> str:
 
 def provider_key_missing(provider, environ: Mapping[str, str] | None = None) -> str | None:
     """Return a localized detail string when the provider's API key is missing, else None."""
+    if getattr(provider, "type", "") == "ollama":
+        return None
     environ = environ if environ is not None else os.environ
     if _provider_has_key(provider, environ):
         return None

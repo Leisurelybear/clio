@@ -43,6 +43,29 @@ class TestInit:
 
             OpenAICompatProvider(cfg, ProxyConfig(enabled=False, url=""))
 
+    def test_ollama_allows_missing_api_key(self, proxy_disabled):
+        cfg = _make_cfg(name="ollama", type="ollama", api_key="", base_url="")
+        with patch("clio.ai.openai_compat.httpx.Client"):
+            from clio.ai.openai_compat import OpenAICompatProvider
+
+            p = OpenAICompatProvider(cfg, proxy_disabled)
+            assert p._base_url == "http://localhost:11434/v1"
+
+    def test_ollama_omits_authorization_header(self):
+        client = MagicMock()
+        resp = MagicMock(spec=httpx.Response)
+        resp.status_code = 200
+        resp.json.return_value = {"choices": [{"message": {"content": "ok"}}]}
+        client.post.return_value = resp
+        cfg = _make_cfg(name="ollama", type="ollama", api_key="", base_url="http://localhost:11434/v1")
+        with patch("clio.ai.openai_compat.httpx.Client", return_value=client):
+            from clio.ai.openai_compat import OpenAICompatProvider
+
+            p = OpenAICompatProvider(cfg, ProxyConfig(enabled=False, url=""))
+            p.generate_text("hello", "llama3.2")
+        headers = client.post.call_args.kwargs["headers"]
+        assert "Authorization" not in headers
+
     def test_default_base_url(self, proxy_disabled):
         cfg = _make_cfg(base_url="")
         with patch("clio.ai.openai_compat.httpx.Client"):

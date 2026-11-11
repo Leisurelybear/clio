@@ -246,6 +246,12 @@ def test_provider_key_detail_without_env_name() -> None:
     assert provider_key_missing(provider, {}) == t("doctor.provider.missing_env_name")
 
 
+def test_ollama_provider_does_not_require_api_key() -> None:
+    provider = ProviderConfig(name="ollama", type="ollama", api_key="")
+
+    assert provider_key_missing(provider, {}) is None
+
+
 def test_collect_checks_marks_disabled_asr_ok(tmp_path: Path) -> None:
     config = _config(tmp_path, whisper=ProjectWhisperConfig(enabled=False))
 

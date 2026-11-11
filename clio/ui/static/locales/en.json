@@ -811,6 +811,8 @@
   "settings.provider.type.gemini_long": "Gemini (supports video analysis)",
   "settings.provider.type.openai_compat": "OpenAI-compatible",
   "settings.provider.type.openai_compat_long": "OpenAI-compatible (text only, e.g. DeepSeek)",
+  "settings.provider.type.ollama": "Ollama (local)",
+  "settings.provider.type.ollama_long": "Ollama local model (no API key required)",
   "settings.section.ai": "AI configuration",
   "settings.section.analyze": "AI analysis",
   "settings.section.compress": "Compression",

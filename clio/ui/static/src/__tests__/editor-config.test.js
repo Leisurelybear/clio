@@ -270,6 +270,7 @@ describe('_renderTagInput', () => {
 const GEMINI_PROVIDER = { type: 'gemini', api_key_env: 'GEMINI_KEY', base_url: '', models: ['gemini-2.5-flash', 'gemini-2.0-flash'] };
 const OPENAI_PROVIDER = { type: 'openai', api_key_env: 'DS_KEY', base_url: 'https://api.deepseek.com/v1', models: ['deepseek-chat'] };
 const PROVIDER_NO_MODELS = { type: 'openai', api_key_env: 'KEY', base_url: '', models: [] };
+const OLLAMA_PROVIDER = { type: 'ollama', base_url: 'http://localhost:11434/v1', models: ['llama3.2'] };
 
 describe('_renderProviderList', () => {
   it('renders fieldset with legend', () => {
@@ -292,6 +293,11 @@ describe('_renderProviderList', () => {
     expect(html).toContain('gemini');
     expect(html).toContain('Gemini');
     expect(html).not.toContain('config-empty-state');
+  });
+
+  it('labels ollama providers as local', () => {
+    const html = _renderProviderList({ ollama: OLLAMA_PROVIDER });
+    expect(html).toContain('Ollama');
   });
 
   it('renders provider test button and status area', () => {

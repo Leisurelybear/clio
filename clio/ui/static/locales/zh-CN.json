@@ -811,6 +811,8 @@
   "settings.provider.type.gemini_long": "Gemini（支持视频分析）",
   "settings.provider.type.openai_compat": "OpenAI 兼容",
   "settings.provider.type.openai_compat_long": "OpenAI 兼容（纯文本，如 DeepSeek）",
+  "settings.provider.type.ollama": "Ollama（本地）",
+  "settings.provider.type.ollama_long": "Ollama 本地模型（无需 API Key）",
   "settings.section.ai": "AI 配置",
   "settings.section.analyze": "AI 分析",
   "settings.section.compress": "压缩",

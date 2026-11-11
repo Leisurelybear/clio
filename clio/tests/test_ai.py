@@ -46,6 +46,11 @@ class TestBuildProvider:
         with pytest.raises(ValueError, match="未定义的 AI 厂家"):
             _build_provider(loaded_config, "nonexistent")
 
+    def test_ollama_maps_to_openai_compat(self):
+        import clio.ai.factory as factory
+
+        assert factory._PROVIDER_TYPES["ollama"] is OpenAICompatProvider
+
     def test_unsupported_provider_type(self, loaded_config, monkeypatch):
         monkeypatch.setattr(loaded_config.ai.providers["gemini"], "type", "nonexistent")
         with pytest.raises(ValueError, match="不支持的厂家类型"):

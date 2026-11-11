@@ -17,6 +17,7 @@ _PROVIDER_TYPES: dict[str, type[Any]] = {
     "gemini": GeminiProvider,
     "openai": OpenAICompatProvider,
     "openai_compat": OpenAICompatProvider,
+    "ollama": OpenAICompatProvider,
 }
 
 

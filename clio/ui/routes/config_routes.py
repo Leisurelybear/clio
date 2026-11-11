@@ -42,7 +42,7 @@ from clio.ui.services.project_service import _project_output_dir, _registry_path
 if TYPE_CHECKING:
     from clio.ui.handler_protocol import HandlerProtocol
 
-_PROVIDER_TYPES = {"gemini", "openai", "openai_compat"}
+_PROVIDER_TYPES = {"gemini", "openai", "openai_compat", "ollama"}
 _DEFAULT_PROVIDERS = frozenset({"gemini", "openai", "deepseek"})
 
 

@@ -15,17 +15,23 @@ def _usage_count(value: object) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
 
 
+_DEFAULT_BASE_URL = "https://api.openai.com/v1"
+_OLLAMA_BASE_URL = "http://localhost:11434/v1"
+
+
 class OpenAICompatProvider:
-    """OpenAI 及兼容 API（DeepSeek、通义、Moonshot 等）。"""
+    """OpenAI 及兼容 API（DeepSeek、通义、Moonshot、Ollama 等）。"""
 
     provider_id = "openai_compat"
 
     def __init__(self, cfg: ProviderConfig, proxy: ProxyConfig):
-        if not cfg.api_key:
+        # Local Ollama endpoints do not require an API key.
+        if not cfg.api_key and cfg.type != "ollama":
             env_name = mask_if_looks_like_key(cfg.api_key_env) or t("ai.env_not_set")
             raise ValueError(t("ai.openai_missing_key", {"provider": cfg.name, "env": env_name}))
         self._api_key = cfg.api_key
-        self._base_url = (cfg.base_url or "https://api.openai.com/v1").rstrip("/")
+        default_base = _OLLAMA_BASE_URL if cfg.type == "ollama" else _DEFAULT_BASE_URL
+        self._base_url = (cfg.base_url or default_base).rstrip("/")
         client_kwargs: dict = {"timeout": float(cfg.timeout_sec)}
         if proxy.enabled and proxy.url:
             client_kwargs["proxy"] = proxy.url
@@ -61,12 +67,12 @@ class OpenAICompatProvider:
             # 0 / negative → omit max_tokens (provider default / unlimited)
             if self._max_tokens and self._max_tokens > 0:
                 payload["max_tokens"] = int(self._max_tokens)
+            headers = {"Content-Type": "application/json"}
+            if self._api_key:
+                headers["Authorization"] = f"Bearer {self._api_key}"
             response = self._client.post(
                 f"{self._base_url}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {self._api_key}",
-                    "Content-Type": "application/json",
-                },
+                headers=headers,
                 json=payload,
             )
             sc = response.status_code

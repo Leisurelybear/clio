@@ -415,6 +415,16 @@ class TestValidateConfig:
         cfg = AppConfig(global_cfg=GlobalConfig(ai=GlobalAIConfig(providers={"deepseek": provider})))
         _validate_config(cfg)
 
+    def test_ollama_provider_without_api_key_is_valid(self):
+        provider = ProviderConfig(
+            name="ollama",
+            type="ollama",
+            api_key="",
+            base_url="http://localhost:11434/v1",
+        )
+        cfg = AppConfig(global_cfg=GlobalConfig(ai=GlobalAIConfig(providers={"ollama": provider})))
+        _validate_config(cfg)
+
     def test_rejects_unknown_canvas_ratio(self):
         cfg = AppConfig(
             global_cfg=GlobalConfig(),

@@ -63,6 +63,7 @@ server:
 #     - DeepSeek：https://api.deepseek.com/v1
 #     - 通义千问：https://dashscope.aliyuncs.com/compatible-mode/v1
 #     - Kimi：https://api.moonshot.cn/v1
+#   - Ollama（type: ollama）：默认 http://localhost:11434/v1，无需 API Key
 ai:
   # 全局默认 AI 任务绑定。没有在项目 project.yaml 中单独覆盖的任务会沿用这里。
   # 新项目创建后无需再次选择 Provider/模型。项目内仍可逐项覆盖。
@@ -130,6 +131,15 @@ ai:
       # timeout_sec: 120
       # retry_attempts: 2
       # requests_per_minute: 0 # 0 = 不限速
+
+    ollama:
+      type: ollama             # 本地 Ollama，无需 API Key
+      base_url: http://localhost:11434/v1
+      capabilities: [text]
+      timeout_sec: 300         # 本地模型首次加载较慢
+      models:
+        - llama3.2
+        - qwen2.5
   #
   # ⚠️ 注意：不要在 config.yaml 里写 api_key 字段，密钥请放在 .env 文件中
   #    例如 .env 内容：GEMINI_API_KEY=AIza...  /  DEEPSEEK_API_KEY=sk-...
