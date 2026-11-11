@@ -86,6 +86,7 @@ class TextAIProvider(Protocol):
         cancel_event: threading.Event | None = None,
         *,
         temperature: float | None = None,
+        system: str | None = None,
     ) -> AIResponse: ...
 
     def close(self) -> None: ...
@@ -104,6 +105,7 @@ class VideoAIProvider(TextAIProvider, Protocol):
         cancel_event: threading.Event | None = None,
         *,
         temperature: float | None = None,
+        system: str | None = None,
     ) -> AIResponse: ...
 
 

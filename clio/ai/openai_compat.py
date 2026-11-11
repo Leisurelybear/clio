@@ -44,12 +44,17 @@ class OpenAICompatProvider:
         cancel_event: threading.Event | None = None,
         *,
         temperature: float | None = None,
+        system: str | None = None,
     ) -> AIResponse:
         def _do() -> AIResponse:
             wait_for_rate_limit(self._rl, cancel_event, what=self.provider_id)
+            messages: list[dict[str, str]] = []
+            if system:
+                messages.append({"role": "system", "content": system})
+            messages.append({"role": "user", "content": prompt})
             payload: dict = {
                 "model": model,
-                "messages": [{"role": "user", "content": prompt}],
+                "messages": messages,
             }
             if temperature is not None:
                 payload["temperature"] = float(temperature)

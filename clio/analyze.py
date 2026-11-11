@@ -339,19 +339,29 @@ def _merge_refinement_result(original: dict, candidate: Any, *, required_field: 
     return merged
 
 
-def _wrap_with_context(prompt: str, config: AppConfig, context_override: str | None = None) -> str:
+def _wrap_with_context(
+    prompt: str,
+    config: AppConfig,
+    context_override: str | None = None,
+    *,
+    include_spec: bool = True,
+) -> str:
     """将背景/规范附加在 prompt 前面。
 
     层级（从上到下叠加）：
     1. templates/trip_context.md（项目级优先 → 包默认）
     2. config.ai.context（用户在设置页填写的项目特定内容）
     3. context_override（临时覆写，如 refine 时的额外说明）
+
+    ``include_spec=False`` keeps the trusted trip context out of the user
+    message; callers pass it separately through the provider's ``system``
+    argument so the stable prefix can be cached.
     """
     spec, background, instructions = _prompt_context_sections(config, context_override)
-    if not (spec or background or instructions):
+    if not ((spec and include_spec) or background or instructions):
         return prompt
     blocks: list[str] = []
-    if spec:
+    if spec and include_spec:
         blocks.append("## 背景与规范（请严格遵守）\n\n" + "\n".join(spec))
     if background:
         blocks.append(
@@ -362,6 +372,14 @@ def _wrap_with_context(prompt: str, config: AppConfig, context_override: str | N
     if instructions:
         blocks.append("## 用户附加说明（请按此执行）\n\n<user_note>\n" + "\n".join(instructions) + "\n</user_note>")
     return "\n\n".join(blocks) + f"\n\n---\n\n{prompt}"
+
+
+def _system_context(config: AppConfig) -> str | None:
+    """Return the trusted specification block for the provider system message."""
+    spec, _, _ = _prompt_context_sections(config)
+    if not spec:
+        return None
+    return "## 背景与规范（请严格遵守）\n\n" + "\n".join(spec)
 
 
 def _call_ai(
@@ -850,7 +868,8 @@ def analyze_video(
         base += "\n\n" + format_prompt_template(
             "transcript_context", transcript_template, transcripts_json=transcript_context
         )
-    prompt = _wrap_with_context(base, config, context_override=context_override)
+    system = _system_context(config)
+    prompt = _wrap_with_context(base, config, context_override=context_override, include_spec=False)
 
     def call_analyze(call_prompt: str) -> str:
         return _call_ai(
@@ -865,6 +884,7 @@ def analyze_video(
                 progress_callback=progress_callback,
                 cancel_event=cancel_event,
                 temperature=_task_temperature(config, TaskName.VIDEO_ANALYZE),
+                system=system,
             ),
             debug_print=config.ai.debug_print_prompt,
             token_store=token_store,
@@ -934,7 +954,8 @@ def generate_voiceover(
         template=template,
         target_words=config.script.target_words,
     )
-    prompt = _wrap_with_context(base, config, context_override=context_override)
+    system = _system_context(config)
+    prompt = _wrap_with_context(base, config, context_override=context_override, include_spec=False)
 
     def call_voiceover(call_prompt: str) -> str:
         return _call_ai(
@@ -947,6 +968,7 @@ def generate_voiceover(
                 model,
                 cancel_event=cancel_event,
                 temperature=_task_temperature(config, TaskName.VOICEOVER),
+                system=system,
             ),
             debug_print=config.ai.debug_print_prompt,
             token_store=token_store,
@@ -1000,7 +1022,13 @@ def plan_daily_vlog(
                 "transcript_context", TRANSCRIPT_CONTEXT, config, task_prompts=task_prompts
             )
             base += format_prompt_template("transcript_context", transcript_template, transcripts_json=transcript_json)
-    prompt = _wrap_with_context(f"日 vlog 标签: {day_label}\n\n{base}", config, context_override=context_override)
+    system = _system_context(config)
+    prompt = _wrap_with_context(
+        f"日 vlog 标签: {day_label}\n\n{base}",
+        config,
+        context_override=context_override,
+        include_spec=False,
+    )
     max_clips = int(getattr(config.plan, "max_clips_per_day", 0) or 0)
     target_duration_sec = float(getattr(config.plan, "target_duration_sec", 0) or 0)
 
@@ -1014,6 +1042,7 @@ def plan_daily_vlog(
                 call_prompt,
                 model,
                 temperature=_task_temperature(config, TaskName.VLOG_PLAN),
+                system=system,
             ),
             debug_print=config.ai.debug_print_prompt,
             token_store=token_store,
@@ -1092,7 +1121,8 @@ def refine_text(
             existing_json=json.dumps(analysis, ensure_ascii=False, indent=None),
         )
         label = t("analyze.label.refine_text")
-    prompt = _wrap_with_context(base, config, context_override=context_override)
+    system = _system_context(config)
+    prompt = _wrap_with_context(base, config, context_override=context_override, include_spec=False)
     with provider_use(provider):
         text = _call_ai(
             label,
@@ -1103,6 +1133,7 @@ def refine_text(
                 prompt,
                 model,
                 temperature=_task_temperature(config, TaskName.REFINE_TEXT),
+                system=system,
             ),
             debug_print=config.ai.debug_print_prompt,
             token_store=token_store,
@@ -1135,7 +1166,8 @@ def summarize_window_analysis(
         template,
         analysis_json=json.dumps(analysis, ensure_ascii=False, indent=None),
     )
-    prompt = _wrap_with_context(base, config, context_override=context_override)
+    system = _system_context(config)
+    prompt = _wrap_with_context(base, config, context_override=context_override, include_spec=False)
     try:
         with provider_use(provider):
             text = _call_ai(
@@ -1148,6 +1180,7 @@ def summarize_window_analysis(
                     model,
                     cancel_event=cancel_event,
                     temperature=_task_temperature(config, TaskName.REFINE_TEXT),
+                    system=system,
                 ),
                 debug_print=config.ai.debug_print_prompt,
                 token_store=token_store,
@@ -1215,7 +1248,8 @@ def refine_script(
             existing_json=existing_json,
         )
         label = t("analyze.label.refine_script")
-    prompt = _wrap_with_context(base, config, context_override=context_override)
+    system = _system_context(config)
+    prompt = _wrap_with_context(base, config, context_override=context_override, include_spec=False)
     with provider_use(provider):
         text = _call_ai(
             label,
@@ -1226,6 +1260,7 @@ def refine_script(
                 prompt,
                 model,
                 temperature=_task_temperature(config, TaskName.REFINE_TEXT),
+                system=system,
             ),
             debug_print=config.ai.debug_print_prompt,
             token_store=token_store,

@@ -165,6 +165,18 @@ class TestGenerateText:
         assert result.block_reason == "content_filter"
         assert result.blocked is True
 
+    def test_sends_system_message_when_provided(self):
+        resp = self._mock_response()
+        self._mock_client.post.return_value = resp
+
+        self._prov.generate_text("hello", "deepseek-chat", system="follow the rules")
+
+        messages = self._mock_client.post.call_args.kwargs["json"]["messages"]
+        assert messages == [
+            {"role": "system", "content": "follow the rules"},
+            {"role": "user", "content": "hello"},
+        ]
+
     def test_sends_correct_payload(self):
         resp = self._mock_response()
         self._mock_client.post.return_value = resp

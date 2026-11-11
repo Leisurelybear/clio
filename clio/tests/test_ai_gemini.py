@@ -357,6 +357,14 @@ class TestGenerateText:
         assert result.text == "hello world"
         self._client_mock.models.generate_content.assert_called_once_with(model="gemini-2.5-flash", contents="hi")
 
+    def test_sends_system_instruction_when_provided(self):
+        self._client_mock.models.generate_content.return_value = MagicMock(text="ok", usage_metadata=None)
+
+        self._prov.generate_text("hi", "gemini-2.5-flash", system="follow the rules")
+
+        config = self._client_mock.models.generate_content.call_args.kwargs["config"]
+        assert config.system_instruction == "follow the rules"
+
     def test_safety_block_reason_returns_normalized_response(self):
         self._client_mock.models.generate_content.return_value = SimpleNamespace(
             text="",

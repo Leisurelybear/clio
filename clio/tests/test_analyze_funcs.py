@@ -16,6 +16,7 @@ from clio.analyze import (
     _call_ai,
     _merge_refinement_result,
     _select_transcript_segments,
+    _system_context,
     _validate_analysis,
     _validate_plan,
     _validate_plan_ranges,
@@ -246,6 +247,28 @@ class TestWrapWithContext:
 
         assert "Paris 2025" in result
         assert "hello" in result
+
+    def test_include_spec_false_moves_spec_to_system_context(self, monkeypatch):
+        monkeypatch.setattr(
+            "clio.analyze._prompt_context_sections",
+            lambda config, override=None: (["SPEC"], ["BACKGROUND"], ["NOTE"]),
+        )
+        cfg = _fake_config("")
+        system = _system_context(cfg)
+        user = _wrap_with_context("hello", cfg, include_spec=False)
+
+        assert system == "## 背景与规范（请严格遵守）\n\nSPEC"
+        assert "SPEC" not in user
+        assert "BACKGROUND" in user
+        assert "NOTE" in user
+        assert "hello" in user
+
+    def test_system_context_is_none_without_spec(self, monkeypatch):
+        monkeypatch.setattr(
+            "clio.analyze._prompt_context_sections",
+            lambda config, override=None: ([], ["BACKGROUND"], []),
+        )
+        assert _system_context(_fake_config("")) is None
 
     def test_config_context_and_trip_context_both(self, monkeypatch):
         """Both trip_context.md and config.ai.context should appear."""

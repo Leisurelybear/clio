@@ -99,17 +99,21 @@ class GeminiProvider:
             types.GenerateContentConfig(max_output_tokens=self._max_tokens) if self._max_tokens > 0 else None
         )
 
-    def _config_for(self, temperature: float | None):
-        """Build a per-call config when a temperature is requested.
+    def _config_for(self, temperature: float | None, system: str | None = None):
+        """Build a per-call config when per-call options are requested.
 
         The cached `_generation_config` is shared across concurrent calls, so it
         must never be mutated in place.
         """
-        if temperature is None:
+        if temperature is None and not system:
             return self._generation_config
-        kwargs: dict = {"temperature": float(temperature)}
+        kwargs: dict = {}
+        if temperature is not None:
+            kwargs["temperature"] = float(temperature)
         if self._max_tokens > 0:
             kwargs["max_output_tokens"] = self._max_tokens
+        if system:
+            kwargs["system_instruction"] = system
         return types.GenerateContentConfig(**kwargs)
 
     def _is_retryable(self, exc: BaseException) -> bool:
@@ -254,10 +258,11 @@ class GeminiProvider:
         cancel_event: threading.Event | None = None,
         *,
         temperature: float | None = None,
+        system: str | None = None,
     ) -> AIResponse:
         def _do() -> AIResponse:
             wait_for_rate_limit(self._rl, cancel_event, what=self.provider_id)
-            config = self._config_for(temperature)
+            config = self._config_for(temperature, system)
             if config is None:
                 response = self._client.models.generate_content(model=model, contents=prompt)
             else:
@@ -279,6 +284,7 @@ class GeminiProvider:
         cancel_event: threading.Event | None = None,
         *,
         temperature: float | None = None,
+        system: str | None = None,
     ) -> AIResponse:
         uploaded = None
         try:
@@ -332,7 +338,7 @@ class GeminiProvider:
 
             def _do() -> AIResponse:
                 wait_for_rate_limit(self._rl, cancel_event, what=self.provider_id)
-                config = self._config_for(temperature)
+                config = self._config_for(temperature, system)
                 if config is None:
                     response = self._client.models.generate_content(model=model, contents=[uploaded, prompt])
                 else:
