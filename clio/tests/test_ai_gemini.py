@@ -405,6 +405,22 @@ class TestGenerateText:
         result = self._prov.generate_text("hi", "gemini-2.5-flash")
         assert result.text == ""
 
+    def test_rate_limit_cancel_propagates(self):
+        import time
+
+        from clio.ratelimit import RateLimiter
+
+        self._prov._rl = RateLimiter(60)
+        self._prov._rl._next_at = time.monotonic() + 30
+        cancel = MagicMock(spec=threading.Event)
+        cancel.is_set.return_value = False
+        cancel.wait.return_value = True
+
+        with pytest.raises(InterruptedError, match="gemini"):
+            self._prov.generate_text("hi", "gemini-2.5-flash", cancel_event=cancel)
+
+        self._client_mock.models.generate_content.assert_not_called()
+
     def test_forwards_cancel_event_to_retry(self):
         cancel = threading.Event()
 

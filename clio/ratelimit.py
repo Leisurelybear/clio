@@ -17,33 +17,8 @@ class RateLimiter:
         self._next_at = 0.0
         self._logged = False
 
-    def __enter__(self) -> None:
-        """单线程限流上下文管理器。
-
-        注意：__enter__ 在锁内 sleep，多线程场景应使用 acquire()。
-        使用 acquire() 时调用方在锁外 sleep，避免锁阻塞。
-        """
-        wait = 0.0
-        with self._lock:
-            now = time.monotonic()
-            if now < self._next_at:
-                wait = self._next_at - now
-                if not self._logged:
-                    print(t("ratelimit.wait", {"wait": f"{wait:.1f}", "interval": f"{self._interval:.1f}"}))
-                    self._logged = True
-                self._next_at += self._interval
-            else:
-                self._next_at = now + self._interval
-                self._logged = False
-        if wait > 0:
-            time.sleep(wait)
-
-    def acquire(self) -> float:
-        """非阻塞获取限流许可。
-
-        快速返回（不 sleep），由调用方在锁外 sleep。
-        适合多线程场景：锁只持有很短时间用于计算等待时长。
-        """
+    def _reserve(self) -> float:
+        """在锁内计算等待时长并推进下一次可用时间。"""
         wait = 0.0
         with self._lock:
             now = time.monotonic()
@@ -58,6 +33,30 @@ class RateLimiter:
                 self._logged = False
         return wait
 
+    def __enter__(self) -> None:
+        """单线程限流上下文管理器。
+
+        __enter__ 在锁外 sleep；多线程或需要取消时优先使用 wait()。
+        """
+        wait = self._reserve()
+        if wait > 0:
+            time.sleep(wait)
+
+    def acquire(self) -> float:
+        """非阻塞获取限流许可，返回调用方需要等待的秒数。"""
+        return self._reserve()
+
+    def wait(self, cancel_event: threading.Event | None = None, *, what: str = "") -> None:
+        """阻塞等待限流许可；cancel_event 可在等待期间中断。"""
+        wait = self._reserve()
+        if wait <= 0:
+            return
+        if cancel_event is None:
+            time.sleep(wait)
+            return
+        if cancel_event.wait(wait):
+            raise InterruptedError(t("utils.retry.cancelled", {"what": what}))
+
     def __exit__(self, *exc_info) -> None:
         pass
 
@@ -67,3 +66,14 @@ def make_rate_limiter(requests_per_minute: int) -> RateLimiter | None:
     if requests_per_minute <= 0:
         return None
     return RateLimiter(requests_per_minute)
+
+
+def wait_for_rate_limit(
+    limiter: RateLimiter | None,
+    cancel_event: threading.Event | None = None,
+    *,
+    what: str = "",
+) -> None:
+    """Provider 共享的限流入口；未启用限流时直接返回。"""
+    if limiter is not None:
+        limiter.wait(cancel_event, what=what)

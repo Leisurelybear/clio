@@ -217,6 +217,22 @@ class TestGenerateText:
         assert result.text == "ok"
         assert delays == [2.0]
 
+    def test_rate_limit_cancel_propagates(self):
+        import time
+
+        from clio.ratelimit import RateLimiter
+
+        self._prov._rl = RateLimiter(60)
+        self._prov._rl._next_at = time.monotonic() + 30
+        cancel = MagicMock(spec=threading.Event)
+        cancel.is_set.return_value = False
+        cancel.wait.return_value = True
+
+        with pytest.raises(InterruptedError, match="openai_compat"):
+            self._prov.generate_text("hello", "deepseek-chat", cancel_event=cancel)
+
+        self._mock_client.post.assert_not_called()
+
     def test_cancel_event_skips_request(self):
         cancel = threading.Event()
         cancel.set()

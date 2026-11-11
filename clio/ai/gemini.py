@@ -13,7 +13,7 @@ from google.genai import types
 from clio.ai.base import AIResponse, TokenUsage, normalize_response_reason
 from clio.config import ProviderConfig, ProxyConfig
 from clio.i18n import t
-from clio.ratelimit import make_rate_limiter
+from clio.ratelimit import make_rate_limiter, wait_for_rate_limit
 from clio.utils import mask_if_looks_like_key, retry_after_seconds, with_retry
 
 try:
@@ -143,6 +143,8 @@ class GeminiProvider:
         def _wrapped():
             try:
                 return fn()
+            except InterruptedError:
+                raise
             except BaseException as e:
                 if self._is_retryable(e):
                     raise
@@ -245,12 +247,6 @@ class GeminiProvider:
             except Exception:
                 pass
 
-    def _maybe_wait(self) -> None:
-        if self._rl is not None:
-            wait = self._rl.acquire()
-            if wait:
-                time.sleep(wait)
-
     def generate_text(
         self,
         prompt: str,
@@ -260,7 +256,7 @@ class GeminiProvider:
         temperature: float | None = None,
     ) -> AIResponse:
         def _do() -> AIResponse:
-            self._maybe_wait()
+            wait_for_rate_limit(self._rl, cancel_event, what=self.provider_id)
             config = self._config_for(temperature)
             if config is None:
                 response = self._client.models.generate_content(model=model, contents=prompt)
@@ -308,7 +304,7 @@ class GeminiProvider:
             def _upload():
                 if cancel_event and cancel_event.is_set():
                     raise RuntimeError(t("ai.video_analysis_cancelled"))
-                self._maybe_wait()
+                wait_for_rate_limit(self._rl, cancel_event, what=self.provider_id)
                 with open(video_path, "rb") as f:
                     return self._client.files.upload(
                         file=f,
@@ -335,7 +331,7 @@ class GeminiProvider:
                 progress_callback(t("ai.progress_analyzing"))
 
             def _do() -> AIResponse:
-                self._maybe_wait()
+                wait_for_rate_limit(self._rl, cancel_event, what=self.provider_id)
                 config = self._config_for(temperature)
                 if config is None:
                     response = self._client.models.generate_content(model=model, contents=[uploaded, prompt])

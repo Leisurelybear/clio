@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import threading
+from unittest.mock import MagicMock
+
 import pytest
 
-from clio.ratelimit import RateLimiter, make_rate_limiter
+from clio.ratelimit import RateLimiter, make_rate_limiter, wait_for_rate_limit
 
 
 class TestRateLimiterInit:
@@ -104,3 +107,51 @@ class TestMakeRateLimiter:
         rl = make_rate_limiter(10)
         assert isinstance(rl, RateLimiter)
         assert rl._interval == 6.0
+
+
+class TestRateLimiterWait:
+    def test_wait_without_cancel_event_sleeps(self, fake_time):
+        rl = RateLimiter(60)
+        rl._next_at = 105.0
+        mock_sleep = fake_time("clio.ratelimit", 100.0).sleep
+        rl.wait()
+        mock_sleep.assert_called_once_with(5.0)
+
+    def test_wait_returns_immediately_without_delay(self, fake_time):
+        rl = RateLimiter(60)
+        cancel = MagicMock(spec=threading.Event)
+        mock_sleep = fake_time("clio.ratelimit", 100.0).sleep
+        rl.wait(cancel)
+        mock_sleep.assert_not_called()
+        cancel.wait.assert_not_called()
+
+    def test_wait_raises_when_cancelled(self, fake_time):
+        rl = RateLimiter(60)
+        rl._next_at = 105.0
+        cancel = MagicMock(spec=threading.Event)
+        cancel.wait.return_value = True
+        mock_sleep = fake_time("clio.ratelimit", 100.0).sleep
+        with pytest.raises(InterruptedError, match="provider-x"):
+            rl.wait(cancel, what="provider-x")
+        mock_sleep.assert_not_called()
+        cancel.wait.assert_called_once_with(5.0)
+
+    def test_wait_continues_when_not_cancelled(self, fake_time):
+        rl = RateLimiter(60)
+        rl._next_at = 105.0
+        cancel = MagicMock(spec=threading.Event)
+        cancel.wait.return_value = False
+        fake_time("clio.ratelimit", 100.0)
+        rl.wait(cancel, what="provider-x")
+        cancel.wait.assert_called_once_with(5.0)
+
+
+class TestWaitForRateLimit:
+    def test_none_limiter_is_noop(self):
+        wait_for_rate_limit(None, what="provider-x")
+
+    def test_delegates_to_limiter(self):
+        limiter = MagicMock(spec=RateLimiter)
+        cancel = MagicMock(spec=threading.Event)
+        wait_for_rate_limit(limiter, cancel, what="provider-x")
+        limiter.wait.assert_called_once_with(cancel, what="provider-x")

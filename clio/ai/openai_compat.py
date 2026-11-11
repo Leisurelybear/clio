@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import threading
-import time
 
 import httpx
 
 from clio.ai.base import AIResponse, TokenUsage, normalize_response_reason
 from clio.config import ProviderConfig, ProxyConfig
 from clio.i18n import t
-from clio.ratelimit import make_rate_limiter
+from clio.ratelimit import make_rate_limiter, wait_for_rate_limit
 from clio.utils import mask_if_looks_like_key, retry_after_seconds, with_retry
 
 
@@ -38,15 +37,6 @@ class OpenAICompatProvider:
     def close(self) -> None:
         self._client.close()
 
-    def _maybe_wait(self, cancel_event: threading.Event | None = None) -> None:
-        if self._rl is not None:
-            wait = self._rl.acquire()
-            if wait:
-                if cancel_event is None:
-                    time.sleep(wait)
-                elif cancel_event.wait(wait):
-                    raise InterruptedError(t("utils.retry.cancelled", {"what": self.provider_id}))
-
     def generate_text(
         self,
         prompt: str,
@@ -56,7 +46,7 @@ class OpenAICompatProvider:
         temperature: float | None = None,
     ) -> AIResponse:
         def _do() -> AIResponse:
-            self._maybe_wait(cancel_event)
+            wait_for_rate_limit(self._rl, cancel_event, what=self.provider_id)
             payload: dict = {
                 "model": model,
                 "messages": [{"role": "user", "content": prompt}],
