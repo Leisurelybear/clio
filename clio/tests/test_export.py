@@ -13,7 +13,9 @@ from clio.export.jianying import (
     _build_index_to_offset,
     _build_index_to_source,
     _build_materials,
+    _build_srt,
     _build_tracks,
+    _format_srt_timestamp,
     _resolve_video,
     _resolve_video_by_prefix,
     _to_microseconds,
@@ -52,6 +54,32 @@ class TestToMicroseconds:
         assert _to_microseconds(0.0) == 0
         assert _to_microseconds(1.5) == 1_500_000
         assert _to_microseconds(0.001) == 1_000
+
+
+class TestSrt:
+    def test_formats_timestamp(self) -> None:
+        assert _format_srt_timestamp(0) == "00:00:00,000"
+        assert _format_srt_timestamp(3_723_456_789) == "01:02:03,456"
+        assert _format_srt_timestamp(-1) == "00:00:00,000"
+
+    def test_builds_cues_from_text_track(self) -> None:
+        materials = {
+            "texts": [
+                {"id": "text-1", "content": json.dumps({"text": "Hello\nWorld"})},
+                {"id": "text-2", "content": "not-json"},
+            ]
+        }
+        tracks = [
+            {
+                "type": "text",
+                "segments": [
+                    {"material_id": "text-1", "target_timerange": {"start": 0, "duration": 10_000_000}},
+                    {"material_id": "missing", "target_timerange": {"start": 10_000_000, "duration": 2_000_000}},
+                ],
+            }
+        ]
+
+        assert _build_srt(materials, tracks) == ("1\n00:00:00,000 --> 00:00:10,000\nHello\nWorld\n")
 
 
 class TestResolveVideoByPrefix:
@@ -313,6 +341,11 @@ class TestExportPlanToJianying:
                             "subtitle": "Hello",
                             "voiceover_hint": "narration only",
                         },
+                        {
+                            "index": "001",
+                            "use_timeline": "00:10-00:15",
+                            "subtitle": "World",
+                        },
                     ],
                 }
             ),
@@ -344,9 +377,12 @@ class TestExportPlanToJianying:
         assert draft["name"] == "Day 1"
         assert draft["fps"] == 30
         assert len(draft["materials"]["videos"]) == 1
-        assert len(draft["materials"]["texts"]) == 1
+        assert len(draft["materials"]["texts"]) == 2
         assert len(draft["tracks"]) >= 1
         assert draft["tracks"][0]["type"] == "video"
+        assert (output_dir / "subtitles.srt").read_text(encoding="utf-8") == (
+            "1\n00:00:00,000 --> 00:00:10,000\nHello\n\n2\n00:00:10,000 --> 00:00:15,000\nWorld\n"
+        )
 
     def test_raises_when_no_video_material_resolves(self, tmp_path: Path) -> None:
         """A plan with segments but zero resolvable videos must NOT export an

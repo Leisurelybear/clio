@@ -1,6 +1,6 @@
 """JianYing Pro (剪映专业版) draft export.
 
-Generates draft_content.json from plan.json output.
+Generates draft_content.json and subtitles.srt from plan.json output.
 Target format: JianYing 5.9 (plain JSON, unencrypted).
 """
 
@@ -23,6 +23,44 @@ logger = logging.getLogger("clio.export.jianying")
 
 def _to_microseconds(seconds: float) -> int:
     return int(seconds * 1_000_000)
+
+
+def _format_srt_timestamp(microseconds: int) -> str:
+    total_ms = max(0, microseconds) // 1_000
+    hours, remainder = divmod(total_ms, 3_600_000)
+    minutes, remainder = divmod(remainder, 60_000)
+    seconds, milliseconds = divmod(remainder, 1_000)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
+
+
+def _build_srt(materials: dict, tracks: list[dict]) -> str:
+    text_by_id: dict[str, str] = {}
+    for material in materials.get("texts", []):
+        try:
+            content = json.loads(material.get("content", ""))
+        except (json.JSONDecodeError, TypeError):
+            continue
+        raw_text = content.get("text") if isinstance(content, dict) else None
+        caption = "\n".join(line.strip() for line in str(raw_text or "").splitlines() if line.strip())
+        if caption:
+            text_by_id[str(material.get("id", ""))] = caption
+
+    text_track = next((track for track in tracks if track.get("type") == "text"), None)
+    if text_track is None:
+        return ""
+
+    cues: list[str] = []
+    for segment in text_track.get("segments", []):
+        caption = text_by_id.get(str(segment.get("material_id", "")))
+        timerange = segment.get("target_timerange", {})
+        start = int(timerange.get("start", 0))
+        duration = int(timerange.get("duration", 0))
+        if not caption or duration <= 0:
+            continue
+        cues.append(
+            f"{len(cues) + 1}\n{_format_srt_timestamp(start)} --> {_format_srt_timestamp(start + duration)}\n{caption}"
+        )
+    return "\n\n".join(cues) + ("\n" if cues else "")
 
 
 def _resolve_video_by_prefix(
@@ -288,7 +326,7 @@ def _build_tracks(
             }
         )
 
-        # Text segment for voiceover
+        # Text segment for the on-screen caption
         text_mat_id = (seq_text_ids or {}).get(i)
         if text_mat_id:
             text_segments.append(
@@ -411,6 +449,14 @@ def export_plan_to_jianying(
     output_dir.mkdir(parents=True, exist_ok=True)
     draft_path = output_dir / "draft_content.json"
     write_text_atomic(draft_path, json.dumps(draft, indent=2, ensure_ascii=False))
+
+    srt_path = output_dir / "subtitles.srt"
+    srt_content = _build_srt(materials, tracks)
+    if srt_content:
+        write_text_atomic(srt_path, srt_content)
+    elif srt_path.exists():
+        srt_path.unlink()
+
     print(t("export.draft_generated", {"path": output_dir}))
     total_sec = total_duration_us / 1_000_000
     print(

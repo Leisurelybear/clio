@@ -6,7 +6,7 @@
 ## 1. Responsibilities
 
 - Translate a plan (`{day}_plan.json`) into a **JianYing 5.9 `draft_content.json`** that opens in
-  CapCut/JianYing for manual finishing.
+  CapCut/JianYing for manual finishing, plus a sidecar `subtitles.srt` for other editors.
 - Resolve each planned segment to an **original video** (via `videos.json` selection, text
   `media_identity`/`source_file`, then `{index}_` filename prefix fallback) and lay clips onto
   the timeline back-to-back with their `use_timeline` ranges.
@@ -17,7 +17,7 @@
 
 | File | Responsibility |
 |---|---|
-| `jianying.py` | Core exporter: `_build_index_to_source` (`:50`, index→original stem from texts), `_build_index_to_offset` (`:92`, legacy `_seg` offsets), `_resolve_video`/`_resolve_video_by_prefix` (`:115`/`:27`), `_build_materials` (`:139`, materials.videos + caption texts), `_build_tracks` (`:231`, video/text timeline tracks), `export_plan_to_jianying` (`:323`) |
+| `jianying.py` | Core exporter: `_build_index_to_source` (`:50`, index→original stem from texts), `_build_index_to_offset` (`:92`, legacy `_seg` offsets), `_resolve_video`/`_resolve_video_by_prefix` (`:115`/`:27`), `_build_materials` (materials.videos + caption texts), `_build_tracks` (video/text timeline tracks), `_build_srt` / `_format_srt_timestamp` (sidecar subtitles), `export_plan_to_jianying` |
 | `__init__.py` | `FORMAT_REGISTRY = {"jianying": export_plan_to_jianying}` (`:10`); `export_plan(format, …)` dispatcher (`:13`, unknown format → `ValueError`) and merges `project_dir`/legacy `input_dir` handling |
 
 ## 3. Material Resolution
@@ -71,6 +71,10 @@ _Build_tracks: for each segment whose index HAS a video material:
 ```
 
 Written via `write_text_atomic`. Opened in JianYing by importing the draft folder.
+
+`subtitles.srt` is written beside the draft whenever at least one caption exists. Cue timing is
+copied from the generated text track, so it reflects only segments that successfully produced both
+a video clip and a caption. A stale SRT is removed when a later export has no captions.
 
 ## 6. Cross-Module Dependencies
 
