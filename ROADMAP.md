@@ -8,15 +8,16 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
 ## Active backlog (2026-11-11)
 
 - 2026-11 P0/P1/P2 review remediation from `docs/analysis/2026-11-05-P0-P2-Issues.md`:
-  - Snapshot: 83 items; 55 completed; 2 partial, 2 awaiting real-environment
-    verification, and 24 pending. O7 is pushed in `b6c9cd2`; B10 `33a2233` is the
-    next local batch.
+  - Snapshot: 83 items; 55 completed; 3 partial, 2 awaiting real-environment
+    verification, and 23 pending. O7 is pushed in `b6c9cd2`; B10 `33a2233` and
+    O15 security headers `a97bf4d` are local.
   - Verification: targeted C2 pytest (270 passed), C15 pytest (58 passed), full pytest
     (2837 passed, 12 skipped, 13 deselected with symlink tests excluded), full Vitest
     (857 passed), O7 targeted pytest (153 passed), full pytest after O7 (2846 passed,
     12 skipped, 13 deselected), Ruff on changed Python files, and `git diff --check`.
     B10 is documentation-only and was checked with `git diff --check`. F8 SRT targeted pytest
-    passed 29 tests; Ruff and `git diff --check` passed.
+    passed 29 tests. O15 targeted pytest passed 186 tests with 1 skipped across the server,
+    SSE, cover-route, and desktop-server suites; Ruff and `git diff --check` passed.
     CI run 42820037572 (head `262abde`) and CI run 42840852167 (head `958bc57`) passed
     all Python 3.11/3.12 platform jobs plus quality, package, and Vitest jobs.
   - [x] P0 completed (14): B1 `a01b156`; B2 `a436315`; C1 `14b873b`; C2 `91e4699`;
@@ -33,10 +34,11 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
     D18 `e073076`; D19 `2c14970` / `787deb1`; B7 `443e900`; B9 `87792ba`;
     C12 `2821c43`; D14 `f18d4cd`; D16 `70c4a66`; O3 `47f3fe1` / `4ca2c77`;
     O5 `77698a0`; O6 `52aa7ff` / `ebdd738`; O7 `a436315` / `9be0401` / `701bac7`; O12 `b6f76da`.
-  - [~] P2 partial (2): C16 `c75c067` / `8aca38e` (all dialogs and undo stack remain);
-    F8 `7b8bfa0` / `7515acb` (transitions remain).
+  - [~] P2 partial (3): C16 `c75c067` / `8aca38e` (all dialogs and undo stack remain);
+    F8 `7b8bfa0` / `7515acb` (transitions remain); O15 `a97bf4d` (default HTML escaping
+    remains).
   - [ ] P2 awaiting real-environment verification (2): C10; D12.
-  - [ ] P2 pending (14): O4; O8; O9; O10; O11; O13; O14; O15; O16; O18;
+  - [ ] P2 pending (13): O4; O8; O9; O10; O11; O13; O14; O16; O18;
     Q13; F4; F5; F9.
   - [ ] Next: close the remaining partial items, then continue the backlog one focused
     fix per commit.
