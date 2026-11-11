@@ -8,9 +8,10 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
 ## Active backlog (2026-11-11)
 
 - 2026-11 P0/P1/P2 review remediation from `docs/analysis/2026-11-05-P0-P2-Issues.md`:
-  - Snapshot: 83 items; 57 completed; 3 partial, 2 awaiting real-environment
-    verification, and 21 pending. O7 is pushed in `b6c9cd2`; B10 `33a2233`,
-    O11 `cb8613d`, O15 security headers `a97bf4d`, and O4 `6974751` are local.
+  - Snapshot: 83 items; 58 completed; 3 partial, 2 awaiting real-environment
+    verification, and 20 pending. O7 is pushed in `b6c9cd2`; B10 `33a2233`,
+    O11 `cb8613d`, O15 security headers `a97bf4d`, O4 `6974751`, and F2
+    `e3061f8` are local.
   - Verification: targeted C2 pytest (270 passed), C15 pytest (58 passed), full pytest
     (2837 passed, 12 skipped, 13 deselected with symlink tests excluded), full Vitest
     (857 passed), O7 targeted pytest (153 passed), full pytest after O7 (2846 passed,
@@ -19,17 +20,18 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
     passed 29 tests. O15 targeted pytest passed 186 tests with 1 skipped across the server,
     SSE, cover-route, and desktop-server suites; O11 targeted pytest passed 94 tests across
     rate limiting and both providers; O4 targeted pytest passed 207 tests across analyze
-    wrappers and both providers; Ruff and `git diff --check` passed.
+    wrappers and both providers; F2 targeted pytest passed 142 tests plus 24 i18n tests,
+    and Vitest passed 859 tests across 80 files; Ruff and `git diff --check` passed.
     CI run 42820037572 (head `262abde`) and CI run 42840852167 (head `958bc57`) passed
     all Python 3.11/3.12 platform jobs plus quality, package, and Vitest jobs.
   - [x] P0 completed (14): B1 `a01b156`; B2 `a436315`; C1 `14b873b`; C2 `91e4699`;
     D1 `e2f626b`; D2 `1698309`; D3 `3a45b18`; Q1 `719f715`; Q2 `c06515c`;
     Q8 `89d5d7e`; Q3 `3ad0e5f`; Q9 `325a599`; Q10 `b452c60`; O19 `262abde`.
-  - [x] P1 completed (17): B3 `b47a32c`; B4 `7bb652b`; B5 `e8b2060`; B6 `1c78b68`;
+  - [x] P1 completed (18): B3 `b47a32c`; B4 `7bb652b`; B5 `e8b2060`; B6 `1c78b68`;
     C3 `bb1a190`; C4 `d2dccef`; C5 `127d840`; C6 `9b45130`; C7 `7e6c1c7`;
     C8 `b6f76da`; D4 `459eada`; D5 `90a92de`; D6 `5a8fb85`; D7 `e1fe20f`;
-    D8 `5ec84b5`; D9 `a79cfbc`; O2 `80d3e3f`.
-  - [ ] P1 pending (10): O1; O17; Q4; Q5; Q6; Q7; Q11; Q12; F1; F2.
+    D8 `5ec84b5`; D9 `a79cfbc`; O2 `80d3e3f`; F2 `e3061f8`.
+  - [ ] P1 pending (9): O1; O17; Q4; Q5; Q6; Q7; Q11; Q12; F1.
   - [x] P2 completed (26): C15 `7681cff` / `3171639` / `958bc57`; B8 `9be0401` / `a45f1e5` / `56d6c87`; B10 `33a2233`; C9 `cc2d1c5`;
     C11 `8636449` / `e40fb24`; C13 `35bbc3f`; C14 `d702223`; D10 `9374720`;
     D11 `2c00587`; D13 `fab38aa`; D15 `8aa6740`; D17 `f209b48`;
