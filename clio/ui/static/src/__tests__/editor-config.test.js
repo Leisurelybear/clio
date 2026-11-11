@@ -364,6 +364,20 @@ describe('_renderProviderList', () => {
     expect(openaiHtml).not.toContain('video_upload_max_mb');
   });
 
+  it('renders configured token pricing', () => {
+    const html = _renderProviderList({
+      gemini: { ...GEMINI_PROVIDER, prompt_price_per_1m_usd: 0.5, completion_price_per_1m_usd: 1.25 },
+    });
+    expect(html).toContain('USD / 1M');
+    expect(html).toContain('0.5');
+    expect(html).toContain('1.25');
+  });
+
+  it('hides token pricing when both prices are zero', () => {
+    const html = _renderProviderList({ gemini: GEMINI_PROVIDER });
+    expect(html).not.toContain('USD / 1M');
+  });
+
   it('renders multiple provider cards', () => {
     const html = _renderProviderList({ gemini: GEMINI_PROVIDER, deepseek: OPENAI_PROVIDER });
     const matches = html.match(/class="provider-card"/g);

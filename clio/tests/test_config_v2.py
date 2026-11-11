@@ -517,6 +517,31 @@ class TestGlobalDefaultTasks:
         cfg = load_config(cfg_path, project_dir=tmp_path)
         assert cfg.ai.providers["gemini"].video_upload_max_mb == 150
 
+    def test_parses_provider_pricing(self, tmp_path: Path):
+        cfg_path = tmp_path / "config.yaml"
+        cfg_path.write_text(
+            yaml.dump(
+                {
+                    "ai": {
+                        "providers": {
+                            "gemini": {
+                                "type": "gemini",
+                                "api_key": "g",
+                                "prompt_price_per_1m_usd": "0.5",
+                                "completion_price_per_1m_usd": 1.25,
+                            },
+                        },
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        cfg = load_config(cfg_path, project_dir=tmp_path)
+        provider = cfg.ai.providers["gemini"]
+        assert provider.prompt_price_per_1m_usd == 0.5
+        assert provider.completion_price_per_1m_usd == 1.25
+
     def test_parses_and_coerces_task_temperature(self, tmp_path: Path):
         cfg_path = tmp_path / "config.yaml"
         cfg_path.write_text(

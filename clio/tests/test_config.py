@@ -453,6 +453,14 @@ class TestValidateConfig:
                 "ai.providers.gemini.max_tokens",
                 lambda cfg: setattr(cfg.global_cfg.ai.providers["gemini"], "max_tokens", -1),
             ),
+            (
+                "ai.providers.gemini.prompt_price_per_1m_usd",
+                lambda cfg: setattr(cfg.global_cfg.ai.providers["gemini"], "prompt_price_per_1m_usd", -1.0),
+            ),
+            (
+                "ai.providers.gemini.completion_price_per_1m_usd",
+                lambda cfg: setattr(cfg.global_cfg.ai.providers["gemini"], "completion_price_per_1m_usd", -1.0),
+            ),
         ],
     )
     def test_numeric_ranges_are_validated(self, field_name, mutate):
@@ -568,7 +576,14 @@ class TestLoadConfig:
         raw["server"] = {"access_log_body_bytes": "1024"}
         raw["ai"]["provider_ttl_min"] = "30"
         raw["ai"]["debug_print_prompt"] = "yes"
-        raw["ai"]["providers"]["gemini"].update({"timeout_sec": "90", "retry_attempts": "3"})
+        raw["ai"]["providers"]["gemini"].update(
+            {
+                "timeout_sec": "90",
+                "retry_attempts": "3",
+                "prompt_price_per_1m_usd": "0.5",
+                "completion_price_per_1m_usd": "1.25",
+            }
+        )
         (tmp_config / "config.yaml").write_text(yaml.safe_dump(raw), encoding="utf-8")
 
         cfg = load_config(tmp_config / "config.yaml", project_dir=tmp_config)
@@ -585,6 +600,8 @@ class TestLoadConfig:
         gemini = cfg.ai.providers["gemini"]
         assert gemini.timeout_sec == 90.0
         assert gemini.retry_attempts == 3
+        assert gemini.prompt_price_per_1m_usd == 0.5
+        assert gemini.completion_price_per_1m_usd == 1.25
 
     def test_uncastable_scalar_still_reports_readable_error(self, tmp_config):
         raw = yaml.safe_load((tmp_config / "project.yaml").read_text(encoding="utf-8"))

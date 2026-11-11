@@ -785,6 +785,11 @@ export function _renderProviderList(providers, descs) {
     const capabilityTags = providerCapabilities(p)
       .map(c => `<span class="tag-chip">${escapeHtml(c)}</span>`)
       .join(' ');
+    const promptPrice = Number(p.prompt_price_per_1m_usd || 0);
+    const completionPrice = Number(p.completion_price_per_1m_usd || 0);
+    const priceField = promptPrice > 0 || completionPrice > 0
+      ? `<div class="provider-card-field"><span class="provider-card-label">${t('settings.provider.field.price')}</span><span>${escapeHtml(t('settings.provider.field.price_summary', { prompt: String(promptPrice), completion: String(completionPrice) }))}</span></div>`
+      : '';
 
     html += `<div class="provider-card" data-provider="${escapeHtml(name)}">
       <div class="provider-card-header">
@@ -805,6 +810,7 @@ export function _renderProviderList(providers, descs) {
         <div class="provider-card-field"><span class="provider-card-label">max_tokens</span><span>${p.max_tokens === 0 || p.max_tokens == null ? t('settings.provider.field.unlimited') : escapeHtml(String(p.max_tokens))}</span></div>
         ${p.type === 'gemini' ? `<div class="provider-card-field"><span class="provider-card-label">video_upload_max_mb</span><span>${escapeHtml(String(p.video_upload_max_mb ?? 200))} MB</span></div>` : ''}
         <div class="provider-card-field"><span class="provider-card-label">timeout</span><span>${escapeHtml(String(p.timeout_sec ?? 120))}s</span></div>
+        ${priceField}
         <div class="provider-test-status" data-provider="${escapeHtml(name)}"></div>
       </div>
     </div>`;
@@ -899,6 +905,18 @@ function _showProviderModal(providersObj, name, onSave) {
             value="${existing?.video_upload_max_mb ?? 200}">
           <span class="hint">${t('settings.provider.field.video_upload_max_mb_hint')}</span>
         </div>
+        <div>
+          <label class="form-label">prompt_price_per_1m_usd</label>
+          <input id="modal-provider-prompt-price" class="form-input" type="number" min="0" step="0.01"
+            value="${existing?.prompt_price_per_1m_usd ?? 0}">
+          <span class="hint">${t('settings.provider.field.prompt_price_hint')}</span>
+        </div>
+        <div>
+          <label class="form-label">completion_price_per_1m_usd</label>
+          <input id="modal-provider-completion-price" class="form-input" type="number" min="0" step="0.01"
+            value="${existing?.completion_price_per_1m_usd ?? 0}">
+          <span class="hint">${t('settings.provider.field.completion_price_hint')}</span>
+        </div>
       </div>
       <div class="modal-actions">
         <button id="modal-cancel" class="btn-secondary">${t('common.cancel')}</button>
@@ -967,11 +985,14 @@ function _showProviderModal(providersObj, name, onSave) {
     const newRpm = parseNum('#modal-provider-rpm', 0);
     const newPoll = parseNum('#modal-provider-poll', 5);
     const newUploadMax = parseNum('#modal-provider-upload-max', 200);
+    const newPromptPrice = parseNum('#modal-provider-prompt-price', 0);
+    const newCompletionPrice = parseNum('#modal-provider-completion-price', 0);
 
     if (!newName) { setStatus(t('settings.provider.name_required'), 'warn'); return; }
     if (isEdit && newName !== name) { setStatus(t('settings.provider.name_immutable'), 'warn'); return; }
     if (!isEdit && providersObj[newName]) { setStatus(t('settings.provider.name_exists', { name: newName }), 'warn'); return; }
-    if (newMaxTokens < 0 || newTimeout < 0 || newRetry < 0 || newRpm < 0 || newPoll < 0) {
+    if (newMaxTokens < 0 || newTimeout < 0 || newRetry < 0 || newRpm < 0 || newPoll < 0
+        || newPromptPrice < 0 || newCompletionPrice < 0) {
       setStatus(t('settings.provider.negative_numbers'), 'warn');
       return;
     }
@@ -1011,6 +1032,8 @@ function _showProviderModal(providersObj, name, onSave) {
       capabilities: capabilitiesList,
       max_tokens: newMaxTokens,
       video_upload_max_mb: newUploadMax,
+      prompt_price_per_1m_usd: newPromptPrice,
+      completion_price_per_1m_usd: newCompletionPrice,
       timeout_sec: newTimeout,
       retry_attempts: newRetry,
       requests_per_minute: newRpm,
@@ -1034,6 +1057,8 @@ function _showProviderModal(providersObj, name, onSave) {
         capabilities: [...capabilitiesList],
         max_tokens: newMaxTokens,
         video_upload_max_mb: newUploadMax,
+        prompt_price_per_1m_usd: newPromptPrice,
+        completion_price_per_1m_usd: newCompletionPrice,
         timeout_sec: newTimeout,
         retry_attempts: newRetry,
         requests_per_minute: newRpm,
@@ -2026,28 +2051,30 @@ export async function renderTokens() {
       return;
     }
     const totals = data.total;
+    const fmtCost = (value) => `$${Number(value || 0).toFixed(6)}`;
     const totalHtml = `
       <div style="display:flex;gap:var(--space-3);margin-bottom:var(--space-3);flex-wrap:wrap">
         <div class="token-card"><div class="token-card-value">${totals.total_tokens.toLocaleString()}</div><div class="token-card-label">${t('tokens.total_label')}</div></div>
         <div class="token-card"><div class="token-card-value">${totals.prompt_tokens.toLocaleString()}</div><div class="token-card-label">Prompt</div></div>
         <div class="token-card"><div class="token-card-value">${totals.completion_tokens.toLocaleString()}</div><div class="token-card-label">Completion</div></div>
+        <div class="token-card"><div class="token-card-value">${fmtCost(totals.cost_usd)}</div><div class="token-card-label">${t('tokens.total_cost')}</div></div>
       </div>`;
 
-    let modelHtml = `<h4 style="margin:var(--space-2) 0">${t('tokens.by_model')}</h4><table class="token-table"><tr><th>${t('tokens.col.model')}</th><th>${t('tokens.col.calls')}</th><th>Prompt</th><th>Completion</th><th>${t('tokens.col.total')}</th></tr>`;
+    let modelHtml = `<h4 style="margin:var(--space-2) 0">${t('tokens.by_model')}</h4><table class="token-table"><tr><th>${t('tokens.col.model')}</th><th>${t('tokens.col.calls')}</th><th>Prompt</th><th>Completion</th><th>${t('tokens.col.total')}</th><th>${t('tokens.col.cost')}</th></tr>`;
     for (const [model, m] of Object.entries(data.by_model || {})) {
-      modelHtml += `<tr><td>${escapeHtml(model)}</td><td>${m.calls}</td><td>${m.prompt_tokens.toLocaleString()}</td><td>${m.completion_tokens.toLocaleString()}</td><td>${m.total_tokens.toLocaleString()}</td></tr>`;
+      modelHtml += `<tr><td>${escapeHtml(model)}</td><td>${m.calls}</td><td>${m.prompt_tokens.toLocaleString()}</td><td>${m.completion_tokens.toLocaleString()}</td><td>${m.total_tokens.toLocaleString()}</td><td>${fmtCost(m.cost_usd)}</td></tr>`;
     }
     modelHtml += '</table>';
 
-    let taskHtml = `<h4 style="margin:var(--space-2) 0">${t('tokens.by_task')}</h4><table class="token-table"><tr><th>${t('tokens.col.task')}</th><th>${t('tokens.col.calls')}</th><th>Prompt</th><th>Completion</th><th>${t('tokens.col.total')}</th></tr>`;
+    let taskHtml = `<h4 style="margin:var(--space-2) 0">${t('tokens.by_task')}</h4><table class="token-table"><tr><th>${t('tokens.col.task')}</th><th>${t('tokens.col.calls')}</th><th>Prompt</th><th>Completion</th><th>${t('tokens.col.total')}</th><th>${t('tokens.col.cost')}</th></tr>`;
     for (const [task, tk] of Object.entries(data.by_task || {})) {
-      taskHtml += `<tr><td>${escapeHtml(task)}</td><td>${tk.calls}</td><td>${tk.prompt_tokens.toLocaleString()}</td><td>${tk.completion_tokens.toLocaleString()}</td><td>${tk.total_tokens.toLocaleString()}</td></tr>`;
+      taskHtml += `<tr><td>${escapeHtml(task)}</td><td>${tk.calls}</td><td>${tk.prompt_tokens.toLocaleString()}</td><td>${tk.completion_tokens.toLocaleString()}</td><td>${tk.total_tokens.toLocaleString()}</td><td>${fmtCost(tk.cost_usd)}</td></tr>`;
     }
     taskHtml += '</table>';
 
-    let historyHtml = `<h4 style="margin:var(--space-2) 0">${t('tokens.history')}</h4><table class="token-table"><tr><th>${t('tokens.col.time')}</th><th>${t('tokens.col.task')}</th><th>${t('tokens.col.model')}</th><th>Prompt</th><th>Completion</th><th>${t('tokens.col.total')}</th></tr>`;
+    let historyHtml = `<h4 style="margin:var(--space-2) 0">${t('tokens.history')}</h4><table class="token-table"><tr><th>${t('tokens.col.time')}</th><th>${t('tokens.col.task')}</th><th>${t('tokens.col.provider')}</th><th>${t('tokens.col.model')}</th><th>${t('tokens.col.prompt_version')}</th><th>Prompt</th><th>Completion</th><th>${t('tokens.col.total')}</th><th>${t('tokens.col.cost')}</th></tr>`;
     for (const h of (data.history || []).slice().reverse().slice(0, 100)) {
-      historyHtml += `<tr><td class="token-time">${escapeHtml(h.timestamp || '')}</td><td>${escapeHtml(h.task || '')}</td><td>${escapeHtml(h.model || '')}</td><td>${(h.prompt_tokens || 0).toLocaleString()}</td><td>${(h.completion_tokens || 0).toLocaleString()}</td><td>${(h.total_tokens || 0).toLocaleString()}</td></tr>`;
+      historyHtml += `<tr><td class="token-time">${escapeHtml(h.timestamp || '')}</td><td>${escapeHtml(h.task || '')}</td><td>${escapeHtml(h.provider || '')}</td><td>${escapeHtml(h.model || '')}</td><td>${escapeHtml(h.prompt_version || '')}</td><td>${(h.prompt_tokens || 0).toLocaleString()}</td><td>${(h.completion_tokens || 0).toLocaleString()}</td><td>${(h.total_tokens || 0).toLocaleString()}</td><td>${fmtCost(h.cost_usd)}</td></tr>`;
     }
     historyHtml += '</table>';
 

@@ -9,10 +9,22 @@ import { applyLocale } from '../i18n.js';
 import { renderTokens } from '../editor-config.js';
 
 const USAGE = {
-  total: { total_tokens: 10, prompt_tokens: 6, completion_tokens: 4 },
-  by_model: { 'gemini-2.5-flash': { calls: 1, prompt_tokens: 6, completion_tokens: 4, total_tokens: 10 } },
-  by_task: { video_analyze: { calls: 1, prompt_tokens: 6, completion_tokens: 4, total_tokens: 10 } },
-  history: [],
+  total: { total_tokens: 10, prompt_tokens: 6, completion_tokens: 4, cost_usd: 0.000012 },
+  by_model: { 'gemini-2.5-flash': { calls: 1, prompt_tokens: 6, completion_tokens: 4, total_tokens: 10, cost_usd: 0.000012 } },
+  by_task: { video_analyze: { calls: 1, prompt_tokens: 6, completion_tokens: 4, total_tokens: 10, cost_usd: 0.000012 } },
+  history: [
+    {
+      timestamp: '2026-11-11T10:00:00',
+      task: 'video_analyze',
+      provider: 'gemini',
+      model: 'gemini-2.5-flash',
+      prompt_version: 'abc123def456',
+      prompt_tokens: 6,
+      completion_tokens: 4,
+      total_tokens: 10,
+      cost_usd: 0.000012,
+    },
+  ],
 };
 
 describe('token stats localization', () => {
@@ -30,13 +42,17 @@ describe('token stats localization', () => {
     await renderTokens();
     const enHtml = document.getElementById('tab-tokens').innerHTML;
     expect(enHtml).toContain('Total tokens');
+    expect(enHtml).toContain('Total cost');
     expect(enHtml).toContain('By model');
     expect(enHtml).toContain('By task');
+    expect(enHtml).toContain('abc123def456');
+    expect(enHtml).toContain('$0.000012');
 
     applyLocale('zh-CN');
     await renderTokens();
     const zhHtml = document.getElementById('tab-tokens').innerHTML;
     expect(zhHtml).toContain('\u603b Token');
+    expect(zhHtml).toContain('\u603b\u8d39\u7528');
     expect(zhHtml).toContain('\u6309\u6a21\u578b');
   });
 

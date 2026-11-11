@@ -4,7 +4,12 @@ import copy
 from unittest.mock import patch
 
 from clio.ai.base import TokenUsage
-from clio.ai.token_usage import _EMPTY_STATS, FileTokenUsageStore, _merge_stats
+from clio.ai.token_usage import (
+    _EMPTY_STATS,
+    FileTokenUsageStore,
+    _merge_stats,
+    estimate_cost_usd,
+)
 from clio.utils import write_json_atomic
 
 
@@ -16,6 +21,7 @@ def test_merge_stats_accumulates_by_model():
         "completion_tokens": 20,
         "total_tokens": 30,
         "calls": 1,
+        "cost_usd": 0.0,
     }
 
 
@@ -27,6 +33,7 @@ def test_merge_stats_accumulates_by_task():
         "completion_tokens": 15,
         "total_tokens": 20,
         "calls": 1,
+        "cost_usd": 0.0,
     }
 
 
@@ -39,6 +46,7 @@ def test_merge_stats_multiple_calls_same_model():
         "completion_tokens": 25,
         "total_tokens": 40,
         "calls": 2,
+        "cost_usd": 0.0,
     }
 
 
@@ -50,6 +58,7 @@ def test_merge_stats_updates_total():
         "prompt_tokens": 110,
         "completion_tokens": 220,
         "total_tokens": 330,
+        "cost_usd": 0.0,
     }
 
 
@@ -87,6 +96,9 @@ class TestFileTokenUsageStore:
             assert entry["prompt_tokens"] == 10
             assert entry["completion_tokens"] == 20
             assert entry["total_tokens"] == 30
+            assert entry["provider"] == ""
+            assert entry["prompt_version"] == ""
+            assert entry["cost_usd"] == 0.0
 
     def test_record_updates_stats(self, tmp_path):
         store = FileTokenUsageStore(str(tmp_path))
@@ -176,3 +188,57 @@ class TestFileTokenUsageStore:
 
         result = store._read_raw()
         assert result["total"]["total_tokens"] == 42
+
+
+def test_estimate_cost_usd_uses_split_prices():
+    assert estimate_cost_usd(1_000_000, 500_000, 2.0, 4.0) == 4.0
+    assert estimate_cost_usd(10, 20, 0.0, 0.0) == 0.0
+
+
+def test_merge_stats_accumulates_cost():
+    stats = copy.deepcopy(_EMPTY_STATS)
+    _merge_stats(stats, "voiceover", "deepseek-chat", 10, 20, 30, cost_usd=0.0012)
+    _merge_stats(stats, "voiceover", "deepseek-chat", 5, 5, 10, cost_usd=0.0004)
+    assert stats["total"]["cost_usd"] == 0.0016
+    assert stats["by_model"]["deepseek-chat"]["cost_usd"] == 0.0016
+    assert stats["by_task"]["voiceover"]["cost_usd"] == 0.0016
+
+
+def test_record_persists_provider_prompt_version_and_cost(tmp_path):
+    store = FileTokenUsageStore(str(tmp_path))
+    usage = TokenUsage(prompt_tokens=100, completion_tokens=50, total_tokens=150)
+
+    with patch("clio.ai.token_usage.write_json_atomic") as mock_write:
+        store.record(
+            "video_analyze",
+            "gemini-2.5-flash",
+            usage,
+            provider="gemini",
+            prompt_version="abc123def456",
+            cost_usd=0.0007,
+        )
+
+        data = mock_write.call_args[0][1]
+        entry = data["history"][0]
+        assert entry["provider"] == "gemini"
+        assert entry["prompt_version"] == "abc123def456"
+        assert entry["cost_usd"] == 0.0007
+        assert data["total"]["cost_usd"] == 0.0007
+        assert data["by_model"]["gemini-2.5-flash"]["cost_usd"] == 0.0007
+        assert data["by_task"]["video_analyze"]["cost_usd"] == 0.0007
+
+
+def test_read_raw_backfills_cost_for_legacy_files(tmp_path):
+    store = FileTokenUsageStore(str(tmp_path))
+    legacy = {
+        "total": {"prompt_tokens": 5, "completion_tokens": 5, "total_tokens": 10},
+        "by_model": {"gemini": {"prompt_tokens": 5, "completion_tokens": 5, "total_tokens": 10, "calls": 1}},
+        "by_task": {"video_analyze": {"prompt_tokens": 5, "completion_tokens": 5, "total_tokens": 10, "calls": 1}},
+        "history": [],
+    }
+    write_json_atomic(store._path, legacy)
+
+    stats = store.get_stats()
+    assert stats["total"]["cost_usd"] == 0.0
+    assert stats["by_model"]["gemini"]["cost_usd"] == 0.0
+    assert stats["by_task"]["video_analyze"]["cost_usd"] == 0.0

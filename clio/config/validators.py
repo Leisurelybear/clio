@@ -250,6 +250,10 @@ def _validate_config(config: AppConfig) -> None:
         _require_min(f"ai.providers.{provider_name}.retry_attempts", provider_cfg.retry_attempts, 0)
         # 0 means unlimited; only reject negative values
         _require_min(f"ai.providers.{provider_name}.max_tokens", provider_cfg.max_tokens, 0)
+        _require_min(f"ai.providers.{provider_name}.prompt_price_per_1m_usd", provider_cfg.prompt_price_per_1m_usd, 0)
+        _require_min(
+            f"ai.providers.{provider_name}.completion_price_per_1m_usd", provider_cfg.completion_price_per_1m_usd, 0
+        )
         _require_positive(f"ai.providers.{provider_name}.timeout_sec", provider_cfg.timeout_sec)
         if provider_cfg.type == "gemini":
             _require_positive(f"ai.providers.{provider_name}.poll_interval_sec", provider_cfg.poll_interval_sec)
@@ -288,6 +292,10 @@ def validate_global_config(config: GlobalConfig) -> None:
         _require_min(f"ai.providers.{provider_name}.requests_per_minute", provider_cfg.requests_per_minute, 0)
         _require_min(f"ai.providers.{provider_name}.retry_attempts", provider_cfg.retry_attempts, 0)
         _require_min(f"ai.providers.{provider_name}.max_tokens", provider_cfg.max_tokens, 0)
+        _require_min(f"ai.providers.{provider_name}.prompt_price_per_1m_usd", provider_cfg.prompt_price_per_1m_usd, 0)
+        _require_min(
+            f"ai.providers.{provider_name}.completion_price_per_1m_usd", provider_cfg.completion_price_per_1m_usd, 0
+        )
         _require_positive(f"ai.providers.{provider_name}.timeout_sec", provider_cfg.timeout_sec)
         if provider_cfg.type == "gemini":
             _require_positive(f"ai.providers.{provider_name}.poll_interval_sec", provider_cfg.poll_interval_sec)

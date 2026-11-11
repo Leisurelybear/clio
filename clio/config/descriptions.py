@@ -34,6 +34,8 @@ CONFIG_DESCRIPTIONS: dict[str, str] = {
     "ai.providers.{name}.timeout_sec": "OpenAI 兼容接口的 HTTP 超时时间（秒），默认 120",
     "ai.providers.{name}.max_tokens": "单次生成最大 token 数；0 = 不限制（由模型/服务端决定，规划类任务推荐）",
     "ai.providers.{name}.video_upload_max_mb": "Gemini 视频上传上限（MB），超过则先压缩",
+    "ai.providers.{name}.prompt_price_per_1m_usd": "每 100 万 prompt token 的美元单价（0 = 不估算费用）",
+    "ai.providers.{name}.completion_price_per_1m_usd": "每 100 万 completion token 的美元单价（0 = 不估算费用）",
     "ai.providers.{name}.models": "该厂商支持的模型名称列表（如 gemini-2.5-flash），用于任务绑定的下拉选择",
     "ai.providers.{name}.capabilities": "能力标签列表。video 表示可做视频理解，text 表示可做文本生成",
     "ai.providers.{name}.requests_per_minute": "每分钟最多调用次数，0 为不限流",

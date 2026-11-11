@@ -87,6 +87,9 @@ ai:
 
   # debug_print_prompt: false  # 调试用：每次 AI 调用前打印完整 prompt 到控制台（默认关闭；排查 AI 输出时可改为 true）
   providers:
+    # 可选：token 费用估算单价（USD / 100 万 token）；0 = 不估算
+    # prompt_price_per_1m_usd: 0.0
+    # completion_price_per_1m_usd: 0.0
     gemini:
       type: gemini
       api_key_env: GEMINI_API_KEY

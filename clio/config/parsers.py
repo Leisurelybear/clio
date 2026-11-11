@@ -42,6 +42,8 @@ def _parse_providers(raw: dict) -> dict[str, ProviderConfig]:
             timeout_sec=typed.get("timeout_sec", 120.0),
             max_tokens=typed.get("max_tokens", 0),
             video_upload_max_mb=typed.get("video_upload_max_mb", 200),
+            prompt_price_per_1m_usd=typed.get("prompt_price_per_1m_usd", 0.0),
+            completion_price_per_1m_usd=typed.get("completion_price_per_1m_usd", 0.0),
             models=typed.get("models", []),
             capabilities=typed.get("capabilities") or _infer_provider_capabilities(provider_type),
         )

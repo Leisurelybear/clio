@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import math
 import threading
@@ -10,6 +11,7 @@ from typing import Any
 
 from clio.ai.base import AIResponse, TaskName
 from clio.ai.factory import get_task_config, get_task_provider, get_video_provider, provider_use
+from clio.ai.token_usage import estimate_cost_usd
 from clio.config import AppConfig
 from clio.cut import parse_time_range
 from clio.i18n import t
@@ -37,6 +39,29 @@ def _task_temperature(config: AppConfig, task: TaskName) -> float | None:
         return get_task_config(config, task).temperature
     except Exception:
         return None
+
+
+def _usage_meta(config: AppConfig, task: TaskName) -> dict[str, Any]:
+    """Return provider name and price metadata for one AI task."""
+    try:
+        task_cfg = get_task_config(config, task)
+        provider_cfg = config.ai.providers.get(task_cfg.provider)
+    except Exception:
+        return {
+            "provider_name": "",
+            "prompt_price_per_1m_usd": 0.0,
+            "completion_price_per_1m_usd": 0.0,
+        }
+    return {
+        "provider_name": task_cfg.provider,
+        "prompt_price_per_1m_usd": float(getattr(provider_cfg, "prompt_price_per_1m_usd", 0.0) or 0.0),
+        "completion_price_per_1m_usd": float(getattr(provider_cfg, "completion_price_per_1m_usd", 0.0) or 0.0),
+    }
+
+
+def _prompt_version(system_message: str | None, prompt: str) -> str:
+    payload = (system_message or "") + "\0" + prompt
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
 
 
 _REFINEMENT_IMMUTABLE_FIELDS = {
@@ -393,6 +418,10 @@ def _call_ai(
     token_store=None,
     task_name: str = "",
     cancel_event: threading.Event | None = None,
+    system_message: str | None = None,
+    provider_name: str = "",
+    prompt_price_per_1m_usd: float = 0.0,
+    completion_price_per_1m_usd: float = 0.0,
 ) -> str:
     # Check cancel_event before starting AI call
     if cancel_event and cancel_event.is_set():
@@ -411,7 +440,19 @@ def _call_ai(
             resp = fn()
         print(t("analyze.response_size", {"size": format_size(len(resp.text.encode("utf-8")))}))
         if token_store and resp.token_usage:
-            token_store.record(task_name or label, model, resp.token_usage)
+            token_store.record(
+                task_name or label,
+                model,
+                resp.token_usage,
+                provider=provider_name,
+                prompt_version=_prompt_version(system_message, prompt),
+                cost_usd=estimate_cost_usd(
+                    resp.token_usage.prompt_tokens,
+                    resp.token_usage.completion_tokens,
+                    prompt_price_per_1m_usd,
+                    completion_price_per_1m_usd,
+                ),
+            )
         if resp.blocked:
             raise RuntimeError(t("ai.response_blocked", {"reason": resp.block_reason}))
         if not _is_truncated_response(resp):
@@ -890,6 +931,8 @@ def analyze_video(
             token_store=token_store,
             task_name=TaskName.VIDEO_ANALYZE,
             cancel_event=cancel_event,
+            system_message=system,
+            **_usage_meta(config, TaskName.VIDEO_ANALYZE),
         )
 
     with provider_use(provider):
@@ -974,6 +1017,8 @@ def generate_voiceover(
             token_store=token_store,
             task_name=TaskName.VOICEOVER,
             cancel_event=cancel_event,
+            system_message=system,
+            **_usage_meta(config, TaskName.VOICEOVER),
         )
 
     with provider_use(provider):
@@ -1047,6 +1092,8 @@ def plan_daily_vlog(
             debug_print=config.ai.debug_print_prompt,
             token_store=token_store,
             task_name=TaskName.VLOG_PLAN,
+            system_message=system,
+            **_usage_meta(config, TaskName.VLOG_PLAN),
         )
 
     with provider_use(provider):
@@ -1138,6 +1185,8 @@ def refine_text(
             debug_print=config.ai.debug_print_prompt,
             token_store=token_store,
             task_name=TaskName.REFINE_TEXT,
+            system_message=system,
+            **_usage_meta(config, TaskName.REFINE_TEXT),
         )
     result = extract_json(text)
     if not isinstance(result, dict):
@@ -1186,6 +1235,8 @@ def summarize_window_analysis(
                 token_store=token_store,
                 task_name=TaskName.REFINE_TEXT,
                 cancel_event=cancel_event,
+                system_message=system,
+                **_usage_meta(config, TaskName.REFINE_TEXT),
             )
     except Exception as exc:
         if cancel_event is not None and cancel_event.is_set():
@@ -1265,6 +1316,8 @@ def refine_script(
             debug_print=config.ai.debug_print_prompt,
             token_store=token_store,
             task_name=TaskName.REFINE_TEXT,
+            system_message=system,
+            **_usage_meta(config, TaskName.REFINE_TEXT),
         )
     result = extract_json(text)
     if not isinstance(result, dict):

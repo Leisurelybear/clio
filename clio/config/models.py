@@ -37,6 +37,8 @@ class ProviderConfig:
     # 0 = unlimited (do not send max_tokens to the API)
     max_tokens: int = 0
     video_upload_max_mb: int = 200
+    prompt_price_per_1m_usd: float = 0.0
+    completion_price_per_1m_usd: float = 0.0
     models: list[str] = field(default_factory=list)
     capabilities: list[str] = field(default_factory=list)
 

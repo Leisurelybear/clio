@@ -15,6 +15,7 @@ from clio.analyze import (
     _build_plan_transcript_info,
     _call_ai,
     _merge_refinement_result,
+    _prompt_version,
     _select_transcript_segments,
     _system_context,
     _validate_analysis,
@@ -58,6 +59,10 @@ def test_call_ai_retries_truncated_response_once():
     assert result == '{"ok":true}'
     assert provider_call.call_count == 2
     assert token_store.record.call_count == 2
+    first_record = token_store.record.call_args_list[0]
+    assert first_record.kwargs["provider"] == ""
+    assert len(first_record.kwargs["prompt_version"]) == 12
+    assert first_record.kwargs["cost_usd"] == 0.0
 
 
 def test_call_ai_rejects_blocked_response_and_records_usage():
@@ -1152,3 +1157,32 @@ def test_generate_voiceover_omits_temperature_when_unconfigured(monkeypatch):
     generate_voiceover({"title": "t", "timeline": []}, "template", cfg)
 
     assert seen["temperature"] is None
+
+
+def test_call_ai_records_provider_prompt_version_and_cost():
+    provider_call = MagicMock(
+        return_value=AIResponse(
+            "ok",
+            TokenUsage(prompt_tokens=1_000_000, completion_tokens=500_000, total_tokens=1_500_000),
+        )
+    )
+    token_store = MagicMock()
+
+    _call_ai(
+        "video analysis",
+        "openai_compat",
+        "deepseek-chat",
+        "prompt",
+        provider_call,
+        token_store=token_store,
+        task_name="video_analyze",
+        system_message="system spec",
+        provider_name="deepseek",
+        prompt_price_per_1m_usd=2.0,
+        completion_price_per_1m_usd=4.0,
+    )
+
+    kwargs = token_store.record.call_args.kwargs
+    assert kwargs["provider"] == "deepseek"
+    assert kwargs["prompt_version"] == _prompt_version("system spec", "prompt")
+    assert kwargs["cost_usd"] == 4.0
