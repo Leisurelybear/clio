@@ -182,6 +182,26 @@ from clio.utils import write_json_atomic
 
 STATIC_DIR = Path(__file__).parent / "static"
 
+_CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; "
+    "script-src 'self'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data: blob:; "
+    "media-src 'self' blob:; "
+    "connect-src 'self'; "
+    "font-src 'self'; "
+    "object-src 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'; "
+    "frame-ancestors 'none'"
+)
+SECURITY_HEADERS: tuple[tuple[str, str], ...] = (
+    ("Content-Security-Policy", _CONTENT_SECURITY_POLICY),
+    ("X-Frame-Options", "DENY"),
+    ("X-Content-Type-Options", "nosniff"),
+    ("Referrer-Policy", "no-referrer"),
+)
+
 _desktop_focus_callback: Callable[[], None] | None = None
 _STATE_CREATE_LOCK = threading.Lock()
 _TASK_MANAGER_CREATE_LOCK = threading.Lock()
@@ -471,7 +491,23 @@ def make_handler(
 
         def send_response(self, code: int, message: str | None = None) -> None:
             self._http_response_started = True
+            self._sent_header_names = set()
             super().send_response(code, message)
+
+        def send_header(self, keyword: str, value: str) -> None:
+            sent = getattr(self, "_sent_header_names", None)
+            if sent is None:
+                sent = set()
+                self._sent_header_names = sent
+            sent.add(keyword.lower())
+            super().send_header(keyword, value)
+
+        def end_headers(self) -> None:
+            sent = getattr(self, "_sent_header_names", set())
+            for key, value in SECURITY_HEADERS:
+                if key.lower() not in sent:
+                    self.send_header(key, value)
+            super().end_headers()
 
         def send_error(self, code: int, message: str | None = None, explain: str | None = None) -> None:
             self._http_response_started = True

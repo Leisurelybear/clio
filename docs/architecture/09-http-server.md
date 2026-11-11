@@ -42,7 +42,9 @@ run(host, port, api_token, …)
   allowed loopback host) for the desktop/local server.
 - **Security hardening**: oversized headers → 431; JSON content-length/media-type enforced before
   dispatch; `log_message` redacts `token=` query values; `?token=` split keeps secrets out of the
-  status line that ends up in access logs.
+  status line that ends up in access logs. Every response gets CSP, `X-Frame-Options: DENY`,
+  `X-Content-Type-Options: nosniff`, and `Referrer-Policy: no-referrer` from the unified
+  `end_headers()` path; route-specific CSPs are preserved.
 - **Body handling**: `_read_json_body` returns `(-400 invalid, 413 too large, 400 bad
   content-length, 415 wrong media type)` and sends the matching `{ok:false, error}` before the
   handler ever runs.

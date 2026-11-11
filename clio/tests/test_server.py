@@ -17,6 +17,7 @@ from clio.task_center.models import TaskKind
 from clio.task_center.store import TaskStore
 from clio.ui.server import (
     MAX_JSON_BODY_BYTES,
+    SECURITY_HEADERS,
     STATIC_DIR,
     _parse_json_content_length,
     _ServerState,
@@ -64,6 +65,25 @@ def _build_handler(handler_cls, path="/", method="GET"):
     inst.headers.get.return_value = "0"
     inst.rfile = io.BytesIO(b"{}")
     return inst
+
+
+def _build_response_handler(handler_cls):
+    """Create a Handler whose real send_header/end_headers fill an in-memory socket."""
+    with patch.object(handler_cls, "__init__", lambda self: None):
+        inst = handler_cls()
+    inst.wfile = io.BytesIO()
+    inst.request_version = "HTTP/1.1"
+    inst.command = "GET"
+    inst.requestline = "GET /index.html HTTP/1.1"
+    inst.path = "/index.html"
+    inst.client_address = ("127.0.0.1", 12345)
+    inst.log_request = MagicMock()
+    inst.log_error = MagicMock()
+    return inst
+
+
+def _response_head(handler) -> str:
+    return handler.wfile.getvalue().split(b"\r\n\r\n", 1)[0].decode("latin-1")
 
 
 @pytest.fixture
@@ -315,6 +335,43 @@ class TestSendJson:
 
         assert handler.send_header.call_args_list[-1] == call("X-Content-Version", "fedcba9876543210")
         handler.end_headers.assert_called_once()
+
+
+class TestSecurityHeaders:
+    def test_every_response_gets_default_security_headers(self, handler_cls):
+        handler = _build_response_handler(handler_cls)
+        handler.send_response(200)
+        handler.send_header("Content-Type", "text/plain")
+        handler.end_headers()
+
+        head = _response_head(handler)
+        assert "Content-Security-Policy: " in head
+        assert "script-src 'self'" in head
+        assert "object-src 'none'" in head
+        assert "frame-ancestors 'none'" in head
+        assert "X-Frame-Options: DENY" in head
+        assert "X-Content-Type-Options: nosniff" in head
+        assert "Referrer-Policy: no-referrer" in head
+        assert len(SECURITY_HEADERS) == 4
+
+    def test_explicit_csp_is_preserved_without_duplicate(self, handler_cls):
+        handler = _build_response_handler(handler_cls)
+        handler.send_response(200)
+        handler.send_header("Content-Security-Policy", "default-src 'none'")
+        handler.end_headers()
+
+        head = _response_head(handler)
+        assert head.lower().count("content-security-policy:") == 1
+        assert "Content-Security-Policy: default-src 'none'" in head
+        assert "X-Frame-Options: DENY" in head
+
+    def test_error_responses_include_security_headers(self, handler_cls):
+        handler = _build_response_handler(handler_cls)
+        handler.send_error(HTTPStatus.NOT_FOUND)
+
+        head = _response_head(handler)
+        assert "X-Frame-Options: DENY" in head
+        assert "X-Content-Type-Options: nosniff" in head
 
 
 class TestSendStatic:
