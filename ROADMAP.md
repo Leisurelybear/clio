@@ -23,8 +23,8 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
     wrappers and both providers; F2 targeted pytest passed 142 tests plus 24 i18n tests,
     and Vitest passed 859 tests across 80 files; F5 targeted pytest passed 240 tests,
     full pytest passed 2876 tests with 12 skipped and 13 deselected (symlink tests
-    excluded), and Vitest passed 860 tests across 80 files; Ruff and `git diff --check`
-    passed.
+    excluded), and Vitest passed 860 tests across 80 files; D12 targeted pytest passed
+    31 tests; Ruff and `git diff --check` passed.
     CI run 42820037572 (head `262abde`) and CI run 42840852167 (head `958bc57`) passed
     all Python 3.11/3.12 platform jobs plus quality, package, and Vitest jobs.
   - [x] P0 completed (14): B1 `a01b156`; B2 `a436315`; C1 `14b873b`; C2 `91e4699`;
@@ -44,7 +44,8 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
   - [~] P2 partial (3): C16 `c75c067` / `8aca38e` (all dialogs and undo stack remain);
     F8 `7b8bfa0` / `7515acb` (transitions remain); O15 `a97bf4d` (default HTML escaping
     remains).
-  - [ ] P2 awaiting real-environment verification (2): C10; D12.
+  - [ ] P2 awaiting real-environment verification (2): C10; D12 (`082cc7e` completes
+    the code-side fixes: timeline clamping, draft_meta_info.json, platform/fps probing).
   - [ ] P2 pending (10): O8; O9; O10; O13; O14; O16; O18;
     Q13; F4; F9.
   - [ ] Next: close the remaining partial items, then continue the backlog one focused
