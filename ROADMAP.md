@@ -15,7 +15,8 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
     (2837 passed, 12 skipped, 13 deselected with symlink tests excluded), full Vitest
     (857 passed), O7 targeted pytest (153 passed), full pytest after O7 (2846 passed,
     12 skipped, 13 deselected), Ruff on changed Python files, and `git diff --check`.
-    B10 is documentation-only and was checked with `git diff --check`.
+    B10 is documentation-only and was checked with `git diff --check`. F8 SRT targeted pytest
+    passed 29 tests; Ruff and `git diff --check` passed.
     CI run 42820037572 (head `262abde`) and CI run 42840852167 (head `958bc57`) passed
     all Python 3.11/3.12 platform jobs plus quality, package, and Vitest jobs.
   - [x] P0 completed (14): B1 `a01b156`; B2 `a436315`; C1 `14b873b`; C2 `91e4699`;
@@ -33,7 +34,7 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
     C12 `2821c43`; D14 `f18d4cd`; D16 `70c4a66`; O3 `47f3fe1` / `4ca2c77`;
     O5 `77698a0`; O6 `52aa7ff` / `ebdd738`; O7 `a436315` / `9be0401` / `701bac7`; O12 `b6f76da`.
   - [~] P2 partial (2): C16 `c75c067` / `8aca38e` (all dialogs and undo stack remain);
-    F8 `7b8bfa0` (SRT and transitions remain).
+    F8 `7b8bfa0` / `7515acb` (transitions remain).
   - [ ] P2 awaiting real-environment verification (2): C10; D12.
   - [ ] P2 pending (14): O4; O8; O9; O10; O11; O13; O14; O15; O16; O18;
     Q13; F4; F5; F9.
