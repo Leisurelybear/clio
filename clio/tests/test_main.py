@@ -619,6 +619,7 @@ def test_serve_dispatches_to_ui_server(cli_runner, config_path, monkeypatch):
 
     assert result == 0
     assert calls["open_browser"] is False
+    assert calls["api_token"] is None
 
 
 def test_serve_exits_when_clio_is_already_running(cli_runner, config_path, monkeypatch, capsys):

@@ -383,7 +383,7 @@ def run(
     install_hooks()
     print(f"[startup] hooks installed ({_startup_ms(t0)})")
 
-    TOKEN = api_token
+    TOKEN = (api_token or "").strip() or None
     # A *blank* host previously bound 0.0.0.0 (all NICs) while being treated as
     # local/loopback, i.e. no token — silently exposing the API to the LAN.
     # Blank host is now normalized to 127.0.0.1; explicit 0.0.0.0 keeps LAN

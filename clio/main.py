@@ -626,7 +626,7 @@ def main(argv: list[str] | None = None) -> int:
                 host=args.host,
                 port=args.port,
                 open_browser=not args.no_browser,
-                api_token=args.token or config.server.api_token,
+                api_token=args.token or config.server.api_token or None,
             )
         elif args.command == "tokens":
             cmd_tokens(args)

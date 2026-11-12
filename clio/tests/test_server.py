@@ -1421,3 +1421,28 @@ class TestRunPortErrors:
 
         with pytest.raises(PermissionError):
             server.run(active, host="127.0.0.1", port=8800, open_browser=False)
+
+    @pytest.mark.parametrize(
+        ("host", "expected_token"),
+        [("0.0.0.0", "generated-token"), ("127.0.0.1", "")],
+    )
+    def test_blank_token_is_normalized_by_access_mode(self, monkeypatch, host, expected_token):
+        from clio.ui import server
+
+        active = self._active_config()
+        handler = MagicMock()
+        bound_server = MagicMock()
+        make_handler = MagicMock(return_value=handler)
+        monkeypatch.setattr(server, "install_hooks", lambda: None)
+        monkeypatch.setattr(server, "resolve_last_project_config", lambda *_a, **_k: active)
+        monkeypatch.setattr(server, "auto_reindex_if_needed", lambda *_a, **_k: False)
+        monkeypatch.setattr(server, "make_handler", make_handler)
+        monkeypatch.setattr(server, "BoundedThreadingHTTPServer", lambda *_a, **_k: bound_server)
+        monkeypatch.setattr(server, "shutdown_task_manager", lambda *_a, **_k: None)
+        monkeypatch.setattr(server, "before_stop", lambda: None)
+        monkeypatch.setattr(server.secrets, "token_urlsafe", lambda _size: "generated-token")
+
+        assert server.run(active, host=host, port=8800, api_token="", open_browser=False) == 0
+
+        assert make_handler.call_args.kwargs["api_token"] == expected_token
+        bound_server.serve_forever.assert_called_once_with()
