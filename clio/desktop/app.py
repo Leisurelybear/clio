@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import secrets
 import sys
@@ -53,7 +54,7 @@ def _confirm_web_continue() -> bool:
             "Clio",
             t("desktop.web_running_confirm"),
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 - native dialog backends raise platform-specific failures
         return True
 
 
@@ -63,7 +64,7 @@ def _confirm_quit() -> bool:
         import webview
 
         return webview.confirm_dialog(t("desktop.quit_title"), t("desktop.quit_confirm"))
-    except Exception:
+    except Exception:  # noqa: BLE001 - native dialog backends raise platform-specific failures
         return True
 
 
@@ -238,14 +239,10 @@ def main(
             """
             pass  # stop handled by finally
 
-        try:
+        with contextlib.suppress(Exception):  # event API may differ by version
             window.events.closing += _on_closing
-        except Exception:  # noqa: BLE001 — event API may differ by version
-            pass
-        try:
+        with contextlib.suppress(Exception):  # event API may differ by version
             window.events.closed += _on_closed
-        except Exception:  # noqa: BLE001 — event API may differ by version
-            pass
         try:
             webview.start()
         except Exception as e:  # noqa: BLE001 — WebView2 runtime missing is the common cause
