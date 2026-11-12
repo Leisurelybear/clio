@@ -86,7 +86,10 @@ describe('editor tab switching', () => {
       return jsonResponse(API_GET[raw.split('?')[0]] ?? {});
     });
     await import('../main.js');
-    await tick(400);
+    await vi.waitFor(() => {
+      expect(document.querySelector('.tab[data-tab="voiceover"]')?.onclick).toBeTypeOf('function');
+    }, { timeout: 5000 });
+    await tick(50);
     ({ state } = await import('../state.js'));
   }, 30000);
 
