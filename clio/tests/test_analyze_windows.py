@@ -109,7 +109,10 @@ class TestTimelineCoverage:
 
         gaps = timeline_gaps(analysis, 0.0, 100.0)
 
-        assert [(gap.start_sec, gap.end_sec) for gap in gaps] == pytest.approx([(20.0, 30.0), (50.0, 80.0)])
+        actual = [(gap.start_sec, gap.end_sec) for gap in gaps]
+        assert len(actual) == 2
+        assert actual[0] == pytest.approx((20.0, 30.0))
+        assert actual[1] == pytest.approx((50.0, 80.0))
 
     @pytest.mark.parametrize(("start", "end"), [(100.0, 100.0), (200.0, 100.0), (float("nan"), 100.0)])
     def test_timeline_gaps_invalid_bounds_are_empty(self, start, end):
