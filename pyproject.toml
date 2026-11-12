@@ -67,43 +67,10 @@ line-ending = "auto"
 python_version = "3.11"
 strict = false
 ignore_missing_imports = true
-# Progressive type-hardening scope (P2-P30): modules that pass under
-# --check-untyped-defs. Expand as more modules are hardened; do not add a
-# module here until `mypy <module> --check-untyped-defs --show-error-codes`
-# reports zero issues.
-files = [
-    "clio/config/",
-    "clio/progress.py",
-    "clio/doctor.py",
-    "clio/ui/services/ai_test_service.py",
-    "clio/export/__init__.py",
-    "clio/log.py",
-    "clio/log_history.py",
-    "clio/schema.py",
-    "clio/_str_enum.py",
-    "clio/identity.py",
-    "clio/index.py",
-    "clio/gpmf.py",
-    "clio/plan_preview.py",
-    "clio/processing_state.py",
-    "clio/transcribe.py",
-    "clio/vmeta.py",
-    "clio/utils.py",
-    "clio/plan_model.py",
-    "clio/plan_readiness.py",
-    "clio/compress.py",
-    "clio/analyze_windows.py",
-    "clio/cut.py",
-    "clio/shutdown.py",
-    "clio/ai/",
-    "clio/tasks/_helpers.py",
-    "clio/tasks/compress.py",
-    "clio/tasks/compare_models.py",
-    "clio/tasks/transcript_align.py",
-    "clio/task_center/",
-    "clio/ui/routes/videos.py",
-    "clio/ui/services/run_preview.py",
-]
+# Production-wide type gate. Keep tests outside until their remaining
+# fixture-heavy annotations are hardened and can be enabled separately.
+files = ["clio", "main.py"]
+exclude = ["^clio/tests/"]
 
 [tool.coverage.run]
 branch = true
