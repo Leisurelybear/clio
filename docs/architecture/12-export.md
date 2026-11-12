@@ -64,13 +64,16 @@ _Build_tracks: for each segment whose index HAS a video material:
 `draft_content.json` under `output_dir`:
 
 ```json
-{ "id": <uuid>, "name": plan.day_title, "duration": total_µs, "fps": 30,
+{ "id": <uuid>, "name": plan.day_title, "duration": total_µs, "fps": <source fps>,
   "canvas_config": CANVAS_PRESETS[ratio],        // 16:9 default, presets in config.models
   "platform": {app_source:"lv", app_version:"5.9.0", os:"windows"},
   "materials": {video/text/…}, "tracks": [video-track, text-track] }
 ```
 
-Written via `write_text_atomic`. Opened in JianYing by importing the draft folder.
+Written via `write_text_atomic`. `draft_meta_info.json` is written beside it for JianYing 5.9
+draft discovery, with matching `draft_id`/`draft_name`, `draft_root_path`/`draft_fold_path`,
+`tm_duration == draft.duration`, and creation/modification timestamps. Opened in JianYing by
+importing the draft folder.
 
 `subtitles.srt` is written beside the draft whenever at least one caption exists. Cue timing is
 copied from the generated text track, so it reflects only segments that successfully produced both
@@ -97,5 +100,7 @@ a video clip and a caption. A stale SRT is removed when a later export has no ca
 4. `total_duration_us` is derived from track segment max-end, not from the sum of durations —
   a segment with duration but a broken text-only track could misreport length; harmless while
   only video feeds the clock.
-5. Canvas fix `fps: 30` and `canvas_config` come from `CANVAS_PRESETS` keyed by `canvas_ratio`;
-  custom ratios not in the presets silently fall back to `16:9`.
+5. Draft `fps` comes from ffprobe on the first resolved source video and is rounded to an integer;
+  it falls back to 30 only when ffprobe is unavailable or the value is invalid. `canvas_config`
+  comes from `CANVAS_PRESETS` keyed by `canvas_ratio`; custom ratios not in the presets silently
+  fall back to `16:9`.

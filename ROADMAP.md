@@ -14,7 +14,7 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
 
 Source: [`docs/analysis/2026-11-05-P0-P2-Issues.md`](docs/analysis/2026-11-05-P0-P2-Issues.md)
 
-Snapshot: 83 items; 81 completed locally; 1 partial; 1 awaiting real-environment verification; 0 pending.
+Snapshot: 83 items; 82 completed locally; 1 partial; 0 awaiting real-environment verification; 0 pending.
 O17 and O18 are complete as of this cleanup. The analysis document remains the source of truth for item-level
 status and verification notes.
 
@@ -79,10 +79,8 @@ P2 items:
   - `[x]` preserve the validated plan on extraction/provider/JSON failure and include review settings in lineage
 - `[x]` C10 verify multi-window timestamp offsets with a real 15 fps video
   - six logical windows on a real stream-copied 15 fps clip retained source-relative timing; frame at slice 2.000s matched source 282.000s exactly
-
-Awaiting real-environment verification:
-
-- `[~]` D12 compare the JianYing draft with a real sample draft
+- `[x]` D12 compare the JianYing draft with a real sample draft
+  - real-project export produced parseable content/meta files, source fps propagation, matching durations, populated platform fields, and clamped segment ranges
 
 ### R-048 Higher-detail video analysis and bounded plan input
 

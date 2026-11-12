@@ -2,6 +2,21 @@
 
 ## 2026-11-13
 
+JianYing draft export compatibility is now verified against both a real project export and a real
+JianYing preset sample. Source-derived frame rates and complete draft metadata replace the remaining
+hardcoded/incomplete fields.
+
+- fix(export): clamp source ranges to material duration and emit `draft_meta_info.json`
+- fix(export): derive draft fps from the first resolved source and populate the host platform
+- docs: record D12 real-environment evidence and mark the item complete
+
+Verification: a real `France_new_1` export wrote 4 video materials and both required JSON files;
+the overshooting 15s plan range was clamped to the 14.280933s source. A real 15 fps source produced
+`fps: 15`, `tm_duration == draft.duration`, complete platform fields, and the expected core structure
+from the JianYing sample. Focused pytest passes 36 tests.
+
+## 2026-11-13
+
 Multi-window analysis timestamps are now verified on a real 15 fps compressed video. The stream-copied
 windows retained source-relative timing across all six slices, including the exact frame check on the
 second window.
