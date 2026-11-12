@@ -2,6 +2,24 @@
 
 ## 2026-11-12
 
+Production Python type-checking is now clean across the full application and permanently gated.
+The remaining mypy debt is isolated to test annotations.
+
+- fix(types): narrow optional state, provider payloads, task reporters, HTTP handler boundaries,
+  Whisper installer contracts, and desktop window startup paths
+- fix(desktop): replace the unavailable `webview.confirm_dialog` call with a shared Tk confirmation
+  dialog, fail open in headless environments, and reject invalid lock ports or missing windows
+- chore(types): expand the configured mypy gate from a progressive module list to every production
+  module while excluding `clio/tests/`
+- test(desktop): cover Tk confirmation behavior, headless fallback, invalid lock ports, and a
+  `create_window()` result of `None`
+- docs: record O9 as partial because 396 test-only mypy errors remain
+
+Verification: `mypy --check-untyped-defs --show-error-codes clio main.py` reports 396 errors in
+263 files, with `production=0` and `tests=396`; the configured `mypy` gate passes across 136
+production source files. Desktop-focused pytest passes 48 tests; Ruff, format, and
+`git diff --check` pass.
+
 Completed the remaining high-risk frontend XSS cleanup and compacted the roadmap maintenance view.
 `html` tag templates now escape interpolated values by default, while `unsafeHtml` marks only
 code-owned trusted markup.

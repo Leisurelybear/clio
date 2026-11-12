@@ -14,7 +14,7 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
 
 Source: [`docs/analysis/2026-11-05-P0-P2-Issues.md`](docs/analysis/2026-11-05-P0-P2-Issues.md)
 
-Snapshot: 83 items; 66 completed locally; 2 awaiting real-environment verification; 15 pending.
+Snapshot: 83 items; 66 completed locally; 1 partial (O9); 2 awaiting real-environment verification; 14 pending.
 O17 and O18 are complete as of this cleanup. The analysis document remains the source of truth for item-level
 status and verification notes.
 
@@ -32,7 +32,7 @@ Open P1 items:
 Open P2 items:
 
 - `[ ]` O8 split `ui/server.py` handler construction, auth, body parsing, and routes
-- `[ ]` O9 clear the remaining full-package mypy debt and expand the gate
+- `[~]` O9 clear the remaining full-package mypy debt: production is clean and gated; 396 test errors remain
 - `[ ]` O14 add frontend type checking and decompose the largest JS modules
 - `[ ]` O16 raise Vitest coverage around bug fixes and save flows
 - `[ ]` Q13 snap cut points to shot boundaries and sentence endings
