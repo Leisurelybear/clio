@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import threading
 import time
@@ -169,16 +170,12 @@ def replace_file_safely(dest: Path, write_fn) -> None:
     except Exception:
         if bak is not None and bak.exists():
             if dest.exists():
-                try:
+                with contextlib.suppress(OSError):
                     dest.unlink()
-                except OSError:
-                    pass
             bak.replace(dest)
         elif dest.exists():
-            try:
+            with contextlib.suppress(OSError):
                 dest.unlink()
-            except OSError:
-                pass
         raise
     if bak is not None and bak.exists():
         bak.unlink()

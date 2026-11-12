@@ -7,6 +7,7 @@ docs/superpowers/specs/2026-07-18-remove-physical-split-design.md.
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import json
 import re
@@ -478,7 +479,5 @@ def cleanup_analyze_windows_dir(dest_dir: Path) -> None:
     if not dest_dir.is_dir():
         return
     for p in dest_dir.glob("*_w*.mp4"):
-        try:
+        with contextlib.suppress(OSError):
             p.unlink(missing_ok=True)
-        except OSError:
-            pass

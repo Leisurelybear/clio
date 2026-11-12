@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import math
@@ -351,10 +352,8 @@ def _collect_plan_clips(
         capture_source = str(getattr(identity, "original_path", "") or "")
         ffprobe = ""
         if capture_source and Path(capture_source).is_file():
-            try:
+            with contextlib.suppress(OSError):
                 ffprobe = resolve_binary(config.paths.ffprobe, "ffprobe")
-            except OSError:
-                pass
         clips.append(
             {
                 "index": format_index(idx, config.naming.index_width),

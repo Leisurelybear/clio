@@ -7,6 +7,7 @@ returns ready or pending and may start a daemon job with file locks.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -254,10 +255,8 @@ def _run_managed_waveform_task(context) -> dict[str, Any]:
         clear_error(project_output, key)
         return {"key": key, "bin_count": payload.get("bin_count", 0)}
     except Exception as e:
-        try:
+        with contextlib.suppress(OSError):
             error_path(project_output, key).write_text(str(e)[:500], encoding="utf-8")
-        except OSError:
-            pass
         raise
     finally:
         clear_lock(project_output, key)
@@ -486,10 +485,8 @@ def ensure_waveform(
                 write_peaks_atomic(project_output, key, payload)
                 clear_error(project_output, key)
             except Exception as e:
-                try:
+                with contextlib.suppress(OSError):
                     error_path(project_output, key).write_text(str(e)[:500], encoding="utf-8")
-                except OSError:
-                    pass
             finally:
                 clear_lock(project_output, key)
                 with _jobs_lock:
