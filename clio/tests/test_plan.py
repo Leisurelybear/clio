@@ -108,6 +108,13 @@ def test_plan_no_transcript_fallback():
         assert result["day_title"] == "test"
 
 
+def _enable_transcripts(config: AppConfig) -> None:
+    config.plan.use_transcripts = True
+    project_cfg = config.project_cfg
+    assert project_cfg is not None
+    project_cfg.whisper.enabled = True
+
+
 def _analysis(index: str, source: str = "GL010683", day: str = "day1", **extra) -> dict:
     return {
         "index": index,
@@ -237,7 +244,9 @@ class TestPlanLineageFingerprint:
     def test_changes_on_transcript_selection_limit(self, loaded_config: AppConfig) -> None:
         clips = [{"index": "001", "source_stem": "GL010683", "title": "t"}]
         base = _plan_lineage_fingerprint(loaded_config, clips)
-        loaded_config.whisper._project.max_segments_per_clip += 1
+        project_cfg = loaded_config.project_cfg
+        assert project_cfg is not None
+        project_cfg.whisper.max_segments_per_clip += 1
 
         assert _plan_lineage_fingerprint(loaded_config, clips) != base
 
@@ -498,6 +507,7 @@ class TestRunPlanVlog:
         with patch("clio.tasks.plan.plan_daily_vlog") as mock:
             result = run_plan_vlog(loaded_config, "day1")
         mock.assert_not_called()
+        assert result is not None
         assert result["day_title"] == "old"
         stored = json.loads((loaded_config.plans_dir / "day1_plan.json").read_text(encoding="utf-8"))
         assert stored["_lineage"]
@@ -518,17 +528,16 @@ class TestRunPlanVlog:
 
     def test_transcripts_missing_warning(self, loaded_config: AppConfig, capsys) -> None:
         _write_analysis(loaded_config, _analysis("001"))
-        loaded_config.plan.use_transcripts = True
-        loaded_config.project_cfg.whisper.enabled = True
+        _enable_transcripts(loaded_config)
         with patch("clio.tasks.plan.plan_daily_vlog", return_value={"day_title": "day1", "sequence": []}):
             result = run_plan_vlog(loaded_config, "day1")
+        assert result is not None
         assert result["_transcripts_missing"] is True
         assert "未找到任何 transcript" in capsys.readouterr().out
 
     def test_transcripts_loaded_into_map(self, loaded_config: AppConfig) -> None:
         _write_analysis(loaded_config, _analysis("001"))
-        loaded_config.plan.use_transcripts = True
-        loaded_config.project_cfg.whisper.enabled = True
+        _enable_transcripts(loaded_config)
         loaded_config.transcripts_dir.mkdir(parents=True, exist_ok=True)
         transcript = {
             "segments": [{"start": 0.0, "end": 1.0, "text": "hi"}],
@@ -554,8 +563,7 @@ class TestRunPlanVlog:
 
     def test_legacy_transcript_stem_parsing(self, loaded_config: AppConfig) -> None:
         _write_analysis(loaded_config, _analysis("001"))
-        loaded_config.plan.use_transcripts = True
-        loaded_config.project_cfg.whisper.enabled = True
+        _enable_transcripts(loaded_config)
         loaded_config.transcripts_dir.mkdir(parents=True, exist_ok=True)
         legacy = {"segments": [], "source_stem": "001_GL010683_seg01"}
         (loaded_config.transcripts_dir / "legacy_transcript.json").write_text(json.dumps(legacy), encoding="utf-8")
@@ -566,8 +574,7 @@ class TestRunPlanVlog:
     @pytest.mark.parametrize("content", ["{corrupt", "[]", '{"source_stem": 123}', b"\xff"])
     def test_corrupt_transcript_skipped(self, loaded_config: AppConfig, content: str | bytes) -> None:
         _write_analysis(loaded_config, _analysis("001"))
-        loaded_config.plan.use_transcripts = True
-        loaded_config.project_cfg.whisper.enabled = True
+        _enable_transcripts(loaded_config)
         loaded_config.transcripts_dir.mkdir(parents=True, exist_ok=True)
         bad_transcript = loaded_config.transcripts_dir / "000_bad_transcript.json"
         if isinstance(content, bytes):
@@ -594,8 +601,7 @@ class TestRunPlanVlog:
 
     def test_legacy_transcript_with_indexed_prefix(self, loaded_config: AppConfig) -> None:
         _write_analysis(loaded_config, _analysis("001"))
-        loaded_config.plan.use_transcripts = True
-        loaded_config.project_cfg.whisper.enabled = True
+        _enable_transcripts(loaded_config)
         loaded_config.transcripts_dir.mkdir(parents=True, exist_ok=True)
         legacy = {"segments": [], "source_stem": "001_GL010683"}
         (loaded_config.transcripts_dir / "legacy2_transcript.json").write_text(json.dumps(legacy), encoding="utf-8")
