@@ -690,6 +690,35 @@ class TestLoadConfig:
         assert cfg.compress.fps == 15  # global-only field, project override ignored
         assert cfg.compress.target_size_mb == 5  # inherited
 
+    def test_malformed_global_yaml_raises_readable_error(self, tmp_path):
+        cfg_path = tmp_path / "config.yaml"
+        cfg_path.write_text("proxy: [\n", encoding="utf-8")
+
+        with pytest.raises(ValueError, match="配置文件解析失败") as exc_info:
+            load_config(cfg_path)
+
+        assert str(cfg_path) in str(exc_info.value)
+
+    def test_non_mapping_global_yaml_raises_readable_error(self, tmp_path):
+        cfg_path = tmp_path / "config.yaml"
+        cfg_path.write_text("- not-a-mapping\n", encoding="utf-8")
+
+        with pytest.raises(ValueError, match="根节点必须是映射") as exc_info:
+            load_config(cfg_path)
+
+        assert str(cfg_path) in str(exc_info.value)
+
+    def test_malformed_project_yaml_raises_readable_error(self, tmp_path):
+        cfg_path = tmp_path / "config.yaml"
+        cfg_path.write_text("proxy:\n  enabled: false\n", encoding="utf-8")
+        project_path = tmp_path / "project.yaml"
+        project_path.write_text("plan: [\n", encoding="utf-8")
+
+        with pytest.raises(ValueError, match="配置文件解析失败") as exc_info:
+            load_config(cfg_path, project_dir=tmp_path)
+
+        assert str(project_path) in str(exc_info.value)
+
     def test_project_context_file_resolved_correctly(self, tmp_path):
         """context_file in project.yaml resolves relative to project_dir."""
         cfg_path = tmp_path / "config.yaml"

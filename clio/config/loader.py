@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 import os
 import re
 from copy import deepcopy
@@ -119,6 +120,18 @@ def _load_dotenv(base: Path, override: bool = False) -> None:
             os.environ[key] = value
 
 
+def _load_yaml_mapping(yaml_path: Path) -> dict[str, Any]:
+    """Read a YAML file and require a mapping at the document root."""
+    try:
+        with yaml_path.open(encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+    except (UnicodeError, yaml.YAMLError) as exc:
+        raise ValueError(t("config.yaml_parse_failed", {"path": yaml_path, "detail": exc})) from exc
+    if not isinstance(raw, dict):
+        raise ValueError(t("config.yaml_root_mapping", {"path": yaml_path}))
+    return raw
+
+
 def _example_config_path() -> Path | None:
     """Locate the bundled config.example.yaml template.
 
@@ -190,14 +203,7 @@ def _is_plain_yaml_value(val: Any) -> bool:
 def _upgrade_config_file(yaml_path: Path, *, section_map: dict[str, type]) -> None:
     if not yaml_path.is_file():
         return
-    try:
-        with yaml_path.open(encoding="utf-8") as f:
-            raw = yaml.safe_load(f) or {}
-    except Exception:
-        return
-
-    if not isinstance(raw, dict):
-        return
+    raw = _load_yaml_mapping(yaml_path)
 
     added: list[str] = []
     changed = False
@@ -264,27 +270,26 @@ def _upgrade_config_file(yaml_path: Path, *, section_map: dict[str, type]) -> No
     # the original file (backup-first, atomic replace with rollback tolerance).
     try:
         reloaded = yaml.safe_load(text)
-    except Exception:
+    except yaml.YAMLError:
         return
     if not isinstance(reloaded, dict):
         return
     try:
-        with yaml_path.open(encoding="utf-8") as f:
-            previous = f.read()
-    except Exception:
+        previous = yaml_path.read_text(encoding="utf-8")
+    except OSError:
         previous = None
     if previous is not None:
         bak = yaml_path.with_name(yaml_path.name + ".bak")
         if not bak.exists():
             try:
                 bak.write_text(previous, encoding="utf-8")
-            except Exception:
+            except OSError:
                 pass
     from clio.utils import write_text_atomic
 
     try:
         write_text_atomic(yaml_path, text)
-    except Exception:
+    except OSError:
         return
     print(f"[config] {yaml_path.name} auto-added {len(added)} new field(s): {', '.join(added)}")
 
@@ -431,22 +436,14 @@ def _filter_project_only(raw: dict) -> dict:
 
 def _migrate_v1_to_v2(config_path: Path) -> None:
     """Migrate merged V1 config.yaml to split V2 structure."""
-    try:
-        with config_path.open(encoding="utf-8") as f:
-            raw = yaml.safe_load(f) or {}
-    except Exception:
-        return
-
-    if not isinstance(raw, dict):
-        return
+    raw = _load_yaml_mapping(config_path)
 
     # Backup original
     bak = config_path.with_suffix(config_path.suffix + ".bak")
     if not bak.exists():
         try:
-            with config_path.open(encoding="utf-8") as f:
-                bak.write_text(f.read(), encoding="utf-8")
-        except Exception:
+            bak.write_text(config_path.read_text(encoding="utf-8"), encoding="utf-8")
+        except OSError:
             pass
 
     # Write V2 global config.yaml
@@ -458,7 +455,7 @@ def _migrate_v1_to_v2(config_path: Path) -> None:
         text = yaml.dump(global_raw, default_flow_style=False, allow_unicode=True, sort_keys=False)
         write_text_atomic(config_path, text)
         print(f"[config] migrated config.yaml to V2 (global-only, backup at {bak.name})")
-    except Exception:
+    except (OSError, yaml.YAMLError):
         return
 
     # Extract project fields from V1 config and write project.yaml if not present
@@ -468,21 +465,17 @@ def _migrate_v1_to_v2(config_path: Path) -> None:
         if not proj_path.exists():
             try:
                 text = yaml.dump(project_out, default_flow_style=False, allow_unicode=True, sort_keys=False)
-                tmp = proj_path.with_suffix(".yaml.tmp")
-                tmp.write_text(text, encoding="utf-8")
-                os.replace(tmp, proj_path)
+                write_text_atomic(proj_path, text)
                 print("[config] created project.yaml from migrated V1 project fields")
-            except Exception:
+            except (OSError, yaml.YAMLError):
                 pass
 
     # Migrate existing project.yaml files
     registry_path = config_path.parent / "projects.json"
     if registry_path.is_file():
-        import json
-
         try:
             reg = json.loads(registry_path.read_text(encoding="utf-8"))
-        except Exception:
+        except (json.JSONDecodeError, OSError, UnicodeError):
             reg = {}
         if not isinstance(reg, dict):
             reg = {}
@@ -501,18 +494,16 @@ def _migrate_v1_to_v2(config_path: Path) -> None:
             if not proj_yaml.is_file():
                 continue
             try:
-                with proj_yaml.open(encoding="utf-8") as f:
-                    proj_raw = yaml.safe_load(f) or {}
-            except Exception:
+                proj_raw = _load_yaml_mapping(proj_yaml)
+            except (OSError, UnicodeError, ValueError):
                 continue
 
             # Back up project.yaml first
             proj_bak = proj_yaml.with_suffix(proj_yaml.suffix + ".bak")
             if not proj_bak.exists():
                 try:
-                    with proj_yaml.open(encoding="utf-8") as f:
-                        proj_bak.write_text(f.read(), encoding="utf-8")
-                except Exception:
+                    proj_bak.write_text(proj_yaml.read_text(encoding="utf-8"), encoding="utf-8")
+                except OSError:
                     pass
 
             project_out = _filter_project_only(proj_raw)
@@ -525,19 +516,15 @@ def _migrate_v1_to_v2(config_path: Path) -> None:
                     text = yaml.dump(project_out, default_flow_style=False, allow_unicode=True, sort_keys=False)
                     write_text_atomic(proj_yaml, text)
                     print(f"[config] {proj_dir.name}/project.yaml: migrated to V2")
-                except Exception:
+                except (OSError, yaml.YAMLError):
                     pass
 
 
 def _migrate_if_needed(config_path: Path) -> None:
     """Check config_version and auto-migrate if V1."""
-    try:
-        with config_path.open(encoding="utf-8") as f:
-            raw = yaml.safe_load(f) or {}
-    except Exception:
+    if not config_path.is_file():
         return
-    if not isinstance(raw, dict):
-        return
+    raw = _load_yaml_mapping(config_path)
     version = raw.get(_CONFIG_VERSION)
     if version == _V2:
         return
@@ -555,8 +542,7 @@ def load_global_config(config_path: str | Path = "config.yaml") -> GlobalConfig:
     _upgrade_config_file(config_file, section_map=_GLOBAL_SECTION_DC_MAP)
 
     try:
-        with config_file.open(encoding="utf-8") as f:
-            raw: dict[str, Any] = yaml.safe_load(f) or {}
+        raw = _load_yaml_mapping(config_file)
     except (NotADirectoryError, IsADirectoryError) as exc:
         raise FileNotFoundError(exc) from exc
 
@@ -609,8 +595,7 @@ def load_project_config(
 
     _upgrade_config_file(project_yaml, section_map=_PROJECT_SECTION_DC_MAP)
 
-    with project_yaml.open(encoding="utf-8") as f:
-        raw: dict[str, Any] = yaml.safe_load(f) or {}
+    raw = _load_yaml_mapping(project_yaml)
 
     project_base = project_dir.resolve()
     config_base = config_path.parent if config_path is not None else project_base
