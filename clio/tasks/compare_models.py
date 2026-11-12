@@ -4,14 +4,14 @@ import copy
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from clio.ai.base import TaskName
 from clio.analyze import analyze_video
 from clio.config import AppConfig
 from clio.config.models import ProjectConfig, TaskConfig
 from clio.i18n import t
-from clio.utils import sanitize_name, write_json_atomic, write_text_atomic
+from clio.utils import JsonValue, sanitize_name, write_json_atomic, write_text_atomic
 
 
 @dataclass(frozen=True)
@@ -165,7 +165,7 @@ def run_compare_models(
     }
     json_path = out_dir / f"{stem}_{timestamp}.json"
     md_path = out_dir / f"{stem}_{timestamp}.md"
-    write_json_atomic(json_path, payload)
+    write_json_atomic(json_path, cast(JsonValue, payload))
     write_text_atomic(md_path, _render_report(video_path, results))
     print(t("task.compare.json_path", {"path": json_path}))
     print(t("task.compare.md_path", {"path": md_path}))
