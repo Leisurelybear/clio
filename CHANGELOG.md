@@ -2,26 +2,25 @@
 
 ## 2026-11-12
 
-Production Python type-checking is now clean across the full application and permanently gated.
-The remaining mypy debt is isolated to test annotations.
+Production and test Python type-checking are now clean across the full application and permanently gated.
 
 - fix(types): narrow optional state, provider payloads, task reporters, HTTP handler boundaries,
   Whisper installer contracts, and desktop window startup paths
 - fix(desktop): replace the unavailable `webview.confirm_dialog` call with a shared Tk confirmation
   dialog, fail open in headless environments, and reject invalid lock ports or missing windows
-- chore(types): expand the configured mypy gate from a progressive module list to every production
-  module while excluding `clio/tests/`
+- chore(types): include `clio/tests/` in the configured mypy gate now that production and test code
+  both pass `--check-untyped-defs`
 - test(desktop): cover Tk confirmation behavior, headless fallback, invalid lock ports, and a
   `create_window()` result of `None`
 - test(types): narrow optional fixtures, mock seams, and JSON literals
 - test(types): type notification route, analyze task/function, compression task, and desktop app fixtures
 - test(types): type transcript, task, provider, plan, run-route, and filesystem fixtures and seams
 - refactor(types): type token usage stats and compression/cover/installer test fixtures
-- docs: record O9 as partial because test-only mypy debt remains
+- docs: complete O9 and record the test-suite type-checking gate
 
-Verification: explicit test-file mypy reports 44 errors across 127 files (13 files affected)
-(`production=0`); the configured `mypy` gate passes across 136 production source files.
-Focused pytest for the latest eight test-typing batches passes 329 tests; Ruff, format, and `git diff --check` pass.
+Verification: explicit test-file mypy reports 0 errors across 127 files; the configured gate passes
+across 263 production and test source files. Full pytest passes `2942 passed, 12 skipped`; Ruff,
+format, and `git diff --check` pass.
 
 Completed the remaining high-risk frontend XSS cleanup and compacted the roadmap maintenance view.
 `html` tag templates now escape interpolated values by default, while `unsafeHtml` marks only

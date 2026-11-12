@@ -120,7 +120,7 @@ dispatch to both tasks (for background work) and domain modules (for reads/previ
 | Export | JianYing/CapCut 5.9 draft JSON | `FORMAT_REGISTRY`, extensible |
 | Web UI | stdlib http.server | no build step; ES modules |
 | Desktop | Windows x64 + macOS universal2 | PyInstaller onedir; pywebview |
-| Tests | pytest (backend) + Vitest (frontend) | coverage `fail_under=70`; mypy subset gated in CI |
+| Tests | pytest (backend) + Vitest (frontend) | coverage `fail_under=70`; mypy gate covers production and test code |
 
 ## 7. Series Index
 

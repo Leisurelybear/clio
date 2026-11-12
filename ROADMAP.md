@@ -14,7 +14,7 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
 
 Source: [`docs/analysis/2026-11-05-P0-P2-Issues.md`](docs/analysis/2026-11-05-P0-P2-Issues.md)
 
-Snapshot: 83 items; 66 completed locally; 1 partial (O9); 2 awaiting real-environment verification; 14 pending.
+Snapshot: 83 items; 67 completed locally; 0 partial; 2 awaiting real-environment verification; 14 pending.
 O17 and O18 are complete as of this cleanup. The analysis document remains the source of truth for item-level
 status and verification notes.
 
@@ -32,7 +32,6 @@ Open P1 items:
 Open P2 items:
 
 - `[ ]` O8 split `ui/server.py` handler construction, auth, body parsing, and routes
-- `[~]` O9 clear the remaining full-package mypy debt: production is clean and gated; 44 test errors remain across 13 test files
 - `[ ]` O14 add frontend type checking and decompose the largest JS modules
 - `[ ]` O16 raise Vitest coverage around bug fixes and save flows
 - `[ ]` Q13 snap cut points to shot boundaries and sentence endings
@@ -93,7 +92,7 @@ Design: `docs/superpowers/specs/2026-10-24-analysis-detail-and-plan-input-budget
 **Acceptance:** at `medium` the same clip uses 3.5-4.5x the visual prompt tokens of `low`; new rows
 average <=20 s and <=40 chars; `key_moments` 3-8 per clip; France plan input <60k tokens after P0c and
 <30k after P1; old `texts/*.json` still plans without migration; changing resolution/window
-invalidates the analysis cache; pytest, Vitest, Ruff, and the mypy subset stay green.
+invalidates the analysis cache; pytest, Vitest, Ruff, and the full mypy gate stay green.
 
 **Risks:** `medium` costs ~4x visual tokens (a 15-min window goes from ~58k to ~230k), so recommend
 `medium` + `window_max_min: 5`; 640p still caps real detail, so raise `compress.max_width` to
