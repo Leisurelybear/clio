@@ -188,10 +188,11 @@ vlog-video-analysis/
     │           ├── url-params.js / editor-save.js / desktop-pick.js
     │           ├── desktop-notify.js          # Native delivery eligibility and dedupe
     │           ├── editor.js / editor-texts.js / editor-voiceover.js / editor-refine.js
-    │           ├── editor-config.js           # Config form shell, task binding, prompt management
+    │           ├── editor-config.js           # Config page shell, form rendering, prompt management
     │           ├── editor-logs.js             # Logs pane polling, history, filtering, rendering
     │           ├── editor-models.js           # Local Whisper model management
     │           ├── editor-providers.js        # Provider list, editing modal, connection tests
+    │           ├── editor-task-binding.js     # Task labels, inherited bindings, edit handlers
     │           ├── editor-tokens.js           # Token usage pane rendering
     │           ├── editor-plan.js / plan-edit.js / plan-export.js / plan-timeline.js
     │           ├── plan-range-picker.js / plan-preview-media.js / plan-subtitle.js
