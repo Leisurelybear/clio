@@ -376,10 +376,12 @@ class TestHandlePostFsReveal:
         file_path = tmp_path / "clip.mp4"
         file_path.write_bytes(b"x")
         opened: list[Path] = []
-        monkeypatch.setattr(
-            "clio.ui.routes.fs.reveal_path_in_file_manager",
-            lambda path: opened.append(path) or path.resolve(),
-        )
+
+        def fake_reveal(path: Path) -> Path:
+            opened.append(path)
+            return path.resolve()
+
+        monkeypatch.setattr("clio.ui.routes.fs.reveal_path_in_file_manager", fake_reveal)
         handler = MagicMock()
 
         handle_post_fs_reveal(handler, {"path": str(file_path)})

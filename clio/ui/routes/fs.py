@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -22,7 +22,7 @@ from clio.ui.services.network_service import (
 # ── security: restrict file-system browsing to known-safe roots ──
 
 
-def _is_allowed_path(resolved: Path) -> bool:
+def _is_allowed_path(resolved: PurePath) -> bool:
     """Allow browsing under home, or anywhere a Windows drive/UNC path points.
 
     Local desktop tool: users need to pick originals on D:/E:, USB drives, and
@@ -41,7 +41,7 @@ def _is_allowed_path(resolved: Path) -> bool:
     return False
 
 
-def _browse_parent(resolved: Path) -> str | None:
+def _browse_parent(resolved: PurePath) -> str | None:
     """Return the parent path, or the drive list marker for a Windows root."""
     parent = resolved.parent
     if parent != resolved:
