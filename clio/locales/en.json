@@ -624,6 +624,7 @@
   "task.plan.replan_corrupt": "  [replan] {day} (existing plan file is corrupt)",
   "task.plan.replan_lineage": "  [replan] {day} (cache lineage changed)",
   "task.plan.skip_existing": "[skip] {day} plan (already exists)",
+  "task.plan.snap_summary": "[plan] snapped {count} cut ranges to shot or sentence boundaries",
   "task.plan.skipped_files": "[warning] skipped {count} unusable analysis files: {preview}{suffix}",
   "task.plan.skipped_more": " and {count} more files",
   "task.plan.timed_label": "run_plan_vlog {day} ({count} clips)",

@@ -608,3 +608,33 @@ class TestPlanSourceInputs:
             run_plan_vlog(cfg, day_label="day1", files=None, overwrite=False)
 
         mock_plan.assert_called_once()
+
+
+def test_planner_snaps_plan_ranges_to_analysis_timeline(cfg: AppConfig):
+    from clio.tasks.plan import run_plan_vlog
+
+    analysis_path = _write_text(cfg, "001_A.json", "A", 1)
+    analysis = json.loads(analysis_path.read_text(encoding="utf-8"))
+    analysis["timeline"] = [
+        {"start": "00:00", "end": "00:05", "description": "开门"},
+        {"start": "00:05", "end": "00:15", "description": "散步"},
+        {"start": "00:15", "end": "00:20", "description": "收尾"},
+    ]
+    analysis_path.write_text(json.dumps(analysis), encoding="utf-8")
+
+    def _fake_plan(clips, config, day_label="day1", **kwargs):
+        return {
+            "day_title": "day1",
+            "theme": "walk",
+            "total_estimated_sec": 12,
+            "sequence": [
+                {"index": clips[0]["index"], "title": "walk", "use_timeline": "00:04-00:16"},
+            ],
+        }
+
+    with patch("clio.tasks.plan.plan_daily_vlog", side_effect=_fake_plan):
+        result = run_plan_vlog(cfg, day_label="day1", overwrite=True)
+
+    assert result is not None
+    assert result["sequence"][0]["use_timeline"] == "00:05-00:15"
+    assert result["total_estimated_sec"] == 10

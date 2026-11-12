@@ -624,6 +624,7 @@
   "task.plan.replan_corrupt": "  [重新规划] {day} (已有规划文件损坏)",
   "task.plan.replan_lineage": "  [重新规划] {day} (缓存血缘变化)",
   "task.plan.skip_existing": "[跳过] {day} 计划 (已存在)",
+  "task.plan.snap_summary": "[规划] 已将 {count} 个切点吸附到镜头或句尾边界",
   "task.plan.skipped_files": "[警告] 已跳过 {count} 个不可用的分析文件: {preview}{suffix}",
   "task.plan.skipped_more": " 等 {count} 个文件",
   "task.plan.timed_label": "run_plan_vlog {day}（{count} 条）",

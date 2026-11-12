@@ -19,6 +19,7 @@ from clio.artifact_guard import (
     clear_user_edited,
 )
 from clio.config import AppConfig
+from clio.cut_snap import snap_plan_ranges
 from clio.gpmf import load_telemetry_summary
 from clio.i18n import t
 from clio.identity import SEGMENT_SUFFIX_RE, legacy_segment_offset_sec, load_identity
@@ -520,9 +521,14 @@ def run_plan_vlog(
             task_prompts=task_prompts,
             full_clips=clips,
         )
+    snapped_count = snap_plan_ranges(plan, clips, transcripts_map)
+    if snapped_count:
+        print(t("task.plan.snap_summary", {"count": snapped_count}))
     from clio.plan_model import Plan
 
     plan_obj = Plan.from_dict(plan)
+    if snapped_count:
+        plan_obj.recalculate_total_estimated_sec()
     plan = plan_obj.to_dict()
     plan["source_inputs"] = _source_inputs_from_clips(clips)
     if config.plan.use_transcripts:
