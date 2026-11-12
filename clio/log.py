@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import sys
 import threading
@@ -49,10 +50,8 @@ class _HourlyFileHandler(logging.Handler):
         if hour_key == self._current_hour:
             return
         if self._current_file is not None:
-            try:
+            with contextlib.suppress(*_STREAM_ERRORS):
                 self._current_file.close()
-            except _STREAM_ERRORS:
-                pass
             self._current_file = None
         self._logs_dir.mkdir(parents=True, exist_ok=True)
         log_path = self._logs_dir / f"{hour_key}.log"
@@ -142,19 +141,15 @@ class _HourlyFileHandler(logging.Handler):
         stream = _protected_stderr()
         if stream is None:
             return
-        try:
+        with contextlib.suppress(*_STREAM_ERRORS):
             stream.write(t("log.write_failed_check_disk") + "\n")
             traceback.print_exc(file=stream)
             stream.flush()
-        except _STREAM_ERRORS:
-            pass
 
     def close(self) -> None:
         if self._current_file is not None:
-            try:
+            with contextlib.suppress(*_STREAM_ERRORS):
                 self._current_file.close()
-            except _STREAM_ERRORS:
-                pass
             self._current_file = None
         super().close()
 
@@ -185,17 +180,13 @@ class _TeeWriter:
         stripped = message.rstrip()
         if stripped:
             session_log.write(redact_sensitive(stripped))
-        try:
+        with contextlib.suppress(*_STREAM_ERRORS):
             self._original.flush()
-        except _STREAM_ERRORS:
-            pass
         return written
 
     def flush(self) -> None:
-        try:
+        with contextlib.suppress(*_STREAM_ERRORS):
             self._original.flush()
-        except _STREAM_ERRORS:
-            pass
 
     def isatty(self) -> bool:
         return bool(getattr(self._original, "isatty", lambda: False)())
@@ -253,10 +244,8 @@ def setup_logging(logs_dir: Path, level: int = logging.INFO, retention_days: int
         except _STREAM_ERRORS as e:
             stream = _protected_stderr()
             if stream is not None:
-                try:
+                with contextlib.suppress(*_STREAM_ERRORS):
                     stream.write(t("log.create_failed", {"detail": e}) + "\n")
-                except _STREAM_ERRORS:
-                    pass
 
         _original_stdout = sys.stdout
         _original_stderr = sys.stderr
