@@ -129,7 +129,7 @@ def run_whisper_install(config_path: str | Path = "config.yaml") -> int:
             local_dir_use_symlinks=False,
             ignore_patterns=["*.h5", "*.ot", "*.pt"],
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - CLI download boundary reports third-party failures
         print(t("whisper.download_failed", {"error": e}))
         print(t("whisper.hint_check_network"))
         return 1
@@ -147,7 +147,7 @@ def _verify_install(cfg: Any) -> int:
         return 1
     try:
         _get_model(cfg)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - CLI verification boundary reports third-party failures
         print(t("whisper.model_verify_failed", {"error": e}))
         print(t("whisper.hint_retry_install"))
         return 1

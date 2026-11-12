@@ -88,7 +88,7 @@ def run_refine_texts(
                     token_store=token_store,
                     task_prompts=task_prompts,
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - continue refining independent files after one failure
                 failed += 1
                 print(t("task.refine.failed", {"detail": e}))
                 continue
@@ -153,7 +153,7 @@ def run_refine_scripts(
                     token_store=token_store,
                     task_prompts=task_prompts,
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - continue refining independent files after one failure
                 failed += 1
                 print(t("task.refine.failed", {"detail": e}))
                 continue

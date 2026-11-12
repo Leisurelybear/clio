@@ -75,7 +75,7 @@ def extract_cover_frame(
             ],
             ffmpeg,
         )
-    except Exception as e:
+    except (OSError, RuntimeError, ValueError) as e:
         print(t("task.cover.extract_failed", {"name": source.name, "timestamp": timestamp, "detail": e}))
         out_path.unlink(missing_ok=True)
         return None

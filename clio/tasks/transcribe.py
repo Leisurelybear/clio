@@ -139,7 +139,7 @@ def _get_video_duration(video_path: Path, ffprobe: str) -> float:
         r = _subprocess.run(cmd, capture_output=True, text=True, timeout=30, **no_console_kwargs())
         if r.returncode == 0 and r.stdout.strip():
             return float(r.stdout.strip())
-    except Exception:
+    except (OSError, _subprocess.SubprocessError, ValueError):
         pass
     return 0.0
 
@@ -444,7 +444,7 @@ def run_transcribe_all(
             print(line)
         except KeyboardInterrupt:
             raise
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - isolate one failed transcript without aborting the batch
             err_msg = str(e)
             print(t("task.transcribe.error", {"name": compressed_stem, "detail": err_msg}))
             state.mark(orig_stem, "transcribe", "error")

@@ -63,7 +63,7 @@ def check_cublas() -> bool:
                             os.add_dll_directory(str(dll_path.parent))
                             ctypes.CDLL(dll)
                             return True
-        except Exception:
+        except (ImportError, AttributeError, OSError, ValueError):
             pass
     return False
 
@@ -228,7 +228,7 @@ def _get_model(config: AppConfig, device_override: str | None = None):
                                 raise
                             print(t("transcribe.warn_compute_type_failed", {"device": device, "ct": ct, "error": e}))
                             continue
-                        except Exception as e:
+                        except Exception as e:  # noqa: BLE001 - GPU backends expose opaque runtime failures
                             if device == "cuda":
                                 print(t("transcribe.warn_cuda_exception", {"error": e}))
                                 device = "cpu"

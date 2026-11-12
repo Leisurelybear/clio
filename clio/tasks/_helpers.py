@@ -31,19 +31,15 @@ from clio.vmeta import VideoIndex, VideoMeta
 
 def _task_lineage_settings(config: AppConfig, task_name: str) -> dict[str, object]:
     """Return provider settings that can change a task's AI output."""
-    try:
-        task = config.ai.tasks.get(task_name)
-    except Exception:
-        task = None
+    tasks = getattr(getattr(config, "ai", None), "tasks", {})
+    task = tasks.get(task_name) if isinstance(tasks, dict) else None
     provider = getattr(task, "provider", "") if task else ""
     model = getattr(task, "model", "") if task else ""
-    try:
-        provider_config = config.ai.providers.get(provider) if provider else None
-        max_tokens = getattr(provider_config, "max_tokens", 0) if provider_config else 0
-        provider_type = getattr(provider_config, "type", "") if provider_config else ""
-        base_url = getattr(provider_config, "base_url", "") if provider_config else ""
-    except Exception:
-        max_tokens, provider_type, base_url = 0, "", ""
+    providers = getattr(getattr(config, "ai", None), "providers", {})
+    provider_config = providers.get(provider) if provider and isinstance(providers, dict) else None
+    max_tokens = getattr(provider_config, "max_tokens", 0) if provider_config else 0
+    provider_type = getattr(provider_config, "type", "") if provider_config else ""
+    base_url = getattr(provider_config, "base_url", "") if provider_config else ""
     return {
         "provider": provider,
         "model": model,

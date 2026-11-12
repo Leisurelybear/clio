@@ -59,7 +59,7 @@ def _voiceover_lineage_fingerprint(
 
     try:
         prompt = resolve_prompt_template("voiceover", SCRIPT_PROMPT, config, task_prompts=task_prompts)
-    except Exception:
+    except (OSError, UnicodeError):
         prompt = SCRIPT_PROMPT
     payload = json.dumps(
         {
@@ -316,7 +316,7 @@ def run_generate_scripts(
                         task_prompts,
                         confirm_artifact_overwrite,
                     )
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 - isolate one failed script without aborting the batch
                     print(t("task.scripts.error", {"name": json_file.stem, "detail": e}))
                     sequential_error_count += 1
                     continue
@@ -366,7 +366,7 @@ def run_generate_scripts(
                         if isinstance(result, str):
                             print(t("task.scripts.error", {"name": json_file.stem, "detail": result}))
                             parallel_error_count[0] += 1
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001 - isolate one failed script without aborting the batch
                         print(t("task.scripts.error", {"name": json_file.stem, "detail": e}))
                         parallel_error_count[0] += 1
 

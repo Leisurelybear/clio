@@ -152,7 +152,7 @@ def run_compare_models(
                     "result": data,
                 }
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - one model failure must not abort the comparison
             results.append({"model": spec.label, "ok": False, "error": str(e)})
             print(t("task.compare.model_error", {"label": spec.label, "detail": e}))
 

@@ -218,7 +218,7 @@ def _plan_lineage_fingerprint(
 
     try:
         prompt = resolve_prompt_template("vlog_plan", PLAN_PROMPT, config, task_prompts=task_prompts)
-    except Exception:
+    except (OSError, UnicodeError):
         prompt = PLAN_PROMPT
     transcripts_enabled = bool(getattr(config.plan, "use_transcripts", False)) and bool(
         getattr(config.whisper, "enabled", False)
