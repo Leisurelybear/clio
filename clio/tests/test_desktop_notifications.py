@@ -97,6 +97,16 @@ def test_nonzero_exit_and_exception_are_false():
         is False
     )
 
+    def timeout(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd="notify-send", timeout=10)
+
+    assert (
+        notifications.send_desktop_notification(
+            "x", "y", platform="linux", run=timeout, which=lambda name: "/usr/bin/notify-send"
+        )
+        is False
+    )
+
 
 def test_text_is_sanitized_and_timeout_clamped():
     runner = _Run()

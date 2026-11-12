@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import subprocess
 import sys
 from collections.abc import Callable
 
@@ -100,7 +101,7 @@ def send_desktop_notification(
             )
         else:
             return False
-    except Exception:  # noqa: BLE001 - native delivery is strictly best-effort
+    except (OSError, ValueError, subprocess.SubprocessError):
         logger.debug("desktop notification delivery failed", exc_info=True)
         return False
     return getattr(result, "returncode", 1) == 0

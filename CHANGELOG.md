@@ -13,6 +13,13 @@ instead of ad hoc prompt comparisons.
 
 The real-footage baseline remains pending; placeholder labels are intentionally unscorable.
 
+CI lint now matches the current Ruff behavior for the best-effort native notification fallback.
+
+- fix(desktop): narrow native notification failures to expected OS and subprocess errors
+- test(desktop): cover process timeouts alongside missing binaries, nonzero exits, and OS errors
+
+Verification: full `ruff check clio main.py` and desktop notification tests pass locally.
+
 Analysis runs now surface when compression samples are too sparse for detailed timeline generation.
 
 - feat(analyze): warn once per analyze batch when `compress.fps < 2`, through both console output and Task Center logs
