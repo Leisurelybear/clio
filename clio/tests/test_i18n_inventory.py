@@ -49,6 +49,8 @@ ALLOWED_LITERALS: dict[str, tuple[str, ...]] = {
         "（无）",
     ),
     "clio/analyze_windows.py": ("未知",),
+    # JianYing resolves built-in transition names by this exact display value.
+    "clio/export/jianying.py": ("叠化",),
 }
 
 
