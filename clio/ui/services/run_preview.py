@@ -17,6 +17,7 @@ from clio.tasks._helpers import (
     _matches_selected_stem,
     _selection_from_files,
 )
+from clio.tasks.consistency import entity_consistency_paths
 from clio.tasks.plan import plan_artifact_overwrite_required, plan_overwrite_confirmation_required
 from clio.tasks.scripts import plan_voiceover_artifact_overwrite_required, voiceover_artifact_overwrite_required
 from clio.utils import plan_day_stem
@@ -233,6 +234,8 @@ def _step_preview(
         if not use_transcripts:
             return _warning_step(step, t("api.preview_transcribe_disabled"))
         return _transcribe_step(config, compressed_videos, all_recursive_source_videos, force=force, index=index)
+    if step == "consistency":
+        return _consistency_step(config, all_analysis_jsons, day_label=day_label, force=force)
     if step == "voiceover":
         return _voiceover_step(config, analysis_jsons, force=force)
     if step == "plan":
@@ -293,6 +296,20 @@ def _transcribe_step(
 
     skipped = sum(1 for compressed in inputs if (g := index.lookup(compressed_stem=compressed.stem)) and g.transcript)
     return _step("transcribe", total=total, will_run=total - skipped, will_skip=skipped)
+
+
+def _consistency_step(
+    config: AppConfig,
+    analysis_jsons: list[Path],
+    *,
+    day_label: str,
+    force: bool,
+) -> dict[str, Any]:
+    if not analysis_jsons:
+        return _warning_step("consistency", t("api.preview_missing_analyze_consistency"))
+    out_json, out_md = entity_consistency_paths(config, day_label)
+    skipped = 0 if force else int(out_md.is_file() and _valid_json_file(out_json))
+    return _step("consistency", total=1, will_run=1 - skipped, will_skip=skipped)
 
 
 def _voiceover_step(

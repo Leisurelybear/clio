@@ -209,6 +209,7 @@ describe('collectRunOptions', () => {
     document.body.innerHTML = `
       <input class="run-step-cb" data-step="compress" type="checkbox" checked>
       <input class="run-step-cb" data-step="analyze" type="checkbox" checked>
+      <input class="run-step-cb" data-step="consistency" type="checkbox" checked>
       <input class="run-step-cb" data-step="plan" type="checkbox">
       <input id="run-day" value="day2">
       <input id="run-use-transcripts" type="checkbox" checked>
@@ -219,7 +220,7 @@ describe('collectRunOptions', () => {
 
   it('collects checked steps and options from the run form', () => {
     const opts = collectRunOptions();
-    expect(opts.steps).toEqual(['compress', 'analyze']);
+    expect(opts.steps).toEqual(['compress', 'analyze', 'consistency']);
     expect(opts.day_label).toBe('day2');
     expect(opts.use_transcripts).toBe(true);
     expect(opts.overwrite).toBe(false);

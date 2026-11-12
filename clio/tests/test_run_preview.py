@@ -924,6 +924,59 @@ def _prepare_plan_voiceover_preview(config: AppConfig, *, with_plan: bool = True
         (config.plans_dir / "day1_plan.json").write_text(json.dumps(plan), encoding="utf-8")
 
 
+def test_preview_consistency_warns_when_analysis_is_missing(tmp_path: Path) -> None:
+    input_dir = tmp_path / "videos"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+    config = _config(input_dir, output_dir)
+    config.texts_dir.mkdir(parents=True)
+
+    preview = build_run_preview(config, steps=["consistency"], force=False, use_transcripts=True)
+
+    assert preview["steps"] == [
+        {
+            "name": "consistency",
+            "label": "统一实体与重复场景",
+            "total": 0,
+            "will_run": 0,
+            "will_skip": 0,
+            "warnings": ["未找到分析 JSON，实体一致性步骤可能没有输入。"],
+        }
+    ]
+
+
+def test_preview_consistency_skips_only_complete_valid_outputs(tmp_path: Path) -> None:
+    from clio.tasks.consistency import entity_consistency_paths
+
+    input_dir = tmp_path / "videos"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+    config = _config(input_dir, output_dir)
+    config.texts_dir.mkdir(parents=True)
+    config.plans_dir.mkdir(parents=True)
+    _write_analysis(config, "harbor")
+    out_json, out_md = entity_consistency_paths(config, "day1")
+    out_json.write_text("{}", encoding="utf-8")
+    out_md.write_text("# consistency", encoding="utf-8")
+
+    skipped = build_run_preview(config, steps=["consistency"], force=False, use_transcripts=True)
+    assert skipped["steps"][0]["will_run"] == 0
+    assert skipped["steps"][0]["will_skip"] == 1
+
+    out_json.write_text("{invalid", encoding="utf-8")
+    invalid_json = build_run_preview(config, steps=["consistency"], force=False, use_transcripts=True)
+    assert invalid_json["steps"][0]["will_run"] == 1
+
+    out_json.write_text("{}", encoding="utf-8")
+    out_md.unlink()
+    missing_markdown = build_run_preview(config, steps=["consistency"], force=False, use_transcripts=True)
+    assert missing_markdown["steps"][0]["will_run"] == 1
+
+    forced = build_run_preview(config, steps=["consistency"], force=True, use_transcripts=True)
+    assert forced["steps"][0]["will_run"] == 1
+    assert forced["steps"][0]["will_skip"] == 0
+
+
 def test_preview_plan_voiceover_warns_when_plan_is_missing(tmp_path: Path) -> None:
     input_dir = tmp_path / "videos"
     output_dir = tmp_path / "output"

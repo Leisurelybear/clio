@@ -29,6 +29,7 @@ const RUN_STEPS = [
   { key: 'compress' },
   { key: 'transcribe' },
   { key: 'analyze' },
+  { key: 'consistency' },
   { key: 'voiceover' },
   { key: 'plan' },
   { key: 'plan_voiceover' },
@@ -94,6 +95,7 @@ function renderRun() {
 
   const stepChecks = RUN_STEPS.map(s => {
     const checked = savedSteps[s.key] !== false;
+    const isConsistency = s.key === 'consistency';
     const isPlan = s.key === 'plan';
     return `
       <div class="run-step-wrap">
@@ -102,12 +104,16 @@ function renderRun() {
           <span class="run-step-label">${t(`run.step.${s.key}.label`)}</span>
           <span class="run-step-hint">${t(`run.step.${s.key}.hint`)}</span>
         </label>
-        ${isPlan ? `
-        <div class="run-step-sub">
+        ${isConsistency ? `
+        <div class="run-step-sub run-step-day-sub">
           <label class="run-option">
             <span class="run-option-label">${t('run.day_label')}</span>
             <input id="run-day" class="run-option-input" value="${escapeHtml(state.currentDay)}">
           </label>
+        </div>
+        ` : ''}
+        ${isPlan ? `
+        <div class="run-step-sub run-step-plan-sub">
           <label class="run-option run-option-check">
             <input type="checkbox" id="run-use-transcripts" ${savedUseTrans ? 'checked' : ''}>
             <span>${t('run.use_transcripts')}</span>
@@ -193,13 +199,23 @@ function _shouldResetRunNavigationOnRender(runActive) {
 }
 
 function togglePlanSubOptions() {
+  const consistencyCb = document.querySelector('.run-step-cb[data-step="consistency"]');
   const planCb = document.querySelector('.run-step-cb[data-step="plan"]');
   const planVoiceoverCb = document.querySelector('.run-step-cb[data-step="plan_voiceover"]');
-  const sub = document.querySelector('.run-step-sub');
-  if (!sub) return;
-  const enabled = planCb?.checked || planVoiceoverCb?.checked || (!planCb && !planVoiceoverCb);
-  sub.style.opacity = enabled ? '1' : '0.35';
-  sub.querySelectorAll('input, button').forEach(el => el.disabled = !enabled);
+  const daySub = document.querySelector('.run-step-day-sub');
+  if (daySub) {
+    const dayEnabled = consistencyCb?.checked
+      || planCb?.checked
+      || planVoiceoverCb?.checked
+      || (!consistencyCb && !planCb && !planVoiceoverCb);
+    daySub.style.opacity = dayEnabled ? '1' : '0.35';
+    daySub.querySelectorAll('input, button').forEach(el => el.disabled = !dayEnabled);
+  }
+  const planSub = document.querySelector('.run-step-plan-sub');
+  if (!planSub) return;
+  const transcriptsEnabled = planCb?.checked || planVoiceoverCb?.checked || (!planCb && !planVoiceoverCb);
+  planSub.style.opacity = transcriptsEnabled ? '1' : '0.35';
+  planSub.querySelectorAll('input, button').forEach(el => el.disabled = !transcriptsEnabled);
 }
 
 function getRunButtonText() {
