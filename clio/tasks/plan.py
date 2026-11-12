@@ -23,7 +23,7 @@ from clio.i18n import t
 from clio.identity import SEGMENT_SUFFIX_RE, legacy_segment_offset_sec, load_identity
 from clio.log import timed
 from clio.processing_state import ProcessingState
-from clio.progress import ProgressTracker
+from clio.progress import ProgressReporter
 from clio.prompt_overrides import resolve_prompt_template
 from clio.prompts import PLAN_PROMPT, TRANSCRIPT_CONTEXT
 from clio.schema import add_schema_version
@@ -385,7 +385,7 @@ def _collect_plan_clips(
 def run_plan_vlog(
     config: AppConfig,
     day_label: str = "day1",
-    tracker: ProgressTracker | None = None,
+    tracker: ProgressReporter | None = None,
     cancel_event: threading.Event | None = None,
     files: list[str] | None = None,
     overwrite: bool = False,
@@ -559,7 +559,7 @@ def run_plan_vlog(
 
 def run_plan_all_days(
     config: AppConfig,
-    tracker: ProgressTracker | None = None,
+    tracker: ProgressReporter | None = None,
     cancel_event: threading.Event | None = None,
     overwrite: bool = False,
     context_override: str | None = None,

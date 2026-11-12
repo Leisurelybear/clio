@@ -40,7 +40,7 @@ from clio.identity import (
 )
 from clio.log import format_duration, timed
 from clio.processing_state import ProcessingState
-from clio.progress import ProgressTracker
+from clio.progress import ProgressReporter
 from clio.prompt_overrides import resolve_prompt_template
 from clio.prompts import ANALYZE_PROMPT, TRANSCRIPT_CONTEXT, WINDOW_SUMMARY_PROMPT
 from clio.schema import add_schema_version
@@ -410,7 +410,7 @@ def _process_video_item(
     config: AppConfig,
     token_store: FileTokenUsageStore,
     overwrite: bool,
-    tracker: ProgressTracker | None,
+    tracker: ProgressReporter | None,
     state: ProcessingState,
     failure_counter: _FailureCounter,
     day_label: str = "day1",
@@ -628,7 +628,7 @@ def _process_video_item(
 
 def run_analyze_all(
     config: AppConfig,
-    tracker: ProgressTracker | None = None,
+    tracker: ProgressReporter | None = None,
     single_file: Path | None = None,
     cancel_event: threading.Event | None = None,
     files: list[str] | None = None,

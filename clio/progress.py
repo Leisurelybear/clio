@@ -5,7 +5,7 @@ import os
 import threading
 import time
 from pathlib import Path
-from typing import TypedDict
+from typing import Protocol, TypedDict
 
 from clio import session_log as _session_log
 from clio.i18n import t
@@ -26,6 +26,29 @@ class ProgressData(TypedDict):
     rerun: bool
     rerun_video: str | None
     logs: list[str]
+
+
+class ProgressReporter(Protocol):
+    """Progress surface shared by CLI tracking, task reporting, and test doubles."""
+
+    def update(
+        self,
+        *,
+        phase: str | None = None,
+        current: int | None = None,
+        total: int | None = None,
+        message: str | None = None,
+    ) -> None: ...
+
+    def next(self, *, message: str | None = None) -> None: ...
+
+    def log(self, line: str) -> None: ...
+
+    def done(self, message: str = "") -> None: ...
+
+    def error(self, message: str) -> None: ...
+
+    def cancelled(self, message: str = "") -> None: ...
 
 
 class ProgressTracker:

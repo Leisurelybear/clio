@@ -22,7 +22,7 @@ from clio.config import AppConfig
 from clio.i18n import t
 from clio.log import timed
 from clio.processing_state import ProcessingState
-from clio.progress import ProgressTracker
+from clio.progress import ProgressReporter
 from clio.prompts import SCRIPT_PROMPT
 from clio.resources import find_resource
 from clio.schema import add_schema_version
@@ -152,7 +152,7 @@ def _process_one_script(
     cancel_event: threading.Event | None,
     overwrite: bool,
     state: ProcessingState,
-    tracker: ProgressTracker | None,
+    tracker: ProgressReporter | None,
     context_override: str | None = None,
     task_prompts: dict[str, str] | None = None,
     confirm_artifact_overwrite: bool = False,
@@ -247,7 +247,7 @@ def _process_one_script(
 
 def run_generate_scripts(
     config: AppConfig,
-    tracker: ProgressTracker | None = None,
+    tracker: ProgressReporter | None = None,
     single_file: Path | None = None,
     cancel_event: threading.Event | None = None,
     files: list[str] | None = None,

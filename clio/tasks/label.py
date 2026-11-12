@@ -15,7 +15,7 @@ from clio.config import AppConfig
 from clio.i18n import t
 from clio.log import timed
 from clio.processing_state import ProcessingState
-from clio.progress import ProgressTracker
+from clio.progress import ProgressReporter
 from clio.tasks._helpers import _eta_line, _matches_selected_artifact, _selection_from_files
 from clio.utils import format_index, resolve_binary, run_ffmpeg
 
@@ -79,7 +79,7 @@ def build_label_drawtext_vf(label: str, font_path: str | Path | None = None) -> 
 
 def run_label_videos(
     config: AppConfig,
-    tracker: ProgressTracker | None = None,
+    tracker: ProgressReporter | None = None,
     cancel_event: threading.Event | None = None,
     files: list[str] | None = None,
     overwrite: bool = False,

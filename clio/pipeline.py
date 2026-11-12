@@ -11,7 +11,7 @@ from typing import Any
 from clio.config import AppConfig
 from clio.i18n import t
 from clio.log import timed
-from clio.progress import ProgressTracker
+from clio.progress import ProgressReporter, ProgressTracker
 
 # Re-export everything for backward compatibility (imported by main.py, ui)
 from clio.tasks._helpers import (
@@ -63,7 +63,7 @@ def run_pipeline_steps(
     config: AppConfig,
     day_label: str = "day1",
     steps: list[str] | None = None,
-    tracker: ProgressTracker | None = None,
+    tracker: ProgressReporter | None = None,
     cancel_event: threading.Event | None = None,
     files: list[str] | None = None,
     overwrite: bool = False,

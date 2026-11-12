@@ -18,7 +18,7 @@ from clio.i18n import t
 from clio.identity import SEGMENT_SUFFIX_RE, _identity_to_dict, resolve_identity
 from clio.log import format_duration
 from clio.processing_state import ProcessingState
-from clio.progress import ProgressTracker
+from clio.progress import ProgressReporter
 from clio.schema import add_schema_version
 from clio.tasks._helpers import (
     _artifact_source_path,
@@ -233,7 +233,7 @@ def _extract_audio(
 
 def run_transcribe_all(
     config: AppConfig,
-    tracker: ProgressTracker | None = None,
+    tracker: ProgressReporter | None = None,
     single_file: Path | None = None,
     cancel_event: threading.Event | None = None,
     files: list[str] | None = None,

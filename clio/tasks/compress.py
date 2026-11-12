@@ -15,7 +15,7 @@ from clio.config import AppConfig
 from clio.i18n import t
 from clio.log import timed
 from clio.processing_state import ProcessingState
-from clio.progress import ProgressTracker
+from clio.progress import ProgressReporter
 from clio.tasks._helpers import (
     ClipRecord,
     _eta_line,
@@ -227,7 +227,7 @@ def _write_vindex(records: list[ClipRecord], config: AppConfig, ffprobe: str) ->
 
 def run_compress_all(
     config: AppConfig,
-    tracker: ProgressTracker | None = None,
+    tracker: ProgressReporter | None = None,
     single_file: Path | None = None,
     cancel_event: threading.Event | None = None,
     files: list[str] | None = None,
