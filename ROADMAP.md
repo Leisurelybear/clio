@@ -5,13 +5,13 @@ Mark `[ ]` as `[x]` when done, `[~]` for in-progress, `[!]` for blocked.
 
 Design discussions / decision history in `AGENTS.md`, implementation details in git log.
 
-## Active backlog (2026-11-11)
+## Active backlog (2026-11-12)
 
 - 2026-11 P0/P1/P2 review remediation from `docs/analysis/2026-11-05-P0-P2-Issues.md`:
-  - Snapshot: 83 items; 61 completed; 1 partial, 2 awaiting real-environment
-    verification, and 19 pending. O7 is pushed in `b6c9cd2`; B10 `33a2233`,
+  - Snapshot: 83 items; 62 completed; 1 partial, 2 awaiting real-environment
+    verification, and 18 pending. O7 is pushed in `b6c9cd2`; B10 `33a2233`,
     O11 `cb8613d`, O15 security headers `a97bf4d`, O4 `6974751`, F2
-    `e3061f8`, and F5 `de704a5` are local.
+    `e3061f8`, F5 `de704a5`, and O13 `ea32a69` are local.
   - Verification: targeted C2 pytest (270 passed), C15 pytest (58 passed), full pytest
     (2837 passed, 12 skipped, 13 deselected with symlink tests excluded), full Vitest
     (857 passed), O7 targeted pytest (153 passed), full pytest after O7 (2846 passed,
@@ -26,8 +26,9 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
     excluded), and Vitest passed 860 tests across 80 files; D12 targeted pytest passed
     31 tests; F8 transitions targeted pytest passed 36 tests; C16 plan history targeted
     Vitest passed 51 tests and full Vitest passed 866 tests across 80 files; C16
-    native-dialog migration passed full Vitest (878 tests across 81 files); Ruff and
-    `git diff --check` passed.
+    native-dialog migration passed full Vitest (878 tests across 81 files); O13 passed
+    full pytest (2896 tests, 12 skipped), Ruff over 263 files, mypy over 39 files, and
+    `git diff --check`.
     CI run 42820037572 (head `262abde`) and CI run 42840852167 (head `958bc57`) passed
     all Python 3.11/3.12 platform jobs plus quality, package, and Vitest jobs.
   - [x] P0 completed (14): B1 `a01b156`; B2 `a436315`; C1 `14b873b`; C2 `91e4699`;
@@ -38,14 +39,14 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
     C8 `b6f76da`; D4 `459eada`; D5 `90a92de`; D6 `5a8fb85`; D7 `e1fe20f`;
     D8 `5ec84b5`; D9 `a79cfbc`; O2 `80d3e3f`; F2 `e3061f8`.
   - [ ] P1 pending (9): O1; O17; Q4; Q5; Q6; Q7; Q11; Q12; F1.
-  - [x] P2 completed (29): C15 `7681cff` / `3171639` / `958bc57`; B8 `9be0401` / `a45f1e5` / `56d6c87`; B10 `33a2233`; C9 `cc2d1c5`;
+  - [x] P2 completed (30): C15 `7681cff` / `3171639` / `958bc57`; B8 `9be0401` / `a45f1e5` / `56d6c87`; B10 `33a2233`; C9 `cc2d1c5`;
     C11 `8636449` / `e40fb24`; C13 `35bbc3f`; C14 `d702223`; D10 `9374720`;
     D11 `2c00587`; D13 `fab38aa`; D15 `8aa6740`; D17 `f209b48`;
     D18 `e073076`; D19 `2c14970` / `787deb1`; B7 `443e900`; B9 `87792ba`;
     C12 `2821c43`; D14 `f18d4cd`; D16 `70c4a66`; O3 `47f3fe1` / `4ca2c77`;
     O4 `6974751`; O5 `77698a0`; O6 `52aa7ff` / `ebdd738`; O7 `a436315` / `9be0401` / `701bac7`; O11 `cb8613d`; O12 `b6f76da`; F5 `de704a5`; F8 `7b8bfa0` / `7515acb` / `8cd66b3`;
     C16 `c75c067` / `8aca38e` / `f593d28` / `eb3e0f6` / `46daa41` / `2c359c6` /
-    `fdcdd7d` / `4b300a3` / `1ac279c` / `74f70c4`.
+    `fdcdd7d` / `4b300a3` / `1ac279c` / `74f70c4`; O13 `ea32a69`.
   - [~] P2 partial (1): O15 `a97bf4d` (default HTML escaping remains).
   - [ ] P2 awaiting real-environment verification (2): C10; D12 (`082cc7e` completes
     the code-side fixes: timeline clamping, draft_meta_info.json, platform/fps probing).
