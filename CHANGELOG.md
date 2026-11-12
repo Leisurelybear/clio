@@ -13,9 +13,10 @@ The remaining mypy debt is isolated to test annotations.
   module while excluding `clio/tests/`
 - test(desktop): cover Tk confirmation behavior, headless fallback, invalid lock ports, and a
   `create_window()` result of `None`
-- docs: record O9 as partial because 389 test-only mypy errors remain
+- test(types): narrow optional fixtures, mock seams, and JSON literals across 15 test modules
+- docs: record O9 as partial because test-only mypy debt remains
 
-Verification: explicit test-file mypy reports 389 errors across 127 files
+Verification: explicit test-file mypy reports 371 errors across 127 files
 (`production=0`); the configured `mypy` gate passes across 136 production source files.
 Desktop-focused pytest passes 48 tests; Ruff, format, and `git diff --check` pass.
 
