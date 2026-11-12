@@ -77,6 +77,23 @@ class TestFrozenInstallGuard:
         payload = handler._send_json.call_args[0][0]
         assert payload["frozen"] is True
 
+    def test_get_whisper_check_degrades_on_readiness_error(self, tmp_path: Path) -> None:
+        proj_dir = tmp_path / "project_a"
+        proj_dir.mkdir()
+        proj_output = tmp_path / "output_a"
+        proj_output.mkdir()
+        handler = _make_handler(proj_dir, proj_output)
+
+        with (
+            patch("clio.ui.routes.whisper_check.check_asr_ready", side_effect=ValueError("bad config")),
+            patch("clio.ui.routes.whisper_check.check_whisper", return_value=False),
+        ):
+            handle_get_whisper_check(handler, {})
+
+        payload = handler._send_json.call_args[0][0]
+        assert payload["ok"] is True
+        assert payload["ready"] is False
+
 
 class _FakePopen:
     """Minimal stand-in for subprocess.Popen used by _pip_install_streaming."""

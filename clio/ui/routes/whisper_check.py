@@ -11,6 +11,8 @@ from clio.transcribe import _resolve_cache_dir, check_cublas, check_whisper
 from clio.ui.handler_protocol import HandlerProtocol
 from clio.whisper_cache import is_model_cache_complete
 
+_WHISPER_CHECK_ERRORS = (AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError)
+
 
 def handle_get_whisper_check(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     frozen = bool(getattr(sys, "frozen", False))
@@ -30,7 +32,7 @@ def handle_get_whisper_check(handler: HandlerProtocol, qs: dict[str, Any]) -> No
         display_name = readiness.display_name
         ready = readiness.ready
         readiness_error = readiness.error
-    except Exception:
+    except _WHISPER_CHECK_ERRORS:
         pass
 
     installed = check_whisper() if engine == "local" else False
@@ -56,7 +58,7 @@ def handle_get_whisper_check(handler: HandlerProtocol, qs: dict[str, Any]) -> No
         if cache_dir.is_dir():
             cache_path = str(cache_dir)
             model_cached = is_model_cache_complete(cache_dir, cfg.whisper.model_size)
-    except Exception:
+    except _WHISPER_CHECK_ERRORS:
         pass
 
     handler._send_json(
