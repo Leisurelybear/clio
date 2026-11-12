@@ -113,6 +113,25 @@ class TestTeeWriter:
         tw.flush()
         assert buf.getvalue() == "data"
 
+    def test_closed_original_stream_is_handled(self):
+        session_log.clear()
+        logger = logging.getLogger("test_tee_closed")
+        logger.handlers.clear()
+        logger.addHandler(logging.NullHandler())
+
+        class _ClosedStream(io.StringIO):
+            def write(self, _text: str) -> int:
+                raise ValueError("I/O operation on closed file")
+
+            def flush(self) -> None:
+                raise ValueError("I/O operation on closed file")
+
+        tw = _TeeWriter(_ClosedStream(), logger, logging.INFO)
+
+        assert tw.write("still recorded") == 0
+        tw.flush()
+        assert session_log.read()["logs"][0]["text"] == "still recorded"
+
     def test_print_style_split_write_skips_blank_session_log(self):
         """print() writes content then end='\\n' separately; blank end must not
         become an empty session_log entry (UI shows a second blank '信息' row).
@@ -242,6 +261,20 @@ class TestHourlyFileHandlerFailure:
 
         assert handler._failed is True
         assert "已停用文件日志" in protected.getvalue()
+
+    def test_tell_failure_does_not_block_writes(self, tmp_path):
+        handler = _HourlyFileHandler(tmp_path)
+
+        class _TellFailingFile(io.StringIO):
+            def tell(self) -> int:
+                raise ValueError("closed file")
+
+        current = _TellFailingFile()
+        handler._current_file = current
+        handler.emit(_make_record("survived"))
+
+        assert "survived" in current.getvalue()
+        handler.close()
 
     def test_quota_pauses_writes_with_warning(self, tmp_path, monkeypatch):
         protected = io.StringIO()

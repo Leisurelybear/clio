@@ -21,6 +21,7 @@ _DATEFMT = "%Y-%m-%d %H:%M:%S"
 _MAX_LOG_BYTES = 64 * 1024 * 1024
 # 连续写入失败达到该次数后停用文件日志，防止每次 emit 都重复报错刷屏。
 _MAX_CONSECUTIVE_FAILURES = 5
+_STREAM_ERRORS = (OSError, ValueError, RuntimeError)
 
 
 def _protected_stderr() -> TextIO | None:
@@ -50,7 +51,7 @@ class _HourlyFileHandler(logging.Handler):
         if self._current_file is not None:
             try:
                 self._current_file.close()
-            except Exception:
+            except _STREAM_ERRORS:
                 pass
             self._current_file = None
         self._logs_dir.mkdir(parents=True, exist_ok=True)
@@ -99,7 +100,7 @@ class _HourlyFileHandler(logging.Handler):
             return False
         try:
             return self._current_file.tell() >= _MAX_LOG_BYTES
-        except Exception:
+        except _STREAM_ERRORS:
             return False
 
     def _emergency(self, message: str) -> None:
@@ -109,7 +110,7 @@ class _HourlyFileHandler(logging.Handler):
         try:
             stream.write(message + "\n")
             stream.flush()
-        except Exception:
+        except _STREAM_ERRORS:
             pass
 
     def emit(self, record: logging.LogRecord) -> None:
@@ -129,7 +130,7 @@ class _HourlyFileHandler(logging.Handler):
             self._current_file.write(msg)
             self._current_file.flush()
             self._failure_count = 0
-        except Exception:
+        except _STREAM_ERRORS:
             self._failure_count += 1
             self.handleError(record)
             if self._failure_count >= _MAX_CONSECUTIVE_FAILURES:
@@ -145,14 +146,14 @@ class _HourlyFileHandler(logging.Handler):
             stream.write(t("log.write_failed_check_disk") + "\n")
             traceback.print_exc(file=stream)
             stream.flush()
-        except Exception:
+        except _STREAM_ERRORS:
             pass
 
     def close(self) -> None:
         if self._current_file is not None:
             try:
                 self._current_file.close()
-            except Exception:
+            except _STREAM_ERRORS:
                 pass
             self._current_file = None
         super().close()
@@ -171,7 +172,7 @@ class _TeeWriter:
             return 0
         try:
             written = self._original.write(message)
-        except Exception:
+        except _STREAM_ERRORS:
             written = 0
         if "Traceback (most recent call last):" in message:
             self._logger.log(logging.ERROR, redact_sensitive(message.rstrip()))
@@ -186,14 +187,14 @@ class _TeeWriter:
             session_log.write(redact_sensitive(stripped))
         try:
             self._original.flush()
-        except Exception:
+        except _STREAM_ERRORS:
             pass
         return written
 
     def flush(self) -> None:
         try:
             self._original.flush()
-        except Exception:
+        except _STREAM_ERRORS:
             pass
 
     def isatty(self) -> bool:
@@ -219,11 +220,12 @@ def _install_excepthook(logger: logging.Logger) -> None:
             sys.__excepthook__(exc_type, exc_value, exc_tb)
             return
         tb_text = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
-        if sys.__stderr__ is not None:
-            sys.__stderr__.write(tb_text)
+        stream = _protected_stderr()
+        if stream is not None:
             try:
-                sys.__stderr__.flush()
-            except Exception:
+                stream.write(tb_text)
+                stream.flush()
+            except _STREAM_ERRORS:
                 pass
         logger.error(tb_text.rstrip())
 
@@ -248,12 +250,12 @@ def setup_logging(logs_dir: Path, level: int = logging.INFO, retention_days: int
 
         try:
             logger.addHandler(_HourlyFileHandler(logs_dir, retention_days=retention_days))
-        except Exception as e:
+        except _STREAM_ERRORS as e:
             stream = _protected_stderr()
             if stream is not None:
                 try:
                     stream.write(t("log.create_failed", {"detail": e}) + "\n")
-                except Exception:
+                except _STREAM_ERRORS:
                     pass
 
         _original_stdout = sys.stdout
@@ -281,10 +283,7 @@ def teardown_logging() -> None:
         if _original_stderr is not None:
             sys.stderr = _original_stderr
             _original_stderr = None
-        try:
-            sys.excepthook = sys.__excepthook__
-        except Exception:
-            pass
+        sys.excepthook = sys.__excepthook__
         _initialized = False
 
 
