@@ -14,7 +14,7 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
 
 Source: [`docs/analysis/2026-11-05-P0-P2-Issues.md`](docs/analysis/2026-11-05-P0-P2-Issues.md)
 
-Snapshot: 83 items; 70 completed locally; 0 partial; 2 awaiting real-environment verification; 11 pending.
+Snapshot: 83 items; 71 completed locally; 0 partial; 2 awaiting real-environment verification; 10 pending.
 O17 and O18 are complete as of this cleanup. The analysis document remains the source of truth for item-level
 status and verification notes.
 
@@ -24,7 +24,10 @@ P1 items:
   - `[x]` add Pydantic schemas for analysis, voiceover, planning, and window summaries
   - `[x]` send Gemini JSON schema and OpenAI-compatible `response_format` with fallback
 - `[x]` Q4 use GPMF capture time and GPS in planning by default (`7189ede`)
-- `[ ]` Q5 use Gemini video metadata and `media_resolution`
+- `[x]` Q5 use Gemini video metadata and `media_resolution` (`304acd3`)
+  - `[x]` send `VideoMetadata` start/end offsets and `fps=3` for logical analyze windows
+  - `[x]` add per-project `analyze.media_resolution` (`low | medium | high`, default `medium`)
+  - `[x]` remove physical slicing from the analyze path and invalidate stale window caches
 - `[ ]` Q6 shot-level structured analysis attributes and scene boundaries
 - `[ ]` Q7 same-location entity and duplicate-scene consistency
 - `[ ]` Q11 outline -> shot selection -> review planning loop
@@ -50,7 +53,7 @@ Awaiting real-environment verification:
 
 ### R-048 Higher-detail video analysis and bounded plan input
 
-**Status:** Planned (design ready 2026-10-24); P0a-P0c not started. No contract change yet.
+**Status:** In progress (design ready 2026-10-24). The media-resolution foundation is complete; prompt-density and bounded plan-input work remain. No plan-input contract change yet.
 
 **Goal:** Raise per-clip analysis density from summary level (~48 s per timeline row) to 8-12 s per
 row, keep the extra detail in `texts/*.json` for voiceover/cut/preview, and stop that detail from
@@ -72,12 +75,13 @@ needs `analyze --force`.
 
 Design: `docs/superpowers/specs/2026-10-24-analysis-detail-and-plan-input-budget-design.md`
 
-- [ ] P0a `feat(analyze)`: add project `analyze.media_resolution` (`low | medium | high`, default
+- [x] P0a `feat(analyze)`: add project `analyze.media_resolution` (`low | medium | high`, default
   `medium`) and pass it through `VideoAIProvider.analyze_video` to the Gemini video call only, never
   to text tasks; add `media_resolution`, `window_max_min`, `window_overlap_sec` to the analysis
-  lineage fingerprint so cached coarse results are invalidated
-- [ ] P0a: config schema/descriptions/UI select, example files, `low` fallback guidance, en/zh
-  locale keys, and a one-time warning when `compress.fps < 2`
+  lineage fingerprint so cached coarse results are invalidated (`304acd3`)
+- [x] P0a: config schema/descriptions/UI select, example files, `low` fallback guidance, and en/zh
+  locale keys (`304acd3`)
+- [ ] P0a: emit a one-time analyze warning when `compress.fps < 2`
 - [ ] P0b `feat(analyze)`: replace the fixed 60-row cap with a duration-based density contract
   (<=5 min 25-40 rows, 5-10 min 50-80, 10-15 min 75-120; 8-12 s per row, one sentence <=40 chars)
 - [ ] P0b: add optional `score` (1-5), `camera`, `quality`, `tags` per timeline row and top-level

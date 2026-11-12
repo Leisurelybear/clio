@@ -2,6 +2,17 @@
 
 ## 2026-11-12
 
+Gemini video analysis now uses `VideoMetadata` for logical long-clip windows and exposes per-project
+media resolution, removing the temporary-slice analyze path.
+
+- feat(ai): send video start/end offsets, fixed `fps=3`, and `low | medium | high` media resolution only on Gemini video calls
+- feat(analyze): analyze every logical window against the same compressed file and shift returned timestamps back onto the full timeline
+- feat(config): add `analyze.media_resolution` with a `medium` default, schema/UI select, localized descriptions, and example config
+- fix(analyze): move window-cache lineage to v2 and invalidate old analysis outputs after the engine change
+- test(ai): cover resolution mapping, invalid values, metadata payloads, window offsets, cache invalidation, and forwarding
+
+Verification: full pytest passes `2982 passed, 12 skipped`; Vitest passes 882 tests across 81 files; Ruff, mypy, and `git diff --check` pass.
+
 Daily planning now consumes GPMF sidecar capture metadata by default, so clips can be ordered by actual recording time instead of filename guesses.
 
 - feat(plan): read capture time and GPS from `<stem>.gpmf.json` with common field aliases and epoch conversion
