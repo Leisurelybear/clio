@@ -6,8 +6,12 @@ import signal
 import subprocess
 import sys
 import threading
+from contextlib import suppress
 
 from clio.i18n import t
+
+_STREAM_ERRORS = (OSError, ValueError, RuntimeError)
+_PROCESS_ERRORS = (OSError, subprocess.SubprocessError)
 
 _running_processes: list[subprocess.Popen] = []
 _processes_lock = threading.Lock()
@@ -35,7 +39,7 @@ def _sprint(msg: str) -> None:
         enc = getattr(sys.stdout, "encoding", None) or "utf-8"
         try:
             print(msg.encode(enc, errors="replace").decode(enc))
-        except Exception:
+        except _STREAM_ERRORS:
             return
     except OSError:
         return
@@ -43,7 +47,7 @@ def _sprint(msg: str) -> None:
         flush = getattr(sys.stdout, "flush", None)
         if flush is not None:
             flush()
-    except Exception:
+    except _STREAM_ERRORS:
         pass
 
 
@@ -53,11 +57,8 @@ def register_process(proc: subprocess.Popen) -> None:
 
 
 def unregister_process(proc: subprocess.Popen) -> None:
-    with _processes_lock:
-        try:
-            _running_processes.remove(proc)
-        except ValueError:
-            pass
+    with _processes_lock, suppress(ValueError):
+        _running_processes.remove(proc)
 
 
 def before_stop() -> None:
@@ -86,12 +87,12 @@ def before_stop() -> None:
                     proc.terminate()
                     proc.wait(timeout=5)
                     _sprint(t("shutdown.terminated", {"pid": pid}))
-                except Exception:
+                except _PROCESS_ERRORS:
                     try:
                         proc.kill()
                         proc.wait()
                         _sprint(t("shutdown.killed", {"pid": pid}))
-                    except Exception:
+                    except _PROCESS_ERRORS:
                         _sprint(t("shutdown.terminate_failed", {"pid": pid}))
 
         try:
@@ -99,19 +100,14 @@ def before_stop() -> None:
 
             _clear_provider_cache()
             _sprint(t("shutdown.pool_closed"))
-        except Exception:
+        except Exception:  # noqa: BLE001 - shutdown cleanup must continue after provider failures
             had_error = True
-            pass
 
-        try:
+        with suppress(OSError, ValueError, RuntimeError):
             sys.stdout.flush()
-        except Exception:
-            pass
-        try:
+        with suppress(OSError, ValueError, RuntimeError):
             sys.stderr.flush()
-        except Exception:
-            pass
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - atexit must not propagate cleanup failures
         had_error = True
         _sprint(t("shutdown.cleanup_error", {"detail": e}))
 
@@ -137,7 +133,5 @@ def install_hooks() -> None:
         return
     _hooks_installed = True
     atexit.register(before_stop)
-    try:
+    with suppress(ValueError, OSError):
         signal.signal(signal.SIGTERM, _signal_handler)
-    except (ValueError, OSError):
-        pass

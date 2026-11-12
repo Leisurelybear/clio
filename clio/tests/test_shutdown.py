@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -84,7 +85,7 @@ def test_before_stop_kills_when_terminate_times_out():
     proc.pid = 12345
     proc.poll.return_value = None
     proc.terminate.side_effect = None
-    proc.wait.side_effect = [Exception("timeout")]
+    proc.wait.side_effect = [subprocess.TimeoutExpired("ffmpeg", 5)]
 
     shutdown_mod.register_process(proc)
 
