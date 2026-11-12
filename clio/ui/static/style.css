@@ -2200,6 +2200,9 @@ button .icon { width: 12px; height: 12px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-4); }
 .modal-actions button { padding: 8px 18px; border-radius: var(--radius-md); font: inherit; font-size: var(--text-sm); cursor: pointer; transition: all var(--transition-fast); }
 .modal-actions .btn-primary { width: auto; padding: 8px 18px; }
+.modal-actions .btn-danger { width: auto; padding: 8px 18px; background: var(--error); color: #fff; }
+.modal-actions .btn-danger:hover { background: #dc2626; box-shadow: none; }
+.modal-actions .btn-danger:disabled { background: var(--bg-surface-3); color: var(--text-muted); cursor: not-allowed; }
 .btn-secondary { background: transparent; color: var(--text-secondary); border: 1px solid var(--border); padding: 8px 16px; border-radius: var(--radius-md); font: inherit; font-size: var(--text-sm); cursor: pointer; transition: all var(--transition-fast); display: inline-flex; align-items: center; gap: 6px; }
 .btn-secondary:hover { background: var(--bg-hover); color: var(--text-primary); border-color: var(--border-light); }
 .btn-secondary:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
