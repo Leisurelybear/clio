@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import yaml
 
@@ -1200,3 +1200,34 @@ class TestHandlePutConfigProject:
         assert "compress.max_width must be a number" in error
         assert "not supported between instances" not in error
         assert not (proj_dir / "project.yaml").exists()
+
+
+def test_put_global_reports_yaml_read_error(tmp_path: Path) -> None:
+    handler = MagicMock()
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("broken: [", encoding="utf-8")
+    handler.config_path = cfg
+    handler._send_json = MagicMock()
+
+    handle_put_config_global(handler, {}, {})
+
+    args = handler._send_json.call_args
+    assert args[0][1] == 500
+    assert "cannot read current config" in args[0][0]["error"]
+    assert cfg.read_text(encoding="utf-8") == "broken: ["
+
+
+def test_put_global_reports_yaml_serialization_error(tmp_path: Path) -> None:
+    handler = MagicMock()
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("{}\n", encoding="utf-8")
+    handler.config_path = cfg
+    handler._send_json = MagicMock()
+
+    with patch("clio.ui.routes.config_routes.yaml.dump", side_effect=yaml.YAMLError("cannot serialize")):
+        handle_put_config_global(handler, {}, {})
+
+    args = handler._send_json.call_args
+    assert args[0][1] == 400
+    assert "YAML serialization failed" in args[0][0]["error"]
+    assert cfg.read_text(encoding="utf-8") == "{}\n"

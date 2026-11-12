@@ -42,6 +42,8 @@ from clio.ui.services.project_service import _project_output_dir, _registry_path
 if TYPE_CHECKING:
     from clio.ui.handler_protocol import HandlerProtocol
 
+_YAML_READ_ERRORS = (OSError, UnicodeDecodeError, yaml.YAMLError, TypeError, ValueError)
+_YAML_WRITE_ERRORS = (yaml.YAMLError, TypeError, ValueError)
 _PROVIDER_TYPES = {"gemini", "openai", "openai_compat", "ollama"}
 _DEFAULT_PROVIDERS = frozenset({"gemini", "openai", "deepseek"})
 
@@ -137,13 +139,13 @@ def handle_put_config_raw(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
         obj = _coerce_config_types(obj, _project_type_reference(target_path))
         try:
             yml = yaml.dump(obj, allow_unicode=True, default_flow_style=False, sort_keys=False, indent=2)
-        except Exception as e:
+        except _YAML_WRITE_ERRORS as e:
             return handler._send_json({"ok": False, "error": f"YAML serialization failed: {e}"}, 400)
         orig_backup = target_path.read_bytes() if target_path.is_file() else None
         try:
             _save_atomic(target_path, yml.encode("utf-8"))
             load_config(config_path, project_dir=proj_dir)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - config validation boundary restores the previous file
             if orig_backup is not None:
                 target_path.write_bytes(orig_backup)
             else:
@@ -156,14 +158,14 @@ def handle_put_config_raw(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
     try:
         with open(config_path, encoding="utf-8") as f:
             ref_raw = yaml.safe_load(f) or {}
-    except Exception as e:
+    except _YAML_READ_ERRORS as e:
         return handler._send_json({"ok": False, "error": f"cannot read current config: {e}"}, 500)
     coerced = _coerce_config_types(obj, _global_type_reference(ref_raw))
     _coerce_provider_entries(coerced)
     _strip_provider_api_keys(coerced)
     try:
         yml = yaml.dump(coerced, allow_unicode=True, default_flow_style=False, sort_keys=False, indent=2)
-    except Exception as e:
+    except _YAML_WRITE_ERRORS as e:
         return handler._send_json({"ok": False, "error": f"YAML serialization failed: {e}"}, 400)
     tmp_path: Path | None = None
     try:
@@ -171,7 +173,7 @@ def handle_put_config_raw(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
             tmp.write(yml.encode("utf-8"))
             tmp_path = Path(tmp.name)
         load_config(tmp_path)
-    except (ValueError, FileNotFoundError, Exception) as e:
+    except Exception as e:  # noqa: BLE001 - candidate config validation boundary
         if tmp_path and tmp_path.exists():
             tmp_path.unlink()
         return handler._send_json({"ok": False, "error": f"config validation failed: {e}"}, 400)
@@ -294,7 +296,7 @@ def _read_raw_yaml(path: Path) -> Any:
     try:
         with open(path, encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
-    except Exception:
+    except _YAML_READ_ERRORS:
         return None
 
 
@@ -424,7 +426,7 @@ def handle_get_config_project(handler: HandlerProtocol, qs: dict[str, Any]) -> N
     try:
         with open(proj_yaml, encoding="utf-8") as f:
             raw = yaml.safe_load(f) or {}
-    except Exception as e:
+    except _YAML_READ_ERRORS as e:
         return handler._send_json({"error": f"cannot read project.yaml: {e}"}, 500)
 
     # Merge dataclass defaults so UI always shows plan/analyze/script/... even if
@@ -472,7 +474,7 @@ def _validate_global_against_registry(config_path: Path, candidate: Path) -> lis
             continue
         try:
             load_config(candidate, project_dir=proj_dir)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - collect every affected registered project
             failures.append({"project": str(proj_dir), "error": str(e)})
     return failures
 
@@ -490,14 +492,14 @@ def handle_put_config_global(handler: HandlerProtocol, qs: dict[str, Any], obj: 
     try:
         with open(config_path, encoding="utf-8") as f:
             ref_raw = yaml.safe_load(f) or {}
-    except Exception as e:
+    except _YAML_READ_ERRORS as e:
         return handler._send_json({"ok": False, "error": f"cannot read current config: {e}"}, 500)
     coerced = _coerce_config_types(obj, _global_type_reference(ref_raw))
     _coerce_provider_entries(coerced)
     _strip_provider_api_keys(coerced)
     try:
         yml = yaml.dump(coerced, allow_unicode=True, default_flow_style=False, sort_keys=False, indent=2)
-    except Exception as e:
+    except _YAML_WRITE_ERRORS as e:
         return handler._send_json({"ok": False, "error": f"YAML serialization failed: {e}"}, 400)
     tmp_path: Path | None = None
     try:
@@ -505,7 +507,7 @@ def handle_put_config_global(handler: HandlerProtocol, qs: dict[str, Any], obj: 
             tmp.write(yml.encode("utf-8"))
             tmp_path = Path(tmp.name)
         validated = load_global_config(tmp_path)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - global config validation boundary
         if tmp_path and tmp_path.exists():
             tmp_path.unlink()
         return handler._send_json({"ok": False, "error": f"config validation failed: {e}"}, 400)
@@ -541,13 +543,13 @@ def handle_put_config_project(handler: HandlerProtocol, qs: dict[str, Any], obj:
     obj = _coerce_config_types(obj, _project_type_reference(proj_yaml))
     try:
         yml = yaml.dump(obj, allow_unicode=True, default_flow_style=False, sort_keys=False, indent=2)
-    except Exception as e:
+    except _YAML_WRITE_ERRORS as e:
         return handler._send_json({"ok": False, "error": f"YAML serialization failed: {e}"}, 400)
     orig_backup = proj_yaml.read_bytes() if proj_yaml.is_file() else None
     try:
         _save_atomic(proj_yaml, yml.encode("utf-8"))
         load_config(config_path, project_dir=proj_dir)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - project config validation boundary restores the previous file
         if orig_backup is not None:
             proj_yaml.write_bytes(orig_backup)
         else:
@@ -569,7 +571,7 @@ def _read_global_config_raw(config_path: Path | None) -> tuple[dict[str, Any] | 
     try:
         with open(config_path, encoding="utf-8") as f:
             raw = yaml.safe_load(f) or {}
-    except Exception as e:
+    except _YAML_READ_ERRORS as e:
         return None, f"cannot read current config: {e}"
     if not isinstance(raw, dict):
         return None, "config root must be a mapping"
@@ -659,7 +661,7 @@ def _write_global_config_raw(handler: HandlerProtocol, raw: dict[str, Any]) -> t
     _strip_provider_api_keys(raw)
     try:
         yml = yaml.dump(raw, allow_unicode=True, default_flow_style=False, sort_keys=False, indent=2)
-    except Exception as e:
+    except _YAML_WRITE_ERRORS as e:
         return False, f"YAML serialization failed: {e}"
     tmp_path: Path | None = None
     try:
@@ -667,7 +669,7 @@ def _write_global_config_raw(handler: HandlerProtocol, raw: dict[str, Any]) -> t
             tmp.write(yml.encode("utf-8"))
             tmp_path = Path(tmp.name)
         load_global_config(tmp_path)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - raw global config validation boundary
         if tmp_path and tmp_path.exists():
             tmp_path.unlink()
         return False, f"config validation failed: {e}"
