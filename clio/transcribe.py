@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ctypes
 import os
-import platform
+import sys
 import threading
 from collections.abc import Callable
 from contextlib import AbstractContextManager
@@ -28,7 +28,7 @@ def check_cublas() -> bool:
     even for CPU-only inference, so its absence means transcription will fail
     with "Library cublas64_12.dll is not found".
     """
-    if platform.system() != "Windows":
+    if sys.platform != "win32":
         return True
     for dll in ("cublas64_12.dll", "cublas64_11.dll"):
         try:

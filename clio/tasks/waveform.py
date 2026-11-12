@@ -13,6 +13,7 @@ import json
 import os
 import struct
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -49,7 +50,7 @@ def _pid_alive(pid: int) -> bool:
     """True if process *pid* appears to still be running."""
     if pid <= 0:
         return False
-    if os.name == "nt":
+    if sys.platform == "win32":
         import ctypes
 
         PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
