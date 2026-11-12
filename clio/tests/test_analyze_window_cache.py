@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
@@ -11,34 +12,39 @@ from clio.analyze_windows import (
     save_window_cache,
     window_cache_dir,
 )
+from clio.config import AppConfig
 from clio.tasks.analyze import run_analyze_all
 
 
-def _cfg(tmp_path: Path) -> SimpleNamespace:
-    cfg = SimpleNamespace(
-        paths=SimpleNamespace(
-            output_dir=tmp_path / "output",
-            ffmpeg="ffmpeg",
-            ffprobe="ffprobe",
+def _cfg(tmp_path: Path) -> AppConfig:
+    cfg = cast(
+        AppConfig,
+        SimpleNamespace(
+            paths=SimpleNamespace(
+                output_dir=tmp_path / "output",
+                ffmpeg="ffmpeg",
+                ffprobe="ffprobe",
+            ),
+            compressed_dir=tmp_path / "output" / "compressed",
+            texts_dir=tmp_path / "output" / "texts",
+            summary_csv=tmp_path / "output" / "summary.csv",
+            naming=SimpleNamespace(index_width=3),
+            analyze=SimpleNamespace(
+                skip_existing=False,
+                max_analyze_duration_min=0,
+                window_max_min=15,
+                window_overlap_sec=20,
+                max_workers=1,
+            ),
+            ai=SimpleNamespace(context="", tasks={}, providers={}),
+            compress=SimpleNamespace(),
+            plan=SimpleNamespace(max_clips_per_day=10, target_duration_sec=300),
+            script=SimpleNamespace(target_words=150),
+            project_dir=tmp_path / "project",
         ),
-        compressed_dir=tmp_path / "output" / "compressed",
-        texts_dir=tmp_path / "output" / "texts",
-        summary_csv=tmp_path / "output" / "summary.csv",
-        naming=SimpleNamespace(index_width=3),
-        analyze=SimpleNamespace(
-            skip_existing=False,
-            max_analyze_duration_min=0,
-            window_max_min=15,
-            window_overlap_sec=20,
-            max_workers=1,
-        ),
-        ai=SimpleNamespace(context="", tasks={}, providers={}),
-        compress=SimpleNamespace(),
-        plan=SimpleNamespace(max_clips_per_day=10, target_duration_sec=300),
-        script=SimpleNamespace(target_words=150),
-        project_dir=tmp_path / "project",
     )
-    Path(cfg.project_dir).mkdir(parents=True, exist_ok=True)
+    assert cfg.project_dir is not None
+    cfg.project_dir.mkdir(parents=True, exist_ok=True)
     cfg.compressed_dir.mkdir(parents=True, exist_ok=True)
     cfg.texts_dir.mkdir(parents=True, exist_ok=True)
     return cfg
