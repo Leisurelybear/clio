@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import os
 import platform
@@ -56,10 +57,8 @@ _PROGRESS = Callable[[int, str], None]
 
 def _emit(reporter: _PROGRESS | None, pct: int, message: str) -> None:
     if reporter is not None:
-        try:
+        with contextlib.suppress(Exception):  # progress reporting must not break installation
             reporter(max(0, min(100, int(pct))), message)
-        except Exception:  # noqa: BLE001 - progress must not break installation
-            pass
 
 
 def _check_cancel(cancel_event: threading.Event | None) -> None:
