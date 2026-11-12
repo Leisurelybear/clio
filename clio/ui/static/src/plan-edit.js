@@ -302,3 +302,56 @@ export function nextExpandedAfterMove(fromIndex, toIndex, expanded) {
   if (e >= to) e += 1;
   return e;
 }
+
+/** JSON snapshot of a plan for the edit undo/redo stack. */
+export function planSnapshot(plan) {
+  try {
+    return JSON.stringify(plan ?? null);
+  } catch {
+    return 'null';
+  }
+}
+
+/** Create a bounded undo/redo history for plan snapshots. */
+export function createPlanHistory(limit = 50) {
+  const n = Number(limit);
+  return { undo: [], redo: [], limit: Number.isFinite(n) && n > 0 ? Math.floor(n) : 50 };
+}
+
+export function resetPlanHistory(history) {
+  if (!history) return;
+  history.undo.length = 0;
+  history.redo.length = 0;
+}
+
+/**
+ * Push a pre-edit snapshot. Consecutive identical snapshots are ignored so
+ * no-op focus/input sessions do not create junk entries.
+ */
+export function pushPlanHistory(history, snapshot) {
+  if (!history) return false;
+  const last = history.undo[history.undo.length - 1];
+  if (last === snapshot) return false;
+  history.undo.push(snapshot);
+  if (history.undo.length > history.limit) history.undo.shift();
+  history.redo.length = 0;
+  return true;
+}
+
+/** Undo: returns the restored plan object, or null when history is empty. */
+export function undoPlanSnapshot(history, currentSnapshot) {
+  if (!history || !history.undo.length) return null;
+  const snapshot = history.undo.pop();
+  history.redo.push(currentSnapshot);
+  if (history.redo.length > history.limit) history.redo.shift();
+  return JSON.parse(snapshot);
+}
+
+/** Redo: returns the restored plan object, or null when there is nothing to redo. */
+export function redoPlanSnapshot(history, currentSnapshot) {
+  if (!history || !history.redo.length) return null;
+  const snapshot = history.redo.pop();
+  history.undo.push(currentSnapshot);
+  if (history.undo.length > history.limit) history.undo.shift();
+  return JSON.parse(snapshot);
+}

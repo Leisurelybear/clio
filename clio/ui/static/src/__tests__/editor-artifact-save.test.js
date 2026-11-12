@@ -49,6 +49,12 @@ vi.mock('../plan-edit.js', () => ({
   nextExpandedAfterInsert: vi.fn(),
   nextExpandedAfterMove: vi.fn(),
   syncPlanTotalEstimatedSec: vi.fn(),
+  createPlanHistory: vi.fn(() => ({ undo: [], redo: [], limit: 50 })),
+  resetPlanHistory: vi.fn(),
+  planSnapshot: vi.fn(() => 'null'),
+  pushPlanHistory: vi.fn(),
+  undoPlanSnapshot: vi.fn(),
+  redoPlanSnapshot: vi.fn(),
 }));
 vi.mock('../latest.js', () => ({
   beginLatest: vi.fn(),

@@ -18,6 +18,12 @@ import {
   selectionFromUseTimeline,
   useTimelineFromFileSelection,
   syncPlanTotalEstimatedSec,
+  planSnapshot,
+  createPlanHistory,
+  resetPlanHistory,
+  pushPlanHistory,
+  undoPlanSnapshot,
+  redoPlanSnapshot,
 } from '../plan-edit.js';
 
 describe('plan-edit', () => {
@@ -279,5 +285,67 @@ describe('range picker helpers', () => {
   it('useTimelineFromFileSelection maps file→plan', () => {
     expect(useTimelineFromFileSelection(55, 80, 40)).toBe('00:15-00:40');
     expect(useTimelineFromFileSelection(10, 25, 0)).toBe('00:10-00:25');
+  });
+});
+
+describe('plan edit history', () => {
+  const plan = { day_title: 'Day 1', sequence: [{ index: '001', title: 'a' }] };
+
+  it('snapshots and restores object state', () => {
+    const history = createPlanHistory();
+    const before = planSnapshot(plan);
+    plan.sequence[0].title = 'b';
+    expect(pushPlanHistory(history, before)).toBe(true);
+    const restored = undoPlanSnapshot(history, planSnapshot(plan));
+    expect(restored.sequence[0].title).toBe('a');
+    expect(history.redo).toHaveLength(1);
+  });
+
+  it('redo replays the undone snapshot', () => {
+    const history = createPlanHistory();
+    const before = planSnapshot(plan);
+    plan.sequence[0].title = 'b';
+    pushPlanHistory(history, before);
+    const undone = undoPlanSnapshot(history, planSnapshot(plan));
+    const redone = redoPlanSnapshot(history, planSnapshot(undone));
+    expect(redone.sequence[0].title).toBe('b');
+    expect(history.undo).toHaveLength(1);
+    expect(history.redo).toHaveLength(0);
+  });
+
+  it('ignores consecutive duplicate snapshots', () => {
+    const history = createPlanHistory();
+    const snap = planSnapshot(plan);
+    expect(pushPlanHistory(history, snap)).toBe(true);
+    expect(pushPlanHistory(history, snap)).toBe(false);
+    expect(history.undo).toHaveLength(1);
+  });
+
+  it('drops redo entries and enforces the limit', () => {
+    const history = createPlanHistory(2);
+    pushPlanHistory(history, '1');
+    pushPlanHistory(history, '2');
+    pushPlanHistory(history, '3');
+    expect(history.undo).toEqual(['2', '3']);
+    expect(history.redo).toEqual([]);
+    undoPlanSnapshot(history, '4');
+    expect(history.redo).toHaveLength(1);
+    pushPlanHistory(history, '5');
+    expect(history.redo).toEqual([]);
+  });
+
+  it('returns null when there is nothing to undo or redo', () => {
+    const history = createPlanHistory();
+    expect(undoPlanSnapshot(history, 'x')).toBeNull();
+    expect(redoPlanSnapshot(history, 'x')).toBeNull();
+  });
+
+  it('reset clears both stacks', () => {
+    const history = createPlanHistory();
+    pushPlanHistory(history, '1');
+    undoPlanSnapshot(history, '2');
+    resetPlanHistory(history);
+    expect(history.undo).toEqual([]);
+    expect(history.redo).toEqual([]);
   });
 });
