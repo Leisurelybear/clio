@@ -430,7 +430,7 @@ def handle_post_cut(handler: HandlerProtocol, qs: dict[str, list[str]], obj: dic
                     overwrite=True,
                     cancel_event=state.job_cancel_event,
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - background cut job must record every failure
                 print(t("api.cut_failed_log", {"detail": e}))
             finally:
                 with state.job_lock:
