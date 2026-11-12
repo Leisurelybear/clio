@@ -2,6 +2,17 @@
 
 ## 2026-11-12
 
+Video analysis prompts now scale timeline detail with the actual analysis-window duration instead of using
+one fixed row cap.
+
+- feat(analyze): require duration-based timeline targets from 25 rows to 180 rows and prefer 8-12 second coverage
+- feat(analyze): require short descriptions, explicit coverage, score/camera/quality/tags fields, and concrete key moments
+- test(prompts): lock the density table, short-row contract, and structured significance fields
+
+Verification: `test_prompts.py` passes (29 tests); Ruff and targeted mypy pass.
+
+## 2026-11-12
+
 Timeline analysis now carries structured significance fields while remaining compatible with old JSON.
 
 - feat(analyze): add optional `score`, `camera`, `quality`, and `tags` fields to timeline entries

@@ -1,7 +1,7 @@
 # 分析细节与 Plan 输入预算设计
 
 > 日期: 2026-10-24
-> 状态: P0b 进行中（媒体分辨率、显著性字段校验/窗口合并已完成；密度契约、覆盖率日志和 plan 输入投影待实施）
+> 状态: P0b 进行中（媒体分辨率、显著性字段、窗口合并和 prompt 密度契约已完成；覆盖率日志和 plan 输入投影待实施）
 > 范围: `clio/ai/gemini.py`、`clio/analyze.py`、`clio/analyze_windows.py`、`clio/tasks/plan.py`、`clio/prompts.py`、配置模型与示例
 > 目标: 提高视频分析的画面细节，同时让 plan 输入量不随细节线性膨胀
 

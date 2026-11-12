@@ -88,7 +88,12 @@ def test_render_prompt_template_rejects_unknown_placeholder():
 
 def test_analyze_prompt_requires_high_detail_timeline():
     assert "镜头运动" in ANALYZE_PROMPT
-    assert "最多输出 60 个" in ANALYZE_PROMPT
+    assert "不超过 5 分钟" in ANALYZE_PROMPT
+    assert "75-120" in ANALYZE_PROMPT
+    assert "8-12 秒" in ANALYZE_PROMPT
+    assert "40 个中文字符" in ANALYZE_PROMPT
+    assert "key_moments" in ANALYZE_PROMPT
+    assert '"score"' in ANALYZE_PROMPT
     assert "实际能看到" in ANALYZE_PROMPT
     assert "禁止编造" in ANALYZE_PROMPT
 
