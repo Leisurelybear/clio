@@ -760,13 +760,19 @@ def test_analyze_video_retries_invalid_structure_once(monkeypatch):
         AIResponse('{"title":"fixed","summary":"summary","timeline":[]}'),
     ]
     monkeypatch.setattr("clio.analyze.get_video_provider", lambda *a: (provider, "model"))
-    monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, *a, **kw: prompt)
+    monkeypatch.setattr(
+        "clio.analyze._wrap_with_context",
+        lambda prompt, *a, **kw: "TRIP CONTEXT\n" + prompt,
+    )
 
     result = analyze_video("clip.mp4", cfg)
 
     assert result["title"] == "fixed"
     assert provider.analyze_video.call_count == 2
+    original_prompt = provider.analyze_video.call_args_list[0].args[1]
     retry_prompt = provider.analyze_video.call_args_list[1].args[1]
+    assert retry_prompt.startswith(original_prompt)
+    assert "TRIP CONTEXT" in retry_prompt
     assert '"summary": "summary"' in retry_prompt
     assert '"timeline": []' in retry_prompt
 
@@ -799,13 +805,19 @@ def test_generate_voiceover_retries_invalid_structure_once(monkeypatch):
         AIResponse('{"title":"fixed","voiceover":"hello"}'),
     ]
     monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (provider, "model"))
-    monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, *a, **kw: prompt)
+    monkeypatch.setattr(
+        "clio.analyze._wrap_with_context",
+        lambda prompt, *a, **kw: "TRIP CONTEXT\n" + prompt,
+    )
 
     result = generate_voiceover({"title": "clip", "timeline": []}, "template", cfg)
 
     assert result == {"title": "fixed", "voiceover": "hello", "duration_hint_sec": 20, "edit_tip": ""}
     assert provider.generate_text.call_count == 2
+    original_prompt = provider.generate_text.call_args_list[0].args[0]
     retry_prompt = provider.generate_text.call_args_list[1].args[0]
+    assert retry_prompt.startswith(original_prompt)
+    assert "TRIP CONTEXT" in retry_prompt
     assert '"title": "draft"' in retry_prompt
     assert '"voiceover": ""' in retry_prompt
 

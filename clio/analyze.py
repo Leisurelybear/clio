@@ -1048,6 +1048,7 @@ def _validate_with_retry(
     text: str,
     source: str,
     *,
+    prompt: str,
     validate: Callable[..., dict],
     retry: Callable[[str], str],
     analysis: bool,
@@ -1063,7 +1064,7 @@ def _validate_with_retry(
             key = "analyze.validation_failed_analysis" if analysis else "analyze.validation_failed_voiceover"
             raise RuntimeError(t(key, {"errors": issue_text}))
         print(t("analyze.validation_retry", {"errors": issue_text}))
-        text = retry(_validation_retry_prompt(text, result, issues, analysis=analysis))
+        text = retry(_validation_retry_prompt(prompt, result, issues, analysis=analysis))
 
     raise AssertionError("validation retry loop exited unexpectedly")
 
@@ -1152,6 +1153,7 @@ def analyze_video(
         result = _validate_with_retry(
             text,
             video_path,
+            prompt=prompt,
             validate=_validate_analysis,
             retry=call_analyze,
             analysis=True,
@@ -1237,6 +1239,7 @@ def generate_voiceover(
         return _validate_with_retry(
             text,
             clip_data.get("title", ""),
+            prompt=prompt,
             validate=_validate_voiceover,
             retry=call_voiceover,
             analysis=False,
@@ -1379,6 +1382,7 @@ def generate_plan_voiceover(
         validated = _validate_with_retry(
             text,
             f"{day_label} position {position}",
+            prompt=prompt,
             validate=lambda data, source, issues=None: _validate_plan_voiceover(
                 data, source, position=position, issues=issues
             ),
