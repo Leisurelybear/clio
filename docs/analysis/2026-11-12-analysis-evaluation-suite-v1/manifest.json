@@ -6,85 +6,85 @@
       "id": "case-01-urban-walk",
       "prediction": "predictions/case-01-urban-walk.json",
       "reference": "references/case-01-urban-walk.json",
-      "duration_sec": 60,
-      "description": "SCAFFOLD ONLY: Urban walking coverage and street-level details; replace with reviewed labels from real footage."
+      "duration_sec": 269.533333,
+      "description": "Real footage 011_GX010690.mp4 (Paris street walk, 269.533s); 12-frame contact sheet reviewed 2026-11-13."
     },
     {
       "id": "case-02-nature-hike",
       "prediction": "predictions/case-02-nature-hike.json",
       "reference": "references/case-02-nature-hike.json",
-      "duration_sec": 60,
-      "description": "SCAFFOLD ONLY: Nature hike coverage, terrain, and changing scenery; replace with reviewed labels from real footage."
+      "duration_sec": 103.6,
+      "description": "Real footage 082_GX011342.mp4 (Dolomites meadow hike, 103.600s); 12-frame contact sheet reviewed 2026-11-13."
     },
     {
       "id": "case-03-food-market",
       "prediction": "predictions/case-03-food-market.json",
       "reference": "references/case-03-food-market.json",
-      "duration_sec": 60,
-      "description": "SCAFFOLD ONLY: Food market actions, products, and vendor context; replace with reviewed labels from real footage."
+      "duration_sec": 59.933333,
+      "description": "Real footage 010_GX010689.mp4 (Paris open-air market, 59.933s); 12-frame contact sheet reviewed 2026-11-13."
     },
     {
       "id": "case-04-transit",
       "prediction": "predictions/case-04-transit.json",
       "reference": "references/case-04-transit.json",
-      "duration_sec": 60,
-      "description": "SCAFFOLD ONLY: Transit transitions and movement between places; replace with reviewed labels from real footage."
+      "duration_sec": 94.466667,
+      "description": "Real footage 006_GX010685.mp4 (CDG airport to Paris transit, 94.467s); 12-frame contact sheet reviewed 2026-11-13."
     },
     {
       "id": "case-05-water-coast",
       "prediction": "predictions/case-05-water-coast.json",
       "reference": "references/case-05-water-coast.json",
-      "duration_sec": 60,
-      "description": "SCAFFOLD ONLY: Coastal or waterfront scenery and activity; replace with reviewed labels from real footage."
+      "duration_sec": 105.6,
+      "description": "Real footage 174_GX011434.mp4 (Venice Grand Canal water bus, 105.600s); 12-frame contact sheet reviewed 2026-11-13."
     },
     {
       "id": "case-06-night-scene",
       "prediction": "predictions/case-06-night-scene.json",
       "reference": "references/case-06-night-scene.json",
-      "duration_sec": 60,
-      "description": "SCAFFOLD ONLY: Low-light scene quality and visible events; replace with reviewed labels from real footage."
+      "duration_sec": 168.866667,
+      "description": "Real footage 034_GX010713.mp4 (Eiffel Tower at night, 168.867s); 12-frame contact sheet reviewed 2026-11-13."
     },
     {
       "id": "case-07-indoor-museum",
       "prediction": "predictions/case-07-indoor-museum.json",
       "reference": "references/case-07-indoor-museum.json",
-      "duration_sec": 60,
-      "description": "SCAFFOLD ONLY: Indoor exhibit structure, labels, and observations; replace with reviewed labels from real footage."
+      "duration_sec": 123.0,
+      "description": "Real footage 160_GX011420.mp4 (Doge's Palace interior, 123.000s); 12-frame contact sheet reviewed 2026-11-13."
     },
     {
       "id": "case-08-people-interview",
       "prediction": "predictions/case-08-people-interview.json",
       "reference": "references/case-08-people-interview.json",
-      "duration_sec": 60,
-      "description": "SCAFFOLD ONLY: People-focused coverage and conversational context; replace with reviewed labels from real footage."
+      "duration_sec": 71.0,
+      "description": "Real footage 003_GX010684.mp4 (CDG airport station arrival, 71.000s); 12-frame contact sheet reviewed 2026-11-13."
     },
     {
       "id": "case-09-weather-rain",
       "prediction": "predictions/case-09-weather-rain.json",
       "reference": "references/case-09-weather-rain.json",
-      "duration_sec": 60,
-      "description": "SCAFFOLD ONLY: Weather visibility, atmosphere, and continuity; replace with reviewed labels from real footage."
+      "duration_sec": 59.6,
+      "description": "Real footage 124_GX011384.mp4 (rainy mountain drive, 59.600s); 12-frame contact sheet reviewed 2026-11-13."
     },
     {
       "id": "case-10-action-sports",
       "prediction": "predictions/case-10-action-sports.json",
       "reference": "references/case-10-action-sports.json",
-      "duration_sec": 60,
-      "description": "SCAFFOLD ONLY: Fast-action coverage and key movement moments; replace with reviewed labels from real footage."
+      "duration_sec": 272.066667,
+      "description": "Real footage 021_GX010700.mp4 (petanque in a Paris park, 272.067s); 12-frame contact sheet reviewed 2026-11-13."
     },
     {
       "id": "case-11-landmark-architecture",
       "prediction": "predictions/case-11-landmark-architecture.json",
       "reference": "references/case-11-landmark-architecture.json",
-      "duration_sec": 60,
-      "description": "SCAFFOLD ONLY: Landmark identity, composition, and architectural detail; replace with reviewed labels from real footage."
+      "duration_sec": 290.0,
+      "description": "Real footage 005_GX011264.mp4 (Colosseum arrival and queue, 290.000s); 12-frame contact sheet reviewed 2026-11-13."
     },
     {
       "id": "case-12-closing-sunset",
       "prediction": "predictions/case-12-closing-sunset.json",
       "reference": "references/case-12-closing-sunset.json",
-      "duration_sec": 60,
-      "description": "SCAFFOLD ONLY: Closing sequence, sunset timing, and narrative resolution; replace with reviewed labels from real footage."
+      "duration_sec": 217.2,
+      "description": "Real footage 066_GX011326.mp4 (Piazzale Michelangelo sunset, 217.200s); 12-frame contact sheet reviewed 2026-11-13."
     }
   ]
 }

@@ -1,0 +1,1047 @@
+{
+  "_schema_version": 1,
+  "suite": "analysis-suite-v1",
+  "weights": {
+    "coverage": 0.2,
+    "density": 0.15,
+    "facts": 0.25,
+    "key_moments": 0.25,
+    "structure": 0.15
+  },
+  "gate": {
+    "min_score": 70.0,
+    "below_min_score": false,
+    "passed": true
+  },
+  "summary": {
+    "case_count": 12,
+    "scored_count": 12,
+    "error_count": 0,
+    "mean_score": 96.92,
+    "min_case_score": 87.51,
+    "max_case_score": 100.0,
+    "metrics": {
+      "coverage": 84.59,
+      "density": 100.0,
+      "facts": 100.0,
+      "key_moments": 100.0,
+      "structure": 100.0
+    }
+  },
+  "cases": [
+    {
+      "id": "case-01-urban-walk",
+      "status": "ok",
+      "score": 87.51,
+      "duration_sec": 269.533,
+      "metrics": {
+        "coverage": {
+          "score": 37.56492708083715,
+          "coverage_ratio": 0.3005,
+          "covered_sec": 81.0,
+          "duration_sec": 269.533,
+          "target_ratio": 0.8,
+          "gap_count": 4,
+          "max_gap_sec": 85.0
+        },
+        "density": {
+          "score": 100.0,
+          "entries": 5,
+          "entries_per_min": 1.113,
+          "min_entries_per_min": 1.0,
+          "max_entries_per_min": 4.5
+        },
+        "facts": {
+          "score": 100.0,
+          "matches": [
+            {
+              "id": "case-01-urban-walk-fact-1",
+              "alias": "巴黎"
+            },
+            {
+              "id": "case-01-urban-walk-fact-2",
+              "alias": "手机"
+            },
+            {
+              "id": "case-01-urban-walk-fact-3",
+              "alias": "橱窗"
+            }
+          ],
+          "missing": [],
+          "total": 3
+        },
+        "key_moments": {
+          "score": 100.0,
+          "matches": [
+            {
+              "id": "case-01-urban-walk-moment-1",
+              "label": "Opening walk past a red-awning restaurant",
+              "overlap_ratio": 1.0,
+              "matched": true
+            },
+            {
+              "id": "case-01-urban-walk-moment-2",
+              "label": "Pausing at a curated shop window",
+              "overlap_ratio": 1.0,
+              "matched": true
+            },
+            {
+              "id": "case-01-urban-walk-moment-3",
+              "label": "Entering a traditional French restaurant",
+              "overlap_ratio": 1.0,
+              "matched": true
+            }
+          ],
+          "missing": [],
+          "total": 3
+        },
+        "structure": {
+          "score": 100.0,
+          "valid_fields": {
+            "title": true,
+            "summary": true,
+            "location": true,
+            "mood": true,
+            "timeline": true,
+            "highlights": true,
+            "suggested_use": true,
+            "cover_timestamp": true
+          },
+          "issues": [],
+          "total": 8
+        }
+      },
+      "description": "Real footage 011_GX010690.mp4 (Paris street walk, 269.533s); 12-frame contact sheet reviewed 2026-11-13."
+    },
+    {
+      "id": "case-02-nature-hike",
+      "status": "ok",
+      "score": 100.0,
+      "duration_sec": 103.6,
+      "metrics": {
+        "coverage": {
+          "score": 100.0,
+          "coverage_ratio": 0.9942,
+          "covered_sec": 103.0,
+          "duration_sec": 103.6,
+          "target_ratio": 0.8,
+          "gap_count": 1,
+          "max_gap_sec": 0.6
+        },
+        "density": {
+          "score": 100.0,
+          "entries": 6,
+          "entries_per_min": 3.4749,
+          "min_entries_per_min": 1.0,
+          "max_entries_per_min": 4.5
+        },
+        "facts": {
+          "score": 100.0,
+          "matches": [
+            {
+              "id": "case-02-nature-hike-fact-1",
+              "alias": "多洛米蒂"
+            },
+            {
+              "id": "case-02-nature-hike-fact-2",
+              "alias": "草甸"
+            },
+            {
+              "id": "case-02-nature-hike-fact-3",
+              "alias": "拍照"
+            }
+          ],
+          "missing": [],
+          "total": 3
+        },
+        "key_moments": {
+          "score": 100.0,
+          "matches": [
+            {
+              "id": "case-02-nature-hike-moment-1",
+              "label": "Companions facing the mountain panorama",
+              "overlap_ratio": 1.0,
+              "matched": true
+            },
+            {
+              "id": "case-02-nature-hike-moment-2",
+              "label": "Wide mountain and meadow view",
+              "overlap_ratio": 1.0,
+              "matched": true
+            },
+            {
+              "id": "case-02-nature-hike-moment-3",
+              "label": "First-person phone view and outfit interaction",
+              "overlap_ratio": 1.0,
+              "matched": true
+            }
+          ],
+          "missing": [],
+          "total": 3
+        },
+        "structure": {
+          "score": 100.0,
+          "valid_fields": {
+            "title": true,
+            "summary": true,
+            "location": true,
+            "mood": true,
+            "timeline": true,
+            "highlights": true,
+            "suggested_use": true,
+            "cover_timestamp": true
+          },
+          "issues": [],
+          "total": 8
+        }
+      },
+      "description": "Real footage 082_GX011342.mp4 (Dolomites meadow hike, 103.600s); 12-frame contact sheet reviewed 2026-11-13."
+    },
+    {
+      "id": "case-03-food-market",
+      "status": "ok",
+      "score": 100.0,
+      "duration_sec": 59.933,
+      "metrics": {
+        "coverage": {
+          "score": 100.0,
+          "coverage_ratio": 0.9844,
+          "covered_sec": 59.0,
+          "duration_sec": 59.933,
+          "target_ratio": 0.8,
+          "gap_count": 1,
+          "max_gap_sec": 0.933
+        },
+        "density": {
+          "score": 100.0,
+          "entries": 4,
+          "entries_per_min": 4.0044,
+          "min_entries_per_min": 1.0,
+          "max_entries_per_min": 4.5
+        },
+        "facts": {
+          "score": 100.0,
+          "matches": [
+            {
+              "id": "case-03-food-market-fact-1",
+              "alias": "巴黎"
+            },
+            {
+              "id": "case-03-food-market-fact-2",
+              "alias": "鱼"
+            },
+            {
+              "id": "case-03-food-market-fact-3",
+              "alias": "蔬菜"
+            }
+          ],
+          "missing": [],
+          "total": 3
+        },
+        "key_moments": {
+          "score": 100.0,
+          "matches": [
+            {
+              "id": "case-03-food-market-moment-1",
+              "label": "Close view of the fish stall",
+              "overlap_ratio": 1.0,
+              "matched": true
+            },
+            {
+              "id": "case-03-food-market-moment-2",
+              "label": "Walking through the market aisle",
+              "overlap_ratio": 1.0,
+              "matched": true
+            },
+            {
+              "id": "case-03-food-market-moment-3",
+              "label": "Passing vegetable and fruit stalls",
+              "overlap_ratio": 1.0,
+              "matched": true
+            }
+          ],
+          "missing": [],
+          "total": 3
+        },
+        "structure": {
+          "score": 100.0,
+          "valid_fields": {
+            "title": true,
+            "summary": true,
+            "location": true,
+            "mood": true,
+            "timeline": true,
+            "highlights": true,
+            "suggested_use": true,
+            "cover_timestamp": true
+          },
+          "issues": [],
+          "total": 8
+        }
+      },
+      "description": "Real footage 010_GX010689.mp4 (Paris open-air market, 59.933s); 12-frame contact sheet reviewed 2026-11-13."
+    },
+    {
+      "id": "case-04-transit",
+      "status": "ok",
+      "score": 100.0,
+      "duration_sec": 94.467,
+      "metrics": {
+        "coverage": {
+          "score": 100.0,
+          "coverage_ratio": 0.921,
+          "covered_sec": 87.0,
+          "duration_sec": 94.467,
+          "target_ratio": 0.8,
+          "gap_count": 5,
+          "max_gap_sec": 3.0
+        },
+        "density": {
+          "score": 100.0,
+          "entries": 4,
+          "entries_per_min": 2.5406,
+          "min_entries_per_min": 1.0,
+          "max_entries_per_min": 4.5
+        },
+        "facts": {
+          "score": 100.0,
+          "matches": [
+            {
+              "id": "case-04-transit-fact-1",
+              "alias": "戴高乐机场"
+            },
+            {
+              "id": "case-04-transit-fact-2",
+              "alias": "RER"
+            },
+            {
+              "id": "case-04-transit-fact-3",
+              "alias": "手机"
+            }
+          ],
+          "missing": [],
+          "total": 3
+        },
+        "key_moments": {
+          "score": 100.0,
+          "matches": [
+            {
+              "id": "case-04-transit-moment-1",
+              "label": "Checking the route on a phone",
+              "overlap_ratio": 1.0,
+              "matched": true
+            },
+            {
+              "id": "case-04-transit-moment-2",
+              "label": "RER train arriving at the platform",
+              "overlap_ratio": 1.0,
+              "matched": true
+            },
+            {
+              "id": "case-04-transit-moment-3",
+              "label": "Waiting in the station concourse",
+              "overlap_ratio": 1.0,
+              "matched": true
+            }
+          ],
+          "missing": [],
+          "total": 3
+        },
+        "structure": {
+          "score": 100.0,
+          "valid_fields": {
+            "title": true,
+            "summary": true,
+            "location": true,
+            "mood": true,
+            "timeline": true,
+            "highlights": true,
+            "suggested_use": true,
+            "cover_timestamp": true
+          },
+          "issues": [],
+          "total": 8
+        }
+      },
+      "description": "Real footage 006_GX010685.mp4 (CDG airport to Paris transit, 94.467s); 12-frame contact sheet reviewed 2026-11-13."
+    },
+    {
+      "id": "case-05-water-coast",
+      "status": "ok",
+      "score": 100.0,
+      "duration_sec": 105.6,
+      "metrics": {
+        "coverage": {
+          "score": 100.0,
+          "coverage_ratio": 0.9943,
+          "covered_sec": 105.0,
+          "duration_sec": 105.6,
+          "target_ratio": 0.8,
+          "gap_count": 1,
+          "max_gap_sec": 0.6
+        },
+        "density": {
+          "score": 100.0,
+          "entries": 6,
+          "entries_per_min": 3.4091,
+          "min_entries_per_min": 1.0,
+          "max_entries_per_min": 4.5
+        },
+        "facts": {
+          "score": 100.0,
+          "matches": [
+            {
+              "id": "case-05-water-coast-fact-1",
+              "alias": "威尼斯大运河"
+            },
+            {
+              "id": "case-05-water-coast-fact-2",
+              "alias": "古建筑"
+            },
+            {
+              "id": "case-05-water-coast-fact-3",
+              "alias": "圣西门"
+            }
+          ],
+          "missing": [],
+          "total": 3
+        },
+        "key_moments": {
+          "score": 100.0,
+          "matches": [
+            {
+              "id": "case-05-water-coast-moment-1",
+              "label": "Water-bus view of boats, bridge, and canal buildings",
+              "overlap_ratio": 1.0,
+              "matched": true
+            },
+            {
+              "id": "case-05-water-coast-moment-2",
+              "label": "Passenger cabin then the green-domed church",
+              "overlap_ratio": 1.0,
+              "matched": true
+            },
+            {
+              "id": "case-05-water-coast-moment-3",
+              "label": "Church facade and continuing canal traffic",
+              "overlap_ratio": 1.0,
+              "matched": true
+            }
+          ],
+          "missing": [],
+          "total": 3
+        },
+        "structure": {
+          "score": 100.0,
+          "valid_fields": {
+            "title": true,
+            "summary": true,
+            "location": true,
+            "mood": true,
+            "timeline": true,
+            "highlights": true,
+            "suggested_use": true,
+            "cover_timestamp": true
+          },
+          "issues": [],
+          "total": 8
+        }
+      },
+      "description": "Real footage 174_GX011434.mp4 (Venice Grand Canal water bus, 105.600s); 12-frame contact sheet reviewed 2026-11-13."
+    },
+    {
+      "id": "case-06-night-scene",
+      "status": "ok",
+      "score": 87.7,
+      "duration_sec": 168.867,
+      "metrics": {
+        "coverage": {
+          "score": 38.491906753865166,
+          "coverage_ratio": 0.3079,
+          "covered_sec": 52.0,
+          "duration_sec": 168.867,
+          "target_ratio": 0.8,
+          "gap_count": 3,
+          "max_gap_sec": 83.0
+        },
+        "density": {
+          "score": 100.0,
+          "entries": 3,
+          "entries_per_min": 1.0659,
+          "min_entries_per_min": 1.0,
+          "max_entries_per_min": 4.5
+        },
+        "facts": {
+          "score": 100.0,
+          "matches": [
+            {
+              "id": "case-06-night-scene-fact-1",
+              "alias": "埃菲尔铁塔"
+            },
+            {
+              "id": "case-06-night-scene-fact-2",
+              "alias": "塞纳河"
+            },
+            {
+              "id": "case-06-night-scene-fact-3",
+              "alias": "游船"
+            }
+          ],
+          "missing": [],
+          "total": 3
+        },
+        "key_moments": {
+          "score": 100.0,
+          "matches": [
+            {
+              "id": "case-06-night-scene-moment-1",
+              "label": "Eiffel Tower glowing over the night street",
+              "overlap_ratio": 1.0,
+              "matched": true
+            },
+            {
+              "id": "case-06-night-scene-moment-2",
+              "label": "Quiet walk along the Seine",
+              "overlap_ratio": 1.0,
+              "matched": true
+            },
+            {
+              "id": "case-06-night-scene-moment-3",
+              "label": "Purple-lit sightseeing boat on the Seine",
+              "overlap_ratio": 1.0,
+              "matched": true
+            }
+          ],
+          "missing": [],
+          "total": 3
+        },
+        "structure": {
+          "score": 100.0,
+          "valid_fields": {
+            "title": true,
+            "summary": true,
+            "location": true,
+            "mood": true,
+            "timeline": true,
+            "highlights": true,
+            "suggested_use": true,
+            "cover_timestamp": true
+          },
+          "issues": [],
+          "total": 8
+        }
+      },
+      "description": "Real footage 034_GX010713.mp4 (Eiffel Tower at night, 168.867s); 12-frame contact sheet reviewed 2026-11-13."
+    },
+    {
+      "id": "case-07-indoor-museum",
+      "status": "ok",
+      "score": 100.0,
+      "duration_sec": 123.0,
+      "metrics": {
+        "coverage": {
+          "score": 100.0,
+          "coverage_ratio": 0.9919,
+          "covered_sec": 122.0,
+          "duration_sec": 123.0,
+          "target_ratio": 0.8,
+          "gap_count": 1,
+          "max_gap_sec": 1.0
+        },
+        "density": {
+          "score": 100.0,
+          "entries": 8,
+          "entries_per_min": 3.9024,
+          "min_entries_per_min": 1.0,
+          "max_entries_per_min": 4.5
+        },
+        "facts": {
+          "score": 100.0,
+          "matches": [
+            {
+              "id": "case-07-indoor-museum-fact-1",
+              "alias": "总督宫"
+            },
+            {
+              "id": "case-07-indoor-museum-fact-2",
+              "alias": "油画"
+            },
+            {
+              "id": "case-07-indoor-museum-fact-3",
+              "alias": "天花板"
+            }
+          ],
+          "missing": [],
+          "total": 3
+        },
+        "key_moments": {
+          "score": 100.0,
+          "matches": [
+            {
+              "id": "case-07-indoor-museum-moment-1",
+              "label": "Moving through the monumental hall",
+              "overlap_ratio": 1.0,
+              "matched": true
+            },
+            {
+              "id": "case-07-indoor-museum-moment-2",
+              "label": "Close inspection of a large historical painting",
+              "overlap_ratio": 1.0,
+              "matched": true
+            },
+            {
+              "id": "case-07-indoor-museum-moment-3",
+              "label": "Upward view of the ornate ceiling",
+              "overlap_ratio": 1.0,
+              "matched": true
+            }
+          ],
+          "missing": [],
+          "total": 3
+        },
+        "structure": {
+          "score": 100.0,
+          "valid_fields": {
+            "title": true,
+            "summary": true,
+            "location": true,
+            "mood": true,
+            "timeline": true,
+            "highlights": true,
+            "suggested_use": true,
+            "cover_timestamp": true
+          },
+          "issues": [],
+          "total": 8
+        }
+      },
+      "description": "Real footage 160_GX011420.mp4 (Doge's Palace interior, 123.000s); 12-frame contact sheet reviewed 2026-11-13."
+    },
+    {
+      "id": "case-08-people-interview",
+      "status": "ok",
+      "score": 100.0,
+      "duration_sec": 71.0,
+      "metrics": {
+        "coverage": {
+          "score": 100.0,
+          "coverage_ratio": 0.9718,
+          "covered_sec": 69.0,
+          "duration_sec": 71.0,
+          "target_ratio": 0.8,
+          "gap_count": 1,
+          "max_gap_sec": 2.0
+        },
+        "density": {
+          "score": 100.0,
+          "entries": 3,
+          "entries_per_min": 2.5352,
+          "min_entries_per_min": 1.0,
+          "max_entries_per_min": 4.5
+        },
+        "facts": {
+          "score": 100.0,
+          "matches": [
+            {
+              "id": "case-08-people-interview-fact-1",
+              "alias": "戴高乐机场"
+            },
+            {
+              "id": "case-08-people-interview-fact-2",
+              "alias": "行李箱"
+            },
+            {
+              "id": "case-08-people-interview-fact-3",
+              "alias": "站台"
+            }
+          ],
+          "missing": [],
+          "total": 3
+        },
+        "key_moments": {
+          "score": 100.0,
+          "matches": [
+            {
+              "id": "case-08-people-interview-moment-1",
+              "label": "Traveler descending the escalator and waving",
+              "overlap_ratio": 1.0,
+              "matched": true
+            },
+            {
+              "id": "case-08-people-interview-moment-2",
+              "label": "Walking past the Paris train information sign",
+              "overlap_ratio": 1.0,
+              "matched": true
+            },
+            {
+              "id": "case-08-people-interview-moment-3",
+              "label": "Wide view of the station platform architecture",
+              "overlap_ratio": 1.0,
+              "matched": true
+            }
+          ],
+          "missing": [],
+          "total": 3
+        },
+        "structure": {
+          "score": 100.0,
+          "valid_fields": {
+            "title": true,
+            "summary": true,
+            "location": true,
+            "mood": true,
+            "timeline": true,
+            "highlights": true,
+            "suggested_use": true,
+            "cover_timestamp": true
+          },
+          "issues": [],
+          "total": 8
+        }
+      },
+      "description": "Real footage 003_GX010684.mp4 (CDG airport station arrival, 71.000s); 12-frame contact sheet reviewed 2026-11-13."
+    },
+    {
+      "id": "case-09-weather-rain",
+      "status": "ok",
+      "score": 100.0,
+      "duration_sec": 59.6,
+      "metrics": {
+        "coverage": {
+          "score": 100.0,
+          "coverage_ratio": 0.9899,
+          "covered_sec": 59.0,
+          "duration_sec": 59.6,
+          "target_ratio": 0.8,
+          "gap_count": 1,
+          "max_gap_sec": 0.6
+        },
+        "density": {
+          "score": 100.0,
+          "entries": 4,
+          "entries_per_min": 4.0268,
+          "min_entries_per_min": 1.0,
+          "max_entries_per_min": 4.5
+        },
+        "facts": {
+          "score": 100.0,
+          "matches": [
+            {
+              "id": "case-09-weather-rain-fact-1",
+              "alias": "奥迪"
+            },
+            {
+              "id": "case-09-weather-rain-fact-2",
+              "alias": "挡风玻璃"
+            },
+            {
+              "id": "case-09-weather-rain-fact-3",
+              "alias": "交通牌"
+            }
+          ],
+          "missing": [],
+          "total": 3
+        },
+        "key_moments": {
+          "score": 100.0,
+          "matches": [
+            {
+              "id": "case-09-weather-rain-moment-1",
+              "label": "Driver and cockpit in the rain",
+              "overlap_ratio": 1.0,
+              "matched": true
+            },
+            {
+              "id": "case-09-weather-rain-moment-2",
+              "label": "Rain and wipers while following the winding road",
+              "overlap_ratio": 1.0,
+              "matched": true
+            },
+            {
+              "id": "case-09-weather-rain-moment-3",
+              "label": "Passing the electronic roadside display",
+              "overlap_ratio": 1.0,
+              "matched": true
+            }
+          ],
+          "missing": [],
+          "total": 3
+        },
+        "structure": {
+          "score": 100.0,
+          "valid_fields": {
+            "title": true,
+            "summary": true,
+            "location": true,
+            "mood": true,
+            "timeline": true,
+            "highlights": true,
+            "suggested_use": true,
+            "cover_timestamp": true
+          },
+          "issues": [],
+          "total": 8
+        }
+      },
+      "description": "Real footage 124_GX011384.mp4 (rainy mountain drive, 59.600s); 12-frame contact sheet reviewed 2026-11-13."
+    },
+    {
+      "id": "case-10-action-sports",
+      "status": "ok",
+      "score": 87.81,
+      "duration_sec": 272.067,
+      "metrics": {
+        "coverage": {
+          "score": 39.05292815602435,
+          "coverage_ratio": 0.3124,
+          "covered_sec": 85.0,
+          "duration_sec": 272.067,
+          "target_ratio": 0.8,
+          "gap_count": 4,
+          "max_gap_sec": 62.067
+        },
+        "density": {
+          "score": 100.0,
+          "entries": 5,
+          "entries_per_min": 1.1027,
+          "min_entries_per_min": 1.0,
+          "max_entries_per_min": 4.5
+        },
+        "facts": {
+          "score": 100.0,
+          "matches": [
+            {
+              "id": "case-10-action-sports-fact-1",
+              "alias": "法式滚球"
+            },
+            {
+              "id": "case-10-action-sports-fact-2",
+              "alias": "投掷"
+            },
+            {
+              "id": "case-10-action-sports-fact-3",
+              "alias": "观众"
+            }
+          ],
+          "missing": [],
+          "total": 3
+        },
+        "key_moments": {
+          "score": 100.0,
+          "matches": [
+            {
+              "id": "case-10-action-sports-moment-1",
+              "label": "Wide view of the petanque courts",
+              "overlap_ratio": 1.0,
+              "matched": true
+            },
+            {
+              "id": "case-10-action-sports-moment-2",
+              "label": "Closer view of a player throwing",
+              "overlap_ratio": 1.0,
+              "matched": true
+            },
+            {
+              "id": "case-10-action-sports-moment-3",
+              "label": "Players discussing tactics between turns",
+              "overlap_ratio": 1.0,
+              "matched": true
+            },
+            {
+              "id": "case-10-action-sports-moment-4",
+              "label": "Spectators resting around the courts",
+              "overlap_ratio": 1.0,
+              "matched": true
+            }
+          ],
+          "missing": [],
+          "total": 4
+        },
+        "structure": {
+          "score": 100.0,
+          "valid_fields": {
+            "title": true,
+            "summary": true,
+            "location": true,
+            "mood": true,
+            "timeline": true,
+            "highlights": true,
+            "suggested_use": true,
+            "cover_timestamp": true
+          },
+          "issues": [],
+          "total": 8
+        }
+      },
+      "description": "Real footage 021_GX010700.mp4 (petanque in a Paris park, 272.067s); 12-frame contact sheet reviewed 2026-11-13."
+    },
+    {
+      "id": "case-11-landmark-architecture",
+      "status": "ok",
+      "score": 100.0,
+      "duration_sec": 290.0,
+      "metrics": {
+        "coverage": {
+          "score": 100.0,
+          "coverage_ratio": 1.0,
+          "covered_sec": 290.0,
+          "duration_sec": 290.0,
+          "target_ratio": 0.8,
+          "gap_count": 0,
+          "max_gap_sec": 0.0
+        },
+        "density": {
+          "score": 100.0,
+          "entries": 8,
+          "entries_per_min": 1.6552,
+          "min_entries_per_min": 1.0,
+          "max_entries_per_min": 4.5
+        },
+        "facts": {
+          "score": 100.0,
+          "matches": [
+            {
+              "id": "case-11-landmark-architecture-fact-1",
+              "alias": "罗马斗兽场"
+            },
+            {
+              "id": "case-11-landmark-architecture-fact-2",
+              "alias": "手机"
+            },
+            {
+              "id": "case-11-landmark-architecture-fact-3",
+              "alias": "排队"
+            }
+          ],
+          "missing": [],
+          "total": 3
+        },
+        "key_moments": {
+          "score": 100.0,
+          "matches": [
+            {
+              "id": "case-11-landmark-architecture-moment-1",
+              "label": "Exiting the metro with the Colosseum ahead",
+              "overlap_ratio": 1.0,
+              "matched": true
+            },
+            {
+              "id": "case-11-landmark-architecture-moment-2",
+              "label": "Checking the route while walking near the landmark",
+              "overlap_ratio": 1.0,
+              "matched": true
+            },
+            {
+              "id": "case-11-landmark-architecture-moment-3",
+              "label": "Following the long queue beside Roman ruins",
+              "overlap_ratio": 1.0,
+              "matched": true
+            }
+          ],
+          "missing": [],
+          "total": 3
+        },
+        "structure": {
+          "score": 100.0,
+          "valid_fields": {
+            "title": true,
+            "summary": true,
+            "location": true,
+            "mood": true,
+            "timeline": true,
+            "highlights": true,
+            "suggested_use": true,
+            "cover_timestamp": true
+          },
+          "issues": [],
+          "total": 8
+        }
+      },
+      "description": "Real footage 005_GX011264.mp4 (Colosseum arrival and queue, 290.000s); 12-frame contact sheet reviewed 2026-11-13."
+    },
+    {
+      "id": "case-12-closing-sunset",
+      "status": "ok",
+      "score": 100.0,
+      "duration_sec": 217.2,
+      "metrics": {
+        "coverage": {
+          "score": 100.0,
+          "coverage_ratio": 0.9945,
+          "covered_sec": 216.0,
+          "duration_sec": 217.2,
+          "target_ratio": 0.8,
+          "gap_count": 1,
+          "max_gap_sec": 1.2
+        },
+        "density": {
+          "score": 100.0,
+          "entries": 6,
+          "entries_per_min": 1.6575,
+          "min_entries_per_min": 1.0,
+          "max_entries_per_min": 4.5
+        },
+        "facts": {
+          "score": 100.0,
+          "matches": [
+            {
+              "id": "case-12-closing-sunset-fact-1",
+              "alias": "米开朗基罗广场"
+            },
+            {
+              "id": "case-12-closing-sunset-fact-2",
+              "alias": "人群"
+            },
+            {
+              "id": "case-12-closing-sunset-fact-3",
+              "alias": "佛罗伦萨"
+            }
+          ],
+          "missing": [],
+          "total": 3
+        },
+        "key_moments": {
+          "score": 100.0,
+          "matches": [
+            {
+              "id": "case-12-closing-sunset-moment-1",
+              "label": "Reaching the terrace under warm dusk light",
+              "overlap_ratio": 1.0,
+              "matched": true
+            },
+            {
+              "id": "case-12-closing-sunset-moment-2",
+              "label": "Crowds at the main panoramic viewpoint",
+              "overlap_ratio": 1.0,
+              "matched": true
+            },
+            {
+              "id": "case-12-closing-sunset-moment-3",
+              "label": "Florence skyline and crowded terrace",
+              "overlap_ratio": 1.0,
+              "matched": true
+            }
+          ],
+          "missing": [],
+          "total": 3
+        },
+        "structure": {
+          "score": 100.0,
+          "valid_fields": {
+            "title": true,
+            "summary": true,
+            "location": true,
+            "mood": true,
+            "timeline": true,
+            "highlights": true,
+            "suggested_use": true,
+            "cover_timestamp": true
+          },
+          "issues": [],
+          "total": 8
+        }
+      },
+      "description": "Real footage 066_GX011326.mp4 (Piazzale Michelangelo sunset, 217.200s); 12-frame contact sheet reviewed 2026-11-13."
+    }
+  ]
+}

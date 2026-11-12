@@ -195,18 +195,25 @@ def test_manifest_rejects_schema_duplicate_ids_and_path_escape(tmp_path):
         load_evaluation_manifest(manifest_path)
 
 
-def test_versioned_scaffold_has_12_pending_reference_slots():
+def test_versioned_suite_has_12_reviewed_real_footage_cases():
     root = Path(__file__).resolve().parents[2] / "docs/analysis/2026-11-12-analysis-evaluation-suite-v1"
-    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    manifest_path = root / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
     assert manifest["_schema_version"] == 1
     assert len(manifest["cases"]) == 12
     assert len({case["id"] for case in manifest["cases"]}) == 12
     for case in manifest["cases"]:
         reference = json.loads((root / case["reference"]).read_text(encoding="utf-8"))
-        assert reference["review_status"] == "pending-real-footage"
-        with pytest.raises(ValueError):
-            _score({}, reference)
+        assert reference["review_status"] == "reviewed"
+        assert reference["duration_sec"] > 0
+        assert "SCAFFOLD ONLY" not in case.get("description", "")
+        assert (root / case["prediction"]).is_file()
+
+    report = evaluate_manifest(load_evaluation_manifest(manifest_path), min_score=70)
+    assert report["summary"]["scored_count"] == 12
+    assert report["summary"]["error_count"] == 0
+    assert report["gate"]["passed"] is True
 
 
 def test_manifest_rejects_absolute_reference_path(tmp_path):
