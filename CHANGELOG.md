@@ -12,10 +12,11 @@ code-owned trusted markup.
 - docs(roadmap): archive completed feature delivery history, keep active/deferred work in
   `ROADMAP.md`, and add the archive link
 - docs: record the O15 verification result and O18 cleanup in the review tracker
+- docs(agents): reduce `AGENTS.md` from 421 to 149 lines, move detailed module contracts to
+  `docs/superpowers/agents/project-conventions.md`, and keep a focused on-demand index
 
 O15 verification: full Vitest passed with 882 tests across 81 files; targeted server/SSE/cover-route
-pytest passed with 186 tests and 1 skipped; Ruff and `git diff --check` passed. O18 is documentation
-only and was verified with `git diff --check`.
+pytest passed with 186 tests and 1 skipped; Ruff and `git diff --check` passed. O17 and O18 are documentation-only and were verified with `git diff --check`.
 
 
 ## 2026-10-24

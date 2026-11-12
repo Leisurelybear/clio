@@ -1,421 +1,149 @@
 # AGENTS.md - AI Maintenance Manual & Project Memory
 
-> Quick reference for AI assistants taking over maintenance.
-> User preference: Chinese for conversation, English for commit messages and this document.
+> Conversation in Chinese; commits, maintained docs, and this file use English.
+> Read this file first, then load only the detailed references needed for the task.
 
-## 1. Project in One Sentence
+## 1. Project and Stack
 
-An AI preprocessing pipeline: raw travel vlog footage -> ffmpeg compression -> Gemini reviews video + DeepSeek writes script -> JianYing (CapCut) manual editing.
+An AI preprocessing pipeline for travel vlogs: raw footage -> ffmpeg compression -> Gemini video
+analysis -> DeepSeek text planning/voiceover -> JianYing (CapCut) manual editing.
 
-## 2. Tech Stack
+- Python 3.11+, dataclasses, PEP 604 unions
+- `google-genai`, `httpx`, PyYAML, pytest
+- ffmpeg/ffprobe for compression, cutting, probing, and audio extraction
+- stdlib Web UI with ES modules and Vitest; no frontend build step
 
-- Python 3.11+ (PEP 604 `X | None`, dataclass)
-- ffmpeg / ffprobe (video processing; GoPro 4K -> 640p 5MB compressed)
-- google-genai (Gemini 2.5 Flash video File API)
-- httpx (DeepSeek / OpenAI compatible calls)
-- PyYAML (config parsing; split into `config.yaml` global + `project.yaml` per-project)
-- pytest (unit tests, auto-run in CI; 2000+ test cases)
+## 2. Directory Map
 
-Dependencies in `requirements.txt`; `setup.ps1`/`setup.sh` creates venv + installs ffmpeg + copies `.env` in one click.
+| Area | Primary entry points |
+| --- | --- |
+| CLI / pipeline | `main.py`, `clio/pipeline.py`, `clio/tasks/` |
+| AI / ASR | `clio/ai/`, `clio/asr/`, `clio/analyze.py`, `clio/prompts.py` |
+| Media | `clio/compress.py`, `clio/cut.py`, `clio/ffmpeg_install.py` |
+| Planning / export | `clio/plan_model.py`, `clio/plan_readiness.py`, `clio/export/` |
+| Task runtime | `clio/task_center/`, `clio/progress.py`, `clio/shutdown.py` |
+| Web backend | `clio/ui/server.py`, `clio/ui/routes/`, `clio/ui/services/` |
+| Web frontend | `clio/ui/static/src/`, `clio/ui/static/locales/` |
+| Desktop | `clio/desktop/` |
+| Tests | `clio/tests/`, `clio/ui/static/src/__tests__/` |
+| Templates / config | `templates/`, `config.example.yaml`, `docs/project.example.yaml` |
 
-## 3. Directory Structure (Simplified)
+Full annotated tree: `docs/superpowers/agents/directory-tree.md`.
 
-```text
-vlog-video-analysis/
-├── main.py                    CLI entry
-├── clio/
-│   ├── config/                AppConfig + load_config (config package)
-│   ├── shutdown.py            beforeStop hook
-│   ├── pipeline.py            High-level pipeline orchestration
-│   ├── analyze.py             AI interaction functions
-│   ├── compress.py            ffmpeg wrapper
-│   ├── ffmpeg_install.py      Verified cross-platform ffmpeg downloader (R-028b/c)
-│   ├── prompts.py             All prompt templates
-│   ├── transcribe.py          Whisper ASR core
-│   ├── whisper_cli.py         Whisper CLI
-│   ├── utils.py               ffmpeg discovery, file IO, extract_json
-│   ├── log.py                 Logging (hourly rotating, retention, TeeWriter)
-│   ├── http_access_log.py     HTTP access line, noise policy, safe body capture
-│   ├── session_log.py         In-memory live log ring buffer
-│   ├── log_history.py         Read-only hourly log listing/tail (R-027e)
-│   ├── cut.py                 Segment cutting (ffmpeg wrapper)
-│   ├── plan_model.py          Plan/PlanSegment domain + save validation (R-026)
-│   ├── plan_preview.py        Standard cut-clip mapping for preview (R-031b)
-│   ├── plan_readiness.py      Export/cut readiness (error/warning tiers)
-│   ├── analyze_windows.py     Long-clip logical windows (slice/merge; no physical split)
-│   ├── identity.py            MediaIdentity + is_legacy_split_* gate
-│   ├── instance_probe.py      Web-port probe (clio / other / unreachable)
-│   ├── vmeta.py               .vmeta/.vindex sidecar metadata
-│   ├── progress.py            Progress tracker (used by UI + CLI)
-│   ├── task_center/            Unified task lifecycle, SQLite history, executors, and reporters
-│   ├── tasks/                 Pipeline steps (per-step modules)
-│   ├── desktop/               pywebview host + single-instance coordination
-│   │   ├── app.py             Window host, close policy, focus callback (R-039)
-│   │   ├── server_host.py     Non-blocking localhost server lifecycle
-│   │   ├── single_instance.py clio.lock + focus probe + web-8765 detection (R-039)
-│   │   └── state.py           desktop-state.json (last_dir persistence)
-│   ├── ui/                    Web UI (stdlib http.server)
-│   │   ├── server.py          HTTP server
-│   │   ├── routes/            Route handlers (split into focused modules)
-│   │   │   └── notifications.py Persistent inbox API and SSE
-│   │   └── static/            Frontend (no build step, ES modules)
-│   │       └── src/           ES modules: editor-plan.js, plan-edit.js,
-│   │                           task-center.js, ffmpeg-install.js,
-│   │                           plan-preview-media.js,
-│   │                           notification-center.js,
-│   │                           logs-history.js, logs-filter.js, logs-buffer.js,
-│   │                          sidebar.js, sidebar-data.js, sidebar-video-filter.js,
-│   │                          runner.js, editor-config.js, ...
-│   ├── ai/                    AI providers
-│   └── asr/                   ASR provider registry (local / aliyun / extensible)
-│       ├── base.py            TaskName enum, Provider Protocol
-│       ├── factory.py         Provider lookup by name
-│       ├── gemini.py          Gemini multimodal
-│       └── openai_compat.py   DeepSeek / OpenAI / Tongyi / Moonshot
-├── templates/                  vlog_template.md, trip_context.md
-├── config.example.yaml / .env.example
-├── requirements.txt / requirements-locked.txt
-├── .github/workflows/test.yml
-└── clio/tests/                pytest unit tests (2000+ cases)
-```
+## 3. Workflow Contract
 
-> See `docs/superpowers/agents/directory-tree.md` for full tree with file-level annotations and test coverage details.
+1. Inspect `git status`, recent commits, `ROADMAP.md`, and the relevant design/plan.
+2. For non-trivial work, confirm the approach before implementation.
+3. Keep each independent feature/fix in its own small commit.
+4. Update `ROADMAP.md` and the active review tracker as work changes state.
+5. Verify with focused tests, then the relevant full suite.
+6. Local commits are allowed. Never `git push` without explicit user approval.
 
-## 4. Key Conventions
+Commit messages: Conventional Commits in English, for example
+`fix(ui): reject null-origin writes`. Types: `feat`, `fix`, `refactor`, `docs`, `chore`.
 
-### 4.0 Docs naming
+## 4. Non-Negotiable Rules
 
-- All files under `docs/` follow `docs/CONVENTIONS.md` (date + kebab-case; specs `-design`, plans `-plan`).
+### Configuration
 
-### 4.1 Commit
+- `config.yaml` is global; `project.yaml` is project-local. No schema overlap.
+- Relative project paths resolve from the project directory.
+- Never put API keys or local environment paths in committed examples.
+- After config changes, update the model, loader, examples, README, UI copy/locales, and tests.
 
-- English message, Conventional Commits: `type(scope): subject`
-- Each commit as small as possible: one independent feature/fix per commit
-- Types: `feat` / `fix` / `refactor` / `docs` / `chore`
-- History rewriting: use `git rebase -i --root`; on Windows use byte-level Python filter (see gotchas.md)
+### AI and prompts
 
-### 4.2 Workflow
+- Built-in prompts live in `clio/prompts.py`.
+- Wrap user/trip context with `_wrap_with_context()`.
+- AI JSON goes through `extract_json()`; validate and retry rather than silently accepting bad data.
+- Provider retry semantics: `retry_attempts` means extra attempts, so total calls are
+  `retry_attempts + 1`.
+- Provider objects are cached in `clio.ai.factory`; tests must clear the cache when needed.
 
-- Plan first, then implement: record in `ROADMAP.md`, confirm approach, then code
-- Document new modules: README.md for users, AGENTS.md for AI (purpose, entry, conventions)
+### Media identity and artifacts
 
-### 4.3 Code Style
+- Reuse `MediaIdentity` and existing matching helpers; do not duplicate filename/stem matching.
+- Sort filesystem iteration before assigning indices.
+- Preserve `.vmeta` / `.vindex` compatibility and legacy read-only artifact paths.
+- Plan, cut, preview, and export must agree on the same media identity and timeline offsets.
+- Respect artifact overwrite markers and confirmation gates for user-edited plan/voiceover files.
 
-- No comments unless explaining why
-- Chinese for user-facing copy (CLI prompts, error messages)
-- Default `skip_existing=True` shared by all steps (controlled by `analyze` toggle)
-- AI-returned JSON uses `extract_json()`: first `json.loads`, then regex `{}`
+### Web/UI safety
 
-### 4.4 Configuration
+- Dynamic HTML uses the escaping `html` tagged template from `utils.js`.
+- `unsafeHtml()` is only for trusted, code-owned markup; never for user/filesystem/AI/log data.
+- Route changes must preserve auth, path containment, symlink rejection, and JSON body limits.
+- SSE, polling, and live buffers must stay separate from historical data.
+- Frontend copy goes through the i18n catalogs; keep zh-CN and en key sets identical.
 
-- Repo commits `config.example.yaml` / `.env.example`; real files gitignored
-- No local paths, proxy IPs, API keys in examples
-- After config changes, update both example and READMEs
+### Tests
 
-### 4.5 Prompts
+- Add behavioral tests for new feature modules and bug fixes.
+- Pure documentation/config-only changes may skip tests if `git diff --check` is recorded.
+- Prefer production entry points over tests that duplicate implementation loops.
+- Vitest uses Node 22.12+.
 
-- All in `clio/prompts.py` as constants
-- Trip context injected via `_wrap_with_context()` before all prompts
-- Output format: JSON (for `extract_json()` parsing)
+### User preferences
 
-### 4.6 Refine Special Modes
+- Chinese conversation; English commits and maintained docs.
+- One feature per commit; do not batch unrelated fixes.
+- History rewriting and force-push are accepted only when the user requests/approves them.
+- Explicit push approval is required.
 
-`refine_text` falls back to `video_analyze` by default. To use a cheaper pure-text model:
+## 5. AI Transfer Protocol
 
-```yaml
-ai:
-  tasks:
-    refine_text:
-      provider: deepseek
-      model: deepseek-chat
-```
+1. Run `git log --oneline -10` and `git status`.
+2. Read `ROADMAP.md`; open the relevant analysis/design/plan document.
+3. Read `config.example.yaml` and `docs/project.example.yaml` for config work.
+4. Read `templates/trip_context.md` for content/prompt work.
+5. Read `docs/superpowers/agents/gotchas.md` for affected modules.
+6. Continue existing work before creating parallel work; preserve unrelated untracked files.
+7. Update documentation status in the same logical change when a task completes.
 
-For known errors (`--fix`), use a single JSON file and the targeted fix prompt. The first `_changelog` entry must always say `Modified XXX per user feedback`.
+## 6. Verification
 
-### 4.7 Model Registry (R-017)
-
-Provider management is a frontend-only experience - no new backend APIs needed:
-
-- `ProviderConfig.models: list[str]` stores model names per provider
-- API keys live in `.env` via `PUT /api/env`, never in `config.yaml`
-- `editor-config.js` renders:
-  - Config sections as collapsible cards with section labels (Global/Project tabs)
-  - Provider list (Global tab): add/edit/delete, tag input for model names
-  - Default task binding (Global tab): `ai.default_tasks`, inherited by every project
-  - Task binding (Project tab): per-task overrides of global defaults; dropdowns filtered by capability (`gemini` -> video tasks)
-  - Collapse state remembered per session (`_collapsedCards` Map)
-- Global default bindings write to `config.yaml` via `PUT /api/config/global`; project overrides write to `project.yaml` via `PUT /api/config/project`
-- Runtime merges `ai.default_tasks` with project `ai.tasks` (project wins per task); `refine_text` follows the effective `video_analyze` binding unless explicitly overridden
-- `/api/deps/keys` reports `unbound_tasks` separately from `missing` provider keys so new projects do not falsely ask for an API key
-- Default providers (`gemini`, `openai`, `deepseek`) cannot be deleted
-- Video tasks (`video_analyze`) only show gemini-type providers in dropdown
-
-### 4.8 Notification Center (R-042)
-
-- Notifications live in the Task Center SQLite store but do not replace task state.
-- Task terminal statuses and every warning/error task event are registered transactionally.
-- Frontend status, toast, and runtime-warning messages register through `POST /api/notifications`.
-- Unread notifications are never removed by retention cleanup; only read history is bounded.
-- `notification-center.js` owns the global SSE connection, unread badge, inbox filters,
-  read actions, and Task Center deep links.
-- `ui.desktop_notifications` is a global opt-in, default off. Native delivery happens only when
-  the page is hidden; the inbox write remains authoritative and native failure is silent.
-- `desktop-notify.js` owns eligibility and dedupe. `clio/desktop/notifications.py` uses
-  PowerShell Toast, `osascript`, or `notify-send`; never build a shell string from notification text.
-
-### 4.9 Historical Logs (R-027e)
-
-- `clio/log_history.py` is the only supported reader for hourly disk logs in the UI.
-- Accepted names are direct children matching `YYYY-MM-DD-HH.log`; never accept arbitrary paths.
-- Reads are tail-only: 2 MB default, 5 MB hard cap, partial first line discarded.
-- Historical mode pauses live polling and disables clear; returning to `当前会话` resumes from the
-  retained session offset. Keep the live and historical buffers separate.
-- Endpoint changes must cover traversal, symlink escape, unreadable/missing files, and truncation.
-
-### 4.10 FFmpeg Installer (R-028b/c)
-
-- `clio/ffmpeg_install.py` is the only supported automatic installer. Setup scripts and the Web UI
-  call it; do not add a second download path.
-- Assets are fixed to the BtbN `n9.0` release names for Windows x64/arm64 and Linux x86_64/aarch64.
-  macOS intentionally returns manual guidance because no reliable checked static build is used.
-- The checksum is read from the same release. Reject non-HTTPS redirects, oversized/empty
-  downloads, corrupt archives, path traversal, links, devices, duplicates, and failed `-version`.
-- Install to `%LOCALAPPDATA%/clio/ffmpeg` on Windows and `~/.local/share/clio/ffmpeg` elsewhere;
-  `CLIO_FFMPEG_DIR` overrides the root. Never rewrite `paths.ffmpeg` / `paths.ffprobe`.
-- `POST /api/deps/ffmpeg/install` creates one cancellable `ffmpeg_install` Task Center job;
-  `GET /api/deps/ffmpeg/install/status` reports capability, platform, task id, and progress.
-- `ffmpeg-install.js` owns the dialog and manual fallback. Keep extraction, checksum, and archive
-  safety tests with any installer change; UI progress/cancel tests live in Vitest.
-
-### 4.11 Plan Preview Media (R-031b)
-
-- Preview resolution is cut first, source second. Never add day concatenation without a versioned
-  artifact contract and invalidation rules.
-- `clio/plan_preview.py` maps sequence positions to `{index}_{title}_seg_{i:03d}.mp4` under the
-  standard `paths.output_dir/cuts/<day>` only. Custom `cut-outdir` is unsupported.
-- `/api/video?source=cut` serves only a direct child of that directory. Reject traversal, nested
-  paths, symlinked roots/components, and files outside the project output.
-- Accept clips without `_cut_info`; when metadata exists, require matching segment index, timeline,
-  start/end (within 0.05s), and valid JSON.
-- `plan-preview-media.js` owns cut-vs-source resolution and timing. `_previewMedia` in state records
-  the active mode; cut seeks are clip-local, source seeks retain plan start plus legacy offsets.
-- Preload identity includes source/project/file/seek time. A failed cut is blocked once and retried
-  at the same composite time from the source video.
-
-### 4.12 Internationalization (R-025)
-
-- `ui.language` (`zh-CN` | `en`, default `zh-CN`) is the single source of truth for both backend and
-  frontend copy. Precedence in `clio/i18n.py::_resolve_locale`: explicit `locale=` argument >
-  `CLIO_LANG` env var > active locale from `ui.language` > `zh-CN`.
-- Switching in Settings applies immediately: `setLocale()` dispatches `clio:locale-changed` and
-  modules that build DOM from JS strings re-render on that event. `applyTranslations()` re-runs for
-  static `data-i18n` markup.
-- Two catalogs, both must keep identical key sets per locale:
-  - `clio/locales/{zh-CN,en}.json` - backend/CLI copy (`t()` from `clio/i18n.py`).
-  - `clio/ui/static/locales/{zh-CN,en}.json` - Web UI copy (`t()` from `ui/static/src/i18n.js`).
-  Lookup falls back `locale -> en -> zh-CN -> key`, so partial catalogs degrade to English, never to
-  a raw key.
-- `t()` interpolates `{name}` placeholders only. Never add ICU/pluralization; keep the same
-  placeholder names in every locale.
-- `zh-CN` values must stay byte-identical to the literal they replaced; tests assert that copy.
-- Never translate: `clio/prompts.py` (AI prompts), `clio/config/descriptions.py` (zh-CN source of
-  truth mirrored to `settings.desc.*`), docstrings, comments, internal log identifiers, and content
-  already persisted to disk.
-- `clio/tasks/migrate.py::is_already_new_structure()` is the only supported way to detect the
-  "already migrated" error; it checks every supported locale. Never match a localized string.
-- Milestone 10 guards prevent regressions: `clio/tests/test_i18n_inventory.py` (AST scan; comments
-  and docstrings never count) and `clio/ui/static/src/__tests__/i18n-inventory.test.js` (strips JS
-  comments first). Both compare against an explicit allow-list; add an entry with a reason rather
-  than deleting the guard.
-- `clio/pipeline.py` and `clio/ui/services/run_preview.py` share the `run.step.<name>.label` keys.
-  Do not reintroduce a private step-label dict.
-- The header language button (`#btn-lang` in `index.html`, `ui/static/src/language-switcher.js`)
-  sits next to the theme toggle and is the quick entry point for `ui.language`. It cycles the
-  shipped locales, applies the switch immediately, and persists through `PUT /api/config/global`.
-  It never sends unsaved settings edits: while the config form is dirty it reads the on-disk
-  global config instead, and a failed write only warns (the live switch stays).
-- `ensureGlobalUiDefaults()` (same module) is the only supported way to materialize the `ui` block.
-  `renderConfig()` skips sections that are absent from the data, and configs written before
-  `ui.language` existed have no `ui:` section, so the settings card disappeared. Call it before
-  rendering the global tab; never render that tab from a raw config object.
-
-### 4.13 HTTP Access Logs
-
-- `clio/http_access_log.py` is the only supported access-log policy and formatter. It owns noise
-  classification, query redaction, body capture, and the `[http]` line shape.
-- `server.access_log_mode` (`off | errors | api | all`, default `api`) lives in global
-  `config.yaml`. Static files, polling reads (`/api/notifications`, `/api/project`,
-  `/api/plan/readiness`, `/api/tasks`), binary media, and stream connects are suppressed unless
-  slow, errored, or explicitly included by `all`.
-- `log_request()` prints one line per kept request with request id, method, sanitized path, status,
-  latency, and response size. Handler-set response bytes are authoritative; do not restore the
-  base handler's size argument.
-- Body capture is opt-in via `server.access_log_body_bytes` (0-4096). `/api/env`, `/api/config*`,
-  `/api/providers*`, and `/api/logs*` are always denied. Bodies are JSON-redacted, escaped to one
-  line, and byte-truncated with a marker.
-- Unhandled handler exceptions print `[http-error]` plus traceback and return 500 only when no
-  response has started. Client disconnects stay silent.
-- `server.log_retention_days` (default 14, 0 = forever) prunes direct-child
-  `YYYY-MM-DD-HH.log` files; never delete unrelated or symlinked entries.
-
-### 4.14 Network Locations in the File Picker
-
-- `clio/ui/services/network_service.py` is the only supported SMB server/share enumerator. It uses
-  `WNetOpenEnumW`/`WNetEnumResourceW` plus Explorer registry hints (`HKCU\Network`,
-  `MountPoints2`, `Map Network Drive MRU`) because Windows network discovery is frequently disabled.
-- `GET /api/fs/network` lists servers; `?server=\\server` lists that server's disk shares. Only
-  `\\server` is accepted as the `server` query value; administrative shares ending in `$` are filtered.
-- Never pass a server-only UNC to `Path`/`os.scandir` (pathlib normalizes it into a local-looking path).
-  Browse a share (`\\server\share`) or use the shares endpoint first.
-- The picker keeps a manual `\\server` entry because automatic discovery may return an empty list.
-  `_browse_parent()` returns `""` for Windows drive and UNC roots so the UI returns to the drive list.
-- `file-browser.js` owns the `fs` / `servers` / `shares` views, select-all/deselect-all, and the
-  multi-select double-click confirm. Keep backend and Vitest coverage when changing this contract.
-
-### 4.15 Sidebar Video Bulk Selection
-
-- Selection mode (`#btn-select-videos`) owns `state.selectedFiles`; the per-row checkbox and the
-  rubber-band drag both write that same array, and any `renderVideoList()` rebuilds the checkboxes.
-- `video-selection.js` owns pure list mutations. `removeSelectedVideos()` removes many stored paths
-  in one pass: absolute-path equality first, a unique basename as fallback, with `missing` and
-  `ambiguous` reported separately.
-- `sidebar-data.js::removeSelectedVideosFromProject()` is the only bulk-remove entry point. It asks
-  for one confirmation, sends one `PUT /api/videos/selected`, reloads the list, and prunes
-  `state.selectedFiles` to videos that still exist. The header action is disabled at zero selected.
-- `sidebar-video-filter.js::filterVideos()` is the single source of the visible row set. The
-  selection header's select-all/deselect-all must operate on that filtered set only (never on
-  `state.videos` directly), via `video-selection.js::toggleSelectionFor()`; selections made under a
-  different filter are preserved, and offline rows are never selectable.
-- `video-drag-select.js` owns the rubber-band rect math and pointer binding. It is active only in
-  selection mode, starts outside interactive controls, keeps the previous selection with
-  Ctrl/Cmd, cancels on Escape, and auto-scrolls near the list edges. `main.js` wires
-  `enabled`/`selected`/`commit` so the module stays independent of sidebar state.
-- Keep `video-drag-select.test.js` and `video-selection.test.js` green when changing selection copy
-  or matching rules.
-
-### 4.16 Sidebar Video Metadata Card (R-049)
-
-- `GET /api/video/info` is the only metadata endpoint for the sidebar. It resolves compressed rows
-  under `output/compressed` via `validate_within_root` and original rows via the `videos.json`
-  allowlist; offline rows return `exists: false` instead of 404 so relink stays reachable.
-- `clio/utils.py::probe_media_details()` owns ffprobe parsing (resolution, fps, bitrate, codec,
-  container) and caches by `(ffprobe, resolved path, size, mtime)`. Callers must degrade to
-  stat/.vmeta fields when ffprobe is missing or fails (`probe_error`), never raise to the UI.
-- `.vmeta` supplies the compression comparison (`source_size`/`target_size`, ratio, and
-  `compress_settings`). In original view use `source_duration_sec`; in compressed view use
-  `target_duration_sec`. Never invent a ratio when either size is zero.
-- `video-info.js` owns the 400ms hover tooltip and the pinned `视频信息` modal; `sidebar-data.js`
-  binds hover per row and clears the client cache on every `loadVideos()`. Keep `buildInfoSections()`
-  pure so formatters and field grouping stay unit-testable.
-- The row menu always exposes `info` first (enabled for offline rows too); it must stay outside the
-  ffmpeg dependency gate.
-
-### 4.17 Artifact Overwrite Protection
-
-- `clio/artifact_guard.py` owns the `_user_edited` / `_user_edited_at` markers and the
-  confirmation gate for regenerated plan and voiceover artifacts.
-- `PUT /api/plan` and `PUT /api/voiceover` mark saved artifacts as user-edited. New AI output
-  clears the markers but preserves `_lineage`.
-- Regeneration with a matching `_lineage` skips normally. A changed lineage, `--force`, or
-  unreadable/non-object JSON on a user-edited artifact raises
-  `ArtifactOverwriteConfirmationRequired`; confirmed overwrites back up the JSON/Markdown first.
-- `POST /api/run/preview` reports `artifact_overwrite.items`; `POST /api/run/start` returns 409
-  `artifact_overwrite_confirmation_required` until `confirm_artifact_overwrite=true` is sent.
-- `clio/ui/static/src/runner.js` owns the second confirmation dialog and must refresh the preview
-  for both `plan` and `voiceover` steps.
-
-### 4.18 Safe HTML Rendering
-
-- `clio/ui/static/src/utils.js::html` is the default tagged template for dynamic markup.
-  Every interpolation is escaped; nested `html` fragments and arrays are composed safely.
-- Use `unsafeHtml()` only for trusted, code-owned markup such as local icons. Never pass
-  user, API, filename, log, or AI-generated content through it.
-- Keep `escapeHtml()` for values interpolated into legacy non-tagged template strings.
-  Prefer `html` for new or touched `innerHTML` / `insertAdjacentHTML` code.
-- Security tests must cover values inside both text and quoted attributes.
-
-## 5. User Preferences
-
-- Language: Chinese for conversation, English for commits/docs/AGENTS.md
-- Commit granularity: one feature per commit, do not batch
-- History rewriting: force-push accepted
-- No API keys / local paths in config files
-- Add reasonable tests for new feature modules and behavior changes. Pure docs/config-only changes may skip tests with explicit verification notes.
-- Push must be explicitly confirmed. Local commits fine, `git push` requires user approval.
-
-## 6. AI Transfer Protocol
-
-Upon taking over, the AI should:
-
-1. `git log --oneline -10` - recent changes
-2. `git status` - uncommitted changes
-3. Read `config.example.yaml` + `docs/project.example.yaml` - config structure
-4. Read `templates/trip_context.md` - current trip background
-5. Read `docs/superpowers/agents/gotchas.md` - known pitfalls (only if modifying affected modules)
-6. Read `CHANGELOG.md` - project history (only if needed)
-7. Ask the user what they want to do
-
-For new features: discuss plan first -> user confirms -> implement -> one commit -> confirm before push.
-
-## 7. Quick Reference
-
-### Running Tests
-
-```bash
+```powershell
 python -m pytest clio/tests/ -v
-python -m pytest clio/tests/test_utils.py -v
-npm test                # frontend Vitest (requires Node 22.12+)
-```
-
-GitHub Actions runs pytest on Python 3.11/3.12 (Ubuntu, Windows, and macOS); Vitest runs on Node 22.12+ in CI.
-
-### Code Formatting
-
-```bash
+npm test
 ruff format clio main.py
 ruff check clio main.py
-```
-
-Pre-commit hook auto-runs ruff on staged `.py` files (`.githooks/pre-commit`).
-
-CI also gates a mypy subset (Phase 4d). Reproduce locally with:
-
-```bash
 mypy --check-untyped-defs --show-error-codes
-```
-
-The gate scope lives in `[tool.mypy] files` in pyproject.toml (progressive, per-module; only add modules that report zero issues).
-
-### Verification Flow
-
-```bash
 python main.py check
-python main.py analyze --force
-python main.py analyze
-python main.py refine
-python main.py serve --no-browser
 ```
 
-### Dependency Locking
+Use focused tests for iteration, then the full relevant suite before committing. Always run
+`git diff --check` for documentation-only changes.
 
-`requirements.txt` (loose) for daily dev; `requirements-locked.txt` (pinned) for CI.
+## 7. Detailed Convention Index
 
-## 8. On-Demand Loading Index
+The full contracts moved to
+[`docs/superpowers/agents/project-conventions.md`](docs/superpowers/agents/project-conventions.md):
 
-| If you need to... | Load this |
-|---|---|
-| Understand the project quickly | AGENTS.md (already loaded) |
-| See project history and recent changes | `CHANGELOG.md` |
-| Know known pitfalls and traps | `docs/superpowers/agents/gotchas.md` |
-| Plan non-trivial maintenance safely | `docs/superpowers/agents/maintenance-instructions.md` |
-| Check active refactoring items | `docs/superpowers/agents/optimization-plan.md` |
-| Evaluate repeatable workflows for skill extraction | `docs/superpowers/agents/skill-candidates.md` |
-| See full directory tree with annotations | `docs/superpowers/agents/directory-tree.md` |
-| Understand the model registry (provider list + task binding) | `AGENTS.md section 4.7` |
-| Understand R-017 implementation details | `docs/superpowers/plans/2026-07-02-model-registry-plan.md` |
-| Add a new AI provider | Skill: `adding-ai-provider` |
-| Add a new AI task | Skill: `adding-new-task` |
-| Add a new CLI subcommand | Skill: `adding-cli-subcommand` |
-| Change config schema or config UI | Skill: `vlog-config-split-changes` |
-| Fix original/compressed/split matching | Skill: `vlog-artifact-identity-fixes` |
-| Work through review findings | Skill: `vlog-review-iteration` |
+| Topic | Section |
+| --- | --- |
+| Docs naming, commits, workflow, code style | `4.0`-`4.3` |
+| Config, prompts, refine modes | `4.4`-`4.6` |
+| Model registry and task binding | `4.7` |
+| Notification center | `4.8` |
+| Historical logs | `4.9` |
+| Verified ffmpeg installer | `4.10` |
+| Plan preview media | `4.11` |
+| Internationalization | `4.12` |
+| HTTP access logs | `4.13` |
+| Network file picker | `4.14` |
+| Sidebar bulk selection | `4.15` |
+| Sidebar video metadata | `4.16` |
+| Artifact overwrite protection | `4.17` |
+| Safe HTML rendering | `4.18` |
+
+## 8. On-Demand References
+
+| Need | Load |
+| --- | --- |
+| Known traps | `docs/superpowers/agents/gotchas.md` |
+| Non-trivial maintenance | `docs/superpowers/agents/maintenance-instructions.md` |
+| Active refactoring | `docs/superpowers/agents/optimization-plan.md` |
+| Full file-level tree | `docs/superpowers/agents/directory-tree.md` |
+| Project history | `CHANGELOG.md` |
+| Documentation rules | `docs/CONVENTIONS.md` |
+| Current review state | `docs/analysis/2026-11-05-P0-P2-Issues.md` |

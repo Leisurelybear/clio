@@ -14,14 +14,13 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
 
 Source: [`docs/analysis/2026-11-05-P0-P2-Issues.md`](docs/analysis/2026-11-05-P0-P2-Issues.md)
 
-Snapshot: 83 items; 65 completed locally; 2 awaiting real-environment verification; 16 pending.
-O18 is complete as of this cleanup. The analysis document remains the source of truth for item-level
+Snapshot: 83 items; 66 completed locally; 2 awaiting real-environment verification; 15 pending.
+O17 and O18 are complete as of this cleanup. The analysis document remains the source of truth for item-level
 status and verification notes.
 
 Open P1 items:
 
 - `[ ]` O1 native structured output (`response_schema` / `response_format`)
-- `[ ]` O17 reduce `AGENTS.md` to a focused maintenance index
 - `[ ]` Q4 use GPMF capture time and GPS in planning by default
 - `[ ]` Q5 use Gemini video metadata and `media_resolution`
 - `[ ]` Q6 shot-level structured analysis attributes and scene boundaries
