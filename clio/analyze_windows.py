@@ -146,29 +146,42 @@ def _timeline_list(analysis: dict) -> list:
 
 
 @dataclass(frozen=True)
+class TimelineGap:
+    start_sec: float
+    end_sec: float
+
+    @property
+    def duration_sec(self) -> float:
+        return max(0.0, self.end_sec - self.start_sec)
+
+
+@dataclass(frozen=True)
 class TimelineCoverage:
     rows: int
     coverage_ratio: float
     max_gap_sec: float
 
 
-def measure_timeline_coverage(analysis: dict, duration_sec: float) -> TimelineCoverage:
-    """Measure valid timeline coverage without changing the analysis output."""
-    timeline = _timeline_list(analysis)
-    rows = len(timeline)
-    if not isfinite(duration_sec) or duration_sec <= 0:
-        return TimelineCoverage(rows=rows, coverage_ratio=0.0, max_gap_sec=0.0)
+SPARSE_RETRY_COVERAGE_RATIO = 0.80
+SPARSE_RETRY_MAX_GAP_SEC = 90.0
+SPARSE_RETRY_MIN_GAP_SEC = 30.0
+
+
+def timeline_gaps(analysis: dict, start_sec: float, end_sec: float) -> list[TimelineGap]:
+    """Return uncovered ranges inside a bounded timeline range."""
+    if not isfinite(start_sec) or not isfinite(end_sec) or end_sec <= start_sec:
+        return []
 
     intervals: list[tuple[float, float]] = []
-    for item in timeline:
+    for item in _timeline_list(analysis):
         if not isinstance(item, dict):
             continue
         start = _parse_ts(item.get("start"))
         end = _parse_ts(item.get("end"))
         if start is None or end is None or not isfinite(start) or not isfinite(end):
             continue
-        clipped_start = max(0.0, start)
-        clipped_end = min(duration_sec, end)
+        clipped_start = max(start_sec, start)
+        clipped_end = min(end_sec, end)
         if clipped_end > clipped_start:
             intervals.append((clipped_start, clipped_end))
 
@@ -179,20 +192,116 @@ def measure_timeline_coverage(analysis: dict, duration_sec: float) -> TimelineCo
         else:
             merged.append((start, end))
 
-    covered_sec = sum(end - start for start, end in merged)
-    gaps: list[float] = []
-    cursor = 0.0
+    gaps: list[TimelineGap] = []
+    cursor = start_sec
     for start, end in merged:
         if start > cursor + 0.05:
-            gaps.append(start - cursor)
+            gaps.append(TimelineGap(cursor, start))
         cursor = max(cursor, end)
-    if cursor < duration_sec - 0.05:
-        gaps.append(duration_sec - cursor)
+    if cursor < end_sec - 0.05:
+        gaps.append(TimelineGap(cursor, end_sec))
+    return gaps
+
+
+def measure_timeline_coverage(analysis: dict, duration_sec: float) -> TimelineCoverage:
+    """Measure valid timeline coverage without changing the analysis output."""
+    rows = len(_timeline_list(analysis))
+    if not isfinite(duration_sec) or duration_sec <= 0:
+        return TimelineCoverage(rows=rows, coverage_ratio=0.0, max_gap_sec=0.0)
+
+    gaps = timeline_gaps(analysis, 0.0, duration_sec)
+    gap_sec = sum(gap.duration_sec for gap in gaps)
     return TimelineCoverage(
         rows=rows,
-        coverage_ratio=min(1.0, covered_sec / duration_sec),
-        max_gap_sec=max(gaps, default=duration_sec),
+        coverage_ratio=max(0.0, min(1.0, 1.0 - gap_sec / duration_sec)),
+        max_gap_sec=max((gap.duration_sec for gap in gaps), default=0.0),
     )
+
+
+def select_sparse_retry_gap(analysis: dict, start_sec: float, end_sec: float) -> TimelineGap | None:
+    """Choose one largest gap when a window is sparse enough to justify a retry."""
+    duration_sec = end_sec - start_sec
+    if not isfinite(duration_sec) or duration_sec <= 0:
+        return None
+    gaps = timeline_gaps(analysis, start_sec, end_sec)
+    if not gaps:
+        return None
+    largest = max(gaps, key=lambda gap: gap.duration_sec)
+    if largest.duration_sec < SPARSE_RETRY_MIN_GAP_SEC:
+        return None
+    coverage_ratio = 1.0 - sum(gap.duration_sec for gap in gaps) / duration_sec
+    if coverage_ratio >= SPARSE_RETRY_COVERAGE_RATIO and largest.duration_sec < SPARSE_RETRY_MAX_GAP_SEC:
+        return None
+    return largest
+
+
+def merge_timeline_completion(base: dict, completion: dict, gap: TimelineGap) -> dict:
+    """Shift one gap completion into source time and merge it without overlap duplicates."""
+    shifted = shift_analysis_times(completion, gap.start_sec)
+    out = copy.deepcopy(base)
+
+    def _within_gap(item: dict) -> bool:
+        item_start = _item_start(item)
+        return gap.start_sec - 0.05 <= item_start <= gap.end_sec + 0.05
+
+    def _merge_items(key: str) -> None:
+        existing = out.get(key)
+        additions = shifted.get(key)
+        items = list(existing) if isinstance(existing, list) else []
+        if isinstance(additions, list):
+            items.extend(copy.deepcopy(item) for item in additions if isinstance(item, dict) and _within_gap(item))
+        items = [item for item in items if isinstance(item, dict)]
+        items.sort(key=_item_start)
+        deduped: list[dict] = []
+        for item in items:
+            duplicate_index = None
+            for index in range(len(deduped) - 1, -1, -1):
+                previous = deduped[index]
+                delta = abs(_item_start(item) - _item_start(previous))
+                if delta > 1.0:
+                    break
+                same_span = (
+                    abs(_item_start(item) - _item_start(previous)) <= 0.5
+                    and abs(_item_end(item) - _item_end(previous)) <= 0.5
+                )
+                if same_span or _similar_item_text(item, previous):
+                    duplicate_index = index
+                    break
+            if duplicate_index is None:
+                deduped.append(item)
+            else:
+                deduped[duplicate_index] = _merge_duplicate_item(deduped[duplicate_index], item)
+        out[key] = deduped
+
+    _merge_items("timeline")
+    _merge_items("key_moments")
+
+    summaries = [out.get("summary")]
+    completion_summary = shifted.get("summary")
+    if isinstance(completion_summary, str) and completion_summary.strip():
+        summaries.append(completion_summary)
+    out["summary"] = "\n".join(dict.fromkeys(summary for summary in summaries if isinstance(summary, str) and summary))
+
+    highlights = out.get("highlights")
+    merged_highlights = list(highlights) if isinstance(highlights, list) else []
+    shifted_highlights = shifted.get("highlights")
+    if isinstance(shifted_highlights, list):
+        merged_highlights.extend(copy.deepcopy(item) for item in shifted_highlights if isinstance(item, (dict, str)))
+    seen_highlights: set[Any] = set()
+    unique_highlights: list[Any] = []
+    for highlight in merged_highlights:
+        key = highlight if isinstance(highlight, str) else str(highlight)
+        if key in seen_highlights:
+            continue
+        seen_highlights.add(key)
+        unique_highlights.append(highlight)
+    out["highlights"] = unique_highlights
+
+    if str(out.get("location") or "").strip() in ("", "未知"):
+        location = shifted.get("location")
+        if isinstance(location, str) and location.strip():
+            out["location"] = location
+    return out
 
 
 def _item_start(item: dict) -> float:
@@ -202,6 +311,11 @@ def _item_start(item: dict) -> float:
             if p is not None:
                 return p
     return 0.0
+
+
+def _item_end(item: dict) -> float:
+    parsed = _parse_ts(item.get("end"))
+    return parsed if parsed is not None else _item_start(item)
 
 
 def _item_text(item: dict) -> str:

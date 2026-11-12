@@ -69,6 +69,7 @@ def _common_mocks(monkeypatch) -> None:
     monkeypatch.setattr("clio.tasks._helpers.resolve_binary", lambda *a: "ffprobe")
     monkeypatch.setattr("clio.tasks._helpers.probe_video_info", lambda *a, **kw: {})
     monkeypatch.setattr("clio.tasks.analyze.resolve_binary", lambda *a: "ffprobe")
+    monkeypatch.setattr("clio.tasks.analyze.select_sparse_retry_gap", lambda *a, **kw: None)
     monkeypatch.setattr("clio.tasks.analyze._build_stem", lambda idx, title, cfg: f"{idx:03d}_{title}")
     monkeypatch.setattr("clio.tasks.analyze._write_text_file", lambda *a: None)
     monkeypatch.setattr("clio.tasks.analyze.is_legacy_split_path", lambda p: False)

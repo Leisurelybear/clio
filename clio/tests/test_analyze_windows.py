@@ -10,12 +10,16 @@ import pytest
 
 from clio.analyze_windows import (
     AnalyzeWindow,
+    TimelineGap,
     build_analyze_windows,
     cleanup_analyze_windows_dir,
     measure_timeline_coverage,
+    merge_timeline_completion,
     merge_window_analyses,
+    select_sparse_retry_gap,
     shift_analysis_times,
     slice_window_video,
+    timeline_gaps,
 )
 
 
@@ -89,6 +93,65 @@ class TestTimelineCoverage:
         assert coverage.rows == 1
         assert coverage.coverage_ratio == 0.0
         assert coverage.max_gap_sec == 0.0
+
+    def test_timeline_gaps_clip_edges_merge_overlaps_and_ignore_invalid_rows(self):
+        analysis = {
+            "timeline": [
+                {"start": -10, "end": 10},
+                {"start": 10, "end": 20},
+                {"start": "00:00:30", "end": "00:00:50"},
+                {"start": 40, "end": 45},
+                {"start": "bad", "end": 60},
+                {"start": 70, "end": 60},
+                {"start": 80, "end": 200},
+            ]
+        }
+
+        gaps = timeline_gaps(analysis, 0.0, 100.0)
+
+        assert [(gap.start_sec, gap.end_sec) for gap in gaps] == pytest.approx([(20.0, 30.0), (50.0, 80.0)])
+
+    @pytest.mark.parametrize(("start", "end"), [(100.0, 100.0), (200.0, 100.0), (float("nan"), 100.0)])
+    def test_timeline_gaps_invalid_bounds_are_empty(self, start, end):
+        assert timeline_gaps({"timeline": [{"start": 0, "end": 10}]}, start, end) == []
+
+
+class TestSparseRetrySelection:
+    def test_dense_timeline_has_no_retry(self):
+        analysis = {"timeline": [{"start": 0, "end": 50}, {"start": 50, "end": 100}]}
+
+        assert select_sparse_retry_gap(analysis, 0.0, 100.0) is None
+
+    def test_small_gap_has_no_retry(self):
+        analysis = {"timeline": [{"start": 0, "end": 75}]}
+
+        assert select_sparse_retry_gap(analysis, 0.0, 100.0) is None
+
+    def test_low_coverage_with_largest_gap_selects_that_gap(self):
+        analysis = {"timeline": [{"start": 0, "end": 10}, {"start": 30, "end": 70}]}
+
+        gap = select_sparse_retry_gap(analysis, 0.0, 100.0)
+
+        assert gap == TimelineGap(70.0, 100.0)
+
+    def test_large_gap_retries_even_when_overall_coverage_is_high(self):
+        analysis = {"timeline": [{"start": 0, "end": 455}, {"start": 545, "end": 1000}]}
+
+        gap = select_sparse_retry_gap(analysis, 0.0, 1000.0)
+
+        assert gap == TimelineGap(455.0, 545.0)
+
+    def test_below_threshold_coverage_chooses_largest_gap(self):
+        analysis = {"timeline": [{"start": 0, "end": 50}, {"start": 130, "end": 150}]}
+
+        gap = select_sparse_retry_gap(analysis, 0.0, 200.0)
+
+        assert gap == TimelineGap(50.0, 130.0)
+
+    def test_empty_timeline_retries_the_whole_window(self):
+        gap = select_sparse_retry_gap({"timeline": []}, 0.0, 100.0)
+
+        assert gap == TimelineGap(0.0, 100.0)
 
 
 class TestShiftAndMerge:
@@ -250,6 +313,48 @@ class TestShiftAndMerge:
         assert merged["timeline"][0]["tags"] == ["market", "Food"]
         assert len(merged["key_moments"]) == 1
         assert merged["key_moments"][0]["score"] == 5
+
+    def test_merge_timeline_completion_shifts_filters_dedupes_and_preserves_base(self):
+        base: dict[str, Any] = {
+            "title": "base",
+            "summary": "base summary",
+            "location": "未知",
+            "highlights": ["base"],
+            "timeline": [
+                {"start": 0, "end": 10, "text": "before"},
+                {"start": 120, "end": 125, "text": "same", "score": 5},
+            ],
+            "key_moments": [{"start": 0, "text": "base moment"}],
+        }
+        completion: dict[str, Any] = {
+            "summary": "gap summary",
+            "location": "Gap",
+            "highlights": ["new", {"text": "moment"}],
+            "timeline": [
+                {"start": 20, "end": 25, "text": "same", "score": 4},
+                {"start": 5, "end": 15, "text": "new"},
+                {"start": 200, "end": 210, "text": "outside"},
+            ],
+            "key_moments": [{"start": 5, "end": 8, "text": "retry moment"}],
+        }
+
+        merged = merge_timeline_completion(base, completion, TimelineGap(100.0, 150.0))
+
+        assert merged["title"] == "base"
+        assert merged["summary"] == "base summary\ngap summary"
+        assert merged["location"] == "Gap"
+        assert merged["highlights"] == ["base", "new", {"text": "moment"}]
+        assert [(item["start"], item["text"]) for item in merged["timeline"]] == [
+            (0, "before"),
+            (105, "new"),
+            (120, "same"),
+        ]
+        assert merged["timeline"][2]["score"] == 5
+        assert [(item["start"], item["text"]) for item in merged["key_moments"]] == [
+            (0, "base moment"),
+            (105, "retry moment"),
+        ]
+        assert base["timeline"][0]["text"] == "before"
 
 
 class TestSliceWindowVideo:

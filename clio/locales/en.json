@@ -509,6 +509,8 @@
   "task.analyze.overwrite_source_mismatch": "  [overwrite] {name} source_file mismatch; re-analyzing",
   "task.analyze.pending": "Videos to analyze: {total} (compressed dir: {path})",
   "task.analyze.phase_title": "run_analyze_all ({count} files)",
+  "task.analyze.sparse_retry": "  [completion] {name} window {index} has sparse timeline coverage at {start}-{end}s; retrying the missing interval...",
+  "task.analyze.sparse_retry_failed": "  [warning] sparse interval completion failed for {name} window {index}; keeping the original analysis: {detail}",
   "task.analyze.skip_exists": "[skip analyze] {name} (already exists: {json})",
   "task.analyze.skip_log_analyzed": "Skipped {name} (already analyzed)",
   "task.analyze.skip_log_no_duration": "Skipped {name} (duration unreadable)",

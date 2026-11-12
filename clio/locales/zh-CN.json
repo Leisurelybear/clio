@@ -509,6 +509,8 @@
   "task.analyze.overwrite_source_mismatch": "  [覆盖] {name} 的 source_file 不匹配，将重新分析",
   "task.analyze.pending": "待分析视频: {total} 个（压缩目录: {path}）",
   "task.analyze.phase_title": "run_analyze_all（{count} 个）",
+  "task.analyze.sparse_retry": "  [补全] {name} 窗口 {index} 的 {start}-{end}s 时间线稀疏，正在补全缺失区间...",
+  "task.analyze.sparse_retry_failed": "  [警告] {name} 窗口 {index} 的稀疏区间补全失败，保留原分析结果: {detail}",
   "task.analyze.skip_exists": "[跳过分析] {name} (已存在: {json})",
   "task.analyze.skip_log_analyzed": "跳过 {name}（已分析）",
   "task.analyze.skip_log_no_duration": "跳过 {name}（无法读取时长）",

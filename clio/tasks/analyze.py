@@ -18,12 +18,15 @@ from clio._constants import VIDEO_EXTS
 from clio.ai.token_usage import FileTokenUsageStore
 from clio.analyze import _prompt_context_parts, analyze_video, summarize_window_analysis
 from clio.analyze_windows import (
+    AnalyzeWindow,
     build_analyze_windows,
     cleanup_window_cache_dir,
     load_window_cache,
     measure_timeline_coverage,
+    merge_timeline_completion,
     merge_window_analyses,
     save_window_cache,
+    select_sparse_retry_gap,
     shift_analysis_times,
     window_cache_dir,
 )
@@ -174,7 +177,7 @@ def _analysis_lineage_fingerprint(
         "window_max_min": int(getattr(config.analyze, "window_max_min", 15) or 15),
         "window_overlap_sec": int(getattr(config.analyze, "window_overlap_sec", 20) or 0),
         "media_resolution": getattr(config.analyze, "media_resolution", "medium"),
-        "analysis_engine_version": 3,
+        "analysis_engine_version": 4,
         "scene_detection_version": SCENE_DETECT_VERSION,
         "video_fps": 3,
         "compress": {
@@ -356,6 +359,48 @@ def _analyze_with_optional_windows(
                 raise InterruptedError(t("task.analyze.cancelled")) from exc
             raise
 
+    def _complete_if_sparse(part: dict, window: AnalyzeWindow) -> dict:
+        gap = select_sparse_retry_gap(part, window.start_sec, window.end_sec)
+        if gap is None:
+            return part
+        if cancel_event is not None and cancel_event.is_set():
+            raise InterruptedError(t("task.analyze.cancelled"))
+        print(
+            t(
+                "task.analyze.sparse_retry",
+                {
+                    "name": compressed.name,
+                    "index": window.index,
+                    "start": f"{gap.start_sec:.1f}",
+                    "end": f"{gap.end_sec:.1f}",
+                },
+            )
+        )
+        try:
+            completion = _one_call(
+                str(compressed),
+                start_sec=gap.start_sec,
+                end_sec=gap.end_sec,
+                fps=3,
+                window_boundaries=slice_scene_boundaries(scene_boundaries, gap.start_sec, gap.end_sec),
+            )
+        except InterruptedError:
+            raise
+        except Exception as exc:
+            if cancel_event is not None and cancel_event.is_set():
+                raise InterruptedError(t("task.analyze.cancelled")) from exc
+            print(
+                t(
+                    "task.analyze.sparse_retry_failed",
+                    {"name": compressed.name, "index": window.index, "detail": exc},
+                )
+            )
+            return part
+        completed = merge_timeline_completion(part, completion, gap)
+        if cancel_event is not None and cancel_event.is_set():
+            raise InterruptedError(t("task.analyze.cancelled"))
+        return completed
+
     if is_legacy_split_path(compressed):
         return _one_call(str(compressed), window_boundaries=scene_boundaries)
 
@@ -372,6 +417,8 @@ def _analyze_with_optional_windows(
             fps=3,
             window_boundaries=window_boundaries,
         )
+        if windows:
+            analysis = _complete_if_sparse(analysis, windows[0])
         return merge_window_analyses([(windows[0], analysis)], overlap) if windows else analysis
 
     cache_dir = window_cache_dir(config.paths.output_dir, compressed.stem)
@@ -403,6 +450,7 @@ def _analyze_with_optional_windows(
             window_boundaries=window_boundaries,
         )
         part = shift_analysis_times(part, w.start_sec)
+        part = _complete_if_sparse(part, w)
         if cache_key is not None and lineage:
             save_window_cache(cache_dir, window=w, analysis=part, **cache_key)
         partials.append((w, part))

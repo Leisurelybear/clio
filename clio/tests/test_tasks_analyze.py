@@ -10,6 +10,7 @@ from typing import Any, cast
 
 import pytest
 
+from clio.analyze_windows import select_sparse_retry_gap
 from clio.config import AppConfig
 from clio.tasks.analyze import run_analyze_all
 from clio.vmeta import VideoMeta
@@ -67,6 +68,7 @@ def _common_mocks(monkeypatch):
     # run_analyze_all (in analyze.py) also calls resolve_binary for duration gate
     monkeypatch.setattr("clio.tasks.analyze.resolve_binary", lambda *a: "ffprobe")
     monkeypatch.setattr("clio.tasks.analyze.detect_scene_boundaries", lambda *a, **kw: [])
+    monkeypatch.setattr("clio.tasks.analyze.select_sparse_retry_gap", lambda *a, **kw: None)
     # Prevent AI calls
     monkeypatch.setattr("clio.tasks.analyze._build_stem", lambda idx, title, cfg: f"{idx:03d}_{title}")
     monkeypatch.setattr("clio.tasks.analyze._write_text_file", lambda *a: None)
@@ -793,6 +795,200 @@ class TestRunAnalyzeAll:
         assert calls[0]["video_end_sec"] == 60.0
         assert calls[0]["video_fps"] == 3
         assert calls[0]["media_resolution"] == "medium"
+
+    def test_sparse_single_window_retries_once_and_saves_merged_timeline(self, monkeypatch, tmp_path: Path):
+        cfg = _cfg(tmp_path)
+        cfg.analyze.max_analyze_duration_min = 0
+        _add_original(cfg, "GL010695.mp4")
+        comp = cfg.compressed_dir / "001_GL010695.mp4"
+        comp.write_bytes(b"video")
+
+        _common_mocks(monkeypatch)
+        monkeypatch.setattr("clio.tasks.analyze.select_sparse_retry_gap", select_sparse_retry_gap)
+        monkeypatch.setattr("clio.tasks.analyze.get_duration_sec", lambda *args: 60.0)
+        calls: list[tuple[float | None, float | None]] = []
+
+        def fake_analyze(path, *args, **kwargs):
+            calls.append((kwargs["video_start_sec"], kwargs["video_end_sec"]))
+            if len(calls) == 1:
+                return {
+                    "title": "Sparse",
+                    "summary": "base",
+                    "location": "X",
+                    "timeline": [{"start": 0, "end": 10, "text": "base"}],
+                }
+            return {
+                "title": "Completion",
+                "summary": "retry",
+                "location": "X",
+                "timeline": [{"start": 5, "end": 15, "text": "retry"}],
+                "key_moments": [{"start": 5, "end": 8, "text": "moment"}],
+            }
+
+        monkeypatch.setattr("clio.tasks.analyze.analyze_video", fake_analyze)
+
+        records = run_analyze_all(cfg)
+
+        assert len(records) == 1
+        assert calls == [(0.0, 60.0), (10.0, 60.0)]
+        analysis = records[0].analysis
+        assert analysis is not None
+        assert analysis["summary"] == "base\nretry"
+        assert [(item["start"], item["text"]) for item in analysis["timeline"]] == [
+            (0, "base"),
+            (15, "retry"),
+        ]
+        assert analysis["key_moments"][0]["start"] == 15
+        assert analysis["key_moments"][0]["text"] == "moment"
+
+    def test_dense_single_window_does_not_retry(self, monkeypatch, tmp_path: Path):
+        cfg = _cfg(tmp_path)
+        cfg.analyze.max_analyze_duration_min = 0
+        _add_original(cfg, "GL010695.mp4")
+        comp = cfg.compressed_dir / "001_GL010695.mp4"
+        comp.write_bytes(b"video")
+
+        _common_mocks(monkeypatch)
+        monkeypatch.setattr("clio.tasks.analyze.select_sparse_retry_gap", select_sparse_retry_gap)
+        monkeypatch.setattr("clio.tasks.analyze.get_duration_sec", lambda *args: 60.0)
+        calls: list[tuple[float | None, float | None]] = []
+
+        def fake_analyze(path, *args, **kwargs):
+            calls.append((kwargs["video_start_sec"], kwargs["video_end_sec"]))
+            return {
+                "title": "Dense",
+                "summary": "covered",
+                "location": "X",
+                "timeline": [{"start": 0, "end": 60, "text": "full"}],
+            }
+
+        monkeypatch.setattr("clio.tasks.analyze.analyze_video", fake_analyze)
+
+        records = run_analyze_all(cfg)
+
+        assert len(records) == 1
+        assert calls == [(0.0, 60.0)]
+
+    def test_multi_window_sparse_window_retries_once(self, monkeypatch, tmp_path: Path):
+        cfg = _cfg(tmp_path)
+        cfg.analyze.max_analyze_duration_min = 0
+        _add_original(cfg, "GL010695.mp4")
+        comp = cfg.compressed_dir / "001_GL010695.mp4"
+        comp.write_bytes(b"video")
+
+        _common_mocks(monkeypatch)
+        monkeypatch.setattr("clio.tasks.analyze.select_sparse_retry_gap", select_sparse_retry_gap)
+        monkeypatch.setattr("clio.tasks.analyze.get_duration_sec", lambda *args: 2400.0)
+        monkeypatch.setattr("clio.tasks.analyze.summarize_window_analysis", lambda analysis, *a, **kw: analysis)
+        calls: list[tuple[float | None, float | None]] = []
+        first_window_requested = False
+
+        def fake_analyze(path, *args, **kwargs):
+            nonlocal first_window_requested
+            span = (kwargs["video_start_sec"], kwargs["video_end_sec"])
+            calls.append(span)
+            if span == (0.0, 900.0) and not first_window_requested:
+                first_window_requested = True
+                return {
+                    "title": "Sparse",
+                    "summary": "base",
+                    "location": "X",
+                    "timeline": [{"start": 0, "end": 10, "text": "base"}],
+                }
+            if span == (10.0, 900.0):
+                return {
+                    "title": "Completion",
+                    "summary": "retry",
+                    "location": "X",
+                    "timeline": [{"start": 5, "end": 15, "text": "retry"}],
+                }
+            assert span is not None
+            return {
+                "title": "Dense",
+                "summary": "covered",
+                "location": "X",
+                "timeline": [{"start": 0, "end": span[1] - span[0], "text": "full"}],
+            }
+
+        monkeypatch.setattr("clio.tasks.analyze.analyze_video", fake_analyze)
+
+        records = run_analyze_all(cfg)
+
+        assert len(records) == 1
+        assert len(calls) == 4
+        assert calls.count((10.0, 900.0)) == 1
+        analysis = records[0].analysis
+        assert analysis is not None
+        assert any(item.get("text") == "retry" for item in analysis["timeline"])
+
+    def test_sparse_retry_failure_preserves_original_analysis(self, monkeypatch, tmp_path: Path, capsys):
+        cfg = _cfg(tmp_path)
+        cfg.analyze.max_analyze_duration_min = 0
+        _add_original(cfg, "GL010695.mp4")
+        comp = cfg.compressed_dir / "001_GL010695.mp4"
+        comp.write_bytes(b"video")
+
+        _common_mocks(monkeypatch)
+        monkeypatch.setattr("clio.tasks.analyze.select_sparse_retry_gap", select_sparse_retry_gap)
+        monkeypatch.setattr("clio.tasks.analyze.get_duration_sec", lambda *args: 60.0)
+        calls = 0
+
+        def fake_analyze(path, *args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return {
+                    "title": "Sparse",
+                    "summary": "base",
+                    "location": "X",
+                    "timeline": [{"start": 0, "end": 10, "text": "base"}],
+                }
+            raise ValueError("completion failed")
+
+        monkeypatch.setattr("clio.tasks.analyze.analyze_video", fake_analyze)
+
+        records = run_analyze_all(cfg)
+
+        assert len(records) == 1
+        assert calls == 2
+        analysis = records[0].analysis
+        assert analysis is not None
+        assert analysis["timeline"] == [{"start": 0, "end": 10, "text": "base"}]
+        assert "completion failed" in capsys.readouterr().out
+
+    def test_sparse_retry_cancellation_propagates(self, monkeypatch, tmp_path: Path):
+        cfg = _cfg(tmp_path)
+        cfg.analyze.max_analyze_duration_min = 0
+        _add_original(cfg, "GL010695.mp4")
+        comp = cfg.compressed_dir / "001_GL010695.mp4"
+        comp.write_bytes(b"video")
+        cancel_event = threading.Event()
+
+        _common_mocks(monkeypatch)
+        monkeypatch.setattr("clio.tasks.analyze.select_sparse_retry_gap", select_sparse_retry_gap)
+        monkeypatch.setattr("clio.tasks.analyze.get_duration_sec", lambda *args: 60.0)
+        calls = 0
+
+        def fake_analyze(path, *args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return {
+                    "title": "Sparse",
+                    "summary": "base",
+                    "location": "X",
+                    "timeline": [{"start": 0, "end": 10, "text": "base"}],
+                }
+            cancel_event.set()
+            raise RuntimeError("stopped")
+
+        monkeypatch.setattr("clio.tasks.analyze.analyze_video", fake_analyze)
+
+        records = run_analyze_all(cfg, cancel_event=cancel_event)
+
+        assert records == []
+        assert calls == 2
+        assert list(cfg.texts_dir.glob("*.json")) == []
 
     def test_single_window_passes_detected_scene_boundaries(self, monkeypatch, tmp_path: Path):
         cfg = _cfg(tmp_path)
