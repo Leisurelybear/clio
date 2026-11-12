@@ -10,7 +10,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 
 | Priority | Total | Fixed | Satisfied | Confirmed | Environment verification | Duplicate | Not applicable | Pending audit |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| P0 | 9 | 6 | 0 | 3 | 0 | 0 | 0 | 0 |
+| P0 | 9 | 8 | 0 | 1 | 0 | 0 | 0 | 0 |
 | P1 | 35 | 0 | 8 | 4 | 0 | 0 | 0 | 23 |
 | P2 | 59 | 0 | 12 | 0 | 0 | 0 | 0 | 47 |
 | P3 | 14 | 0 | 0 | 0 | 0 | 0 | 0 | 14 |
@@ -24,10 +24,10 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 003 | P0 | E1 | "全部重跑"把 ClipRecord.text_path (.txt) 当作分析 JSON 传给口播步骤 | Fixed | Rerun-all now derives the analysis JSON path from the recorded `.txt` path. Covered by a real `ClipRecord.text_path=.txt` behavioral test. Focused: 72 run-route tests passed. |
 | 004 | P0 | R005 | 网络层错误从不重试: google-genai 抛出的是 httpx.ConnectError/ReadTimeout, 它们不是 OSError, 被包装成"不可重试错误" | Fixed | `httpx.TransportError` is now a retryable type and is accepted by the retry predicate; ConnectError and ReadTimeout are covered. Focused: 66 Gemini provider tests passed. |
 | 005 | P0 | E2 | 结构校验重试把"上次模型输出"当作 prompt 前缀, 原始任务说明、上下文、转录全部丢失 | Fixed | Validation retries now append the previous JSON and field errors to the original task prompt for video analysis, voiceover, and planned voiceover. Focused: 80 analyze tests passed. |
-| 006 | P0 | E3 | 总时长偏离目标超过 25% 时重试一次后直接失败 | Confirmed | Confirmed against current code and tests; remediation pending. |
+| 006 | P0 | E3 | 总时长偏离目标超过 25% 时重试一次后直接失败 | Fixed | Duration deviation no longer enters blocking plan validation. It remains a non-blocking warning while the validated plan and actual total duration are returned. Focused: 80 analyze tests passed. |
 | 007 | P0 | E6 | 默认值变更没有迁移: 旧配置保留 remove_audio: true; 升级后全部分析、口播静默重跑 | Confirmed | Confirmed against current code and tests; remediation pending. |
 | 008 | P0 | R032 | rerun all 的单测把 ClipRecord.text_path mock 成 .json 路径; 真实对象里它是 .txt | Fixed | The regression test now uses a `.txt` `ClipRecord.text_path` and verifies the derived `.json` artifact is passed to voiceover generation. Fixed together with E1. Focused: 72 run-route tests passed. |
-| 009 | P0 | R033 | 结构重试的单测只断言调用次数和"含上次 JSON", 不断言重试 prompt 保留原始任务; 另有用例把"时长偏差两次后失败"写成期望行为 | Confirmed | Retry-prompt coverage now asserts the original wrapped prompt and trip context are retained; the duration-deviation expectation remains to be corrected with E3. Focused: 80 analyze tests passed. |
+| 009 | P0 | R033 | 结构重试的单测只断言调用次数和"含上次 JSON", 不断言重试 prompt 保留原始任务; 另有用例把"时长偏差两次后失败"写成期望行为 | Fixed | Tests now assert original wrapped prompt/context retention on validation retry and expect a duration-deviating plan to succeed with its actual total. Focused: 80 analyze tests passed across E2/E3 verification. |
 | 010 | P1 | R024 | 没有"真实 ffmpeg + 假 Provider"的端到端冒烟测试 | Confirmed | Confirmed against current code and tests; remediation pending. |
 | 011 | P1 | OPT-031 | CI 没有真实 ffmpeg 的任务; pip-audit 不拦截; 桌面打包任务按条件跳过 | Confirmed | Confirmed against current code and tests; remediation pending. |
 | 012 | P1 | OPT-029 | 关键回归被理想化 mock 掩盖 (R032、R033) | Confirmed | Confirmed against current code and tests; remediation pending. |

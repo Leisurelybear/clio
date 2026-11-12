@@ -709,8 +709,6 @@ def _plan_validation_issues(
     result: dict,
     clips: list[dict],
     target_duration_sec: float,
-    *,
-    check_duration: bool = True,
 ) -> list[str]:
     sequence = result.get("sequence", [])
     if not sequence:
@@ -719,8 +717,6 @@ def _plan_validation_issues(
     clips_by_index = {_plan_index_key(clip.get("index")): clip for clip in clips}
     ranges_by_index: dict[int | str, list[tuple[int, float, float]]] = {}
     issues: list[str] = []
-    total_duration = 0.0
-    duration_count = 0
 
     for position, segment in enumerate(sequence, start=1):
         index = _plan_index_key(segment.get("index"))
@@ -752,22 +748,7 @@ def _plan_validation_issues(
                     )
                 )
         ranges_by_index[index].append((position, start, end))
-        total_duration += end - start
-        duration_count += 1
 
-    if check_duration and target_duration_sec > 0 and duration_count:
-        tolerance = max(10.0, target_duration_sec * 0.25)
-        if abs(total_duration - target_duration_sec) > tolerance:
-            issues.append(
-                t(
-                    "analyze.plan_issue_duration_deviation",
-                    {
-                        "total": f"{total_duration:.1f}",
-                        "target": f"{target_duration_sec:.1f}",
-                        "tolerance": f"{tolerance:.1f}",
-                    },
-                )
-            )
     return list(dict.fromkeys(issues))
 
 
@@ -1682,12 +1663,7 @@ def plan_daily_vlog(
 
         def validate_candidate(candidate: dict) -> tuple[dict, list[str]]:
             result = _filter_plan_indices(_validate_plan(candidate, day_label), selected_clips)
-            issues = _plan_validation_issues(
-                result,
-                selected_validation_clips,
-                target_duration_sec,
-                check_duration=False,
-            )
+            issues = _plan_validation_issues(result, selected_validation_clips, target_duration_sec)
             if not issues:
                 result = _validate_plan_ranges(
                     result,

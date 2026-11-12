@@ -1641,20 +1641,21 @@ class TestPlanDailyVlog:
         assert "use_timeline 为空" in prompts[2]
         assert "区间重叠" in prompts[2]
 
-    def test_plan_retries_duration_deviation_and_fails_after_second_invalid_result(self, monkeypatch):
+    def test_plan_accepts_duration_deviation_with_non_blocking_warning(self, monkeypatch):
         clips = [{"index": "001", "timeline": [{"start": "00:00", "end": "00:30"}]}]
-        invalid = json.dumps({"sequence": [{"index": "001", "use_timeline": "00:00-00:05"}]})
+        short_plan = json.dumps({"sequence": [{"index": "001", "use_timeline": "00:00-00:05"}]})
         cfg = _fake_config()
         cfg.plan.target_duration_sec = 30
-        call = MagicMock(side_effect=["{}", invalid, invalid, invalid])
+        call = MagicMock(side_effect=["{}", short_plan, short_plan])
         monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (MagicMock(), "model"))
         monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, cfg, **kw: prompt)
         monkeypatch.setattr("clio.analyze._call_ai", call)
 
-        with pytest.raises(RuntimeError, match="规划总时长 5.0 秒与目标 30.0 秒"):
-            plan_daily_vlog(clips, cfg)
+        result = plan_daily_vlog(clips, cfg)
 
-        assert call.call_count == 4
+        assert [segment["use_timeline"] for segment in result["sequence"]] == ["00:00-00:05"]
+        assert result["total_estimated_sec"] == 5.0
+        assert call.call_count == 3
 
 
 def test_validate_plan_voiceover_collects_contract_issues():
