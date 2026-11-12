@@ -13,12 +13,11 @@ The remaining mypy debt is isolated to test annotations.
   module while excluding `clio/tests/`
 - test(desktop): cover Tk confirmation behavior, headless fallback, invalid lock ports, and a
   `create_window()` result of `None`
-- docs: record O9 as partial because 396 test-only mypy errors remain
+- docs: record O9 as partial because 389 test-only mypy errors remain
 
-Verification: `mypy --check-untyped-defs --show-error-codes clio main.py` reports 396 errors in
-263 files, with `production=0` and `tests=396`; the configured `mypy` gate passes across 136
-production source files. Desktop-focused pytest passes 48 tests; Ruff, format, and
-`git diff --check` pass.
+Verification: explicit test-file mypy reports 389 errors across 127 files
+(`production=0`); the configured `mypy` gate passes across 136 production source files.
+Desktop-focused pytest passes 48 tests; Ruff, format, and `git diff --check` pass.
 
 Completed the remaining high-risk frontend XSS cleanup and compacted the roadmap maintenance view.
 `html` tag templates now escape interpolated values by default, while `unsafeHtml` marks only
