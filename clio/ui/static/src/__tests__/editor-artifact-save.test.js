@@ -168,6 +168,17 @@ describe('artifact saves', () => {
       { title: 'plan.save_conflict_title' },
     );
   });
+  it('shows the no-video placeholder when a segment has no matching source', () => {
+    state.videos = [];
+    const subEl = { value: '', placeholder: '' };
+    const li = { querySelector: vi.fn(() => subEl) };
+
+    _prefillSubtitle(li, { index: '404' });
+
+    expect(subEl.placeholder).toBe('plan.subtitle.no_video');
+    expect(apiWithMeta).not.toHaveBeenCalled();
+  });
+
   it('keeps inferred narration as a placeholder instead of editing the plan', async () => {
     state.videos = [{ index: '001', script_json: 'a_script.json' }];
     const seg = { index: '001' };
