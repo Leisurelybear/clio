@@ -66,15 +66,14 @@ def _build_srt(materials: dict, tracks: list[dict]) -> str:
 
     cues: list[str] = []
     for segment in text_track.get("segments", []):
-        caption = text_by_id.get(str(segment.get("material_id", "")))
+        segment_caption = text_by_id.get(str(segment.get("material_id", "")))
         timerange = segment.get("target_timerange", {})
         start = int(timerange.get("start", 0))
         duration = int(timerange.get("duration", 0))
-        if not caption or duration <= 0:
+        if not segment_caption or duration <= 0:
             continue
-        cues.append(
-            f"{len(cues) + 1}\n{_format_srt_timestamp(start)} --> {_format_srt_timestamp(start + duration)}\n{caption}"
-        )
+        timing = f"{_format_srt_timestamp(start)} --> {_format_srt_timestamp(start + duration)}"
+        cues.append(f"{len(cues) + 1}\n{timing}\n{segment_caption}")
     return "\n\n".join(cues) + ("\n" if cues else "")
 
 
