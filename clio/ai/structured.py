@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from clio.ai.base import StructuredOutput
 
@@ -15,6 +15,18 @@ class AnalysisTimelineItem(_StrictModel):
     start: str
     end: str
     description: str
+    score: int | None = Field(default=None, ge=1, le=5)
+    camera: Literal["fixed", "handheld", "pan", "zoom", "follow"] | None = None
+    quality: Literal["ok", "shaky", "dark", "blocked"] | None = None
+    tags: list[str] = Field(default_factory=list)
+
+
+class AnalysisKeyMoment(_StrictModel):
+    start: str
+    end: str
+    title: str
+    why: str
+    score: int | None = Field(default=None, ge=1, le=5)
 
 
 class AnalysisHighlight(_StrictModel):
@@ -29,6 +41,7 @@ class VideoAnalysis(_StrictModel):
     location: str
     mood: str
     timeline: list[AnalysisTimelineItem]
+    key_moments: list[AnalysisKeyMoment] = Field(default_factory=list)
     highlights: list[AnalysisHighlight]
     suggested_use: str
     cover_timestamp: str

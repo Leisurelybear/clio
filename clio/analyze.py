@@ -205,6 +205,68 @@ def _coerce_list(value: Any) -> tuple[list[Any], bool]:
     return [], False
 
 
+_TIMELINE_CAMERA_VALUES = frozenset({"fixed", "handheld", "pan", "zoom", "follow"})
+_TIMELINE_QUALITY_VALUES = frozenset({"ok", "shaky", "dark", "blocked"})
+
+
+def _normalize_score(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return max(1, min(5, int(round(number))))
+
+
+def _normalize_choice(value: Any, allowed: frozenset[str]) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().lower()
+    return normalized if normalized in allowed else None
+
+
+def _normalize_tags(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    tags: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        tag = item.strip()
+        key = tag.casefold()
+        if tag and key not in seen:
+            tags.append(tag)
+            seen.add(key)
+    return tags
+
+
+def _normalize_timeline_item(item: dict[str, Any]) -> dict[str, Any]:
+    normalized = copy.deepcopy(item)
+    if "score" in normalized:
+        score = _normalize_score(normalized["score"])
+        if score is None:
+            normalized.pop("score", None)
+        else:
+            normalized["score"] = score
+    for key, allowed in (
+        ("camera", _TIMELINE_CAMERA_VALUES),
+        ("quality", _TIMELINE_QUALITY_VALUES),
+    ):
+        if key in normalized:
+            choice = _normalize_choice(normalized[key], allowed)
+            if choice is None:
+                normalized.pop(key, None)
+            else:
+                normalized[key] = choice
+    if "tags" in normalized:
+        normalized["tags"] = _normalize_tags(normalized["tags"])
+    return normalized
+
+
 def _record_validation_issue(issues: list[str] | None, message: str) -> None:
     print(message)
     if issues is not None:
@@ -222,6 +284,7 @@ def _validate_analysis(data: dict, source: str, *, issues: list[str] | None = No
     data.setdefault("summary", "")
     data.setdefault("timeline", [])
     data.setdefault("highlights", [])
+    data.setdefault("key_moments", [])
     data.setdefault("location", "未知")
     data.setdefault("mood", "")
     data.setdefault("suggested_use", "")
@@ -246,7 +309,7 @@ def _validate_analysis(data: dict, source: str, *, issues: list[str] | None = No
                 ),
             )
         data[key] = text_value
-    for key in ("timeline", "highlights"):
+    for key in ("timeline", "highlights", "key_moments"):
         list_value, ok = _coerce_list(data[key])
         if not ok:
             _record_validation_issue(
@@ -277,8 +340,9 @@ def _validate_analysis(data: dict, source: str, *, issues: list[str] | None = No
                 {"source": source, "key": "highlights", "count": malformed_highlights},
             ),
         )
-    data["timeline"] = [item for item in data["timeline"] if isinstance(item, dict)]
+    data["timeline"] = [_normalize_timeline_item(item) for item in data["timeline"] if isinstance(item, dict)]
     data["highlights"] = [item for item in data["highlights"] if isinstance(item, (dict, str))]
+    data["key_moments"] = [_normalize_timeline_item(item) for item in data["key_moments"] if isinstance(item, dict)]
     return data
 
 

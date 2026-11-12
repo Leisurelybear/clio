@@ -176,6 +176,46 @@ def _similar_item_text(left: dict, right: dict) -> bool:
     return SequenceMatcher(None, left_text, right_text).ratio() >= 0.72
 
 
+def _item_score(item: dict) -> int:
+    value = item.get("score")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0
+    return max(1, min(5, int(round(value))))
+
+
+def _item_completeness(item: dict) -> int:
+    fields = ("start", "end", "description", "title", "why", "score", "camera", "quality", "tags")
+    return sum(1 for field in fields if item.get(field) not in (None, "", []))
+
+
+def _merged_tags(left: dict, right: dict) -> list[str]:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for source in (left, right):
+        tags = source.get("tags")
+        if not isinstance(tags, list):
+            continue
+        for tag in tags:
+            if not isinstance(tag, str):
+                continue
+            key = tag.casefold()
+            if tag and key not in seen:
+                merged.append(tag)
+                seen.add(key)
+    return merged
+
+
+def _merge_duplicate_item(left: dict, right: dict) -> dict:
+    left_rank = (_item_completeness(left), _item_score(left), len(_item_text(left)))
+    right_rank = (_item_completeness(right), _item_score(right), len(_item_text(right)))
+    chosen, other = (right, left) if right_rank > left_rank else (left, right)
+    merged = copy.deepcopy(chosen)
+    tags = _merged_tags(chosen, other)
+    if tags:
+        merged["tags"] = tags
+    return merged
+
+
 def merge_window_analyses(
     windows: list[tuple[AnalyzeWindow, dict]],
     overlap_sec: int,
@@ -201,6 +241,7 @@ def merge_window_analyses(
     highlights: list[Any] = []
     locations: list[str] = []
     timeline: list[dict] = []
+    key_moments: list[dict] = []
 
     for _w, raw in windows:
         if isinstance(raw.get("summary"), str) and raw["summary"]:
@@ -213,6 +254,9 @@ def merge_window_analyses(
         for item in _timeline_list(raw):
             if isinstance(item, dict):
                 timeline.append(copy.deepcopy(item))
+        raw_moments = raw.get("key_moments")
+        if isinstance(raw_moments, list):
+            key_moments.extend(copy.deepcopy(item) for item in raw_moments if isinstance(item, dict))
 
     timeline.sort(key=_item_start)
 
@@ -241,12 +285,30 @@ def merge_window_analyses(
                 duplicate_index = index
                 break
         if duplicate_index is not None:
-            if len(_item_text(item)) > len(_item_text(deduped[duplicate_index])):
-                deduped[duplicate_index] = item
+            deduped[duplicate_index] = _merge_duplicate_item(deduped[duplicate_index], item)
             continue
         deduped.append(item)
 
+    key_moments.sort(key=_item_start)
+    deduped_moments: list[dict] = []
+    for moment in key_moments:
+        t_item = _item_start(moment)
+        duplicate_index = None
+        for index in range(len(deduped_moments) - 1, -1, -1):
+            previous = deduped_moments[index]
+            t_previous = _item_start(previous)
+            if t_item - t_previous > 5:
+                break
+            if _in_overlap(t_item) and _in_overlap(t_previous) and _similar_item_text(moment, previous):
+                duplicate_index = index
+                break
+        if duplicate_index is not None:
+            deduped_moments[duplicate_index] = _merge_duplicate_item(deduped_moments[duplicate_index], moment)
+            continue
+        deduped_moments.append(moment)
+
     base["timeline"] = deduped
+    base["key_moments"] = deduped_moments
     base["summary"] = "\n".join(summaries)
     seen: set[Any] = set()
     uniq_h: list[Any] = []

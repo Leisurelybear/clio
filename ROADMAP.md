@@ -88,7 +88,7 @@ Design: `docs/superpowers/specs/2026-10-24-analysis-detail-and-plan-input-budget
 - [x] P0a: emit a one-time analyze warning when `compress.fps < 2`
 - [ ] P0b `feat(analyze)`: replace the fixed 60-row cap with a duration-based density contract
   (<=5 min 25-40 rows, 5-10 min 50-80, 10-15 min 75-120; 8-12 s per row, one sentence <=40 chars)
-- [ ] P0b: add optional `score` (1-5), `camera`, `quality`, `tags` per timeline row and top-level
+- [x] P0b: add optional `score` (1-5), `camera`, `quality`, `tags` per timeline row and top-level
   `key_moments` (3-8 per clip); clamp/validate them, dedupe and merge across windows, and keep old
   JSON compatible
 - [ ] P0b: log `[analyze] <name>: rows=N coverage=xx% max_gap=Ns` after each clip (observation only,

@@ -139,6 +139,67 @@ class TestShiftAndMerge:
         assert len(merged["timeline"]) == 2
         assert any(item["text"] == "在海边悠闲地散步" for item in merged["timeline"])
 
+    def test_merge_combines_timeline_fields_and_key_moments(self):
+        w0 = AnalyzeWindow(0, 0, 900)
+        w1 = AnalyzeWindow(1, 880, 1800)
+        a0 = {
+            "title": "A",
+            "summary": "s0",
+            "timeline": [
+                {
+                    "start": 890,
+                    "end": 900,
+                    "description": "集市挑奶酪",
+                    "score": 3,
+                    "camera": "fixed",
+                    "tags": ["food"],
+                }
+            ],
+            "key_moments": [
+                {
+                    "start": 890,
+                    "end": 900,
+                    "title": "集市挑奶酪",
+                    "why": "人物互动",
+                    "score": 3,
+                }
+            ],
+        }
+        a1 = {
+            "title": "B",
+            "summary": "s1",
+            "timeline": [
+                {
+                    "start": 890,
+                    "end": 902,
+                    "description": "集市挑奶酪并看招牌",
+                    "score": 5,
+                    "camera": "pan",
+                    "quality": "ok",
+                    "tags": ["market", "Food"],
+                }
+            ],
+            "key_moments": [
+                {
+                    "start": 892,
+                    "end": 902,
+                    "title": "集市挑奶酪看招牌",
+                    "why": "人物互动与招牌文字",
+                    "score": 5,
+                }
+            ],
+        }
+
+        merged = merge_window_analyses([(w0, a0), (w1, a1)], overlap_sec=20)
+
+        assert len(merged["timeline"]) == 1
+        assert merged["timeline"][0]["score"] == 5
+        assert merged["timeline"][0]["camera"] == "pan"
+        assert merged["timeline"][0]["quality"] == "ok"
+        assert merged["timeline"][0]["tags"] == ["market", "Food"]
+        assert len(merged["key_moments"]) == 1
+        assert merged["key_moments"][0]["score"] == 5
+
 
 class TestSliceWindowVideo:
     def test_slice_window_video_invokes_ffmpeg(self, tmp_path: Path):

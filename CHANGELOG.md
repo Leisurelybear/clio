@@ -2,6 +2,18 @@
 
 ## 2026-11-12
 
+Timeline analysis now carries structured significance fields while remaining compatible with old JSON.
+
+- feat(analyze): add optional `score`, `camera`, `quality`, and `tags` fields to timeline entries
+- feat(analyze): add top-level `key_moments` with validated scores and descriptive evidence fields
+- fix(analyze): clamp invalid scores, whitelist camera/quality values, dedupe tags, and discard malformed entries
+- fix(analyze): merge duplicate overlap rows by completeness and score, union tags, and dedupe key moments
+- test(analyze): cover strict structured schemas, legacy compatibility, sanitization, and window merges
+
+Verification: 92 focused pytest cases pass; Ruff passes.
+
+## 2026-11-12
+
 Analysis quality changes can now be measured with a deterministic, versioned evaluation harness
 instead of ad hoc prompt comparisons.
 

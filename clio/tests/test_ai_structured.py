@@ -36,6 +36,7 @@ def test_video_analysis_schema_contains_timeline_and_highlights() -> None:
         "location",
         "mood",
         "timeline",
+        "key_moments",
         "highlights",
         "suggested_use",
         "cover_timestamp",
@@ -50,3 +51,12 @@ def test_json_object_output_has_no_schema() -> None:
 def test_structured_output_rejects_invalid_name() -> None:
     with pytest.raises(ValueError, match="StructuredOutput.name"):
         StructuredOutput("not valid")
+
+
+def test_video_analysis_schema_contains_timeline_significance_fields() -> None:
+    schema = VIDEO_ANALYSIS_OUTPUT.schema
+    assert schema is not None
+    timeline_schema = schema["$defs"]["AnalysisTimelineItem"]
+    assert set(timeline_schema["properties"]) >= {"score", "camera", "quality", "tags"}
+    moment_schema = schema["$defs"]["AnalysisKeyMoment"]
+    assert set(moment_schema["properties"]) >= {"start", "end", "title", "why", "score"}

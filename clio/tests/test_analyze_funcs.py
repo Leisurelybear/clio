@@ -540,6 +540,68 @@ def test_validate_analysis_keeps_valid_types():
     assert result["timeline"] == [{"start": "00:01", "text": "x"}]
 
 
+def test_validate_analysis_normalizes_timeline_significance_fields():
+    result = _validate_analysis(
+        {
+            "title": "A",
+            "summary": "s",
+            "timeline": [
+                {
+                    "start": "00:01",
+                    "end": "00:08",
+                    "description": "集市挑奶酪，横移镜头",
+                    "score": 7,
+                    "camera": " PAN ",
+                    "quality": "OK",
+                    "tags": ["food", "", "Food", 3, "market"],
+                },
+                {
+                    "start": "00:08",
+                    "end": "00:15",
+                    "description": "静态街景",
+                    "score": "bad",
+                    "camera": "tripod",
+                    "quality": "bright",
+                    "tags": "not-a-list",
+                },
+            ],
+            "key_moments": [
+                {
+                    "start": "00:01",
+                    "end": "00:08",
+                    "title": "挑奶酪",
+                    "why": "人物互动与招牌",
+                    "score": -2,
+                },
+                "not-a-moment",
+            ],
+        },
+        "clip.mp4",
+    )
+
+    first, second = result["timeline"]
+    assert first["score"] == 5
+    assert first["camera"] == "pan"
+    assert first["quality"] == "ok"
+    assert first["tags"] == ["food", "market"]
+    assert "score" not in second
+    assert "camera" not in second
+    assert "quality" not in second
+    assert second["tags"] == []
+    assert len(result["key_moments"]) == 1
+    assert result["key_moments"][0]["score"] == 1
+
+
+def test_validate_analysis_keeps_old_json_compatible():
+    result = _validate_analysis(
+        {"title": "A", "summary": "s", "timeline": [{"start": "00:01", "description": "x"}]},
+        "clip.mp4",
+    )
+
+    assert result["key_moments"] == []
+    assert result["timeline"] == [{"start": "00:01", "description": "x"}]
+
+
 def test_validate_plan_rejects_wrong_typed_fields():
     result = _validate_plan(
         {
