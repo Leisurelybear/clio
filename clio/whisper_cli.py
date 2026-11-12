@@ -19,10 +19,13 @@ from clio.transcribe import (
 from clio.utils import run_subprocess
 from clio.whisper_cache import is_model_cache_complete, largest_model_file_size
 
+_snapshot_download: Any
 try:
-    from huggingface_hub import snapshot_download as _snapshot_download
+    from huggingface_hub import snapshot_download
 except ImportError:
     _snapshot_download = None
+else:
+    _snapshot_download = snapshot_download
 
 
 def run_whisper_install(config_path: str | Path = "config.yaml") -> int:
@@ -124,8 +127,6 @@ def run_whisper_install(config_path: str | Path = "config.yaml") -> int:
         _snapshot_download(
             repo_id=repo_id,
             cache_dir=str(cache_dir),
-            resume_download=True,
-            local_dir_use_symlinks=False,
             ignore_patterns=["*.h5", "*.ot", "*.pt"],
         )
     except Exception as e:  # noqa: BLE001 - CLI download boundary reports third-party failures

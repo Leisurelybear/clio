@@ -136,6 +136,8 @@ class TestRunWhisperInstall:
             mock_reload.assert_called_once()
             args, kwargs = mock_dl.call_args
             assert "Systran/faster-whisper-small" in str(kwargs["repo_id"])
+            assert "resume_download" not in kwargs
+            assert "local_dir_use_symlinks" not in kwargs
 
     @patch("clio.whisper_cli.load_config")
     @patch("builtins.print")
