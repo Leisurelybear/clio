@@ -13,6 +13,7 @@ import {
   saveEditorPlan,
 } from './editor-plan-persistence.js';
 import { onLocaleChange, t } from './i18n.js';
+import { createPlanEditHistory, handlePlanHistoryShortcut } from './editor-plan-history.js';
 import { exportJianyingDraft } from './plan-export.js';
 import { waitForTask } from './task-center.js';
 import { openPlanRangePicker } from './plan-range-picker.js';
@@ -33,21 +34,13 @@ import {
   nextExpandedAfterDelete,
   nextExpandedAfterMove,
   syncPlanTotalEstimatedSec,
-  createPlanHistory,
-  resetPlanHistory,
-  planSnapshot,
-  pushPlanHistory,
-  undoPlanSnapshot,
-  redoPlanSnapshot,
 } from './plan-edit.js';
 
 let _dragFromIndex = null;
 let _dropToIndex = null;
 let _highlightTimer = null;
 let _expandedSegIndex = null;
-const _planHistory = createPlanHistory();
-let _historyPlanRef = null;
-let _fieldEditSnapshot = null;
+const _planHistory = createPlanEditHistory();
 
 configurePlanReadiness({
   onIssueClick: (idx) => {
@@ -108,7 +101,7 @@ function autoScrollDuringDrag(clientY) {
 
 function applySequence(next, opts = {}) {
   if (!state.plan) return;
-  if (opts.recordHistory !== false) pushPlanHistory(_planHistory, planSnapshot(state.plan));
+  if (opts.recordHistory !== false) _planHistory.record(state.plan);
   const hadPreview = state.previewActive;
   state.plan.sequence = next;
   syncPlanTotalEstimatedSec(state.plan);
@@ -177,8 +170,7 @@ async function confirmWarningsIfNeeded() {
 /** Clamp composite playhead and rebuild preview bar after use_timeline changes. */
 function restorePlanFromHistory(restored) {
   state.plan = restored;
-  _historyPlanRef = restored;
-  _fieldEditSnapshot = null;
+  _planHistory.adopt(restored);
   syncPlanTotalEstimatedSec(state.plan);
   state.planPreviewMedia = null;
   state.previewCutFallbacks?.clear();
@@ -191,7 +183,7 @@ function restorePlanFromHistory(restored) {
 
 export function undoPlanEdit() {
   if (!state.plan) return false;
-  const restored = undoPlanSnapshot(_planHistory, planSnapshot(state.plan));
+  const restored = _planHistory.undo(state.plan);
   if (!restored) return false;
   restorePlanFromHistory(restored);
   return true;
@@ -199,7 +191,7 @@ export function undoPlanEdit() {
 
 export function redoPlanEdit() {
   if (!state.plan) return false;
-  const restored = redoPlanSnapshot(_planHistory, planSnapshot(state.plan));
+  const restored = _planHistory.redo(state.plan);
   if (!restored) return false;
   restorePlanFromHistory(restored);
   return true;
@@ -207,15 +199,7 @@ export function redoPlanEdit() {
 
 document.addEventListener('keydown', (e) => {
   if (state.currentEntity !== 'plan' || !state.plan) return;
-  if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
-  const target = e.target;
-  if (target instanceof HTMLElement
-    && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
-  if (e.key === 'z' && !e.shiftKey) {
-    if (undoPlanEdit()) e.preventDefault();
-  } else if (e.key === 'y' || (e.key === 'z' && e.shiftKey)) {
-    if (redoPlanEdit()) e.preventDefault();
-  }
+  handlePlanHistoryShortcut(e, undoPlanEdit, redoPlanEdit);
 });
 
 function _refreshPreviewTimeline() {
@@ -316,8 +300,7 @@ export function renderPlan() {
   $('player-pane').classList.add('plan-mode');
   renderPreviewBar();
   if (!p) {
-    resetPlanHistory(_planHistory);
-    _historyPlanRef = null;
+    _planHistory.reset();
     pane.innerHTML = `
       <h3>${t('plan.title')}</h3>
       <p class="muted">${t('plan.empty_title')}</p>
@@ -325,10 +308,7 @@ export function renderPlan() {
     `;
     return;
   }
-  if (_historyPlanRef !== p) {
-    resetPlanHistory(_planHistory);
-    _historyPlanRef = p;
-  }
+  _planHistory.sync(p);
   if (!Array.isArray(p.sequence)) p.sequence = [];
 
   pane.innerHTML = `
@@ -383,12 +363,9 @@ export function renderPlan() {
     const el = pane.querySelector(`[data-field="${k}"]`);
     if (!el) continue;
     el.value = p[k] || '';
-    el.onfocus = () => { _fieldEditSnapshot = planSnapshot(p); };
+    el.onfocus = () => { _planHistory.beginFieldEdit(p); };
     el.oninput = () => {
-      if (_fieldEditSnapshot != null) {
-        pushPlanHistory(_planHistory, _fieldEditSnapshot);
-        _fieldEditSnapshot = null;
-      }
+      _planHistory.commitFieldEdit(p);
       p[k] = el.value;
       markDirty();
       schedulePlanReadinessCheck();
@@ -489,12 +466,9 @@ export function renderPlan() {
       renderPlan();
     });
     li.querySelectorAll('[data-k]').forEach(inp => {
-      inp.onfocus = () => { _fieldEditSnapshot = planSnapshot(p); };
+      inp.onfocus = () => { _planHistory.beginFieldEdit(p); };
       inp.oninput = (e) => {
-        if (_fieldEditSnapshot != null) {
-          pushPlanHistory(_planHistory, _fieldEditSnapshot);
-          _fieldEditSnapshot = null;
-        }
+        _planHistory.commitFieldEdit(p);
         p.sequence[i] = patchSegment(p.sequence[i], { [e.target.dataset.k]: e.target.value });
         // Keep collapsed header title/timeline in sync without full re-render on every keystroke
         if (e.target.dataset.k === 'title') {

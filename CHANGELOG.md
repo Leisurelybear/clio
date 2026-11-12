@@ -2,6 +2,15 @@
 
 ## 2026-11-13
 
+Plan undo/redo state now lives in a dedicated controller while `editor-plan.js` keeps its public
+exports unchanged.
+
+- refactor(ui): extract plan history, field snapshots, and shortcut handling into `editor-plan-history.js`
+- test(ui): cover history reset, undo/redo restoration, and editable shortcut guards
+- chore(ui): include `editor-plan-history.js` in the TypeScript check subset
+
+Verification: Vitest passes 901 tests across 85 files; `npm run typecheck` and `git diff --check` pass.
+
 Plan editor persistence actions now live in a focused module while the existing `editor-plan.js`
 exports remain compatible.
 

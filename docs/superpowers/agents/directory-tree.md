@@ -199,7 +199,7 @@ vlog-video-analysis/
     │           ├── editor-providers.js        # Provider list, editing modal, connection tests
     │           ├── editor-task-binding.js     # Task labels, inherited bindings, edit handlers
     │           ├── editor-tokens.js           # Token usage pane rendering
-    │           ├── editor-plan.js / editor-plan-insert.js / editor-plan-readiness.js / editor-plan-persistence.js / plan-edit.js
+    │           ├── editor-plan.js / editor-plan-insert.js / editor-plan-readiness.js / editor-plan-persistence.js / editor-plan-history.js / plan-edit.js
     │           ├── plan-export.js / plan-timeline.js
     │           ├── plan-range-picker.js / plan-preview-media.js / plan-subtitle.js
     │           ├── plan-waveform.js / subtitle-settings.js / waveform.js

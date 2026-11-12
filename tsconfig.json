@@ -16,6 +16,7 @@
     "clio/ui/static/src/i18n.js",
     "clio/ui/static/src/logs-buffer.js",
     "clio/ui/static/src/logs-filter.js",
+    "clio/ui/static/src/editor-plan-history.js",
     "clio/ui/static/src/plan-edit.js",
     "clio/ui/static/src/plan-timeline.js",
     "clio/ui/static/src/sidebar-video-filter.js",

@@ -59,7 +59,7 @@ P2 items:
   - `[x]` extract the plan readiness panel into `editor-plan-readiness.js`
   - `[x]` extract run preview rendering and overwrite checks into `runner-preview.js`
   - `[x]` extract plan deletion and save/config helpers into `editor-plan-persistence.js`
-  - `[ ]` extract plan undo/redo state wiring into `editor-plan-history.js`
+  - `[x]` extract plan undo/redo state wiring into `editor-plan-history.js`
   - `[ ]` decompose the remaining UI modules that still exceed 30 KB
 - `[x]` O16 raise Vitest coverage around bug fixes and save flows (`5487304`)
 - `[x]` Q13 snap cut points to shot boundaries and sentence endings (`0e1c9bf`)
