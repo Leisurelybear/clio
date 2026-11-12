@@ -1,7 +1,7 @@
 # 分析细节与 Plan 输入预算设计
 
 > 日期: 2026-10-24
-> 状态: P0c 已完成（2026-11-12；媒体分辨率、显著性字段、窗口合并、prompt 密度契约、覆盖率日志和 plan 输入投影均已实施）；P1/P2 为可选后续项
+> 状态: P1 已完成（2026-11-13；P0c 的媒体分辨率、显著性字段、窗口合并、prompt 密度契约、覆盖率日志和 plan 输入投影，以及两阶段候选筛选均已实施）；P2 为可选后续项
 > 范围: `clio/ai/gemini.py`、`clio/analyze.py`、`clio/analyze_windows.py`、`clio/tasks/plan.py`、`clio/prompts.py`、配置模型与示例
 > 目标: 提高视频分析的画面细节，同时让 plan 输入量不随细节线性膨胀
 
@@ -260,6 +260,8 @@ def build_plan_clips(clips: list[dict], config: AppConfig) -> list[dict]: ...
 {"keep": ["001", "007"], "reason": "..."}
 ```
 
+**实现状态（2026-11-13）：** 已由 `47703f8` 完成。仅在 `len(clips) > max_candidate_clips > 0` 时触发；第一阶段使用 `vlog_plan` 绑定的同一 provider/model，只序列化卡片字段，输出由 `VLOG_PLAN_SHORTLIST_OUTPUT` 约束。非法或缺失 `keep` 时使用本地确定性排序回退。后续大纲、选镜、复审、范围校验和转录筛选只使用入选素材；短名单 prompt/config 进入 plan lineage，token usage 单独记录为 `vlog_plan_shortlist`。
+
 ### 7.5 校验与转录必须使用完整 clips
 
 现有 `_validate_plan_ranges` 会检查 `use_timeline` 是否落在该素材的 timeline 区间内（`clio/analyze.py:445-475`）。如果直接拿投影后的 top-K 行去校验，模型选中的合理区间会落在被删掉的行之间，被误判为越界并丢弃。
@@ -388,8 +390,8 @@ def plan_daily_vlog(
 | P0a | `media_resolution` 配置、透传、lineage、A/B 脚本 | 同一 15 分钟素材 medium 的 timeline 细节明显增加，token 约 4 倍 |
 | P0b | 分析 prompt 密度契约 + score/tags/key_moments + 校验/合并 | 新分析 avg gap ≤20s，description ≤40 字，key_moments 3-8 条 |
 | P0c | `plan_input.build_plan_clips` + 去内联转录 + plan lineage | France 项目 plan prompt <60k tokens |
-| P1 | 两阶段候选筛选 | 142 素材 plan prompt <30k tokens，选片质量不下降 |
-| P2 | 稀疏窗口补全重试、按场景切片、compress fps 推荐 | 可选，单独评估 |
+| P1 | 两阶段候选筛选（已完成，`47703f8`） | 142 素材 plan prompt <30k tokens，选片质量不下降 |
+| P2 | 稀疏窗口补全重试、按场景切片、compress width/fps 推荐 | 可选，单独评估 |
 
 ## 13. 风险
 

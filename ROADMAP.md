@@ -84,7 +84,7 @@ P2 items:
 
 ### R-048 Higher-detail video analysis and bounded plan input
 
-**Status:** Complete through P0c (2026-11-12). Media resolution, structured significance fields, the prompt density contract, coverage observation, and bounded plan-input projection are implemented. Optional P1/P2 improvements remain separate backlog candidates.
+**Status:** Complete through P1 (2026-11-13). Media resolution, structured significance fields, the prompt density contract, coverage observation, bounded plan-input projection, and deterministic two-stage candidate shortlisting are implemented. Optional P2 improvements remain separate backlog candidates.
 
 **Goal:** Raise per-clip analysis density from summary level (~48 s per timeline row) to 8-12 s per
 row, keep the extra detail in `texts/*.json` for voiceover/cut/preview, and stop that detail from
@@ -125,9 +125,10 @@ Design: `docs/superpowers/specs/2026-10-24-analysis-detail-and-plan-input-budget
   `plan.max_key_moments_per_clip` (6)
 - [x] P0c: validate `use_timeline` and transcript selection against full clips while serializing
   only the projection; include the new plan bounds in the plan lineage
-- [ ] P1 (optional) two-stage candidate shortlist: `plan.max_candidate_clips` (60),
-  `PLAN_SHORTLIST_PROMPT`, deterministic local fallback
-- [ ] P2 (optional) sparse-window completion retry and `compress` width/fps recommendation
+- [x] P1 (optional) two-stage candidate shortlist: `plan.max_candidate_clips` (60),
+  `PLAN_SHORTLIST_PROMPT`, deterministic local fallback (`47703f8`)
+- [ ] P2a (optional) sparse-window completion retry after coverage observation
+- [ ] P2b (optional) `compress` width/fps recommendation based on analysis requirements
 
 **Acceptance:** at `medium` the same clip uses 3.5-4.5x the visual prompt tokens of `low`; new rows
 average <=20 s and <=40 chars; `key_moments` 3-8 per clip; France plan input <60k tokens after P0c and

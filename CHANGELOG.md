@@ -2,6 +2,19 @@
 
 ## 2026-11-13
 
+Large plan inputs now use a deterministic two-stage candidate shortlist before the existing outline,
+shot-selection, and review loop. The shortlist reuses the `vlog_plan` provider/model, sends compact clip
+cards, records usage separately, and falls back to local ranking when the model returns invalid indices.
+
+- feat(plan): shortlist oversized plan inputs before AI planning
+- test(plan): cover prompt limiting, token task names, fallback ranking, and lineage invalidation
+- docs(plan): mark R-048 P1 complete while keeping P2 optional work open
+
+Verification: full pytest passes 3172 tests with 12 skipped; Ruff, format check, mypy over 284 source
+files, and `git diff --check` pass. Commit: `47703f8`.
+
+## 2026-11-13
+
 The analysis evaluation suite now contains a reviewed real-footage baseline instead of placeholder
 case slots. Twelve source clips have reviewed references, sanitized predictions, and committed reports.
 
