@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -10,7 +11,7 @@ from clio.config import ProviderConfig, ProxyConfig
 
 
 def _make_cfg(**kwargs) -> ProviderConfig:
-    defaults = dict(
+    defaults: dict[str, Any] = dict(
         name="deepseek",
         type="openai",
         api_key="sk-test-key",
@@ -244,7 +245,7 @@ class TestGenerateText:
         resp_429 = self._mock_response(status_code=429)
         resp_429.headers = {"Retry-After": "2"}
         self._mock_client.post.side_effect = [resp_429, self._mock_response()]
-        delays = []
+        delays: list[float] = []
 
         with patch("clio.utils.time.sleep", side_effect=delays.append):
             result = self._prov.generate_text("hello", "deepseek-chat")
