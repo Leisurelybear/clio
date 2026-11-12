@@ -477,6 +477,36 @@ PLAN_REVIEW_PROMPT = """你是旅行 vlog 的剪辑规划复审员。请检查�
 """
 
 
+TRANSITION_REVIEW_PROMPT = """你是旅行 vlog 的转场审阅员。图片是一张按行排列的联系表，每两格为一对：
+先放上一个片段的最后一帧，再放下一个片段的第一帧；之后继续按相邻片段对依次排列。
+
+## 待审阅片段对
+{pairs_json}
+
+## 判断规则
+- position 表示“转入的下一个片段”在最终 sequence 中的 1-based 位置，第一段永远不会出现
+- transition 描述的是从前一个片段切入 position 对应片段的转场方式
+- 只用以下值：hard_cut、match_action、b_roll、ambient_audio、dissolve
+- 相邻动作或构图能自然接续时用 match_action；需要短镜头遮住跳点时用 b_roll；
+  环境声可自然衔接时用 ambient_audio；画面和声音都不适合直接跳切时才考虑 dissolve
+- 普通场景切换优先 hard_cut，不要为了显得丰富而强行选择特效
+- 只根据图片中实际可见的画面判断，不要编造图片外的内容
+- 必须为 pairs_json 中的每个 position 输出且只输出一个结果
+
+只输出 JSON，不要 markdown 代码块，不要添加解释。输出结构必须是：
+{{
+  "items": [
+    {{
+      "position": 2,
+      "transition": "hard_cut"
+    }}
+  ]
+}}
+"""
+
+VISUAL_TRANSITION_REVIEW_VERSION = 1
+
+
 REFINE_TEXT_PROMPT = """请审阅下面这段 vlog 素材的 AI 分析结果。
 **严格依据开头的「背景与规范」修正其中的错误**，保持保守原则。
 
@@ -608,6 +638,7 @@ PROMPT_DEFAULTS = {
     "PLAN_OUTLINE_PROMPT": PLAN_OUTLINE_PROMPT,
     "PLAN_OUTLINE_CONTEXT": PLAN_OUTLINE_CONTEXT,
     "PLAN_REVIEW_PROMPT": PLAN_REVIEW_PROMPT,
+    "TRANSITION_REVIEW_PROMPT": TRANSITION_REVIEW_PROMPT,
     "ENTITY_CONSISTENCY_PROMPT": ENTITY_CONSISTENCY_PROMPT,
     "REFINE_TEXT_PROMPT": REFINE_TEXT_PROMPT,
     "REFINE_TEXT_FIX_PROMPT": REFINE_TEXT_FIX_PROMPT,

@@ -85,6 +85,7 @@ class PlanConfig:
     use_transcripts: bool = True
     max_timeline_rows_per_clip: int = 8
     max_key_moments_per_clip: int = 6
+    visual_transition_review: bool = False
 
 
 @dataclass

@@ -34,6 +34,8 @@ from clio.prompts import (
     PLAN_PROMPT,
     PLAN_REVIEW_PROMPT,
     TRANSCRIPT_CONTEXT,
+    TRANSITION_REVIEW_PROMPT,
+    VISUAL_TRANSITION_REVIEW_VERSION,
 )
 from clio.schema import add_schema_version
 from clio.tasks._helpers import (
@@ -265,6 +267,7 @@ def _plan_lineage_fingerprint(
         ("vlog_plan", PLAN_PROMPT),
         ("plan_outline", PLAN_OUTLINE_PROMPT),
         ("plan_review", PLAN_REVIEW_PROMPT),
+        ("transition_review", TRANSITION_REVIEW_PROMPT),
     ):
         try:
             prompts[prompt_name] = resolve_prompt_template(
@@ -303,6 +306,10 @@ def _plan_lineage_fingerprint(
             "target_duration_sec": getattr(config.plan, "target_duration_sec", 180),
             "max_timeline_rows_per_clip": getattr(config.plan, "max_timeline_rows_per_clip", 8),
             "max_key_moments_per_clip": getattr(config.plan, "max_key_moments_per_clip", 6),
+            "visual_transition_review": bool(getattr(config.plan, "visual_transition_review", False)),
+            "transition_review_version": VISUAL_TRANSITION_REVIEW_VERSION,
+            "transition_review_prompt": prompts["transition_review"],
+            "transition_review_task": _task_lineage_settings(config, "video_analyze"),
             "max_transcript_segments_per_clip": (
                 getattr(config.whisper, "max_segments_per_clip", 5) if transcripts_enabled else None
             ),
@@ -394,6 +401,7 @@ def _collect_plan_clips(
             match_stem = source_stem
             segment_offset = 0.0
         capture_source = str(getattr(identity, "original_path", "") or data.get("source_file", "") or "")
+        compressed_source = str(getattr(identity, "compressed_path", "") or data.get("compressed_file", "") or "")
         ffprobe = ""
         if capture_source and Path(capture_source).is_file():
             with contextlib.suppress(OSError):
@@ -421,6 +429,8 @@ def _collect_plan_clips(
             "source_stem": source_stem,
             "match_stem": match_stem,
             "segment_offset_sec": segment_offset,
+            "_original_path": capture_source,
+            "_compressed_path": compressed_source,
         }
         if telemetry is not None and telemetry.latitude is not None and telemetry.longitude is not None:
             clip["gps"] = {"latitude": telemetry.latitude, "longitude": telemetry.longitude}
@@ -569,6 +579,7 @@ def run_plan_vlog(
             task_prompts=task_prompts,
             full_clips=clips,
             entity_consistency=consistency_report,
+            cancel_event=cancel_event,
         )
     snapped_count = snap_plan_ranges(plan, clips, transcripts_map)
     if snapped_count:

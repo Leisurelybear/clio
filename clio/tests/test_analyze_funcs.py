@@ -1227,6 +1227,7 @@ class TestPlanDailyVlog:
             "vlog_plan_review",
         ]
         assert structured_outputs[1] is VLOG_PLAN_OUTPUT
+        assert provider.generate_text.call_count == 3
 
     def test_plan_outline_feeds_shot_selection_and_caps_beats(self, monkeypatch):
         clips = [

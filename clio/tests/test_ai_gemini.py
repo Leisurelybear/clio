@@ -439,6 +439,61 @@ class TestGenerateText:
         assert result == "ok"
         assert retry_mock.call_args.args[3] is cancel
 
+    def test_analyze_images_sends_png_parts_then_prompt(self, tmp_path):
+        from clio.ai.gemini import GeminiProvider
+
+        first = tmp_path / "first.png"
+        second = tmp_path / "second.png"
+        first.write_bytes(b"first-image")
+        second.write_bytes(b"second-image")
+        self._client_mock.models.generate_content.return_value = MagicMock(text="ok", usage_metadata=None)
+        provider = GeminiProvider(_make_cfg(), ProxyConfig(enabled=False, url=""))
+
+        with patch(
+            "clio.ai.gemini.types.Part.from_bytes",
+            side_effect=lambda data, mime_type: SimpleNamespace(data=data, mime_type=mime_type),
+        ):
+            result = provider.analyze_images(
+                [str(first), str(second)],
+                "review transitions",
+                "gemini-2.5-flash",
+            )
+
+        contents = self._client_mock.models.generate_content.call_args.kwargs["contents"]
+        assert result.text == "ok"
+        assert [(part.data, part.mime_type) for part in contents[:-1]] == [
+            (b"first-image", "image/png"),
+            (b"second-image", "image/png"),
+        ]
+        assert contents[-1] == "review transitions"
+
+    def test_analyze_images_forwards_cancel_and_structured_config(self, tmp_path):
+        from clio.ai.base import StructuredOutput
+        from clio.ai.gemini import GeminiProvider
+
+        image = tmp_path / "review.png"
+        image.write_bytes(b"image")
+        cancel = threading.Event()
+        schema = {"type": "object", "properties": {"items": {"type": "array"}}, "required": ["items"]}
+        self._client_mock.models.generate_content.return_value = MagicMock(text="{}", usage_metadata=None)
+        provider = GeminiProvider(_make_cfg(), ProxyConfig(enabled=False, url=""))
+
+        with patch.object(provider, "_call_with_retry", side_effect=lambda fn, *args, **kwargs: fn()) as retry_mock:
+            provider.analyze_images(
+                [str(image)],
+                "review",
+                "gemini-2.5-flash",
+                cancel_event=cancel,
+                temperature=0.2,
+                structured_output=StructuredOutput("transition_review", schema),
+            )
+
+        assert retry_mock.call_args.args[3] is cancel
+        config = self._client_mock.models.generate_content.call_args.kwargs["config"]
+        assert config.temperature == 0.2
+        assert config.response_mime_type == "application/json"
+        assert config.response_json_schema == schema
+
     def test_positive_max_tokens_is_sent(self, proxy_disabled):
         with patch("clio.ai.gemini.genai.Client") as mock_cls:
             from clio.ai.gemini import GeminiProvider

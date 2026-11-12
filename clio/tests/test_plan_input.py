@@ -50,6 +50,22 @@ def test_projection_removes_inline_transcripts_and_unknown_fields() -> None:
     assert "internal_note" not in projected[0]["timeline"][0]
 
 
+def test_projection_removes_internal_media_paths() -> None:
+    clips = [
+        {
+            "index": "001",
+            "_original_path": "/private/original.mp4",
+            "_compressed_path": "/private/compressed.mp4",
+            "timeline": [_row("00:00", "00:10")],
+        }
+    ]
+
+    projected = build_plan_clips(clips, _config())
+
+    assert "_original_path" not in projected[0]
+    assert "_compressed_path" not in projected[0]
+
+
 def test_timeline_rows_are_bounded_sorted_and_keep_endpoints() -> None:
     rows = [_row(f"{minute:02d}:00", f"{minute:02d}:30", str(minute)) for minute in range(10)]
 

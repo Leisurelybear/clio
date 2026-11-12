@@ -107,6 +107,21 @@ class VlogPlanReview(_StrictModel):
     corrected_plan: DailyVlogPlan
 
 
+class TransitionReviewItem(_StrictModel):
+    position: int
+    transition: Literal[
+        "hard_cut",
+        "match_action",
+        "b_roll",
+        "ambient_audio",
+        "dissolve",
+    ]
+
+
+class TransitionReview(_StrictModel):
+    items: list[TransitionReviewItem]
+
+
 class PlanVoiceoverSegment(_StrictModel):
     position: int
     voiceover: str
@@ -159,6 +174,7 @@ PLAN_VOICEOVER_OUTPUT = _output("plan_voiceover", PlanVoiceover)
 VLOG_PLAN_OUTPUT = _output("vlog_plan", DailyVlogPlan)
 VLOG_PLAN_OUTLINE_OUTPUT = _output("vlog_plan_outline", VlogPlanOutline)
 VLOG_PLAN_REVIEW_OUTPUT = _output("vlog_plan_review", VlogPlanReview)
+TRANSITION_REVIEW_OUTPUT = _output("transition_review", TransitionReview)
 WINDOW_SUMMARY_OUTPUT = _output("window_summary", WindowSummary)
 ENTITY_CONSISTENCY_OUTPUT = _output("entity_consistency", EntityConsistency)
 JSON_OBJECT_OUTPUT = StructuredOutput(name="json_object")

@@ -233,7 +233,7 @@ class TestPlanLineageFingerprint:
         loaded_config.ai.tasks.pop("vlog_plan")
         assert _plan_lineage_fingerprint(loaded_config, []) != ""
 
-    @pytest.mark.parametrize("prompt_name", ["vlog_plan", "plan_outline", "plan_review"])
+    @pytest.mark.parametrize("prompt_name", ["vlog_plan", "plan_outline", "plan_review", "transition_review"])
     def test_changes_on_each_planning_stage_prompt(self, loaded_config: AppConfig, prompt_name: str) -> None:
         clips = [{"index": "001", "source_stem": "GL010683", "title": "t"}]
         base = _plan_lineage_fingerprint(loaded_config, clips)
@@ -244,6 +244,20 @@ class TestPlanLineageFingerprint:
         )
 
         assert base != changed
+
+    def test_changes_on_visual_transition_review(self, loaded_config: AppConfig) -> None:
+        clips = [{"index": "001", "source_stem": "GL010683", "title": "t"}]
+        base = _plan_lineage_fingerprint(loaded_config, clips)
+        loaded_config.plan.visual_transition_review = not loaded_config.plan.visual_transition_review
+
+        assert _plan_lineage_fingerprint(loaded_config, clips) != base
+
+    def test_changes_on_transition_review_task_binding(self, loaded_config: AppConfig) -> None:
+        clips = [{"index": "001", "source_stem": "GL010683", "title": "t"}]
+        base = _plan_lineage_fingerprint(loaded_config, clips)
+        loaded_config.ai.tasks["video_analyze"].model = "gemini-2.0-flash"
+
+        assert _plan_lineage_fingerprint(loaded_config, clips) != base
 
     def test_changes_on_use_transcripts(self, loaded_config: AppConfig) -> None:
         clips = [{"index": "001", "source_stem": "GL010683", "title": "t"}]

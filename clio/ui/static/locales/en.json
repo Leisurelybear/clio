@@ -614,6 +614,7 @@
   "settings.desc.plan.max_clips_per_day": "Maximum clips per daily vlog",
   "settings.desc.plan.max_timeline_rows_per_clip": "Maximum timeline rows per clip in the planning prompt (0 = unlimited)",
   "settings.desc.plan.max_key_moments_per_clip": "Maximum key moments per clip in the planning prompt (0 = unlimited)",
+  "settings.desc.plan.visual_transition_review": "Review adjacent transition frames with Gemini after planning (off by default)",
   "settings.desc.plan.plans_subdir": "Subdirectory holding editing plans",
   "settings.desc.plan.target_duration_sec": "Target duration per daily vlog (seconds)",
   "settings.desc.plan.use_transcripts": "Inject speech transcripts as planning context",

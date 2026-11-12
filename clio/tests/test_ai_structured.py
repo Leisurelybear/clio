@@ -5,6 +5,7 @@ import pytest
 from clio.ai.base import StructuredOutput
 from clio.ai.structured import (
     JSON_OBJECT_OUTPUT,
+    TRANSITION_REVIEW_OUTPUT,
     VIDEO_ANALYSIS_OUTPUT,
     VLOG_PLAN_OUTLINE_OUTPUT,
     VLOG_PLAN_OUTPUT,
@@ -21,6 +22,7 @@ def test_fixed_task_schemas_are_strict_and_required() -> None:
         VLOG_PLAN_OUTPUT,
         VLOG_PLAN_OUTLINE_OUTPUT,
         VLOG_PLAN_REVIEW_OUTPUT,
+        TRANSITION_REVIEW_OUTPUT,
         WINDOW_SUMMARY_OUTPUT,
     )
 

@@ -52,6 +52,7 @@ from clio.prompts import (
     WINDOW_SUMMARY_PROMPT,
 )
 from clio.scene import align_shots_to_boundaries, format_scene_timestamp, scene_ranges
+from clio.transition_review import review_plan_transitions
 from clio.utils import extract_json
 
 _trip_context_cache: dict[str, str] = {}
@@ -1484,6 +1485,7 @@ def plan_daily_vlog(
     task_prompts: dict[str, str] | None = None,
     full_clips: list[dict] | None = None,
     entity_consistency: dict | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> dict:
     validation_clips = full_clips if full_clips is not None else clips
     provider, model = get_task_provider(config, TaskName.VLOG_PLAN)
@@ -1594,6 +1596,7 @@ def plan_daily_vlog(
             lambda: provider.generate_text(
                 call_prompt,
                 model,
+                cancel_event=cancel_event,
                 temperature=_task_temperature(config, TaskName.VLOG_PLAN),
                 system=system,
                 structured_output=structured_output,
@@ -1625,6 +1628,7 @@ def plan_daily_vlog(
             return fallback
         return candidate
 
+    valid_plan: dict[str, Any] | None = None
     with provider_use(provider):
         outline: dict[str, Any] | None = None
         try:
@@ -1657,7 +1661,8 @@ def plan_daily_vlog(
         for attempt in range(2):
             result, issues = validate_candidate(reviewed)
             if not issues:
-                return result
+                valid_plan = result
+                break
             if attempt == 1:
                 if not result.get("sequence"):
                     raise RuntimeError(t("analyze.plan_no_usable_clips", {"count": raw_sequence_count}))
@@ -1674,7 +1679,15 @@ def plan_daily_vlog(
                 result,
             )
 
-    raise AssertionError("plan review loop exited unexpectedly")
+    if valid_plan is None:
+        raise AssertionError("plan review loop exited unexpectedly")
+    return review_plan_transitions(
+        valid_plan,
+        config,
+        validation_clips,
+        cancel_event=cancel_event,
+        task_prompts=task_prompts,
+    )
 
 
 def refine_text(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 from typing import cast
 from unittest.mock import patch
@@ -148,6 +149,10 @@ def test_planner_uses_projection_while_validation_keeps_full_clips(cfg: AppConfi
     assert isinstance(full, list)
     assert len(projected[0]["timeline"]) == 2
     assert len(full[0]["timeline"]) == 5
+    assert "_original_path" not in projected[0]
+    assert "_compressed_path" not in projected[0]
+    assert "_original_path" in full[0]
+    assert "_compressed_path" in full[0]
     assert projected[0]["key_moments"][0]["title"] == "opening"
     assert "transcript" not in projected[0]
     assert "transcript_segments" not in projected[0]["timeline"][0]
@@ -156,6 +161,24 @@ def test_planner_uses_projection_while_validation_keeps_full_clips(cfg: AppConfi
         {"index": "001", "source_stem": "A", "match_stem": "A", "segment_offset_sec": 0.0}
     ]
     assert "注入规划" in capsys.readouterr().out
+
+
+def test_run_plan_forwards_cancel_event(cfg: AppConfig) -> None:
+    from clio.tasks.plan import run_plan_vlog
+
+    _write_text(cfg, "001_A.json", "A", 1)
+    event = threading.Event()
+    captured: dict[str, object] = {}
+
+    def _fake(clips, config, day_label="day1", **kwargs):
+        captured["cancel_event"] = kwargs.get("cancel_event")
+        return _fake_plan_payload(clips)
+
+    with patch("clio.tasks.plan.plan_daily_vlog", side_effect=_fake):
+        result = run_plan_vlog(cfg, day_label="day1", overwrite=True, cancel_event=event)
+
+    assert result is not None
+    assert captured["cancel_event"] is event
 
 
 def test_plan_failure_does_not_write_artifacts(cfg: AppConfig):

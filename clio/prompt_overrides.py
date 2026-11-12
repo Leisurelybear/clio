@@ -25,6 +25,7 @@ PROMPT_PLACEHOLDERS: dict[str, set[str]] = {
     "vlog_plan": {"clips_json", "max_clips", "target_duration_sec", "example_index"},
     "plan_outline": {"clips_json", "max_clips", "target_duration_sec"},
     "plan_outline_context": {"outline_json"},
+    "transition_review": {"pairs_json"},
     "plan_review": {
         "clips_json",
         "draft_json",

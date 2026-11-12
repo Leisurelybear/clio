@@ -298,6 +298,36 @@ class GeminiProvider:
 
         return self._call_with_retry(_do, model, model, cancel_event)
 
+    def analyze_images(
+        self,
+        image_paths: list[str],
+        prompt: str,
+        model: str,
+        cancel_event: threading.Event | None = None,
+        *,
+        temperature: float | None = None,
+        system: str | None = None,
+        structured_output: StructuredOutput | None = None,
+    ) -> AIResponse:
+        def _do() -> AIResponse:
+            wait_for_rate_limit(self._rl, cancel_event, what=self.provider_id)
+            contents: list[types.Part | str] = [
+                types.Part.from_bytes(data=Path(path).read_bytes(), mime_type="image/png") for path in image_paths
+            ]
+            contents.append(prompt)
+            config = self._config_for(temperature, system, structured_output)
+            if config is None:
+                response = self._client.models.generate_content(model=model, contents=contents)
+            else:
+                response = self._client.models.generate_content(
+                    model=model,
+                    contents=contents,
+                    config=config,
+                )
+            return _response_from(response)
+
+        return self._call_with_retry(_do, model, model, cancel_event)
+
     def analyze_video(
         self,
         video_path: str,

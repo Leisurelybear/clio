@@ -78,6 +78,7 @@ CONFIG_DESCRIPTIONS: dict[str, str] = {
     "plan.use_transcripts": "规划时是否注入语音转录内容作为参考",
     "plan.max_timeline_rows_per_clip": "每个素材注入规划的最多时间轴行数（0=不限制）",
     "plan.max_key_moments_per_clip": "每个素材注入规划的最多关键瞬间数（0=不限制）",
+    "plan.visual_transition_review": "规划完成后用 Gemini 对比相邻片段首尾帧，复核转场方式（默认关闭）",
     # whisper
     "whisper.enabled": "是否启用语音转录（需安装 faster-whisper）",
     "whisper.model_size": "Whisper 模型大小。small（快速）、medium（平衡）、large-v3（高精度）",
