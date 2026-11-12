@@ -14,7 +14,7 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
 
 Source: [`docs/analysis/2026-11-05-P0-P2-Issues.md`](docs/analysis/2026-11-05-P0-P2-Issues.md)
 
-Snapshot: 83 items; 67 completed locally; 0 partial; 2 awaiting real-environment verification; 14 pending.
+Snapshot: 83 items; 68 completed locally; 0 partial; 2 awaiting real-environment verification; 13 pending.
 O17 and O18 are complete as of this cleanup. The analysis document remains the source of truth for item-level
 status and verification notes.
 
@@ -35,7 +35,10 @@ Open P2 items:
 - `[ ]` O14 add frontend type checking and decompose the largest JS modules
 - `[ ]` O16 raise Vitest coverage around bug fixes and save flows
 - `[ ]` Q13 snap cut points to shot boundaries and sentence endings
-- `[ ]` F4 calculate AI output quality signals and surface warnings in the UI
+- `[x]` F4 calculate AI output quality signals and surface warnings in the UI
+  - `[x]` collect analyzed source timelines and detect empty/large-gap/out-of-bounds analysis coverage
+  - `[x]` flag plan ranges outside analyzed content, duration drift, and missing voiceover guidance
+  - `[x]` surface the new issues through the existing readiness panel and add regression tests
 - `[ ]` F9 review transition candidates with a Gemini contact sheet
 
 Awaiting real-environment verification:

@@ -2,6 +2,16 @@
 
 ## 2026-11-12
 
+Plan readiness now flags AI output quality problems before cut/export, instead of letting malformed
+or weakly grounded plans fail later in editing.
+
+- feat(plan): detect missing/empty analysis timelines, out-of-bounds intervals, large analysis gaps,
+  plan ranges outside analyzed content, source duration drift, and missing voiceover guidance
+- feat(api): surface F4 quality warnings through plan readiness, cut/export previews, and CLI
+  validation with the existing warning/error presentation
+- test(plan): cover every quality signal and route/CLI integration; full pytest passes
+  `2950 passed, 12 skipped` and Vitest passes 882 tests across 81 files
+
 Production and test Python type-checking are now clean across the full application and permanently gated.
 
 - fix(types): narrow optional state, provider payloads, task reporters, HTTP handler boundaries,
