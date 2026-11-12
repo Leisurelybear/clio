@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import json
 import os
@@ -281,10 +282,8 @@ def _upgrade_config_file(yaml_path: Path, *, section_map: dict[str, type]) -> No
     if previous is not None:
         bak = yaml_path.with_name(yaml_path.name + ".bak")
         if not bak.exists():
-            try:
+            with contextlib.suppress(OSError):
                 bak.write_text(previous, encoding="utf-8")
-            except OSError:
-                pass
     from clio.utils import write_text_atomic
 
     try:
@@ -441,10 +440,8 @@ def _migrate_v1_to_v2(config_path: Path) -> None:
     # Backup original
     bak = config_path.with_suffix(config_path.suffix + ".bak")
     if not bak.exists():
-        try:
+        with contextlib.suppress(OSError):
             bak.write_text(config_path.read_text(encoding="utf-8"), encoding="utf-8")
-        except OSError:
-            pass
 
     # Write V2 global config.yaml
     global_raw = _filter_global_only(raw)
@@ -501,10 +498,8 @@ def _migrate_v1_to_v2(config_path: Path) -> None:
             # Back up project.yaml first
             proj_bak = proj_yaml.with_suffix(proj_yaml.suffix + ".bak")
             if not proj_bak.exists():
-                try:
+                with contextlib.suppress(OSError):
                     proj_bak.write_text(proj_yaml.read_text(encoding="utf-8"), encoding="utf-8")
-                except OSError:
-                    pass
 
             project_out = _filter_project_only(proj_raw)
             if not project_out:
