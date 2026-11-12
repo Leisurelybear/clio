@@ -33,6 +33,7 @@ from clio.prompts import (
     PLAN_OUTLINE_PROMPT,
     PLAN_PROMPT,
     PLAN_REVIEW_PROMPT,
+    PLAN_SHORTLIST_PROMPT,
     TRANSCRIPT_CONTEXT,
     TRANSITION_REVIEW_PROMPT,
     VISUAL_TRANSITION_REVIEW_VERSION,
@@ -265,6 +266,7 @@ def _plan_lineage_fingerprint(
     prompts: dict[str, str] = {}
     for prompt_name, builtin_template in (
         ("vlog_plan", PLAN_PROMPT),
+        ("vlog_plan_shortlist", PLAN_SHORTLIST_PROMPT),
         ("plan_outline", PLAN_OUTLINE_PROMPT),
         ("plan_review", PLAN_REVIEW_PROMPT),
         ("transition_review", TRANSITION_REVIEW_PROMPT),
@@ -306,6 +308,8 @@ def _plan_lineage_fingerprint(
             "target_duration_sec": getattr(config.plan, "target_duration_sec", 180),
             "max_timeline_rows_per_clip": getattr(config.plan, "max_timeline_rows_per_clip", 8),
             "max_key_moments_per_clip": getattr(config.plan, "max_key_moments_per_clip", 6),
+            "max_candidate_clips": getattr(config.plan, "max_candidate_clips", 60),
+            "shortlist_prompt": prompts["vlog_plan_shortlist"],
             "visual_transition_review": bool(getattr(config.plan, "visual_transition_review", False)),
             "transition_review_version": VISUAL_TRANSITION_REVIEW_VERSION,
             "transition_review_prompt": prompts["transition_review"],

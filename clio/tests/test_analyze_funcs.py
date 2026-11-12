@@ -36,7 +36,7 @@ def _fake_config(context: str = "", context_override: str | None = None) -> AppC
         AppConfig,
         SimpleNamespace(
             ai=SimpleNamespace(context=context, debug_print_prompt=False),
-            plan=SimpleNamespace(max_clips_per_day=10, target_duration_sec=300),
+            plan=SimpleNamespace(max_clips_per_day=10, target_duration_sec=300, max_candidate_clips=60),
             script=SimpleNamespace(target_words=150),
             whisper=SimpleNamespace(max_segments_per_clip=5),
             paths=SimpleNamespace(input_dir=Path("/tmp")),
@@ -1228,6 +1228,150 @@ class TestPlanDailyVlog:
         ]
         assert structured_outputs[1] is VLOG_PLAN_OUTPUT
         assert provider.generate_text.call_count == 3
+
+    def test_shortlist_limits_downstream_prompts_and_records_separate_usage(self, monkeypatch):
+        clips = [
+            {
+                "index": "001",
+                "title": "title-001",
+                "summary": "summary-001",
+                "location": "location-001",
+                "duration_sec": 10,
+                "key_moments": [{"start": "00:01", "end": "00:02", "score": 2}],
+                "timeline": [{"start": "00:00", "end": "00:10", "description": "timeline-001"}],
+            },
+            {
+                "index": "002",
+                "title": "title-002",
+                "summary": "summary-002",
+                "location": "location-002",
+                "duration_sec": 10,
+                "key_moments": [{"start": "00:01", "end": "00:02", "score": 5}],
+                "timeline": [{"start": "00:00", "end": "00:10", "description": "timeline-002"}],
+            },
+            {
+                "index": "003",
+                "title": "title-003",
+                "summary": "summary-003",
+                "location": "location-003",
+                "duration_sec": 10,
+                "key_moments": [{"start": "00:01", "end": "00:02", "score": 4}],
+                "timeline": [{"start": "00:00", "end": "00:10", "description": "timeline-003"}],
+            },
+        ]
+        shortlist = {"keep": ["002", "003"], "reason": "best moments"}
+        outline = {
+            "day_title": "day1",
+            "theme": "walk",
+            "beats": [
+                {
+                    "position": 1,
+                    "narrative_beat": "hook",
+                    "purpose": "open",
+                    "target_duration_sec": 10,
+                    "candidate_indices": ["001", "002"],
+                }
+            ],
+            "opening_tip": "",
+            "ending_tip": "",
+        }
+        draft = {
+            "day_title": "day1",
+            "theme": "walk",
+            "total_estimated_sec": 10,
+            "sequence": [
+                {"index": "001", "use_timeline": "00:00-00:10"},
+                {"index": "002", "use_timeline": "00:00-00:10"},
+            ],
+            "opening_tip": "",
+            "ending_tip": "",
+        }
+        review = {"issues": [], "corrected_plan": draft}
+        responses = [AIResponse(json.dumps(value)) for value in (shortlist, outline, draft, review)]
+        provider = MagicMock(provider_id="mock")
+        structured_names: list[str] = []
+
+        def generate(*args, **kwargs):
+            structured_names.append(kwargs["structured_output"].name)
+            return responses.pop(0)
+
+        provider.generate_text.side_effect = generate
+        calls: list[dict[str, Any]] = []
+
+        def fake_call(label, provider_id, model, prompt, fn, **kwargs):
+            calls.append({"label": label, "prompt": prompt, "task": kwargs["task_name"]})
+            return fn().text
+
+        cfg = _fake_config()
+        cfg.plan.max_clips_per_day = 2
+        cfg.plan.target_duration_sec = 10
+        cfg.plan.max_candidate_clips = 2
+        monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (provider, "model"))
+        monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, cfg, **kw: prompt)
+        monkeypatch.setattr("clio.analyze._call_ai", fake_call)
+
+        result = plan_daily_vlog(clips, cfg)
+
+        assert [call["task"] for call in calls] == [
+            "vlog_plan_shortlist",
+            "vlog_plan",
+            "vlog_plan",
+            "vlog_plan",
+        ]
+        assert structured_names == [
+            "vlog_plan_shortlist",
+            "vlog_plan_outline",
+            "vlog_plan",
+            "vlog_plan_review",
+        ]
+        assert "title-001" in calls[0]["prompt"]
+        assert all("title-001" not in call["prompt"] for call in calls[1:])
+        assert "title-002" in calls[1]["prompt"]
+        assert "title-003" in calls[1]["prompt"]
+        assert '"candidate_indices": ["002"]' in calls[2]["prompt"]
+        assert [segment["index"] for segment in result["sequence"]] == ["002"]
+
+    def test_shortlist_invalid_selection_uses_local_fallback(self, monkeypatch):
+        clips = [
+            {
+                "index": index,
+                "title": f"title-{index}",
+                "duration_sec": duration,
+                "key_moments": [{"start": "00:01", "end": "00:02", "score": score}],
+                "timeline": [{"start": "00:00", "end": "00:10"}],
+            }
+            for index, score, duration in (("001", 2, 30), ("002", 5, 10), ("003", 5, 20))
+        ]
+        responses = [
+            AIResponse(json.dumps({"keep": ["999"], "reason": "invalid"})),
+            AIResponse("{}"),
+            AIResponse(
+                json.dumps({"day_title": "day1", "sequence": [{"index": "003", "use_timeline": "00:00-00:10"}]})
+            ),
+            AIResponse("{}"),
+        ]
+        provider = MagicMock(provider_id="mock")
+        provider.generate_text.side_effect = lambda *args, **kwargs: responses.pop(0)
+        prompts: list[str] = []
+
+        def fake_call(label, provider_id, model, prompt, fn, **kwargs):
+            prompts.append(prompt)
+            return fn().text
+
+        cfg = _fake_config()
+        cfg.plan.max_clips_per_day = 2
+        cfg.plan.target_duration_sec = 10
+        cfg.plan.max_candidate_clips = 2
+        monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (provider, "model"))
+        monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, cfg, **kw: prompt)
+        monkeypatch.setattr("clio.analyze._call_ai", fake_call)
+
+        result = plan_daily_vlog(clips, cfg)
+
+        assert "title-001" not in prompts[1]
+        assert "title-002" in prompts[1]
+        assert "title-003" in prompts[1]
+        assert result["sequence"][0]["index"] == "003"
 
     def test_plan_outline_feeds_shot_selection_and_caps_beats(self, monkeypatch):
         clips = [

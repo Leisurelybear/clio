@@ -233,7 +233,10 @@ class TestPlanLineageFingerprint:
         loaded_config.ai.tasks.pop("vlog_plan")
         assert _plan_lineage_fingerprint(loaded_config, []) != ""
 
-    @pytest.mark.parametrize("prompt_name", ["vlog_plan", "plan_outline", "plan_review", "transition_review"])
+    @pytest.mark.parametrize(
+        "prompt_name",
+        ["vlog_plan", "vlog_plan_shortlist", "plan_outline", "plan_review", "transition_review"],
+    )
     def test_changes_on_each_planning_stage_prompt(self, loaded_config: AppConfig, prompt_name: str) -> None:
         clips = [{"index": "001", "source_stem": "GL010683", "title": "t"}]
         base = _plan_lineage_fingerprint(loaded_config, clips)
@@ -273,6 +276,7 @@ class TestPlanLineageFingerprint:
             ("target_duration_sec", 240),
             ("max_timeline_rows_per_clip", 3),
             ("max_key_moments_per_clip", 3),
+            ("max_candidate_clips", 3),
         ],
     )
     def test_changes_on_plan_constraints(self, loaded_config: AppConfig, field: str, value: int) -> None:
