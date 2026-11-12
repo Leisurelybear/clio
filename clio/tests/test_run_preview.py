@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import patch
 
 from clio.config.models import (
@@ -181,7 +182,7 @@ def test_preview_input_file_limits_video_count(tmp_path: Path) -> None:
     (input_dir / "other.mp4").write_bytes(b"video")
 
     config = _config(input_dir, output_dir)
-    config.input = selected
+    cast(Any, config).input = selected
 
     preview = build_run_preview(
         config,
