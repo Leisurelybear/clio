@@ -17,14 +17,16 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
     (857 passed), O7 targeted pytest (153 passed), full pytest after O7 (2846 passed,
     12 skipped, 13 deselected), Ruff on changed Python files, and `git diff --check`.
     B10 is documentation-only and was checked with `git diff --check`. F8 SRT targeted pytest
-    passed 29 tests; F8 transitions targeted pytest passed 36 tests. O15 targeted pytest passed 186 tests with 1 skipped across the server,
+    passed 29 tests. O15 targeted pytest passed 186 tests with 1 skipped across the server,
     SSE, cover-route, and desktop-server suites; O11 targeted pytest passed 94 tests across
     rate limiting and both providers; O4 targeted pytest passed 207 tests across analyze
     wrappers and both providers; F2 targeted pytest passed 142 tests plus 24 i18n tests,
     and Vitest passed 859 tests across 80 files; F5 targeted pytest passed 240 tests,
     full pytest passed 2876 tests with 12 skipped and 13 deselected (symlink tests
     excluded), and Vitest passed 860 tests across 80 files; D12 targeted pytest passed
-    31 tests; Ruff and `git diff --check` passed.
+    31 tests; F8 transitions targeted pytest passed 36 tests; C16 plan history targeted
+    Vitest passed 51 tests and full Vitest passed 866 tests across 80 files; Ruff and
+    `git diff --check` passed.
     CI run 42820037572 (head `262abde`) and CI run 42840852167 (head `958bc57`) passed
     all Python 3.11/3.12 platform jobs plus quality, package, and Vitest jobs.
   - [x] P0 completed (14): B1 `a01b156`; B2 `a436315`; C1 `14b873b`; C2 `91e4699`;
@@ -41,8 +43,8 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
     D18 `e073076`; D19 `2c14970` / `787deb1`; B7 `443e900`; B9 `87792ba`;
     C12 `2821c43`; D14 `f18d4cd`; D16 `70c4a66`; O3 `47f3fe1` / `4ca2c77`;
     O4 `6974751`; O5 `77698a0`; O6 `52aa7ff` / `ebdd738`; O7 `a436315` / `9be0401` / `701bac7`; O11 `cb8613d`; O12 `b6f76da`; F5 `de704a5`; F8 `7b8bfa0` / `7515acb` / `8cd66b3`.
-  - [~] P2 partial (2): C16 `c75c067` / `8aca38e` (all dialogs and undo stack remain);
-    O15 `a97bf4d` (default HTML escaping remains).
+  - [~] P2 partial (2): C16 `c75c067` / `8aca38e` / `f593d28` (all native dialogs remain;
+    plan undo/redo is done); O15 `a97bf4d` (default HTML escaping remains).
   - [ ] P2 awaiting real-environment verification (2): C10; D12 (`082cc7e` completes
     the code-side fixes: timeline clamping, draft_meta_info.json, platform/fps probing).
   - [ ] P2 pending (10): O8; O9; O10; O13; O14; O16; O18;
