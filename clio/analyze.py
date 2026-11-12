@@ -27,6 +27,7 @@ from clio.log import format_size, timed
 from clio.prompt_overrides import format_prompt_template, resolve_prompt_template
 from clio.prompts import (
     ANALYZE_PROMPT,
+    ENTITY_CONSISTENCY_CONTEXT,
     PLAN_PROMPT,
     PLAN_VOICEOVER_LOW_CONFIDENCE,
     PLAN_VOICEOVER_NO_TIMELINE,
@@ -1394,6 +1395,7 @@ def plan_daily_vlog(
     context_override: str | None = None,
     task_prompts: dict[str, str] | None = None,
     full_clips: list[dict] | None = None,
+    entity_consistency: dict | None = None,
 ) -> dict:
     validation_clips = full_clips if full_clips is not None else clips
     provider, model = get_task_provider(config, TaskName.VLOG_PLAN)
@@ -1421,6 +1423,22 @@ def plan_daily_vlog(
                 "transcript_context", TRANSCRIPT_CONTEXT, config, task_prompts=task_prompts
             )
             base += format_prompt_template("transcript_context", transcript_template, transcripts_json=transcript_json)
+    if entity_consistency:
+        consistency_payload = {
+            "entities": entity_consistency.get("entities", []),
+            "duplicate_scenes": entity_consistency.get("duplicate_scenes", []),
+        }
+        consistency_context = resolve_prompt_template(
+            "entity_consistency_context",
+            ENTITY_CONSISTENCY_CONTEXT,
+            config,
+            task_prompts=task_prompts,
+        )
+        base += format_prompt_template(
+            "entity_consistency_context",
+            consistency_context,
+            consistency_json=json.dumps(consistency_payload, ensure_ascii=False, indent=None),
+        )
     system = _system_context(config)
     prompt = _wrap_with_context(
         f"日 vlog 标签: {day_label}\n\n{base}",

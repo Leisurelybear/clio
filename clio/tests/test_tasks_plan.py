@@ -638,3 +638,104 @@ def test_planner_snaps_plan_ranges_to_analysis_timeline(cfg: AppConfig):
     assert result is not None
     assert result["sequence"][0]["use_timeline"] == "00:05-00:15"
     assert result["total_estimated_sec"] == 10
+
+
+def _write_consistency_report(cfg: AppConfig, *, lineage: str, malformed: bool = False) -> Path:
+    from clio.schema import add_schema_version
+    from clio.tasks.consistency import entity_consistency_paths
+    from clio.utils import write_json_atomic
+
+    out_json, out_md = entity_consistency_paths(cfg, "day1")
+    out_md.write_text("# consistency\n", encoding="utf-8")
+    if malformed:
+        out_json.write_text("{not json", encoding="utf-8")
+        return out_json
+    report = add_schema_version(
+        {
+            "day_label": "day1",
+            "entities": [
+                {
+                    "canonical_name": "Harbor",
+                    "kind": "location",
+                    "aliases": [],
+                    "clips": ["001"],
+                }
+            ],
+            "duplicate_scenes": [],
+            "_lineage": lineage,
+        }
+    )
+    write_json_atomic(out_json, report)
+    return out_json
+
+
+def _current_consistency_lineage(cfg: AppConfig) -> str:
+    from clio.tasks.consistency import entity_consistency_lineage_fingerprint
+    from clio.tasks.plan import _collect_plan_clips
+
+    clips, _skipped, cancelled = _collect_plan_clips(
+        cfg,
+        "day1",
+        None,
+        filter_by_day=False,
+        cancel_event=None,
+    )
+    assert not cancelled
+    return entity_consistency_lineage_fingerprint(cfg, clips)
+
+
+def test_plan_receives_current_entity_consistency_report(cfg: AppConfig) -> None:
+    from clio.tasks.plan import run_plan_vlog
+
+    _write_text(cfg, "001_A.json", "A", 1)
+    _write_consistency_report(cfg, lineage=_current_consistency_lineage(cfg))
+    captured: dict[str, object] = {}
+
+    def _fake(clips, config, day_label="day1", **kwargs):
+        captured["consistency"] = kwargs.get("entity_consistency")
+        return _fake_plan_payload(clips, config, day_label, **kwargs)
+
+    with patch("clio.tasks.plan.plan_daily_vlog", side_effect=_fake):
+        result = run_plan_vlog(cfg, day_label="day1", overwrite=True)
+
+    assert result is not None
+    consistency = captured["consistency"]
+    assert isinstance(consistency, dict)
+    assert consistency["entities"][0]["canonical_name"] == "Harbor"
+
+
+def test_entity_consistency_artifact_invalidates_cached_plan(cfg: AppConfig) -> None:
+    from clio.tasks.plan import run_plan_vlog
+
+    _write_text(cfg, "001_A.json", "A", 1)
+    with patch("clio.tasks.plan.plan_daily_vlog", side_effect=_fake_plan_payload):
+        first = run_plan_vlog(cfg, day_label="day1", overwrite=True)
+
+    assert first is not None
+    _write_consistency_report(cfg, lineage=_current_consistency_lineage(cfg))
+
+    with patch("clio.tasks.plan.plan_daily_vlog", side_effect=_fake_plan_payload) as mock_plan:
+        second = run_plan_vlog(cfg, day_label="day1", overwrite=False)
+
+    mock_plan.assert_called_once()
+    assert second is not None
+    assert second["_lineage"] != first["_lineage"]
+
+
+@pytest.mark.parametrize("mode", ["malformed", "stale"])
+def test_plan_ignores_unusable_entity_consistency_report(cfg: AppConfig, mode: str) -> None:
+    from clio.tasks.plan import run_plan_vlog
+
+    _write_text(cfg, "001_A.json", "A", 1)
+    _write_consistency_report(cfg, lineage="stale", malformed=mode == "malformed")
+    captured: dict[str, object] = {}
+
+    def _fake(clips, config, day_label="day1", **kwargs):
+        captured["consistency"] = kwargs.get("entity_consistency")
+        return _fake_plan_payload(clips, config, day_label, **kwargs)
+
+    with patch("clio.tasks.plan.plan_daily_vlog", side_effect=_fake):
+        result = run_plan_vlog(cfg, day_label="day1", overwrite=True)
+
+    assert result is not None
+    assert captured["consistency"] is None

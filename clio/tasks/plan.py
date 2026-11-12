@@ -38,6 +38,7 @@ from clio.tasks._helpers import (
     _selection_from_files,
     _task_lineage_settings,
 )
+from clio.tasks.consistency import load_entity_consistency
 from clio.utils import format_index, plan_day_stem, resolve_binary, write_json_atomic, write_text_atomic
 from clio.vmeta import VideoMeta
 
@@ -96,7 +97,13 @@ def plan_artifact_overwrite_required(
     )
     if not clips:
         return False
-    current = _plan_lineage_fingerprint(config, clips, task_prompts, context_override)
+    current = _plan_lineage_fingerprint(
+        config,
+        clips,
+        day_label=day_label,
+        task_prompts=task_prompts,
+        context_override=context_override,
+    )
     stored = existing.get("_lineage")
     return stored is not None and stored != current
 
@@ -226,8 +233,10 @@ def _source_inputs_from_clips(clips: list[dict]) -> list[dict[str, Any]]:
 def _plan_lineage_fingerprint(
     config: AppConfig,
     clips: list[dict],
+    day_label: str = "day1",
     task_prompts: dict[str, str] | None = None,
     context_override: str | None = None,
+    consistency_report: dict[str, Any] | None = None,
 ) -> str:
     """Fingerprint everything that can change a cached plan result.
 
@@ -237,6 +246,14 @@ def _plan_lineage_fingerprint(
     """
     from clio.analyze import _prompt_context_parts
 
+    if consistency_report is None:
+        consistency_report = load_entity_consistency(
+            config,
+            day_label,
+            clips,
+            task_prompts,
+            context_override,
+        )
     try:
         prompt = resolve_prompt_template("vlog_plan", PLAN_PROMPT, config, task_prompts=task_prompts)
     except (OSError, UnicodeError):
@@ -264,6 +281,7 @@ def _plan_lineage_fingerprint(
     payload = json.dumps(
         {
             "task": _task_lineage_settings(config, "vlog_plan"),
+            "day_label": day_label,
             "prompt": prompt,
             "use_transcripts": transcripts_enabled,
             "max_clips_per_day": getattr(config.plan, "max_clips_per_day", 12),
@@ -278,6 +296,7 @@ def _plan_lineage_fingerprint(
             # omitted by the budget must not invalidate an otherwise valid plan.
             "clips": build_plan_clips(clips, config),
             "transcripts": transcript_lineage,
+            "entity_consistency": consistency_report,
             "context": _prompt_context_parts(config, context_override),
         },
         sort_keys=True,
@@ -434,6 +453,14 @@ def run_plan_vlog(
         print(t("task.plan.no_usable_media"))
         return None
 
+    consistency_report = load_entity_consistency(
+        config,
+        day_label,
+        clips,
+        task_prompts,
+        context_override,
+    )
+
     # files= means a selection-scoped plan; never short-circuit with a prior full plan (I1).
     if files is None and not overwrite and config.analyze.skip_existing and out_json.exists() and out_md.exists():
         try:
@@ -445,7 +472,13 @@ def run_plan_vlog(
                 print(t("task.plan.replan_corrupt", {"day": day_label}))
             else:
                 stored = existing.get("_lineage")
-                current = _plan_lineage_fingerprint(config, clips, task_prompts, context_override)
+                current = _plan_lineage_fingerprint(
+                    config,
+                    clips,
+                    day_label=day_label,
+                    task_prompts=task_prompts,
+                    context_override=context_override,
+                )
                 if stored == current:
                     print(t("task.plan.skip_existing", {"day": day_label}))
                     return existing
@@ -520,6 +553,7 @@ def run_plan_vlog(
             context_override=context_override,
             task_prompts=task_prompts,
             full_clips=clips,
+            entity_consistency=consistency_report,
         )
     snapped_count = snap_plan_ranges(plan, clips, transcripts_map)
     if snapped_count:
@@ -535,7 +569,14 @@ def run_plan_vlog(
         plan["_transcripts_missing"] = not transcripts_map
     plan = add_schema_version(plan)
     clear_user_edited(plan)
-    plan["_lineage"] = _plan_lineage_fingerprint(config, clips, task_prompts, context_override)
+    plan["_lineage"] = _plan_lineage_fingerprint(
+        config,
+        clips,
+        day_label=day_label,
+        task_prompts=task_prompts,
+        context_override=context_override,
+        consistency_report=consistency_report,
+    )
     if protected_overwrite:
         backup_artifacts([out_json, out_md])
     write_json_atomic(out_json, plan)
