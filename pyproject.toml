@@ -101,6 +101,7 @@ files = [
     "clio/tasks/compare_models.py",
     "clio/tasks/transcript_align.py",
     "clio/task_center/",
+    "clio/ui/routes/videos.py",
 ]
 
 [tool.coverage.run]

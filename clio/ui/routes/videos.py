@@ -10,7 +10,7 @@ import threading
 from copy import deepcopy
 from http import HTTPStatus
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from clio._constants import VIDEO_EXTENSIONS, VIDEO_EXTS
 from clio.i18n import t
@@ -25,6 +25,7 @@ from clio.ui.services.file_service import (
     _is_safe_basename,
 )
 from clio.utils import (
+    JsonValue,
     get_duration_sec,
     probe_media_details,
     resolve_binary,
@@ -77,7 +78,7 @@ def _save_disk_cache(proj_out: Path, source: str, signature: tuple[Any, ...], pa
         cache_dir = _cache_dir(proj_out)
         cache_dir.mkdir(parents=True, exist_ok=True)
         data = {"version": 1, "signature": _signature_hash(signature), "payload": payload}
-        write_json_atomic(_disk_cache_path(proj_out, source), data)
+        write_json_atomic(_disk_cache_path(proj_out, source), cast(JsonValue, data))
     except OSError:
         pass
 
@@ -696,9 +697,10 @@ def handle_get_video(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
             if vp not in allowed:
                 return handler.send_error(HTTPStatus.FORBIDDEN)
         else:
-            vp = _find_selected_original_for_request(proj_dir, fname)
-            if vp is None:
+            selected_original = _find_selected_original_for_request(proj_dir, fname)
+            if selected_original is None:
                 return handler.send_error(HTTPStatus.FORBIDDEN)
+            vp = selected_original
     else:
         if not _is_safe_basename(fname):
             return handler.send_error(HTTPStatus.FORBIDDEN)
