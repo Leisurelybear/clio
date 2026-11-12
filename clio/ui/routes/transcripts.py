@@ -224,7 +224,7 @@ def handle_post_transcripts(handler: HandlerProtocol, qs: dict[str, Any], obj: d
         if tp.is_file():
             return handler._send_json({"ok": False, "error": "transcript already exists"}, 409)
         tp.parent.mkdir(parents=True, exist_ok=True)
-        skeleton = {"segments": [], "_rev": 1}
+        skeleton: dict[str, Any] = {"segments": [], "_rev": 1}
         init_segments = obj.get("segments")
         if init_segments is not None:
             if not isinstance(init_segments, list):

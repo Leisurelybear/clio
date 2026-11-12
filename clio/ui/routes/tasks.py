@@ -28,7 +28,7 @@ def _first(qs: dict[str, Any], key: str) -> str | None:
 
 def _parse_int(qs: dict[str, Any], key: str, default: int, *, minimum: int, maximum: int) -> int:
     raw = _first(qs, key)
-    if raw in (None, ""):
+    if not raw:
         return default
     try:
         value = int(raw)
@@ -61,7 +61,7 @@ def _parse_enums(qs: dict[str, Any], key: str, enum_type: type[_EnumT]) -> tuple
 
 def _parse_query(qs: dict[str, Any]) -> TaskQuery:
     visibility_raw = _first(qs, "visibility")
-    if visibility_raw in (None, ""):
+    if not visibility_raw:
         visibility = TaskVisibility.FOREGROUND
     elif visibility_raw == "all":
         visibility = None

@@ -27,7 +27,7 @@ def _first(qs: dict[str, Any], key: str) -> str | None:
 
 def _parse_int(qs: dict[str, Any], key: str, default: int, *, minimum: int, maximum: int) -> int:
     raw = _first(qs, key)
-    if raw in (None, ""):
+    if not raw:
         return default
     try:
         value = int(raw)

@@ -90,7 +90,7 @@ def handle_get_config_raw(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
         return handler._send_json({"error": "config file not available"}, 500)
     proj_dir = handler._resolve_project_dir(qs)
     # Always try to load project.yaml if it exists (proj_dir may equal default dir)
-    proj_yaml = proj_dir / "project.yaml"
+    proj_yaml: Path | None = proj_dir / "project.yaml"
     if not proj_yaml.is_file():
         # Non-default project without project.yaml => needs init
         if proj_dir != project_dir:
