@@ -107,6 +107,7 @@ Commit messages: Conventional Commits in English, for example
 
 ```powershell
 python -m pytest clio/tests/ -v
+npm run typecheck
 npm test
 ruff format clio main.py
 ruff check clio main.py

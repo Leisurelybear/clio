@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Pure helpers for the sidebar video list: per-file stage status, filter chips,
  * bottom stage count bar and search matching. DOM rendering lives in

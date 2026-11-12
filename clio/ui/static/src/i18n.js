@@ -1,3 +1,4 @@
+// @ts-check
 const SUPPORTED_LOCALES = ['zh-CN', 'en'];
 const DEFAULT_LOCALE = 'zh-CN';
 const FALLBACK_LOCALES = ['en', 'zh-CN'];

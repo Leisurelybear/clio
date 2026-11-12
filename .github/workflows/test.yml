@@ -180,7 +180,7 @@ jobs:
         pip-audit -r requirements-locked.txt
 
   ui-test:
-    name: UI tests (Vitest)
+    name: UI tests (typecheck + Vitest)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -198,6 +198,9 @@ jobs:
 
     - name: Install dependencies
       run: npm ci
+
+    - name: Type check JavaScript
+      run: npm run typecheck
 
     - name: Run UI tests
       run: npm test

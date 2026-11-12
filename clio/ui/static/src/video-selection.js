@@ -1,8 +1,15 @@
+﻿// @ts-check
 /**
  * Pure helpers for videos.json selection mutations (add / remove).
  */
 import { t } from './i18n.js';
 
+/**
+ * @typedef {{ file?: string, absPath?: string }} SelectionTarget
+ * @typedef {{ index: number, reason?: 'ambiguous' | 'not_found', error?: string }} FindResult
+ */
+
+/** @param {unknown} p */
 export function normPath(p) {
   const raw = String(p || '').replace(/\\/g, '/').toLowerCase();
   if (!raw) return '';
@@ -25,6 +32,8 @@ export function normPath(p) {
  * Stable identity for one sidebar row in selection mode.
  * Original rows use the absolute path so same-named clips in different
  * directories never toggle together; compressed rows use the artifact name.
+ * @param {{ source?: string, abs_path?: string, file?: string } | null | undefined} video
+ * @returns {string}
  */
 export function videoSelectionKey(video) {
   if (!video) return '';
@@ -35,7 +44,9 @@ export function videoSelectionKey(video) {
 /**
  * Find which index in selected paths to remove.
  * Prefer absolute path equality; basename fallback only when unique.
- * @returns {{ index: number, error?: string }}
+ * @param {string[]} [videos]
+ * @param {SelectionTarget} [target]
+ * @returns {FindResult}
  */
 export function findSelectedVideoIndex(videos = [], { file, absPath } = {}) {
   const list = Array.isArray(videos) ? videos : [];
@@ -78,6 +89,8 @@ export function findSelectedVideoIndex(videos = [], { file, absPath } = {}) {
 
 /**
  * Merge newly chosen absolute paths into existing selection.
+ * @param {string[]} [existing]
+ * @param {string[]} [candidates]
  * @returns {{ merged: string[], added: number, already: number }}
  */
 export function mergeSelectedVideos(existing = [], candidates = []) {
@@ -111,6 +124,8 @@ export function mergeSelectedVideos(existing = [], candidates = []) {
  * Remove several targets from a stored selection list in one pass.
  * Each target is `{ file, absPath }`; matching reuses findSelectedVideoIndex,
  * so absolute-path equality wins and a unique basename is the fallback.
+ * @param {string[]} [videos]
+ * @param {SelectionTarget[]} [targets]
  * @returns {{ remaining: string[], removed: string[], missing: string[], ambiguous: string[] }}
  */
 export function removeSelectedVideos(videos = [], targets = []) {

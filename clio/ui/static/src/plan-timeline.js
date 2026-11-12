@@ -1,3 +1,4 @@
+// @ts-check
 /** Pure plan composite timeline helpers (no DOM). */
 
 import { parseTimecode } from './utils.js';

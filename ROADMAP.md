@@ -53,6 +53,9 @@ P2 items:
   - `[x]` extract JSON body parsing into `clio/ui/request_body.py`
   - `[x]` extract handler construction from `make_handler` (`961fdb1`)
 - `[ ]` O14 add frontend type checking and decompose the largest JS modules
+  - `[x]` add `typescript`, `tsconfig.json`, `npm run typecheck`, and a CI gate for checked utility modules
+  - `[ ]` decompose `editor-config.js`
+  - `[ ]` decompose the remaining largest JS modules
 - `[x]` O16 raise Vitest coverage around bug fixes and save flows (`5487304`)
 - `[x]` Q13 snap cut points to shot boundaries and sentence endings (`0e1c9bf`)
 - `[x]` F4 calculate AI output quality signals and surface warnings in the UI

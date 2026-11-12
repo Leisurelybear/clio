@@ -284,7 +284,8 @@ vlog-video-analysis/
 # 跑全部测试
 python -m pytest clio/tests/ -v
 
-# 前端单测需要 Node.js 22.12+（Web UI 运行本身仍然无需 Node）
+# 前端类型检查与单测需要 Node.js 22.12+（Web UI 运行本身仍然无需 Node）
+npm run typecheck
 npm test
 
 # 测试数量以 GitHub Actions CI 的 Python 3.11 / 3.12 平台矩阵为准

@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Shared /api/video URL builder used by both the main player and the
  * preview preloader, so auth/project/abs-path params never diverge.
@@ -5,7 +6,7 @@
 
 /**
  * Build a /api/video URL for a video entity.
- * @param {{ file: string, abs_path?: string }} v
+ * @param {{ file: string, abs_path?: string, cut_day?: string, rev?: string }} v
  * @param {string} source
  * @param {string|null} projectName
  * @returns {string}

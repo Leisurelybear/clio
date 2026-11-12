@@ -1,3 +1,4 @@
+// @ts-check
 /** Pure helpers for plan sequence structural edits (no DOM). */
 
 import { parseTimecode } from './utils.js';

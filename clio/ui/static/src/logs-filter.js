@@ -1,3 +1,4 @@
+// @ts-check
 /** Pure helpers: session log level inference + client-side filter (R-027 / R-027d). */
 
 /** @typedef {'debug'|'info'|'warn'|'error'} LogLevel */

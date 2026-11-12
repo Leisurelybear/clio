@@ -1,3 +1,4 @@
+// @ts-check
 /** Strip sensitive query params while preserving the rest of the URL (P2-P49). */
 
 /**

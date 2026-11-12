@@ -1,3 +1,4 @@
+// @ts-check
 /** Session-log client buffer helpers (P2-P38). */
 
 export const LOGS_BUFFER_MAX = 2000;
