@@ -12,9 +12,13 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
 
 ### P0/P1/P2 review remediation
 
-Source: [`docs/analysis/2026-11-05-P0-P2-Issues.md`](docs/analysis/2026-11-05-P0-P2-Issues.md)
+Historical source: [`docs/analysis/2026-11-05-P0-P2-Issues.md`](docs/analysis/2026-11-05-P0-P2-Issues.md)
 
-Snapshot: 83 items; 83 completed locally; 0 partial; 0 awaiting real-environment verification; 0 pending.
+Current source: [`docs/analysis/2026-11-13-clio-open-items.csv`](docs/analysis/2026-11-13-clio-open-items.csv).
+Item-level status and evidence: [`docs/analysis/2026-11-13-clio-open-items-status.md`](docs/analysis/2026-11-13-clio-open-items-status.md).
+
+The earlier 83-item review is complete. The 2026-11-13 review adds a fresh 117-item audit;
+its tracker is authoritative for current remediation work.
 O17 and O18 are complete as of this cleanup. The analysis document remains the source of truth for item-level
 status and verification notes.
 

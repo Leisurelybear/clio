@@ -1,0 +1,118 @@
+﻿优先级,问题序号,问题是什么,代码位置,推荐修复方案
+P0,R001,"LAN 模式不会自动生成 token: 示例配置的 api_token: """" 是空串而不是 None, if TOKEN is None 不成立",clio/main.py:614; clio/ui/server.py:1073-1087; config.example.yaml:35,"run(): TOKEN = api_token or None; 非本机且无 token 时生成 token。main.py 传 args.token or config.server.api_token or None。示例配置改为不写该键。可选: 非本机且显式空 token 时拒绝启动, 除非 --insecure-no-auth"
+P0,R004,"--force, analyze.skip_existing:false, 单视频重跑 (compress / all) 都只把 skip_existing 置为 False 而不传 overwrite, 于是不建 existing_map, 每次都分配新编号","clio/tasks/compress.py:271, 308-337; clio/main.py:465-466; clio/ui/routes/run.py:116",run_compress_all: 无论 skip_existing 如何都扫描 existing_map; overwrite or not skip_existing 时走 find_existing_slot 复用原编号。main.py / run_rerun_task 默认为传 overwrite=True
+P0,E1,"""全部重跑""把 ClipRecord.text_path (.txt) 当作分析 JSON 传给口播步骤",clio/ui/routes/run.py:159-169,"Path(record.text_path).with_suffix("".json""), 或给 ClipRecord 增加 json_path"
+P0,R005,"网络层错误从不重试: google-genai 抛出的是 httpx.ConnectError/ReadTimeout, 它们不是 OSError, 被包装成""不可重试错误""",clio/ai/gemini.py::__is_retryable(115-130)、_retryable_types(132-138),"is_retryable 增加 isinstance(exc, httpx.TransportError); _retryable_types 加入 httpx.TransportError"
+P0,E2,"结构校验重试把""上次模型输出""当作 prompt 前缀, 原始任务说明、上下文、转录全部丢失",clio/analyze.py:812-833 (_validate_with_retry 第 831 行),_validate_with_retry 增加 prompt 参数并传给 _validation_retry_prompt
+P0,E3,总时长偏离目标超过 25% 时重试一次后直接失败,"clio/analyze.py:523-535, 1037-1047","时长偏差只警告; 目标取 min(target, 可用素材总时长)"
+P0,E6,默认值变更没有迁移: 旧配置保留 remove_audio: true; 升级后全部分析、口播静默重跑,clio/tasks/compress.py:50-68; clio/tasks/analyze.py:163-182; clio/config/loader.py:190-289,升级检查: 发现旧默认值时提示; 运行预览显示将重跑的数量与费用并要求确认
+P0,R032,rerun all 的单测把 ClipRecord.text_path mock 成 .json 路径; 真实对象里它是 .txt,clio/tests/test_routes_run.py:1020-1038,"测试改用 run_analyze.all 的真实返回值 (或至少 text_path=...txt), 并断言口播步骤读到 JSON"
+P0,R033,"结构重试的单测只断言调用次数和""含上次 JSON"", 不断言重试 prompt 保留原始任务; 另有用例把""时长偏差两次后失败""写成期望行为","clio/tests/test_analyze_funcs.py:567-585, 606-; :1023","断言 retry_prompt.startswith(original_prompt); E3 用例改为""警告并成功"""
+P1,R024,"没有""真实 ffmpeg + 假 Provider""的端到端冒烟测试",clio/tests/ (无端到端用例),"把这两个脚本改写成 pytest (标记 e2e), CI 的 ubuntu job 安装 ffmpeg 后运行"
+P1,OPT-031,CI 没有真实 ffmpeg 的任务; pip-audit 不拦截; 桌面打包任务按条件跳过,.github/workflows/test.yml,ubuntu 任务安装 ffmpeg 跑 e2e 标记; pip-audit 改为拦截
+P1,OPT-029,关键回归被理想化 mock 掩盖 (R032、R033),clio/tests/test_routes_run.py; clio/tests/test_analyze_funcs.py,对跨模块传递的对象用真实构造; 重试类测试对 prompt 做快照
+P1,OPT-034,"11 月 7-11 日五天合入 75 个提交, 其中 5 个修复引入回归",— (流程),"每批修复合并前跑端到端脚本; 高严重度修复附""改动前失败、改动后通过""的测试"
+P1,R002,"Provider 的 base_url 与 api_key_env 可经 API 任意改写, 随后 /api/ai/test 会把该环境变量的值作为 Bearer 发往新地址",clio/ui/routes/config_routes.py::__normalize_provider(596-616)、handle_put_provider(712-727); clio/ui/services/ai_test_service.py:47-90,_provider_error: api_key_env 必须在 env_routes 的同一白名单内 (或匹配 ^[A-Z0-9_]*API_KEYS); base_url 的 host 变化时要求重新填写 key; /api/ai/test 只允许 https 或回环
+P1,E8,分析保存不打用户编辑标记; 重跑或指纹变化时旧分析被直接删除,"clio/tasks/analyze.py:447, 598-603; clio/ui/routes/texts.py:166-184",handle_put_texts 调 mark_user_edited; _process_video_item 覆盖前 artifact_guard 并备份
+P1,R006,"只有 run_plan_all_days 传 filter_by_day=True; run --day、plan --day、UI 运行都不过天过滤, UI 也没有 all-days 入口","clio/tasks/plan.py:389, 401-405, 582; clio/main.py:507-510","run_plan_vlog 在 files is None 时默认 filter_by_day=True (项目内存在多个 day_label 时); UI 运行面板增加""全部天"""
+P1,E4,长视频每个窗口切片都注入整段转录 (绝对时间戳),"clio/tasks/analyze.py:313-324, 366-376",按窗口裁剪转录并换算为窗口内相对时间
+P1,E5,"按 creation_time 的 UTC 日期分天; dayN 每次重算, 但只在为空时写入","clio/tasks/analyze.py:79-127, 453-456, 577-578","存本地日期作为稳定键 (capture_date), dayN 只在展示和规划时由日期排序得出"
+P1,E9,多窗口合并后的摘要重写失败会让整个长视频失败,clio/analyze.py:1164-1169; clio/tasks/analyze.py:389-396,失败时回退到未总结的合并结果并标 _summary_failed
+P1,E7,"单视频重跑不接受 confirm_artifact_overwrite, 口播被编辑过时只会失败","clio/ui/routes/run.py:113-153, 519-669","rerun 路由先预检, 返回 409 + items, 前端确认后带标志重提"
+P1,E10,.env 里只要有白名单外的变量就整体拒绝保存,clio/ui/routes/env_routes.py,"白名单加入项目自身读取的变量; 其余原样保留, 只拒绝危险名单"
+P1,R010,10-bit 原片 (HDR HEVC) 压缩后是 H.264 High 10 / yuv420p10le,clio/compress.py:42-49 (无 -pix_fmt),压缩参数加 -pix_fmt yuv420p; HDR 源加 tonemap 或至少标注
+P1,R008,"示例配置没有 config_version, 首次加载被当成 V1 迁移, 经 yaml.dump 重写后注释全部丢失",clio/config/loader.py::__migrate_if_needed(540-552)、_migrate_v1_to_v2(440-470)、_ensure_global_config(132-148),config.example.yaml 加 config_version: V2; _migrate_if_needed 在不含项目级键时只追加版本号、不重写; 长期改用 ruamel.yaml 保留注释
+P1,R009,"自动升级把当前默认值""写进用户 YAML"", 默认值以后再变, 老用户也拿不到; 且在读取路径上写文件",clio/config/loader.py::__upgrade_config_file(190-289),不再物化默认值 (缺省即用代码默认); 确需迁移时写显式迁移函数并记录 config_version
+P1,OPT-028,doctor 不检查旧默认值与模型名有效性,clio/doctor.py,doctor 增加: 配置里与当前默认不同的旧默认值、默认绑定的连通性
+P1,R011,"分析指纹包含整段转录文本和全部压缩参数, 任何变化都让全部分析失效并静默重跑",clio/tasks/analyze.py::__analysis_lineage_fingerprint(163-182),"运行预览列出""将因 X 变化重新分析 N 个视频、预计费用"", 需确认; 压缩参数只在重新压缩后才计入"
+P1,OPT-011,"运行预览只给步骤数 (/api/run/preview), 没有调用数、token 和费用 (F2)",clio/ui/services/run_preview.py; clio/ai/token_usage.py,"预览里按素材时长估算上传量、token 与费用, 并列出""因何重跑"""
+P1,R014,"plan 输入不设上限: 全部素材的完整 timeline 一次送入, 且每条转录出现三次 (transcript、transcript_segments、<transcript> 块)",clio/tasks/plan.py:358-375; clio/analyze.py:988-1002,clips_json 里去掉 transcript* 字段; 长素材只送摘要 + highlights + 压缩后的 timeline (R-048)
+P1,OPT-012,"plan 的 clips_json 每条 timeline 都带 transcript 与 transcript_segments, 同样内容又出现在 <transcript> 块 (实测每条约 183 字符, 其中转录相关约 110)",clio/tasks/plan.py:358-375,"clips_json 去掉两个转录字段, 只保留 <transcript> 块"
+P1,R018,"默认绑定 deepseek-chat / deepseek-reasoner; DeepSeek 官方价目页现在只列 deepseek-flash 与 deepseek-v4-pro, 并写明 v4-flash 等旧名已退役","config.example.yaml:74-81, 121-125; docs/superpowers/agents/gotchas.md §9.4",用真实 key 实测后更新默认值与 models 列表; /api/ai/test 对默认绑定做一次连通性检查
+P1,OPT-006,"video_analyze 默认绑定没有 temperature (config.example.yaml:71-73), 实测调用时为 None",config.example.yaml:71-73,默认设 0.2
+P1,OPT-001,"没有评测集, Q1/Q2/Q8/Q9 的效果无法量化 (F1 未开始)",— (新增 eval/ 目录),"建 12-20 段素材的小评测集, 人工标注地点、关键事件、可用区间; 脚本输出指标并存基线 (方案见 summary 的评测一节)"
+P1,R007,"三条约束互相冲突: max_clips_per_day=12 按""段""截断、总时长 180 秒 ±25% 不满足即失败、提示词要求 3-5 秒钩子与 1-3 秒 B-roll","clio/prompts.py:194-197; clio/analyze.py:761-769, 523-535; clio/config/models.py(PlanConfig)","max_clips_per_day 改为按素材数限制, 另设 max_segments (默认 40); 时长偏差降级为警告 (见 E3)"
+P1,O1,未使用原生结构化输出,clio/ai/gemini.py; clio/ai/openai_compat.py:60-68,Gemini 传 response_mime_type=response_schema; OpenAI 兼容传 response_format
+P1,OPT-002,"所有任务靠提示约束 JSON, 再用 extract_json 容错 (clio/analyze.py:822, 1026); 非 JSON 输出直接失败 (E12)","clio/analyze.py:822, 1026",Gemini 传 response_mime_type=application/json + response_schema; OpenAI 兼容传 response_format
+P1,Q6,"分析输出是散文, 缺镜头属性",clio/prompts.py:ANALYZE_PROMPT,镜头级 schema: 景别、运镜、首尾帧、能量、音频
+P1,Q11,"规划一次生成, 没有评审轮",clio/analyze.py:plan_daily_vlog,大纲 → 选镜 → 评审
+P1,Q12,口播在规划前按单素材生成,clio/pipeline.py:48-55,"口播移到规划之后, 以 plan 段为单位"
+P1,Q7,"各素材独立分析, 实体名不一致",— (新增),当天一致性步骤
+P1,Q5,未用 fps、偏移和 media_resolution,clio/ai/gemini.py:337-348,"窗口改用起止偏移, 上传一次; 按素材类型设 fps 与分辨率"
+P1,Q4,拍摄时间与 GPS 默认不用,clio/config/models.py (use_gpmf=False),默认开启 GPMF; 把本地拍摄时刻写入分析
+P1,F2,"只统计 token, 没有费用与版本",clio/ai/token_usage.py,按单价表计算费用; 产物写入 prompt 与模型版本
+P1,OPT-018,"单视频重跑 (clio/ui/routes/run.py:113-196) 自己维护一套步骤表, 与 pipeline_STEP_FUNCS 平行",clio/ui/routes/run.py:113-196,"重跑改为 run_pipeline_steps(files=[video], overwrite=True)"
+P1,O17,AGENTS.md 过长,AGENTS.md (411 行),"精简到 150 行以内, §4.8-4.17 下沉到 docs/architecture"
+P2,R003,Origin/Host 校验和 JSON Content-Type 强制只在本机模式开启; LAN 模式全部关闭,"clio/ui/server.py:997-998, 1108 (enforce_local_session=_is_local)",LAN 模式也强制 application/json; Origin 存在时要求与 Host 一致
+P2,O15,手工转义; 首页无安全响应头,clio/ui/server.py::__send_static,默认转义的模板函数; 加 CSP、X-Frame-Options、nosniff
+P2,C10,窗口切片流复制可能带来时间偏移,clio/analyze_windows.py:394-405,"窗口改用 Gemini 起止偏移, 或切片时重编码"
+P2,D11,草稿不截断区间、缺 meta 文件、os 与 fps 写死,"clio/export/jianying.py:276-289, 396-409",用真实剪映样板草稿做对照测试
+P2,E12,"重编码只有 -c:v libx264 -crf 23, 10-bit 原片输出 High 10",clio/cut.py:82,显式 -pix_fmt yuv420p -preset; 或对 HDR 源保持 HEVC
+P2,R015,"规划与审阅调用不传 cancel_event, 取消要等模型返回","clio/analyze.py:968-977, 1013-1017, 1102, 1225",plan_daily_vlog/refine_text/refine_script 增加并透传 cancel_event
+P2,E12,"输出不是 JSON 时 extract_json 直接抛出, 不进入重试",clio/analyze.py:822,把解析异常并入重试分支
+P2,E14,过时片段的备份只在全部成功时删除,"clio/tasks/cut.py:129-151, 604","过时片段备份在本次裁剪结束后即删除, 与覆盖备份分开"
+P2,E15,窗口切片的两条重编码回退仍带 -an; 大小上限写死 200 MB,"clio/analyze_windows.py:378, 419-459",回退路径保留单声道音轨; 上限读配置
+P2,E17,"单视频""全部重跑""仍是 压缩 → 分析 → 口播 → 转录",clio/ui/routes/run.py:131-187,复用 pipeline_STEP_FUNCS 的顺序
+P2,E18,"删除 plan 只删 .json, 留下 .md, 用户编辑版不备份",clio/ui/routes/plan.py:handle_delete_plan,"删除前 backup_artifacts, 并一并处理 .md"
+P2,E19,"规划默认用推理模型并带 temperature, 超时 120 秒",config.example.yaml:78-81; clio/ai/openai_compat.py:30,用真实账号测一次大素材规划; 规划任务单独设置 timeout
+P2,R016,"只读取 prompt_feedback.block_reason; 候选级 finish_reason=SAFETY/RECITATION 且文本为空时仍报""JSON 解析失败""",clio/ai/gemini.py:44-62,_response_from: 文本为空且 finish_reason 属于 SAFETY 类时填 block_reason
+P2,R017,"只记录 candidates_token_count, 不含思考 token; 官方价目表的输出价包含思考 token",clio/ai/gemini.py:69-77,completion_tokens 加上 thoughts_token_count
+P2,R019,"云端转录没有置信度, avg_logprob 取默认 0.0, 在对数尺度上等于""最高置信""",clio/asr/aliyun.py:177-183; clio/analyze.py:575-584,"云端片段不写 avg_logprob (或写 None), 选句时按时间均匀取"
+P2,R023,保存分析/口播时不重写配套的 .txt/.md; 分析保存不保护 _lineage、index 等字段; 口播保存不做任何校验,clio/ui/routes/texts.py:166-204,保存后调用 _rewrite_text_file / _rewrite_script_md; 服务端保留不可变字段
+P2,R030,"口播步骤遍历 texts 下全部 JSON, 不按 videos.json 过滤",clio/tasks/scripts.py:268-274,复用 _project_selection_stems 过滤
+P2,O16,前端覆盖率低,clio/ui/static/src/__tests__,先覆盖保存与冲突流程
+P2,Q13,切点按整秒估算,— (新增),吸附到镜头边界与句尾
+P2,R012,"ANALYZE_PROMPT 只要求描述""实际能看到""的内容, 没有任何音频字段; Q2 保留的音轨没被用上",clio/prompts.py:86-129,"timeline 条目增加 audio (人声/环境/音乐) 字段, 并说明可以使用听到的内容"
+P2,E13,"截断后用完全相同的请求重试, 视频重新上传",clio/analyze.py:391-405,重试时提高 max_tokens 或要求更紧凑; 复用已上传文件
+P2,E16,示例仍是 00:10-00:45 (35 秒); narrative_beat/transition 下游未使用,"clio/prompts.py:202, 223",示例改为短区间; 在 plan 卡片与导出中使用这两个字段
+P2,O4,只发一条 user 消息,clio/ai/openai_compat.py:60-63,system/user 分离以利用前缀缓存
+P2,R013,"""5-10 秒一条""与""每窗口最多 60 条""在 15 分钟窗口下矛盾 (需要 90-180 条)",clio/prompts.py:107-108,"上限按窗口时长计算 (如每分钟 8 条), 或把窗口口播到 8 分钟"
+P2,R020,"只要有 1 个视频分析失败, analyze 步骤就抛异常, 后面的口播、规划全部不执行",clio/tasks/analyze.py:798-801; clio/pipeline.py:126-135,"步骤返回 (processed, failed); 默认继续后续步骤并在摘要里标出失败项, --strict 才中断"
+P2,C16,原生弹窗: plan 编辑无撤销 (部分修复),clio/ui/static/src/*.js,统一模态框组件; plan 编辑加撤销栈
+P2,B10,README 数字与流程过时,"README.md:21, 99, 285-308",删除手写数字; 更新压缩说明
+P2,O18,ROADMAP 过长,"ROADMAP.md (1,826 行)",只保留待办与进行中
+P2,R031,"target_size_mb=5 在 800 kbps 保底下对约 46 秒以上的素材不再成立; 日志仍打印""目标 5MB"", README 仍写 ~5MB; 短素材码率没有上限","clio/compress.py:51-68, 97-107; README.md:21, 99","配置改名为 min_video_kbps + max_video_kbps, 日志打印实际码率; 更新 README"
+P2,F8,草稿只有视频轨 (部分修复),clio/export/jianying.py:198-215,SRT 与转场
+P2,F4,没有 AI 输出自动质检,— (新增),质量信号 + UI 标红
+P2,F5,没有本地模型 Provider,— (新增),Ollama (OpenAI 兼容)
+P2,F9,规划模型看不到画面,— (新增),首尾帧接触表复核
+P2,O8,make_handler 过于庞大,clio/ui/server.py:328-1009,"Handler 提到模块级, 路由表独立成文件"
+P2,O10,宽泛异常,clio/**/*.py,收窄; 配置错误显式报出
+P2,O11,限流与等待逻辑重复,clio/ratelimit.py,合并
+P2,O13,ruff 规则集过窄,pyproject.toml:60-62,增加 B、SIM、S、BLE、RUF
+P2,O14,大量无类型 JS,"clio/ui/static/src/editor-config.js (2,414 行)",@ts-check + 拆分大文件
+P2,O9,全量 mypy 错误,pyproject.toml [tool.mypy],逐模块清零后加入 files
+P2,OPT-003,"只发一条 user 消息 (clio/ai/openai_compat.py:60-63), 模板、规范和数据混在一起",clio/ai/openai_compat.py:60-63,"规范与模板放 system, 数据放 user, 保证前缀稳定"
+P2,OPT-004,"长视频按窗口切片后逐片上传 (clio/tasks/analyze.py:358-381), N 个窗口上传 N 次, 切片带关键帧预卷 (C10)",clio/tasks/analyze.py:358-381,"整段上传一次, 窗口改用 Gemini 的起止偏移参数"
+P2,OPT-005,"不设 media_resolution 与 fps (clio/ai/gemini.py:337-348)。官方文档: 每帧 258 token (低分辨率 66), 音频 32 token/秒, 1 fps 采样",clio/ai/gemini.py:337-348,行车、步行等长静态素材用低分辨率; 文字多的画面用默认分辨率
+P2,OPT-008,"口播在规划前按整段素材生成 (Q12), 不知道最终用了哪几秒",clio/pipeline.py:48-55; clio/tasks/scripts.py,"口播移到规划之后, 以 plan 段为单位生成"
+P2,OPT-009,analyze.use_gpmf 默认 false; 分天用 UTC 日期 (E5),clio/gpmf.py; clio/tasks/analyze.py:79-127,"默认读取拍摄时刻与 GPS, 换算本地时区后写入分析和规划输入"
+P2,OPT-013,校验重试与截断重试都会重新上传视频 (clio/analyze.py:855-886、clio/ai/gemini.py:287-356),clio/analyze.py:855-886; clio/ai/gemini.py:287-356,"上传与生成拆成两步, 重试只重做生成; 结构修正可改用纯文本调用"
+P2,OPT-014,"analyze.max_workers 默认 1, 20 段素材串行",clio/config/models.py (AnalyzeConfig.max_workers),"默认 2, 并给 Gemini 设置 requests_per_minute"
+P2,OPT-015,"SSE 每个连接每 250 ms 查询一次 SQLite (clio/ui/routes/tasks.py:146-167), 每个标签页 2 条流",clio/ui/routes/tasks.py:146-167,"写入事件时用 Condition 通知, 空闲时不查询"
+P2,OPT-016,"make_handler 是 680 行闭包 (clio/ui/server.py:328-1009), 内含 Handler 类与 92 条路由",clio/ui/server.py:328-1009,"Handler 提到模块级, 依赖通过 server 对象注入; 路由表单独成文件"
+P2,OPT-017,52 个函数圈复杂度 ≥ 20: _build_videos_payload 85、main 80、handle_post_run_start 53、run_cut_all 53、handle_post_rerun 51,"clio/ui/routes/videos.py:383; clio/main.py:173; clio/ui/routes/run.py:284, 519; clio/tasks/cut.py:331",先拆前五个: 参数校验、路径解析、任务提交交各自成函数
+P2,OPT-019,"mypy 全量 470 个错误。非测试代码 82 个, 集中在 tasks/plan.py (16)、ui/routes/videos.py (13)",clio/tasks/plan.py; clio/ui/routes/videos.py; pyproject.toml [tool.mypy],按文件清零并加入 [tool.mypy] files
+P2,OPT-020,ruff 只开 E/F/I/W/UP; 非测试代码有 172 处 except Exception,pyproject.toml:60-62,加 B、SIM、BLE、RUF、S; 新增代码禁止裸 except Exception: pass
+P2,OPT-021,"clio/config/models.py 末尾保留 4 个标注为过渡用途的旧 dataclass; _plan_index_key 的逻辑在 analyze.py 里另有两处内联副本 (731-734, 743-746)","clio/config/models.py (文件末尾的旧 dataclass); clio/analyze.py:731-734, 743-746",删除旧类; 内联处改为调用函数
+P2,OPT-024,"步骤函数返回值各不相同 (list / int / dict / None), pipeline.py:126-130 靠类型猜结果, failed 恒为 0",clio/pipeline.py:126-130; clio/tasks/* 的返回值,"统一返回 StepResult(processed, skipped, failed, warnings)"
+P2,OPT-025,"配置升级靠""缺字段就写默认值"" (R009)",clio/config/loader.py::__upgrade_config_file,"按 config_version 编号的显式迁移函数, 每个迁移带测试"
+P2,OPT-026,34 处 confirm() 与 1 处 alert(); pywebview 下原生弹窗样式与行为不一致,clio/ui/static/src/*.js (35 处),统一的模态确认组件
+P2,OPT-027,"分析失败时统一提示""请检查 API Key 和网络连接"" (task.analyze.incomplete), 即使原因是 JSON 结构或安全拦截",clio/tasks/analyze.py:798-801,摘要里按视频列出失败原因分类
+P2,OPT-030,Vitest 语句覆盖 55.78%; editor-plan.js 17%、main.js 28%、viewer.js 38%,clio/ui/static/src/__tests__/,先补保存、409 冲突、脏状态切换三条流程
+P2,OPT-032,"AGENTS.md 411 行、ROADMAP.md 1,826 行、CHANGELOG.md 1,103 行; docs/analysis 27 份、docs/superpowers 109 份",AGENTS.md; ROADMAP.md,AGENTS.md 压到 150 行; ROADMAP 只留待办; 历史 review 归档
+P2,OPT-033,"README 手写测试数量 (2409 / 720), 与实测 (2870 / 857) 不符",README.md:285-308,"删除手写数字, 只留 CI 徽章"
+P3,R036,"任务指纹包含 provider、model、base_url、max_tokens, 但不包含 temperature",clio/tasks/_helpers.py::__task_lineage_settings(32-54),返回值加入 temperature
+P3,R025,test_readonly_dir_is_handled_gracefully 以 root 运行时失败,clio/tests/test_log.py:274,"os.geteuid() == 0 时 skip, 或改用 mock 抛 PermissionError"
+P3,R035,"校验重试的修正说明取自界面语言包, 英文界面下中文提示词后面会接一段英文说明","clio/locales/en.json (analyze.validation_prompt_*, analyze.plan_validation_prompt); clio/analyze.py:798-809, 1051-1057",把这三段修正说明移入 clio/prompts.py 作为常量
+P3,R021,"运行预览显示 plan ""将跳过"", 实际启动却返回 409 要求确认覆盖",clio/ui/services/run_preview.py,预览复用 _plan_lineage_fingerprint 判断 will_run
+P3,R022,"同为 API, 部分 403/404 返回 HTML 错误页, 部分返回 JSON","clio/ui/routes/texts.py:112, 127, 150; clio/ui/server.py:755","API 路径统一走 _send_json(ok=false, error, code)"
+P3,R026,"锁文件里 69 个包的地址指向 registry.npmmirror.com, 78 个指向 registry.npmjs.org",package-lock.json,用官方源重新生成锁文件; .npmrc 不提交镜像配置
+P3,R027,"""锁定""文件只固定了 4 个顶层包, 没有传递依赖和哈希; pip-audit 是 continue-on-error",requirements-locked.txt; .github/workflows/test.yml:168,用 pip-compile --generate-hashes 或 uv pip compile 生成完整锁
+P3,R028,"替换 global_cfg 时只清 _paths 缓存, _ai/_compress/_whisper 仍指向旧对象",clio/config/models.py (AppConfig.global_cfg setter),setter 同时清空四个缓存
+P3,R029,"analyze_video 签名与协议不一致, 但 isinstance(provider, VideoAIProvider) 只看方法名, 检查恒为真",clio/ai/openai_compat.py:117; clio/ai/factory.py:161,"删除该占位方法, 由 capabilities 决定"
+P3,R034,"compress.target_size_mb 的校验下限是 0.01, 因此 -crf 分支永远走不到, compress.crf 配置不生效",clio/config/validators.py:214; clio/compress.py:69-70,"允许 target_size_mb: 0 表示 CRF 模式, 或删除 crf 配置项"
+P3,OPT-007,"规划一次生成 (Q11), 输入是全部素材的完整 timeline",clio/analyze.py:plan_daily_vlog; clio/tasks/plan.py:run_plan_vlog,拆成 大纲 (只看摘要与亮点) → 选镜头 (只看入选素材的 timeline) → 评审
+P3,OPT-010,"分析输出是散文描述 (Q6), 景别、运镜写在 description 里",clio/prompts.py:ANALYZE_PROMPT,镜头级 schema: 景别、运镜、主体、音频、质量评分
+P3,OPT-022,"前端 58 个文件 16,164 行无类型 JS, editor-config.js 2,414 行",clio/ui/static/src/editor-config.js,加 // @ts-check 与 tsc --noEmit; 按卡片拆分 editor-config
+P3,OPT-023,"产物文件名含 AI 生成的标题 ({index}_{title}), 标题一变就产生孤儿文件 (封面、口播、标号视频)",clio/tasks/_helpers.py::_build_stem,"文件名只用编号 (或编号 + 原片名), 标题只存在 JSON 里"
