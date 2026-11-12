@@ -63,7 +63,8 @@ vi.mock('../latest.js', () => ({
   isAbortError: vi.fn(() => false),
 }));
 
-import { apiWithMeta } from '../api.js';
+import { api, apiWithMeta } from '../api.js';
+import { applyLocale } from '../i18n.js';
 import { _prefillSubtitle, save } from '../editor-plan.js';
 import { state, artifactVersion } from '../state.js';
 import { addToast } from '../toast.js';
@@ -76,6 +77,9 @@ function resetState() {
     currentDay: 'day1',
     currentTab: 'texts',
     dirty: true,
+    configTab: 'project',
+    configGlobal: null,
+    configProject: null,
     plan: null,
     texts: null,
     voiceover: null,
@@ -176,5 +180,98 @@ describe('artifact saves', () => {
     expect(subEl.value).toBe('');
     expect(seg).toEqual({ index: '001' });
     expect(markDirty).not.toHaveBeenCalled();
+  });
+});
+
+describe('save routing', () => {
+  it('saves the active global config and refreshes dependent UI', async () => {
+    state.currentEntity = 'config';
+    state.configTab = 'global';
+    state.configGlobal = { ui: { language: 'en' }, ai: {} };
+    state.dirty = true;
+    api.mockResolvedValue({ ok: true });
+    window.refreshFfmpegDepsUi = vi.fn().mockResolvedValue(undefined);
+
+    await save();
+
+    expect(api).toHaveBeenCalledWith('PUT', '/api/config/global', state.configGlobal);
+    expect(applyLocale).toHaveBeenCalledWith('en');
+    expect(window.refreshFfmpegDepsUi).toHaveBeenCalledOnce();
+    expect(state.dirty).toBe(false);
+    expect(setStatus).toHaveBeenCalledWith('plan.config_saved_global', 'ok');
+    expect(addToast).toHaveBeenCalledWith(
+      'plan.config_saved_global',
+      'success',
+      undefined,
+      { persist: false },
+    );
+    delete window.refreshFfmpegDepsUi;
+  });
+
+  it('saves the active project config without applying the global language', async () => {
+    state.currentEntity = 'config';
+    state.configTab = 'project';
+    state.configProject = { plan: { max_clips: 10 } };
+    state.dirty = true;
+    api.mockResolvedValue({ ok: true });
+    window.refreshFfmpegDepsUi = vi.fn().mockResolvedValue(undefined);
+
+    await save();
+
+    expect(api).toHaveBeenCalledWith('PUT', '/api/config/project', state.configProject);
+    expect(applyLocale).not.toHaveBeenCalled();
+    expect(state.dirty).toBe(false);
+    expect(setStatus).toHaveBeenCalledWith('plan.config_saved_project', 'ok');
+    delete window.refreshFfmpegDepsUi;
+  });
+
+  it('keeps dirty config data when the server returns a save error', async () => {
+    state.currentEntity = 'config';
+    state.configTab = 'project';
+    state.configProject = { plan: { max_clips: 10 } };
+    state.dirty = true;
+    api.mockResolvedValue({ error: 'read-only file' });
+
+    await save();
+
+    expect(state.dirty).toBe(true);
+    expect(setStatus).toHaveBeenCalledWith('plan.save_failed', 'err');
+    expect(addToast).toHaveBeenCalledWith(
+      'plan.save_failed',
+      'error',
+      6000,
+      { title: 'plan.save_failed_title' },
+    );
+  });
+
+  it('does not call the save API when the editor is clean', async () => {
+    state.dirty = false;
+
+    await save();
+
+    expect(api).not.toHaveBeenCalled();
+    expect(apiWithMeta).not.toHaveBeenCalled();
+    expect(setStatus).toHaveBeenCalledWith('plan.nothing_to_save', 'warn');
+  });
+
+  it('reports a no-op target instead of claiming a successful save', async () => {
+    state.currentEntity = 'run';
+    state.dirty = true;
+
+    await save();
+
+    expect(api).not.toHaveBeenCalled();
+    expect(apiWithMeta).not.toHaveBeenCalled();
+    expect(setStatus).toHaveBeenCalledWith('editor.save.no_target', 'warn');
+  });
+
+  it('surfaces unexpected artifact save failures without clearing dirty state', async () => {
+    state.texts = { title: 'draft' };
+    apiWithMeta.mockRejectedValue(new Error('network down'));
+
+    await save();
+
+    expect(state.dirty).toBe(true);
+    expect(setStatus).toHaveBeenCalledWith('plan.save_failed', 'err');
   });
 });
