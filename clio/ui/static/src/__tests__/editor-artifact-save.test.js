@@ -64,10 +64,10 @@ vi.mock('../latest.js', () => ({
 }));
 
 import { apiWithMeta } from '../api.js';
-import { save } from '../editor-plan.js';
+import { _prefillSubtitle, save } from '../editor-plan.js';
 import { state, artifactVersion } from '../state.js';
 import { addToast } from '../toast.js';
-import { setStatus } from '../utils.js';
+import { markDirty, setStatus } from '../utils.js';
 
 function resetState() {
   Object.assign(state, {
@@ -162,5 +162,19 @@ describe('artifact saves', () => {
       8000,
       { title: 'plan.save_conflict_title' },
     );
+  });
+  it('keeps inferred narration as a placeholder instead of editing the plan', async () => {
+    state.videos = [{ index: '001', script_json: 'a_script.json' }];
+    const seg = { index: '001' };
+    const subEl = { value: '', placeholder: '' };
+    const li = { querySelector: vi.fn(() => subEl) };
+    apiWithMeta.mockResolvedValue({ data: { voiceover: 'AI 建议旁白' }, version: 'v1' });
+
+    _prefillSubtitle(li, seg);
+    await vi.waitFor(() => expect(subEl.placeholder).toBe('AI 建议旁白'));
+
+    expect(subEl.value).toBe('');
+    expect(seg).toEqual({ index: '001' });
+    expect(markDirty).not.toHaveBeenCalled();
   });
 });

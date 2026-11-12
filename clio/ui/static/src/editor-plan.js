@@ -503,7 +503,7 @@ function openRangePickerForSegment(segIndex) {
  * @param {HTMLElement} li
  * @param {object} seg
  */
-function _prefillSubtitle(li, seg) {
+export function _prefillSubtitle(li, seg) {
   const subEl = li.querySelector('[data-k="subtitle"]');
   if (!subEl) return;
   const planText = typeof seg.subtitle === 'string' ? seg.subtitle.trim() : '';
@@ -519,12 +519,7 @@ function _prefillSubtitle(li, seg) {
     .then(({ data, version }) => {
       setArtifactVersion('voiceover', v.script_json, version);
       const text = typeof data?.voiceover === 'string' ? data.voiceover : '';
-      subEl.placeholder = text ? t('plan.subtitle.prefilled') : t('plan.subtitle.none');
-      if (subEl.value === '') {
-        subEl.value = text;
-        seg.subtitle = text;
-        markDirty();
-      }
+      subEl.placeholder = text || t('plan.subtitle.none');
     })
     .catch(() => { subEl.placeholder = t('plan.subtitle.load_failed'); });
 }
