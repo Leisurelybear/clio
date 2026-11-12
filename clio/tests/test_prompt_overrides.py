@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -12,6 +13,7 @@ from clio.config import (
     GlobalConfig,
     ProjectConfig,
     ProjectPathsConfig,
+    ProviderConfig,
     ScriptConfig,
 )
 
@@ -48,7 +50,7 @@ class TestPromptResolver:
         template = tmp_path / "templates" / "vlog_template.md"
         config = SimpleNamespace(script=SimpleNamespace(template_file=template))
 
-        assert prompt_override_dir(config) == tmp_path / "templates" / "prompts"
+        assert prompt_override_dir(cast(AppConfig, config)) == tmp_path / "templates" / "prompts"
 
     def test_runtime_prompt_overrides_file_prompt(self, tmp_path: Path):
         from clio.prompt_overrides import resolve_prompt_template
@@ -110,7 +112,7 @@ def test_generate_voiceover_uses_runtime_task_prompt(monkeypatch, tmp_path: Path
     from clio.analyze import generate_voiceover
 
     config = _config(tmp_path)
-    config.ai._global.providers["deepseek"] = SimpleNamespace(provider_id="deepseek")
+    config.ai._global.providers["deepseek"] = cast(ProviderConfig, SimpleNamespace(provider_id="deepseek"))
     provider = MagicMock()
     provider.provider_id = "deepseek"
 
