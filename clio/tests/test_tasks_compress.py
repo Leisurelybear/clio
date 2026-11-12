@@ -7,13 +7,21 @@ import os
 import time
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
+from clio.config import AppConfig
 from clio.tasks.compress import run_compress_all
 
 
-def _cfg(tmp_path: Path, **overrides) -> SimpleNamespace:
+def _project_dir(cfg: AppConfig) -> Path:
+    project_dir = cfg.project_dir
+    assert project_dir is not None
+    return project_dir
+
+
+def _cfg(tmp_path: Path, **overrides) -> AppConfig:
     cfg = SimpleNamespace(
         paths=SimpleNamespace(
             output_dir=tmp_path / "output",
@@ -37,21 +45,20 @@ def _cfg(tmp_path: Path, **overrides) -> SimpleNamespace:
     cfg.compressed_dir.mkdir(parents=True, exist_ok=True)
     for k, v in overrides.items():
         setattr(cfg, k, v)
-    return cfg
+    return cast(AppConfig, cfg)
 
 
 def _add_video(cfg, name: str, data: bytes = b"\x00" * 1000):
     from clio.tasks._video_loader import load_selected_videos, save_selected_videos
 
-    if cfg.project_dir is None:
-        cfg.project_dir = cfg.paths.output_dir.parent / "project"
-    cfg.project_dir.mkdir(parents=True, exist_ok=True)
-    src = cfg.project_dir / name
+    project_dir = _project_dir(cfg)
+    project_dir.mkdir(parents=True, exist_ok=True)
+    src = project_dir / name
     src.write_bytes(data)
-    existing = load_selected_videos(cfg.project_dir)
+    existing = load_selected_videos(project_dir)
     if src.resolve() not in {p.resolve() for p in existing}:
         existing.append(src)
-    save_selected_videos(cfg.project_dir, existing)
+    save_selected_videos(project_dir, existing)
     return src
 
 
@@ -59,7 +66,7 @@ class TestRunCompressAll:
     def test_uses_videos_json_when_project_dir_set(self, monkeypatch, tmp_path: Path):
         """Must use load_selected_videos (not find_videos) when project_dir is set."""
         cfg = _cfg(tmp_path)
-        cfg.project_dir = tmp_path / "input"
+        cast(Any, cfg).project_dir = tmp_path / "input"
         proj_dir = tmp_path / "input"
         proj_dir.mkdir(parents=True, exist_ok=True)
 
@@ -196,7 +203,7 @@ class TestRunCompressAll:
         assert call_count[0] == 1
 
         # Change a setting the fingerprint tracks.
-        cfg.compress.max_width = 480
+        cast(Any, cfg.compress).max_width = 480
         cfg.analyze.skip_existing = True
         monkeypatch.setattr("clio.tasks.compress._next_index", lambda *a: 1)
         run_compress_all(cfg)
@@ -217,7 +224,7 @@ class TestRunCompressAll:
 
         from clio.tasks._video_loader import load_selected_videos, save_selected_videos
 
-        proj = cfg.project_dir
+        proj = _project_dir(cfg)
         proj.mkdir(parents=True, exist_ok=True)
         existing = load_selected_videos(proj)
         for s in (src1, src2):
@@ -454,12 +461,13 @@ class TestRunCompressAll:
             s.write_bytes(b"\x00" * 1000)
         from clio.tasks._video_loader import load_selected_videos, save_selected_videos
 
-        cfg.project_dir.mkdir(parents=True, exist_ok=True)
-        existing = load_selected_videos(cfg.project_dir)
+        project_dir = _project_dir(cfg)
+        project_dir.mkdir(parents=True, exist_ok=True)
+        existing = load_selected_videos(project_dir)
         for s in (src1, src2):
             if s.resolve() not in {p.resolve() for p in existing}:
                 existing.append(s)
-        save_selected_videos(cfg.project_dir, existing)
+        save_selected_videos(project_dir, existing)
 
         monkeypatch.setattr("clio.tasks.compress.resolve_binary", lambda *a: "ffmpeg")
         monkeypatch.setattr("clio.tasks.compress.get_duration_sec", lambda *a, **kw: 10.0)
@@ -504,7 +512,9 @@ class TestRunCompressAll:
         stale_meta.source_size = stale_meta.source_size - 1
         fresh_meta = VideoMeta.build(src, fresh_path, 10.0, 10.0)
 
-        existing = {f"src:{src.resolve()}": [(1, stale_path, stale_meta), (2, fresh_path, fresh_meta)]}
+        existing: dict[str, list[tuple[int, Path, VideoMeta | None]]] = {
+            f"src:{src.resolve()}": [(1, stale_path, stale_meta), (2, fresh_path, fresh_meta)]
+        }
         idx, path, meta, reason = _find_reusable(src, existing, cfg, "ffprobe")
         assert path == fresh_path
         assert idx == 2
@@ -612,7 +622,7 @@ class TestSelectionPathMatching:
         b = b_dir / "clip.mp4"
         a.write_bytes(b"\x00" * 1000)
         b.write_bytes(b"\x00" * 1000)
-        (cfg.project_dir / "videos.json").write_text(json.dumps([str(a), str(b)]), encoding="utf-8")
+        (_project_dir(cfg) / "videos.json").write_text(json.dumps([str(a), str(b)]), encoding="utf-8")
 
         monkeypatch.setattr("clio.tasks.compress.resolve_binary", lambda *args: "ffmpeg")
         seen: list[Path] = []
@@ -639,7 +649,7 @@ class TestSelectionPathMatching:
         b = b_dir / "clip.mp4"
         a.write_bytes(b"\x00" * 1000)
         b.write_bytes(b"\x00" * 1000)
-        (cfg.project_dir / "videos.json").write_text(json.dumps([str(a), str(b)]), encoding="utf-8")
+        (_project_dir(cfg) / "videos.json").write_text(json.dumps([str(a), str(b)]), encoding="utf-8")
 
         monkeypatch.setattr("clio.tasks.compress.resolve_binary", lambda *args: "ffmpeg")
         seen: list[Path] = []
