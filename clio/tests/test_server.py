@@ -8,6 +8,7 @@ import json
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import MagicMock, call, patch
 
 import pytest
@@ -120,7 +121,7 @@ class TestMakeHandler:
 
     def test_sets_class_attributes(self, mock_config):
         with patch("clio.ui.server.ConfigCache"):
-            hcls = make_handler(mock_config, Path("/fake/config.yaml"))
+            hcls = cast(Any, make_handler(mock_config, Path("/fake/config.yaml")))
         assert isinstance(hcls._project_states, dict)
         assert hcls._project_states == {}
         assert hasattr(hcls, "_config_cache")
@@ -135,7 +136,7 @@ class TestMakeHandler:
         in_dir.mkdir()
         mock_config.project_dir = in_dir
         with patch("clio.ui.server.ConfigCache"):
-            hcls = make_handler(mock_config, None)
+            hcls = cast(Any, make_handler(mock_config, None))
         dp = hcls.DEFAULT_PROJECT
         assert dp["name"] == "my-trip"
         assert dp["source"] == "compressed"
