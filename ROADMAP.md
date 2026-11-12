@@ -54,7 +54,7 @@ P2 items:
   - `[x]` extract handler construction from `make_handler` (`961fdb1`)
 - `[ ]` O14 add frontend type checking and decompose the largest JS modules
   - `[x]` add `typescript`, `tsconfig.json`, `npm run typecheck`, and a CI gate for checked utility modules
-  - `[ ]` decompose `editor-config.js` (logs, tokens, and model management extracted; config/provider sections pending)
+  - `[ ]` decompose `editor-config.js` (logs, tokens, model, and provider management extracted; task binding and config form rendering pending)
   - `[ ]` decompose the remaining largest JS modules
 - `[x]` O16 raise Vitest coverage around bug fixes and save flows (`5487304`)
 - `[x]` Q13 snap cut points to shot boundaries and sentence endings (`0e1c9bf`)
