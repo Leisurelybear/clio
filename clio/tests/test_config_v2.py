@@ -457,8 +457,9 @@ class TestServerLogConfig:
         ["access_log_slow_ms", "access_log_body_bytes", "log_retention_days"],
     )
     def test_rejects_negative_numbers(self, field):
+        kwargs: dict[str, Any] = {field: -1}
         with pytest.raises(ValueError):
-            ServerConfig(**{field: -1})
+            ServerConfig(**kwargs)
 
     def test_rejects_oversized_body_capture(self):
         from clio.http_access_log import MAX_ACCESS_LOG_BODY_BYTES
@@ -714,6 +715,7 @@ class TestApplyRunPaths:
         )
         new_output = (Path.cwd() / "custom_output").resolve()
         result = apply_run_paths(cfg, output_dir=new_output)
+        assert result.project_cfg is not None
         assert result.project_cfg.paths.output_dir == new_output
 
     def test_no_project_cfg_returns_unchanged(self):
@@ -728,5 +730,7 @@ class TestApplyRunPaths:
         )
         result = apply_run_paths(cfg, output_dir=Path("/custom_output"))
         assert result is not cfg
+        assert result.project_cfg is not None
+        assert cfg.project_cfg is not None
         assert result.project_cfg is not cfg.project_cfg
         assert result.project_cfg.paths is not cfg.project_cfg.paths
