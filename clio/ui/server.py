@@ -56,6 +56,14 @@ from clio.ui.http_server import (
     RequestBudget,
     header_bytes_too_large,
 )
+from clio.ui.request_body import (
+    MAX_JSON_BODY_BYTES,
+    JsonBodyResult,
+    read_json_body,
+)
+from clio.ui.request_body import (
+    parse_json_content_length as _parse_json_content_length,
+)
 from clio.ui.route_table import POST_HANDLER_PARAMS, build_router
 from clio.ui.routes.ai import handle_post_ai_test
 from clio.ui.routes.config_routes import (
@@ -325,27 +333,6 @@ class _ServerState:
     job_cancel_event: threading.Event = field(default_factory=threading.Event)
 
 
-# Max JSON body for PUT/POST (R-033d). Chunked bodies without Content-Length out of scope.
-MAX_JSON_BODY_BYTES = 8 * 1024 * 1024
-
-
-def _parse_json_content_length(
-    raw_len: str | None, max_bytes: int = MAX_JSON_BODY_BYTES
-) -> tuple[int | None, int | None]:
-    """Return (length, error_status). error_status is 400/413 or None if length is OK."""
-    if raw_len is None or raw_len == "":
-        return 0, None
-    try:
-        length = int(raw_len)
-    except (TypeError, ValueError):
-        return None, 400
-    if length < 0:
-        return None, 400
-    if length > max_bytes:
-        return None, 413
-    return length, None
-
-
 def make_handler(
     config: AppConfig,
     config_path: Path | None = None,
@@ -590,33 +577,26 @@ def make_handler(
             return False
 
         def _read_json_body(self) -> tuple[dict | None, int | None]:
-            """Parse JSON object body. Returns (obj, None) or (None, http_status).
+            """Parse JSON object body and send payload errors before dispatch."""
+            result = read_json_body(
+                self.headers,
+                self.rfile,
+                require_json_content_type=self.__class__._enforce_json_ct,
+            )
+            self._log_request_body(result)
+            if result.error == "invalid_json":
+                self._send_json({"ok": False, "error": f"invalid JSON: {result.detail}"}, 400)
+                return None, -400
+            if result.status is not None:
+                return None, result.status
+            return result.obj, None
 
-            Caller must send the error response for non-None status (except invalid
-            JSON, which is already written).
-            """
-            if self.__class__._enforce_json_ct:
-                ct = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
-                if ct != "application/json":
-                    return None, 415
-            length, err_status = _parse_json_content_length(self.headers.get("Content-Length", "0"))
-            if err_status is not None:
-                return None, err_status
-            assert length is not None
-            raw = self.rfile.read(length) if length else b""
+        def _log_request_body(self, result: JsonBodyResult) -> None:
             self._http_request_body_log = prepare_body(
-                raw,
+                result.raw,
                 path=getattr(self, "path", ""),
                 limit=self._body_limit(),
             )
-            try:
-                obj = json.loads(raw.decode("utf-8"))
-                if not isinstance(obj, dict):
-                    raise ValueError("expected a JSON object")
-            except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as e:
-                self._send_json({"ok": False, "error": f"invalid JSON: {e}"}, 400)
-                return None, -400  # already sent
-            return obj, None
 
         def _send_json(
             self,
