@@ -2,6 +2,13 @@
 
 ## 2026-11-13
 
+Plan subtitle placeholder resolution now lives in a focused module while `editor-plan.js` keeps its compatibility export.
+
+- refactor(ui): extract saved-subtitle and voiceover fallback handling into `editor-plan-subtitle.js`
+- test(ui): cover the no-matching-source placeholder path
+
+Verification: focused Vitest passes 13 tests; `npm run typecheck` and `git diff --check` pass. Refactor commit: `63d96cf`.
+
 Plan undo/redo state now lives in a dedicated controller while `editor-plan.js` keeps its public
 exports unchanged.
 
