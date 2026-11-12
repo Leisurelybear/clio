@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import cast
 from unittest.mock import patch
 
 import pytest
@@ -44,6 +45,12 @@ def cfg(tmp_path: Path) -> AppConfig:
         ),
         project_dir=tmp_path / "videos",
     )
+
+
+def _project_dir(cfg: AppConfig) -> Path:
+    project_dir = cfg.project_dir
+    assert project_dir is not None
+    return project_dir
 
 
 def _write_text(cfg: AppConfig, name: str, stem: str, index: int) -> Path:
@@ -137,15 +144,15 @@ class TestRunPlanVlogFilesFilter:
         from clio.tasks._video_loader import save_selected_videos
         from clio.tasks.plan import run_plan_vlog
 
-        a_dir = cfg.project_dir / "a"
-        b_dir = cfg.project_dir / "b"
+        a_dir = _project_dir(cfg) / "a"
+        b_dir = _project_dir(cfg) / "b"
         a_dir.mkdir()
         b_dir.mkdir()
         a = a_dir / "clip.mp4"
         b = b_dir / "clip.mp4"
         a.write_bytes(b"a")
         b.write_bytes(b"b")
-        save_selected_videos(cfg.project_dir, [a, b])
+        save_selected_videos(_project_dir(cfg), [a, b])
 
         for index, path in ((1, a), (2, b)):
             payload = {
@@ -252,9 +259,9 @@ class TestRunPlanVlogProjectSelection:
         from clio.tasks._video_loader import save_selected_videos
         from clio.tasks.plan import run_plan_vlog
 
-        selected = cfg.project_dir / "A.mp4"
+        selected = _project_dir(cfg) / "A.mp4"
         selected.write_bytes(b"video")
-        save_selected_videos(cfg.project_dir, [selected])
+        save_selected_videos(_project_dir(cfg), [selected])
         _write_text(cfg, "001_A.json", "A", 1)
         _write_text(cfg, "002_B.json", "B", 2)
 
@@ -269,7 +276,7 @@ class TestRunPlanVlogProjectSelection:
         from clio.tasks._video_loader import save_selected_videos
         from clio.tasks.plan import run_plan_vlog
 
-        save_selected_videos(cfg.project_dir, [])
+        save_selected_videos(_project_dir(cfg), [])
         _write_text(cfg, "001_A.json", "A", 1)
 
         with patch("clio.tasks.plan.plan_daily_vlog") as mock_plan:
@@ -438,18 +445,17 @@ class TestPlanSourceInputs:
         from clio.tasks.plan import run_plan_vlog
 
         _write_text(cfg, "001_A.json", "GL010683", 1)
-        cfg.global_cfg.whisper.enabled = True
-        cfg.project_cfg.plan.use_transcripts = True
+        cfg.plan.use_transcripts = True
         transcript_dir = cfg.transcripts_dir
         transcript_dir.mkdir(parents=True)
         (transcript_dir / "001_GL010683_part02_transcript.json").write_text(
             json.dumps({"source_stem": "001_GL010683_part02", "segments": []}),
             encoding="utf-8",
         )
-        captured = {}
+        captured: dict[str, dict[str, object]] = {}
 
         def _fake(clips, config, day_label="day1", **kwargs):
-            captured["transcripts"] = kwargs.get("transcripts_map")
+            captured["transcripts"] = cast(dict[str, object], kwargs.get("transcripts_map"))
             return _fake_plan_payload(clips)
 
         with patch("clio.tasks.plan.plan_daily_vlog", side_effect=_fake):
@@ -470,6 +476,7 @@ class TestPlanSourceInputs:
         with patch("clio.tasks.plan.plan_daily_vlog", side_effect=_poisoned):
             result = run_plan_vlog(cfg, day_label="day1", overwrite=True)
 
+        assert result is not None
         assert result["source_inputs"] == [{"index": "001", "source_stem": "A"}]
 
     def test_plan_md_lists_source_inputs(self, cfg: AppConfig):
