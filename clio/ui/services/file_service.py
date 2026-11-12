@@ -346,7 +346,7 @@ def _list_drives() -> list[str]:
 
         bitmask = ctypes.windll.kernel32.GetLogicalDrives()
         return [f"{d}:\\" for d in string.ascii_uppercase if bitmask & (1 << (ord(d) - ord("A")))]
-    except Exception:
+    except (AttributeError, OSError):
         # fallback: traditional approach
         return [f"{d}:\\" for d in string.ascii_uppercase if Path(f"{d}:\\").is_dir()]
 
