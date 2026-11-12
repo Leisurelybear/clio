@@ -158,7 +158,7 @@ def _analysis_lineage_fingerprint(
     """
     try:
         prompt = resolve_prompt_template("video_analyze", ANALYZE_PROMPT, config, task_prompts=task_prompts)
-    except Exception:
+    except (OSError, UnicodeDecodeError, ValueError):
         prompt = ANALYZE_PROMPT
     payload_data: dict[str, object] = {
         "task": _task_lineage_settings(config, "video_analyze"),
@@ -185,7 +185,7 @@ def _analysis_lineage_fingerprint(
             summary_prompt = resolve_prompt_template(
                 "window_summary", WINDOW_SUMMARY_PROMPT, config, task_prompts=task_prompts
             )
-        except Exception:
+        except (OSError, UnicodeDecodeError, ValueError):
             summary_prompt = WINDOW_SUMMARY_PROMPT
         payload_data["window_summary"] = {
             "version": 1,
@@ -231,7 +231,7 @@ def _effective_analysis_context(config: AppConfig, original: Path, context_overr
             original,
             use_gpmf=bool(getattr(config.analyze, "use_gpmf", False)),
         )
-    except Exception as exc:
+    except (OSError, TypeError, ValueError) as exc:
         # Context enrichment is optional; a malformed sidecar must not prevent
         # the base video analysis or cache check from running.
         print(t("task.analyze.gpmf_context_failed", {"exc": exc}))
@@ -418,14 +418,14 @@ def _process_video_item(
     try:
         ffprobe_bin = resolve_binary(config.paths.ffprobe, "ffprobe")
         duration_sec = get_duration_sec(compressed, ffprobe_bin)
-    except Exception:
+    except (OSError, subprocess.SubprocessError, TypeError, ValueError):
         pass
     if duration_sec <= 0:
         # Fallback: probe original so windowing can still run for long clips.
         try:
             ffprobe_bin = resolve_binary(config.paths.ffprobe, "ffprobe")
             duration_sec = get_duration_sec(original, ffprobe_bin)
-        except Exception:
+        except (OSError, subprocess.SubprocessError, TypeError, ValueError):
             pass
 
     effective_context = _effective_analysis_context(config, original, context_override)
@@ -556,7 +556,7 @@ def _process_video_item(
             tracker.next(message=t("task.analyze.cancel_message", {"name": compressed.name}))
             tracker.log(t("task.analyze.cancel_log", {"name": compressed.name}))
         return None
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - one failed clip must be recorded without aborting the batch
         elapsed_total = time.monotonic() - t0
         print(
             t(
@@ -774,7 +774,7 @@ def run_analyze_all(
                         result = future.result()
                         if result is not None:
                             records.append(result)
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001 - a worker failure must be counted without aborting analysis
                         print(t("task.analyze.task_failed", {"detail": e}))
                         failure_counter.increment()
 
