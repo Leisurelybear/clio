@@ -6,6 +6,7 @@ import { renderPreviewBar, startPreview, stopPreview, _playPreviewSegment, seekT
 import { buildTimeline, clampGlobal } from './plan-timeline.js';
 import { recomposePlanWaveformFromCache, isPlanWaveformMode } from './waveform.js';
 import { addToast } from './toast.js';
+import { alertDialog, confirmDialog } from './confirm.js';
 import { resolveEditorSaveTarget, artifactIfMatchHeader, isArtifactConflict } from './editor-save.js';
 import { applyLocale, getLocale, onLocaleChange, t } from './i18n.js';
 import { exportJianyingDraft } from './plan-export.js';
@@ -246,13 +247,13 @@ function updateActionButtonsGate() {
   }
 }
 
-function ensureSavedBeforeAction() {
+async function ensureSavedBeforeAction() {
   if (!state.dirty) return true;
-  alert(t('plan.save_before_action'));
+  await alertDialog(t('plan.save_before_action'));
   return false;
 }
 
-function confirmWarningsIfNeeded() {
+async function confirmWarningsIfNeeded() {
   const warnings = _lastReadiness.warnings || [];
   const errors = _lastReadiness.errors || [];
   if (errors.length) {
@@ -261,7 +262,7 @@ function confirmWarningsIfNeeded() {
   }
   if (warnings.length) {
     const preview = warnings.slice(0, 5).map((w) => w.message).join('\n');
-    return confirm(t('plan.warnings_confirm', { preview }));
+    return confirmDialog(t('plan.warnings_confirm', { preview }));
   }
   return true;
 }
@@ -616,7 +617,7 @@ export function renderPlan() {
     daySelect.onchange = async () => {
       const day = daySelect.value;
       if (day === state.currentDay) return;
-      if (state.dirty && !confirm(t('plan.day_switch_confirm'))) { daySelect.value = state.currentDay; return; }
+      if (state.dirty && !(await confirmDialog(t('plan.day_switch_confirm')))) { daySelect.value = state.currentDay; return; }
       state.currentDay = day;
       state.plan = null;
       clearDirty();
@@ -790,9 +791,9 @@ export function renderPlan() {
       e.stopPropagation();
       openRangePickerForSegment(i);
     });
-    li.querySelector('[data-del]')?.addEventListener('click', (e) => {
+    li.querySelector('[data-del]')?.addEventListener('click', async (e) => {
       e.stopPropagation();
-      if (!confirm(t('plan.delete_confirm', { index: i + 1, title: seg.title || seg.index || '' }))) return;
+      if (!(await confirmDialog(t('plan.delete_confirm', { index: i + 1, title: seg.title || seg.index || '' }), { danger: true }))) return;
       const nextSeq = removeSegment(p.sequence, i);
       _expandedSegIndex = nextExpandedAfterDelete(_expandedSegIndex, i, nextSeq.length);
       applySequence(nextSeq);
@@ -935,9 +936,9 @@ export function renderPlan() {
   $('btn-jianying-export')?.addEventListener('click', async () => {
     const btn = $('btn-jianying-export');
     if (btn?.disabled) return;
-    if (!ensureSavedBeforeAction()) return;
+    if (!(await ensureSavedBeforeAction())) return;
     await refreshReadinessPanel();
-    if (!confirmWarningsIfNeeded()) return;
+    if (!(await confirmWarningsIfNeeded())) return;
     const force = (_lastReadiness.warnings || []).length > 0;
     const resultDiv = $('export-result');
     resultDiv.innerHTML = `<span class="muted">${t('plan.exporting')}</span>`;
@@ -970,9 +971,9 @@ export async function executeCut() {
   const btn = $('btn-cut-exec');
   const result = $('cut-result');
   if (btn?.disabled) return;
-  if (!ensureSavedBeforeAction()) return;
+  if (!(await ensureSavedBeforeAction())) return;
   await refreshReadinessPanel();
-  if (!confirmWarningsIfNeeded()) return;
+  if (!(await confirmWarningsIfNeeded())) return;
   const force = (_lastReadiness.warnings || []).length > 0;
   btn.disabled = true;
   btn.textContent = t('plan.cutting');
@@ -1006,11 +1007,11 @@ export async function executeCut() {
         const count = e.body.count || e.body.files?.length || '?';
         const dir = e.body.output_dir || body.output_dir || '';
         const preview = e.body.preview || (e.body.files || []).slice(0, 8).join('、') || '';
-        const ok = confirm(t('plan.cut_overwrite_confirm', {
+        const ok = await confirmDialog(t('plan.cut_overwrite_confirm', {
           count,
           dir,
           preview: preview ? t('plan.cut_overwrite_preview', { preview }) : '',
-        }));
+        }), { danger: true });
         if (!ok) {
           result.innerHTML = `<p class="muted">${t('plan.cut_overwrite_canceled')}</p>`;
           setStatus(t('plan.cut_canceled'), 'warn');
