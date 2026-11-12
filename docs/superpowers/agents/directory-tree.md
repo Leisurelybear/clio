@@ -190,6 +190,7 @@ vlog-video-analysis/
     │           ├── editor.js / editor-texts.js / editor-voiceover.js / editor-refine.js
     │           ├── editor-config.js           # Config form, providers, task binding
     │           ├── editor-logs.js             # Logs pane polling, history, filtering, rendering
+    │           ├── editor-tokens.js           # Token usage pane rendering
     │           ├── editor-plan.js / plan-edit.js / plan-export.js / plan-timeline.js
     │           ├── plan-range-picker.js / plan-preview-media.js / plan-subtitle.js
     │           ├── plan-waveform.js / subtitle-settings.js / waveform.js
