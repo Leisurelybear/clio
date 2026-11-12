@@ -20,6 +20,7 @@ from clio.analyze_windows import (
     build_analyze_windows,
     cleanup_window_cache_dir,
     load_window_cache,
+    measure_timeline_coverage,
     merge_window_analyses,
     save_window_cache,
     shift_analysis_times,
@@ -579,6 +580,11 @@ def _process_video_item(
     analysis["_lineage"] = current_lineage
     analysis["media_identity"] = _identity_to_dict(identity)
     attach_transcript_to_analysis(config, analysis)
+    coverage = measure_timeline_coverage(analysis, duration_sec)
+    print(
+        f"[analyze] {compressed.name}: rows={coverage.rows} "
+        f"coverage={coverage.coverage_ratio * 100:.1f}% max_gap={coverage.max_gap_sec:.1f}s"
+    )
 
     stem = _build_stem(idx_val, analysis.get("title", original.stem), config)
     final_text = config.texts_dir / f"{stem}.txt"

@@ -57,7 +57,7 @@ Awaiting real-environment verification:
 
 ### R-048 Higher-detail video analysis and bounded plan input
 
-**Status:** In progress (design ready 2026-10-24). Media resolution, structured significance fields, and the prompt density contract are complete. Coverage observation and bounded plan input remain.
+**Status:** In progress (design ready 2026-10-24). Media resolution, structured significance fields, the prompt density contract, and coverage observation are complete. Bounded plan input remains.
 
 **Goal:** Raise per-clip analysis density from summary level (~48 s per timeline row) to 8-12 s per
 row, keep the extra detail in `texts/*.json` for voiceover/cut/preview, and stop that detail from
@@ -91,7 +91,7 @@ Design: `docs/superpowers/specs/2026-10-24-analysis-detail-and-plan-input-budget
 - [x] P0b: add optional `score` (1-5), `camera`, `quality`, `tags` per timeline row and top-level
   `key_moments` (3-8 per clip); clamp/validate them, dedupe and merge across windows, and keep old
   JSON compatible
-- [ ] P0b: log `[analyze] <name>: rows=N coverage=xx% max_gap=Ns` after each clip (observation only,
+- [x] P0b: log `[analyze] <name>: rows=N coverage=xx% max_gap=Ns` after each clip (observation only,
   no retry in P0)
 - [ ] P0c `feat(plan)`: add `clio/plan_input.py::build_plan_clips()` (top-K timeline + key_moments,
   no inline transcripts) with `plan.max_timeline_rows_per_clip` (8) and

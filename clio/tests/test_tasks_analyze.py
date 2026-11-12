@@ -130,6 +130,34 @@ def test_window_summary_lineage_changes_only_when_multi_window(tmp_path: Path):
     assert _analysis_lineage_fingerprint(cfg, multi_window=True) != multi_before
 
 
+def test_analysis_logs_timeline_coverage(monkeypatch, tmp_path: Path, capsys):
+    cfg = _cfg(tmp_path)
+    _add_original(cfg, "GL010695.mp4")
+    (cfg.compressed_dir / "001_GL010695.mp4").write_bytes(b"video")
+
+    _common_mocks(monkeypatch)
+    monkeypatch.setattr("clio.tasks.analyze.get_duration_sec", lambda *args: 100.0)
+    monkeypatch.setattr("clio.tasks.analyze.extract_cover_frame", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "clio.tasks.analyze.analyze_video",
+        lambda *args, **kwargs: {
+            "title": "Coverage",
+            "summary": "s",
+            "location": "x",
+            "timeline": [
+                {"start": "00:10", "end": "00:30", "description": "a"},
+                {"start": "00:20", "end": "00:40", "description": "b"},
+                {"start": "01:20", "end": "01:30", "description": "c"},
+            ],
+        },
+    )
+
+    records = run_analyze_all(cfg)
+
+    assert len(records) == 1
+    assert "[analyze] 001_GL010695.mp4: rows=3 coverage=40.0% max_gap=40.0s" in capsys.readouterr().out
+
+
 def test_build_day_labels_uses_capture_dates_and_filename_fallback(monkeypatch, tmp_path: Path):
     from clio.tasks.analyze import _build_day_labels
 

@@ -2,6 +2,16 @@
 
 ## 2026-11-12
 
+Analysis runs now report timeline coverage quality after each successful clip.
+
+- feat(analyze): log row count, covered percentage, and largest uncovered gap for every fresh analysis
+- fix(analyze): clip out-of-bounds timeline intervals and ignore malformed, negative, or reversed ranges
+- test(analyze): cover overlap merging, edge gaps, empty timelines, invalid durations, and task logging
+
+Verification: `test_analyze_windows.py` and `test_tasks_analyze.py` pass (61 tests); Ruff and targeted mypy pass.
+
+## 2026-11-12
+
 Video analysis prompts now scale timeline detail with the actual analysis-window duration instead of using
 one fixed row cap.
 

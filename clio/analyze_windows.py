@@ -16,7 +16,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from itertools import pairwise
-from math import ceil
+from math import ceil, isfinite
 from pathlib import Path
 from typing import Any
 
@@ -143,6 +143,56 @@ def shift_analysis_times(analysis: dict, offset_sec: float) -> dict:
 def _timeline_list(analysis: dict) -> list:
     tl = analysis.get("timeline")
     return list(tl) if isinstance(tl, list) else []
+
+
+@dataclass(frozen=True)
+class TimelineCoverage:
+    rows: int
+    coverage_ratio: float
+    max_gap_sec: float
+
+
+def measure_timeline_coverage(analysis: dict, duration_sec: float) -> TimelineCoverage:
+    """Measure valid timeline coverage without changing the analysis output."""
+    timeline = _timeline_list(analysis)
+    rows = len(timeline)
+    if not isfinite(duration_sec) or duration_sec <= 0:
+        return TimelineCoverage(rows=rows, coverage_ratio=0.0, max_gap_sec=0.0)
+
+    intervals: list[tuple[float, float]] = []
+    for item in timeline:
+        if not isinstance(item, dict):
+            continue
+        start = _parse_ts(item.get("start"))
+        end = _parse_ts(item.get("end"))
+        if start is None or end is None or not isfinite(start) or not isfinite(end):
+            continue
+        clipped_start = max(0.0, start)
+        clipped_end = min(duration_sec, end)
+        if clipped_end > clipped_start:
+            intervals.append((clipped_start, clipped_end))
+
+    merged: list[tuple[float, float]] = []
+    for start, end in sorted(intervals):
+        if merged and start <= merged[-1][1] + 0.05:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+
+    covered_sec = sum(end - start for start, end in merged)
+    gaps: list[float] = []
+    cursor = 0.0
+    for start, end in merged:
+        if start > cursor + 0.05:
+            gaps.append(start - cursor)
+        cursor = max(cursor, end)
+    if cursor < duration_sec - 0.05:
+        gaps.append(duration_sec - cursor)
+    return TimelineCoverage(
+        rows=rows,
+        coverage_ratio=min(1.0, covered_sec / duration_sec),
+        max_gap_sec=max(gaps, default=duration_sec),
+    )
 
 
 def _item_start(item: dict) -> float:

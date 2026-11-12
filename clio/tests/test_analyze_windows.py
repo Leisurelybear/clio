@@ -12,6 +12,7 @@ from clio.analyze_windows import (
     AnalyzeWindow,
     build_analyze_windows,
     cleanup_analyze_windows_dir,
+    measure_timeline_coverage,
     merge_window_analyses,
     shift_analysis_times,
     slice_window_video,
@@ -38,6 +39,56 @@ class TestBuildAnalyzeWindows:
     def test_excessive_window_count_fails_closed(self):
         with pytest.raises(ValueError, match="分析窗数量过多"):
             build_analyze_windows(1200, window_max_min=1, overlap_sec=59)
+
+
+class TestTimelineCoverage:
+    def test_merges_overlaps_and_reports_edge_gaps(self):
+        coverage = measure_timeline_coverage(
+            {
+                "timeline": [
+                    {"start": "00:10", "end": "00:30"},
+                    {"start": "00:20", "end": "00:40"},
+                    {"start": "01:20", "end": "01:30"},
+                ]
+            },
+            100.0,
+        )
+
+        assert coverage.rows == 3
+        assert coverage.coverage_ratio == pytest.approx(0.4)
+        assert coverage.max_gap_sec == pytest.approx(40.0)
+
+    def test_empty_timeline_reports_full_duration_gap(self):
+        coverage = measure_timeline_coverage({"timeline": []}, 120.0)
+
+        assert coverage.rows == 0
+        assert coverage.coverage_ratio == 0.0
+        assert coverage.max_gap_sec == 120.0
+
+    def test_invalid_and_out_of_bounds_rows_are_excluded(self):
+        coverage = measure_timeline_coverage(
+            {
+                "timeline": [
+                    {"start": -5, "end": 10},
+                    {"start": "bad", "end": 20},
+                    {"start": 90, "end": 120},
+                    {"start": 95, "end": 105},
+                ]
+            },
+            100.0,
+        )
+
+        assert coverage.rows == 4
+        assert coverage.coverage_ratio == pytest.approx(0.2)
+        assert coverage.max_gap_sec == pytest.approx(80.0)
+
+    @pytest.mark.parametrize("duration", [0.0, -1.0, float("nan")])
+    def test_non_positive_or_invalid_duration_is_safe(self, duration):
+        coverage = measure_timeline_coverage({"timeline": [{"start": 0, "end": 10}]}, duration)
+
+        assert coverage.rows == 1
+        assert coverage.coverage_ratio == 0.0
+        assert coverage.max_gap_sec == 0.0
 
 
 class TestShiftAndMerge:

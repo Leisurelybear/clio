@@ -1,7 +1,7 @@
 # 分析细节与 Plan 输入预算设计
 
 > 日期: 2026-10-24
-> 状态: P0b 进行中（媒体分辨率、显著性字段、窗口合并和 prompt 密度契约已完成；覆盖率日志和 plan 输入投影待实施）
+> 状态: P0b 已完成（媒体分辨率、显著性字段、窗口合并、prompt 密度契约和覆盖率日志已完成）；P0c plan 输入投影待实施
 > 范围: `clio/ai/gemini.py`、`clio/analyze.py`、`clio/analyze_windows.py`、`clio/tasks/plan.py`、`clio/prompts.py`、配置模型与示例
 > 目标: 提高视频分析的画面细节，同时让 plan 输入量不随细节线性膨胀
 
@@ -193,8 +193,9 @@ AnalyzeConfig.media_resolution
   - `key_moments` 拼接、按 `start` 排序，在 overlap 区内按时间接近 + 文本相似去重。
   - 同一条 timeline 重复时保留字段更完整、`score` 更高的一条；`tags` 取并集。
   - `shift_analysis_times` 已覆盖 `start` / `end`，无需额外逻辑。
-- 覆盖率观测（不阻断）：
-  - 分析完成后计算 `coverage = 已覆盖秒数 / 窗口秒数`、`max_gap`。
+- 覆盖率观测（不阻断，已实现）：
+  - 分析完成后由 `measure_timeline_coverage()` 计算有效区间、`coverage` 和包含首尾空白的 `max_gap`。
+  - 非法、负值、倒序和越界区间会被忽略或裁剪；零时长和空 timeline 不会抛错。
   - 日志输出 `[analyze] <name>: rows=N coverage=xx% max_gap=Ns`。
   - P0 只告警；P2 再考虑对稀疏窗口做一次“补全缺失区间”的重试。
 
