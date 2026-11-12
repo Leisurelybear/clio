@@ -174,6 +174,15 @@ class TestResolveIdentityFallback:
         assert identity.segment_offset_sec == 0.0
         assert identity.segment_duration_sec is None
 
+    def test_invalid_string_project_dir_falls_back(self, tmp_path: Path):
+        compressed = tmp_path / "001_GL010683.mp4"
+        compressed.write_bytes(b"\x00" * 500)
+
+        identity = resolve_identity(compressed, "001", project_dir="bad\x00path")
+
+        assert identity.original_stem == "GL010683"
+        assert identity.original_path == ""
+
     def test_original_not_found(self, tmp_path: Path):
         compressed = tmp_path / "001_GL010683.mp4"
         compressed.write_bytes(b"\x00" * 500)

@@ -135,11 +135,8 @@ def resolve_identity(
             proj = project_dir
         elif isinstance(project_dir, str) and project_dir:
             # unlikely: project_dir passed as string path
-            try:
-                cand = Path(project_dir)
-                proj = cand if cand.is_dir() else None
-            except Exception:
-                proj = None
+            cand = Path(project_dir)
+            proj = cand if cand.is_dir() else None
         else:
             proj = None
 
