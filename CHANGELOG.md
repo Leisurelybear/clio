@@ -2,6 +2,17 @@
 
 ## 2026-11-13
 
+Multi-window analysis timestamps are now verified on a real 15 fps compressed video. The stream-copied
+windows retained source-relative timing across all six slices, including the exact frame check on the
+second window.
+
+- test(analyze): validate six logical windows at 300s max duration with 20s overlap on a 1601.600s clip
+- test(analyze): match slice 2.000s to source 282.000s exactly, with no cumulative timestamp offset
+- docs: record C10 real-environment evidence and mark the item complete
+
+Verification: window drift stayed between 0.000s and 0.334s, every slice decoded at 15 fps with
+`start_time=0`, and frame counts matched the expected window content.
+
 Runtime warning behavior now lives in a focused controller while the application bootstrap keeps only wiring and lifecycle responsibilities.
 
 - refactor(ui): extract dependency probes, FFmpeg help, settings navigation, and cut-backup restoration into `runtime-warning-actions.js`

@@ -14,7 +14,7 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
 
 Source: [`docs/analysis/2026-11-05-P0-P2-Issues.md`](docs/analysis/2026-11-05-P0-P2-Issues.md)
 
-Snapshot: 83 items; 80 completed locally; 1 partial; 2 awaiting real-environment verification; 0 pending.
+Snapshot: 83 items; 81 completed locally; 1 partial; 1 awaiting real-environment verification; 0 pending.
 O17 and O18 are complete as of this cleanup. The analysis document remains the source of truth for item-level
 status and verification notes.
 
@@ -77,10 +77,11 @@ P2 items:
   - `[x]` add opt-in `plan.visual_transition_review` (default off) and use the `video_analyze` Gemini binding
   - `[x]` review at most 12 adjacent transitions from compressed-first frame pairs and update only `transition`
   - `[x]` preserve the validated plan on extraction/provider/JSON failure and include review settings in lineage
+- `[x]` C10 verify multi-window timestamp offsets with a real 15 fps video
+  - six logical windows on a real stream-copied 15 fps clip retained source-relative timing; frame at slice 2.000s matched source 282.000s exactly
 
 Awaiting real-environment verification:
 
-- `[~]` C10 verify multi-window timestamp offsets with a real 15 fps video
 - `[~]` D12 compare the JianYing draft with a real sample draft
 
 ### R-048 Higher-detail video analysis and bounded plan input
