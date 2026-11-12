@@ -12,6 +12,7 @@ Module-level helpers extracted from server.py:
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import re
 import shutil
@@ -205,10 +206,8 @@ def _save_atomic_unlocked(path: Path, data: bytes) -> None:
             f.flush()
             os.fsync(f.fileno())
         if existing_mode is not None:
-            try:
+            with contextlib.suppress(OSError):
                 os.chmod(tmp, existing_mode)
-            except OSError:
-                pass
         if path.exists():
             if bak.exists():
                 rotated = path.with_suffix(path.suffix + f".bak.{time.time_ns()}")
@@ -224,10 +223,8 @@ def _save_atomic_unlocked(path: Path, data: bytes) -> None:
         os.replace(tmp, path)
         _fsync_dir(path.parent)
     except BaseException:
-        try:
+        with contextlib.suppress(OSError):
             os.close(fd)
-        except OSError:
-            pass
         tmp.unlink(missing_ok=True)
         raise
     _prune_rotated_backups(path)
@@ -242,10 +239,8 @@ def _prune_rotated_backups(path: Path, keep: int = 3) -> None:
         reverse=True,
     )
     for old in rotated[keep:]:
-        try:
+        with contextlib.suppress(OSError):
             old.unlink()
-        except OSError:
-            pass
 
 
 def _create_project_yaml(proj_dir: Path, config_path: Path | None, proj_out: Path) -> Path | None:

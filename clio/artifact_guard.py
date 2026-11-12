@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import time
@@ -89,9 +90,7 @@ def backup_artifacts(paths: Iterable[Path]) -> list[Path]:
                 target.write(chunk)
             target.flush()
             os.fsync(target.fileno())
-        try:
+        with contextlib.suppress(OSError):
             os.chmod(backup, path.stat().st_mode & 0o777)
-        except OSError:
-            pass
         backups.append(backup)
     return backups

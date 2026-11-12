@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 
 REQUIRED_MODEL_FILES = ("config.json", "model.bin", "tokenizer.json", "vocabulary.txt")
@@ -49,8 +50,6 @@ def largest_model_file_size(path: Path) -> int:
     for f in path.rglob("*"):
         if not f.is_file():
             continue
-        try:
+        with contextlib.suppress(OSError):
             max_size = max(max_size, f.stat().st_size)
-        except OSError:
-            pass
     return max_size

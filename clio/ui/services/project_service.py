@@ -15,6 +15,7 @@ All functions take explicit parameters instead of relying on closure variables.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -174,10 +175,8 @@ def _read_registry(registry_file: Path) -> dict[str, Any]:
 
     def quarantine() -> None:
         target = registry_file.with_name(registry_file.name + f".corrupt.{os.urandom(4).hex()}")
-        try:
+        with contextlib.suppress(OSError):
             shutil.copy2(registry_file, target)
-        except OSError:
-            pass
 
     try:
         reg = json.loads(registry_file.read_text(encoding="utf-8"))

@@ -9,6 +9,7 @@
 # ruff: noqa: F401 — all handler imports used by router resolver (lazy lookup)
 from __future__ import annotations
 
+import contextlib
 import errno
 import hmac
 import json
@@ -362,10 +363,8 @@ def make_handler(
     # Compatibility: migrate old location project.json
     old_project_path = output_dir / "project.json"
     if not project_path.is_file() and old_project_path.is_file():
-        try:
+        with contextlib.suppress(OSError):
             shutil.copy2(old_project_path, project_path)
-        except OSError:
-            pass
     # Fix name after migration
     if project_path.is_file():
         cur = _load_project_json(project_dir)

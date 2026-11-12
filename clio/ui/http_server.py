@@ -10,6 +10,7 @@ budget and an exhausted pool answers 503.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sys
 import threading
@@ -143,10 +144,8 @@ class BoundedThreadingHTTPServer(ThreadingHTTPServer):
         except OSError:
             pass
         finally:
-            try:
+            with contextlib.suppress(OSError):
                 request.close()
-            except OSError:
-                pass
 
     def _process_request_thread(self, request: Any, client_address: Any) -> None:
         try:
