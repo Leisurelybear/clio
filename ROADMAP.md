@@ -13,7 +13,8 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
     O11 `cb8613d`, O15 security headers `a97bf4d`, O4 `6974751`, F2
     `e3061f8`, F5 `de704a5`, O13 `ea32a69`, O10 config loading `e9ee689`,
     O10 log stream handling `ae6e237`, O10 shutdown cleanup `f8897b0`, O10 utility
-    cleanup `eaa224f`, and O10 config annotation cleanup `d490b3b` are local.
+    cleanup `eaa224f`, O10 config annotation cleanup `d490b3b`, and O10 sidecar cleanup
+    `4c5691f` are local.
   - Verification: targeted C2 pytest (270 passed), C15 pytest (58 passed), full pytest
     (2837 passed, 12 skipped, 13 deselected with symlink tests excluded), full Vitest
     (857 passed), O7 targeted pytest (153 passed), full pytest after O7 (2846 passed,
@@ -55,9 +56,9 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
     C16 `c75c067` / `8aca38e` / `f593d28` / `eb3e0f6` / `46daa41` / `2c359c6` /
     `fdcdd7d` / `4b300a3` / `1ac279c` / `74f70c4`; O13 `ea32a69`.
   - [~] P2 partial (2): O15 `a97bf4d` (default HTML escaping remains);
-    O10 `e9ee689` / `ae6e237` / `f8897b0` / `eaa224f` / `d490b3b` (config loading,
-    log streams, shutdown, utility, and annotation cleanup narrowed; 105 `BLE001` and
-    31 `SIM105` findings remain).
+    O10 `e9ee689` / `ae6e237` / `f8897b0` / `eaa224f` / `d490b3b` / `4c5691f` (config
+    loading, log streams, shutdown, utility, annotation, and sidecar cleanup narrowed;
+    103 `BLE001` and 31 `SIM105` findings remain).
   - [ ] P2 awaiting real-environment verification (2): C10; D12 (`082cc7e` completes
     the code-side fixes: timeline clamping, draft_meta_info.json, platform/fps probing).
   - [ ] P2 pending (8): O8; O9; O14; O16; O18; Q13; F4; F9.
