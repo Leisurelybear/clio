@@ -180,6 +180,7 @@ vlog-video-analysis/
     │           ├── sidebar-rerun.js / sidebar-relink.js / sidebar-batch-relink.js
     │           ├── sidebar-video-manage.js / sidebar-browse.js
     │           ├── runner.js                  # Run pane, step progress, rerun
+    │           ├── runner-preview.js          # Preview HTML, overwrite checks, start errors
     │           ├── viewer.js                  # Player, preview bar, subtitle settings
     │           ├── video-menu.js / video-selection.js / video-fade.js / video-url.js
     │           ├── video-drag-select.js      # Sidebar rubber-band selection (rect math + pointer)

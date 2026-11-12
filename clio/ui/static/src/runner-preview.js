@@ -1,0 +1,87 @@
+import { escapeHtml } from './utils.js';
+import { t } from './i18n.js';
+
+export function needsPlanOverwriteConfirmation(preview, options) {
+  return Boolean(
+    options?.files
+    && Array.isArray(options.steps)
+    && options.steps.includes('plan')
+    && preview?.plan_overwrite?.required,
+  );
+}
+
+export function needsArtifactOverwriteConfirmation(preview, options) {
+  return Boolean(
+    Array.isArray(options?.steps)
+    && (options.steps.includes('plan')
+      || options.steps.includes('voiceover')
+      || options.steps.includes('plan_voiceover'))
+    && preview?.artifact_overwrite?.required,
+  );
+}
+
+export function renderRunPreviewHtml(preview) {
+  if (!preview) {
+    return `<p class="muted">${t('run.preview.empty')}</p>`;
+  }
+  const input = preview.input || {};
+  const totals = preview.totals || {};
+  const steps = Array.isArray(preview.steps) ? preview.steps : [];
+  const preflight = preview.preflight;
+  const missing = Array.isArray(preflight?.missing) ? preflight.missing : [];
+  const separator = t('common.list_separator');
+  const planOverwrite = preview.plan_overwrite?.required
+    ? `<p class="warn run-plan-overwrite-warning">${t('run.preview.plan_overwrite', {
+      day: escapeHtml(preview.plan_overwrite.day_label || ''),
+    })}</p>`
+    : '';
+  const artifactOverwrite = preview.artifact_overwrite?.required
+    ? `<p class="warn run-artifact-overwrite-warning">${t('run.preview.artifact_overwrite', {
+      items: escapeHtml((preview.artifact_overwrite.items || []).join(separator)),
+    })}</p>`
+    : '';
+  const preflightLine = preflight && preflight.ok === false
+    ? `<p class="err run-preflight-error">${t('run.preview.preflight_error', { detail: escapeHtml(preflight.detail || t('run.preview.step_unrunnable')) })}\n` +
+      `${missing.length ? t('run.preview.missing', { items: escapeHtml(missing.join(separator)) }) : ''}</p>`
+    : '';
+  const stepRows = steps.map(step => {
+    const warnings = (step.warnings || []).map(w => `<div class="warn">${escapeHtml(w)}</div>`).join('');
+    return `
+      <div class="run-preview-step">
+        <span class="run-preview-name">${escapeHtml(step.label || step.name || '')}</span>
+        <span>${t('run.preview.total', { count: Number(step.total || 0) })}</span>
+        <span>${t('run.preview.will_run', { count: Number(step.will_run || 0) })}</span>
+        <span>${t('run.preview.will_skip', { count: Number(step.will_skip || 0) })}</span>
+        ${warnings}
+      </div>
+    `;
+  }).join('');
+  const warningLine = Number(totals.warnings || 0) > 0
+    ? `<p class="warn">${t('run.preview.warnings', { count: Number(totals.warnings || 0) })}</p>`
+    : '';
+  return `
+    <section class="run-preview-box">
+      <h4 style="margin:0 0 6px">${t('run.preview.title')}</h4>
+      <p class="muted">${t('run.preview.input', { path: escapeHtml(input.path || ''), count: Number(input.count || 0) })}</p>
+      <div class="run-preview-totals">
+        <span>${t('run.preview.steps', { count: Number(totals.selected_steps || 0) })}</span>
+        <span>${t('run.preview.will_run', { count: Number(totals.will_run || 0) })}</span>
+        <span>${t('run.preview.will_skip', { count: Number(totals.will_skip || 0) })}</span>
+      </div>
+      ${preflightLine}
+      ${warningLine}
+      ${planOverwrite}
+      ${artifactOverwrite}
+      <div class="run-preview-steps">${stepRows}</div>
+    </section>
+  `;
+}
+
+export function formatRunStartError(error) {
+  const preflight = error?.body?.code === 'media_dependency_missing' ? error.body.preflight : null;
+  const detail = preflight?.detail || error?.body?.error || error?.message || t('run.start_failed');
+  const missing = Array.isArray(preflight?.missing) && preflight.missing.length
+    ? t('run.start_failed_missing', { items: preflight.missing.join(t('common.list_separator')) })
+    : '';
+  return `${detail}${missing}`;
+}

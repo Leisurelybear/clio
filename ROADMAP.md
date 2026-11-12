@@ -57,6 +57,7 @@ P2 items:
   - `[x]` decompose `editor-config.js` into focused panes, a form renderer, and a page shell
   - `[x]` extract the plan insert dialog into `editor-plan-insert.js`
   - `[x]` extract the plan readiness panel into `editor-plan-readiness.js`
+  - `[x]` extract run preview rendering and overwrite checks into `runner-preview.js`
   - `[ ]` decompose the remaining largest JS modules
 - `[x]` O16 raise Vitest coverage around bug fixes and save flows (`5487304`)
 - `[x]` Q13 snap cut points to shot boundaries and sentence endings (`0e1c9bf`)
