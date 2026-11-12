@@ -32,7 +32,7 @@ Open P1 items:
 Open P2 items:
 
 - `[ ]` O8 split `ui/server.py` handler construction, auth, body parsing, and routes
-- `[~]` O9 clear the remaining full-package mypy debt: production is clean and gated; 142 test errors remain
+- `[~]` O9 clear the remaining full-package mypy debt: production is clean and gated; 44 test errors remain across 13 test files
 - `[ ]` O14 add frontend type checking and decompose the largest JS modules
 - `[ ]` O16 raise Vitest coverage around bug fixes and save flows
 - `[ ]` Q13 snap cut points to shot boundaries and sentence endings
