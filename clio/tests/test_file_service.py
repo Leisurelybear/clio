@@ -648,6 +648,18 @@ class TestCreateProjectYaml:
         result = _create_project_yaml(tmp_path, tmp_path / "nonexistent.yaml", tmp_path / "output")
         assert result is None
 
+    @pytest.mark.parametrize(
+        "content",
+        ["- not-a-map\n", "paths: []\n", "ai: []\n"],
+    )
+    def test_invalid_config_structure_returns_none(self, tmp_path: Path, content: str):
+        config = tmp_path / "config.yaml"
+        config.write_text(content, encoding="utf-8")
+
+        result = _create_project_yaml(tmp_path, config, tmp_path / "output")
+
+        assert result is None
+
     def test_creates_yaml_from_template(self, tmp_path: Path):
         config = tmp_path / "config.yaml"
         config.write_text(

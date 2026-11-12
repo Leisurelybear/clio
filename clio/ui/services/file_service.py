@@ -256,13 +256,19 @@ def _create_project_yaml(proj_dir: Path, config_path: Path | None, proj_out: Pat
     try:
         with open(config_path, encoding="utf-8") as f:
             raw = yaml.safe_load(f) or {}
+        if not isinstance(raw, dict):
+            raise TypeError("global config root must be a mapping")
         paths = raw.get("paths", {})
+        if not isinstance(paths, dict):
+            raise TypeError("global config paths must be a mapping")
         paths.pop("input_dir", None)
         paths.pop("recursive", None)
         paths["output_dir"] = str(proj_out.resolve())
         raw["paths"] = paths
-        raw.setdefault("ai", {})
-        raw["ai"].setdefault("context", "")
+        ai = raw.setdefault("ai", {})
+        if not isinstance(ai, dict):
+            raise TypeError("global config ai must be a mapping")
+        ai.setdefault("context", "")
         _inject_provider_defaults(raw)
         _inject_whisper_defaults(raw)
         # Strip global-only fields (providers, ffmpeg paths, codec params, etc.)
@@ -271,7 +277,7 @@ def _create_project_yaml(proj_dir: Path, config_path: Path | None, proj_out: Pat
         yml = yaml.dump(raw, allow_unicode=True, default_flow_style=False, sort_keys=False, indent=2)
         _save_atomic(target, yml.encode("utf-8"))
         return target
-    except Exception:
+    except (OSError, yaml.YAMLError, TypeError, ValueError):
         return None
 
 
