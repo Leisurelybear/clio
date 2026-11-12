@@ -2,6 +2,16 @@
 
 ## 2026-11-12
 
+Fixed-output AI tasks now request native structured responses instead of relying only on prompt shape and tolerant JSON extraction.
+
+- feat(ai): add strict Pydantic schemas for video analysis, voiceover, daily plans, and window summaries
+- feat(ai): send Gemini `response_json_schema` and OpenAI-compatible `response_format`, while refinement tasks use JSON object mode
+- fix(ai): retry without `response_format` when a compatible endpoint rejects structured output and keep tolerant parsing as a fallback
+- test(ai): cover schema requests, JSON mode, unsupported-endpoint fallback, and task forwarding
+- chore(deps): declare `pydantic` directly and document its MIT license
+
+Verification: full pytest passes `2965 passed, 12 skipped`; Vitest passes 882 tests across 81 files; Ruff, mypy, and `git diff --check` pass.
+
 Plan readiness now flags AI output quality problems before cut/export, instead of letting malformed
 or weakly grounded plans fail later in editing.
 

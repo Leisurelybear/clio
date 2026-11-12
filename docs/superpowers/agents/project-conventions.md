@@ -39,6 +39,7 @@ Use the index in `AGENTS.md` to jump directly to the relevant section.
 - All in `clio/prompts.py` as constants
 - Trip context injected via `_wrap_with_context()` before all prompts
 - Output format: JSON (for `extract_json()` parsing)
+- Fixed-output tasks use `StructuredOutput` from `clio/ai/structured.py` so providers can enforce the schema natively; refinement tasks use JSON object mode and keep `extract_json()` as a fallback.
 
 ### 4.6 Refine Special Modes
 

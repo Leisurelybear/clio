@@ -14,13 +14,15 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
 
 Source: [`docs/analysis/2026-11-05-P0-P2-Issues.md`](docs/analysis/2026-11-05-P0-P2-Issues.md)
 
-Snapshot: 83 items; 68 completed locally; 0 partial; 2 awaiting real-environment verification; 13 pending.
+Snapshot: 83 items; 69 completed locally; 0 partial; 2 awaiting real-environment verification; 12 pending.
 O17 and O18 are complete as of this cleanup. The analysis document remains the source of truth for item-level
 status and verification notes.
 
-Open P1 items:
+P1 items:
 
-- `[ ]` O1 native structured output (`response_schema` / `response_format`)
+- `[x]` O1 native structured output (`response_schema` / `response_format`)
+  - `[x]` add Pydantic schemas for analysis, voiceover, planning, and window summaries
+  - `[x]` send Gemini JSON schema and OpenAI-compatible `response_format` with fallback
 - `[ ]` Q4 use GPMF capture time and GPS in planning by default
 - `[ ]` Q5 use Gemini video metadata and `media_resolution`
 - `[ ]` Q6 shot-level structured analysis attributes and scene boundaries
@@ -29,7 +31,7 @@ Open P1 items:
 - `[ ]` Q12 generate voiceover from the planned segments after planning
 - `[ ]` F1 create a small scored evaluation set and scoring script
 
-Open P2 items:
+P2 items:
 
 - `[ ]` O8 split `ui/server.py` handler construction, auth, body parsing, and routes
 - `[ ]` O14 add frontend type checking and decompose the largest JS modules
