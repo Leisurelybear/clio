@@ -2,6 +2,7 @@ import { state, setArtifactVersion } from './state.js';
 import { $, escapeHtml, setStatus } from './utils.js';
 import { api } from './api.js';
 import { t } from './i18n.js';
+import { confirmDialog } from './confirm.js';
 
 
 export function renderRefineUI(type) {
@@ -30,7 +31,7 @@ export async function refineCurrentFile(type) {
   const label = type === 'texts' ? t('editor.artifact.texts') : t('editor.artifact.voiceover');
   const saveCurrentArtifact = state.dirty && state.currentEntity === 'video' && state.currentTab === type;
   const confirmKey = saveCurrentArtifact ? 'editor.refine.confirm_dirty' : 'editor.refine.confirm';
-  if (!confirm(t(confirmKey, { label }))) return;
+  if (!(await confirmDialog(t(confirmKey, { label })))) return;
   const ctx = $(`refine-context-${type}`).value.trim();
   if (state.refining) return;
 

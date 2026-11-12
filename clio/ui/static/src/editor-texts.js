@@ -7,6 +7,7 @@ import { renderRefineUI, refineCurrentFile } from './editor-refine.js';
 import { renderEmptyArtifactHtml, bindEmptyArtifactActions } from './empty-states.js';
 import { transcriptionReadinessPrompt } from './transcription-status.js';
 import { t } from './i18n.js';
+import { confirmDialog } from './confirm.js';
 
 
 function _jumpToTranscriptTime(timeSec) {
@@ -440,7 +441,7 @@ export function renderTranscript() {
     const delBtn = li.querySelector('.seg-del');
     delBtn.onclick = async (e) => {
       e.stopPropagation();
-      if (!confirm(t('editor.confirm_delete_segment', { index: i + 1 }))) return;
+      if (!(await confirmDialog(t('editor.confirm_delete_segment', { index: i + 1 }), { danger: true }))) return;
       const v = state.videos.find(x => x.file === state.currentVideo);
       if (!v) { setStatus(t('editor.video_not_found'), 'err'); return; }
       try {

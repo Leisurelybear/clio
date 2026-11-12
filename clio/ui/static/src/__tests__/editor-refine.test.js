@@ -6,6 +6,11 @@ import { state } from '../state.js';
 
 vi.mock('../api.js', () => ({ api: vi.fn() }));
 vi.mock('../editor-plan.js', () => ({ save: vi.fn() }));
+vi.mock('../confirm.js', () => ({
+  confirmDialog: vi.fn(async () => true),
+  alertDialog: vi.fn(async () => undefined),
+  promptDialog: vi.fn(async () => ''),
+}));
 vi.mock('../editor.js', () => ({
   renderActiveTab: vi.fn(),
   renderTexts: vi.fn(),
@@ -34,7 +39,6 @@ beforeEach(() => {
     <p id="status"></p>
   `;
   vi.clearAllMocks();
-  vi.stubGlobal('confirm', vi.fn(() => true));
 });
 
 describe('refineCurrentFile dirty-state handling', () => {
