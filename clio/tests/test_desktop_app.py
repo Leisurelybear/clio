@@ -21,6 +21,30 @@ from clio.desktop.server_host import (
 )
 
 
+def test_ask_yes_no_uses_tk_messagebox(monkeypatch):
+    root = MagicMock()
+    fake_tk = types.ModuleType("tkinter")
+    fake_tk.Tk = MagicMock(return_value=root)
+    fake_tk.messagebox = MagicMock()
+    fake_tk.messagebox.askyesno.return_value = False
+    monkeypatch.setitem(sys.modules, "tkinter", fake_tk)
+
+    assert app_mod._ask_yes_no("Clio", "Continue?") is False
+
+    fake_tk.messagebox.askyesno.assert_called_once_with("Clio", "Continue?", parent=root)
+    root.withdraw.assert_called_once()
+    root.destroy.assert_called_once()
+
+
+def test_ask_yes_no_falls_back_to_confirm_when_dialog_fails(monkeypatch):
+    fake_tk = types.ModuleType("tkinter")
+    fake_tk.Tk = MagicMock(side_effect=RuntimeError("headless"))
+    fake_tk.messagebox = MagicMock()
+    monkeypatch.setitem(sys.modules, "tkinter", fake_tk)
+
+    assert app_mod._ask_yes_no("Clio", "Continue?") is True
+
+
 def test_handle_closing_idle_allows_close(monkeypatch):
     monkeypatch.setattr(app_mod, "fetch_active_tasks", lambda host, port, token="": [])
     confirmed = []
@@ -235,6 +259,20 @@ def test_main_focuses_existing_instance_and_exits(monkeypatch, tmp_path):
     app_mod.remove_lock.assert_not_called()
 
 
+def test_main_ignores_lock_without_valid_port(monkeypatch, tmp_path):
+    monkeypatch.setattr(app_mod, "is_web_running", MagicMock(return_value=False))
+    monkeypatch.setattr(app_mod, "read_lock", MagicMock(return_value={"port": None, "pid": 1}))
+    focus_mock = MagicMock(return_value=True)
+    monkeypatch.setattr(app_mod, "focus_first_instance", focus_mock)
+    monkeypatch.setattr(app_mod, "write_lock", MagicMock())
+    monkeypatch.setattr(app_mod, "set_desktop_focus_callback", MagicMock())
+
+    rv, _ = _run_main(monkeypatch, tmp_path)
+
+    assert rv == 0
+    focus_mock.assert_not_called()
+
+
 def test_main_takes_over_stale_lock(monkeypatch, tmp_path):
     monkeypatch.setattr(app_mod, "is_web_running", MagicMock(return_value=False))
     monkeypatch.setattr(app_mod, "read_lock", MagicMock(return_value={"port": 4321, "pid": 1}))
@@ -435,6 +473,33 @@ def test_main_shows_webview2_error_when_start_raises(monkeypatch, tmp_path):
     rv = app_mod.main(argv=[], config_path=cfg_file)
     assert rv == 1
     assert len(error_shown) == 1 and isinstance(error_shown[0], RuntimeError)
+    app_mod.remove_lock.assert_called_once()
+
+
+def test_main_shows_error_when_create_window_returns_none(monkeypatch, tmp_path):
+    monkeypatch.setattr("clio.config.load_config", MagicMock(return_value=MagicMock()))
+    monkeypatch.setattr("clio.log.setup_logging", MagicMock())
+    monkeypatch.setattr("clio.desktop.server_host.start_server", MagicMock(return_value=_FakeHandle()))
+    monkeypatch.setattr("clio.desktop.server_host.stop_server", MagicMock())
+    monkeypatch.setattr(app_mod, "is_web_running", MagicMock(return_value=False))
+    monkeypatch.setattr(app_mod, "focus_first_instance", MagicMock(return_value=False))
+    monkeypatch.setattr(app_mod, "write_lock", MagicMock())
+    monkeypatch.setattr(app_mod, "remove_lock", MagicMock())
+    monkeypatch.setattr(app_mod, "set_desktop_focus_callback", MagicMock())
+    error_shown = []
+    monkeypatch.setattr(app_mod, "_show_window_start_error", lambda e: error_shown.append(e))
+    fake = types.ModuleType("webview")
+    fake.create_window = MagicMock(return_value=None)
+    fake.start = MagicMock()
+    monkeypatch.setitem(sys.modules, "webview", fake)
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text("key: value\n", encoding="utf-8")
+
+    rv = app_mod.main(argv=[], config_path=cfg_file)
+
+    assert rv == 1
+    assert len(error_shown) == 1 and isinstance(error_shown[0], RuntimeError)
+    app_mod.write_lock.assert_not_called()
     app_mod.remove_lock.assert_called_once()
 
 

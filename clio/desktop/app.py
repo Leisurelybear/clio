@@ -45,27 +45,30 @@ def _reject_real_webview_under_pytest() -> None:
     )
 
 
-def _confirm_web_continue() -> bool:
-    """Ask the user whether to launch the desktop app while the web UI is running."""
+def _ask_yes_no(title: str, message: str) -> bool:
+    """Show a native confirmation dialog, failing open for headless launches."""
     try:
-        import webview
+        from tkinter import Tk, messagebox
 
-        return webview.confirm_dialog(
-            "Clio",
-            t("desktop.web_running_confirm"),
-        )
+        root = Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        try:
+            return bool(messagebox.askyesno(title, message, parent=root))
+        finally:
+            root.destroy()
     except Exception:  # noqa: BLE001 - native dialog backends raise platform-specific failures
         return True
+
+
+def _confirm_web_continue() -> bool:
+    """Ask the user whether to launch the desktop app while the web UI is running."""
+    return _ask_yes_no("Clio", t("desktop.web_running_confirm"))
 
 
 def _confirm_quit() -> bool:
     """Native confirm dialog. Returns True (quit) when the user confirms or dialog fails."""
-    try:
-        import webview
-
-        return webview.confirm_dialog(t("desktop.quit_title"), t("desktop.quit_confirm"))
-    except Exception:  # noqa: BLE001 - native dialog backends raise platform-specific failures
-        return True
+    return _ask_yes_no(t("desktop.quit_title"), t("desktop.quit_confirm"))
 
 
 def _show_window_start_error(error: Exception) -> None:
@@ -183,7 +186,8 @@ def main(
     # (a stale takeover must not delete a lock that now belongs to a live app).
     instance_token = secrets.token_hex(16)
     lock = read_lock(config_dir)
-    if lock and focus_first_instance("127.0.0.1", lock.get("port")):
+    lock_port = lock.get("port") if lock else None
+    if isinstance(lock_port, int) and not isinstance(lock_port, bool) and focus_first_instance("127.0.0.1", lock_port):
         print(t("desktop.already_running"))
         return 0
 
@@ -215,6 +219,8 @@ def main(
                 height=800,
                 text_select=True,
             )
+            if window is None:
+                raise RuntimeError("pywebview did not create a window")
             api.bind_window(window)
         except Exception as e:  # noqa: BLE001 — WebView2 runtime missing is the common cause
             _show_window_start_error(e)
