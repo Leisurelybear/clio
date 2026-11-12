@@ -71,6 +71,11 @@ class PlanSegment(_StrictModel):
     transition: str
 
 
+class VlogPlanShortlist(_StrictModel):
+    keep: list[str]
+    reason: str
+
+
 class PlanOutlineBeat(_StrictModel):
     position: int
     narrative_beat: str
@@ -172,6 +177,7 @@ VIDEO_ANALYSIS_OUTPUT = _output("video_analysis", VideoAnalysis)
 VOICEOVER_OUTPUT = _output("voiceover", Voiceover)
 PLAN_VOICEOVER_OUTPUT = _output("plan_voiceover", PlanVoiceover)
 VLOG_PLAN_OUTPUT = _output("vlog_plan", DailyVlogPlan)
+VLOG_PLAN_SHORTLIST_OUTPUT = _output("vlog_plan_shortlist", VlogPlanShortlist)
 VLOG_PLAN_OUTLINE_OUTPUT = _output("vlog_plan_outline", VlogPlanOutline)
 VLOG_PLAN_REVIEW_OUTPUT = _output("vlog_plan_review", VlogPlanReview)
 TRANSITION_REVIEW_OUTPUT = _output("transition_review", TransitionReview)

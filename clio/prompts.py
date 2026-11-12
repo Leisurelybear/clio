@@ -382,6 +382,27 @@ capture_time（拍摄时间）和 gps（经纬度）：
 """
 
 
+PLAN_SHORTLIST_PROMPT = """你是旅行 vlog 剪辑策划。当天素材较多，先进行候选筛选，不需要编排最终顺序。
+
+以下是每个素材的摘要卡片（JSON 数组），index 是唯一引用键；key_moments 最多列出前 3 条：
+{cards_json}
+
+请根据画面质量、叙事价值、地点和时间连续性、素材多样性，选出最值得进入详细规划阶段的素材。
+最多保留 {max_candidates} 个候选，并尽量覆盖不同场景和行程阶段。
+
+规则：
+- keep 只能使用卡片中原样存在的 index，不得编造或重复
+- keep 数量必须大于 0 且不超过 {max_candidates}
+- 优先保留有高分段 key_moments、清晰画面、人物互动或关键事件的内容
+- 不要因为标题相似而重复选择同一场景；候选不足时宁可少选
+
+只输出 JSON，不要 markdown 代码块，不要添加解释。输出结构必须是：
+{{
+  "keep": ["001", "007"],
+  "reason": "候选覆盖了不同地点和叙事阶段"
+}}
+"""
+
 PLAN_OUTLINE_PROMPT = """你是旅行 vlog 剪辑策划。先不要直接排定最终时间轴，只生成当天 vlog 的叙事大纲。
 
 当天素材摘要（JSON 数组）：
@@ -635,6 +656,7 @@ PROMPT_DEFAULTS = {
     "SCRIPT_PROMPT": SCRIPT_PROMPT,
     "PLAN_VOICEOVER_PROMPT": PLAN_VOICEOVER_PROMPT,
     "PLAN_PROMPT": PLAN_PROMPT,
+    "PLAN_SHORTLIST_PROMPT": PLAN_SHORTLIST_PROMPT,
     "PLAN_OUTLINE_PROMPT": PLAN_OUTLINE_PROMPT,
     "PLAN_OUTLINE_CONTEXT": PLAN_OUTLINE_CONTEXT,
     "PLAN_REVIEW_PROMPT": PLAN_REVIEW_PROMPT,

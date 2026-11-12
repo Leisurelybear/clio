@@ -10,6 +10,7 @@ from clio.prompt_overrides import PROMPT_PLACEHOLDERS, validate_prompt_template
 from clio.prompts import (
     ANALYZE_PROMPT,
     PLAN_PROMPT,
+    PLAN_SHORTLIST_PROMPT,
     REFINE_SCRIPT_FIX_PROMPT,
     REFINE_SCRIPT_PROMPT,
     REFINE_TEXT_FIX_PROMPT,
@@ -230,6 +231,7 @@ def test_builtin_prompts_match_placeholder_contract():
     mapping = {
         "SCRIPT_PROMPT": "voiceover",
         "PLAN_PROMPT": "vlog_plan",
+        "PLAN_SHORTLIST_PROMPT": "vlog_plan_shortlist",
         "PLAN_OUTLINE_PROMPT": "plan_outline",
         "PLAN_OUTLINE_CONTEXT": "plan_outline_context",
         "PLAN_REVIEW_PROMPT": "plan_review",
@@ -252,6 +254,7 @@ def test_placeholder_contract_lists_all_formatted_prompts():
     formatted_tasks = {
         "voiceover",
         "vlog_plan",
+        "vlog_plan_shortlist",
         "plan_outline",
         "plan_outline_context",
         "plan_review",
@@ -290,3 +293,9 @@ def test_plan_review_prompt_checks_transitions_and_preserves_valid_fields():
     assert "转场方式" in PLAN_REVIEW_PROMPT
     assert "use_timeline" in PLAN_REVIEW_PROMPT
     assert "不要为了改写而重写" in PLAN_REVIEW_PROMPT
+
+
+def test_plan_shortlist_prompt_limits_cards_to_valid_indices():
+    assert "{cards_json}" in PLAN_SHORTLIST_PROMPT
+    assert "{max_candidates}" in PLAN_SHORTLIST_PROMPT
+    assert "不得编造或重复" in PLAN_SHORTLIST_PROMPT
