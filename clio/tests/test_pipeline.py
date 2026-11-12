@@ -33,7 +33,15 @@ class TestRunPipelineStepsCancel:
     def test_default_pipeline_orders_transcribe_before_analysis(self):
         from clio.pipeline import PIPELINE_STEPS
 
-        assert PIPELINE_STEPS == ("compress", "transcribe", "analyze", "voiceover", "plan", "label")
+        assert PIPELINE_STEPS == (
+            "compress",
+            "transcribe",
+            "analyze",
+            "voiceover",
+            "plan",
+            "plan_voiceover",
+            "label",
+        )
 
     def test_cancel_stops_after_current_step(self):
         """cancel_event 设置后 pipeline 在步骤间退出"""
@@ -120,7 +128,7 @@ class TestRunPipelineStepsCancel:
 
             return _mock
 
-        fake_funcs = {s: _make_mock(s) for s in ("analyze", "voiceover", "plan", "label")}
+        fake_funcs = {s: _make_mock(s) for s in ("analyze", "voiceover", "plan", "plan_voiceover", "label")}
         with (
             patch("clio.pipeline._STEP_FUNCS", fake_funcs),
             patch("builtins.print"),
@@ -128,7 +136,7 @@ class TestRunPipelineStepsCancel:
         ):
             run_pipeline_steps(config, steps=list(fake_funcs), cancel_event=cancel_event)
 
-        for step in ("analyze", "voiceover", "plan", "label"):
+        for step in ("analyze", "voiceover", "plan", "plan_voiceover", "label"):
             assert all_kwargs[step].get("cancel_event") is cancel_event, (
                 f"{step} should receive cancel_event, got: {all_kwargs[step]}"
             )
@@ -144,7 +152,10 @@ class TestRunPipelineStepsCancel:
 
             return _mock
 
-        fake_funcs = {s: _make_mock(s) for s in ("compress", "analyze", "voiceover", "transcribe", "plan", "label")}
+        fake_funcs = {
+            s: _make_mock(s)
+            for s in ("compress", "analyze", "voiceover", "transcribe", "plan", "plan_voiceover", "label")
+        }
         with (
             patch("clio.pipeline._STEP_FUNCS", fake_funcs),
             patch("builtins.print"),
@@ -152,7 +163,7 @@ class TestRunPipelineStepsCancel:
         ):
             run_pipeline_steps(config, steps=list(fake_funcs), files=["001_A", "002_B"])
 
-        for step in ("compress", "analyze", "voiceover", "transcribe", "plan", "label"):
+        for step in ("compress", "analyze", "voiceover", "transcribe", "plan", "plan_voiceover", "label"):
             assert all_kwargs[step].get("files") == ["001_A", "002_B"], (
                 f"{step} should receive files kwarg, got: {all_kwargs[step]}"
             )
@@ -168,7 +179,10 @@ class TestRunPipelineStepsCancel:
 
             return _mock
 
-        fake_funcs = {s: _make_mock(s) for s in ("compress", "analyze", "voiceover", "transcribe", "plan", "label")}
+        fake_funcs = {
+            s: _make_mock(s)
+            for s in ("compress", "analyze", "voiceover", "transcribe", "plan", "plan_voiceover", "label")
+        }
         with (
             patch("clio.pipeline._STEP_FUNCS", fake_funcs),
             patch("builtins.print"),
@@ -176,7 +190,7 @@ class TestRunPipelineStepsCancel:
         ):
             run_pipeline_steps(config, steps=list(fake_funcs), overwrite=True)
 
-        for step in ("compress", "analyze", "voiceover", "transcribe", "plan", "label"):
+        for step in ("compress", "analyze", "voiceover", "transcribe", "plan", "plan_voiceover", "label"):
             assert all_kwargs[step].get("overwrite") is True, (
                 f"{step} should receive overwrite=True, got: {all_kwargs[step]}"
             )
@@ -192,7 +206,10 @@ class TestRunPipelineStepsCancel:
 
             return _mock
 
-        fake_funcs = {s: _make_mock(s) for s in ("compress", "analyze", "voiceover", "transcribe", "plan", "label")}
+        fake_funcs = {
+            s: _make_mock(s)
+            for s in ("compress", "analyze", "voiceover", "transcribe", "plan", "plan_voiceover", "label")
+        }
         with (
             patch("clio.pipeline._STEP_FUNCS", fake_funcs),
             patch("builtins.print"),
@@ -204,7 +221,7 @@ class TestRunPipelineStepsCancel:
         for step in ("compress", "analyze", "voiceover", "transcribe", "label"):
             assert "confirm_plan_overwrite" not in all_kwargs[step]
 
-    def test_artifact_overwrite_confirmation_only_propagates_to_plan_and_voiceover(self):
+    def test_artifact_overwrite_confirmation_only_propagates_to_protected_artifacts(self):
         config = _mock_config(Path(""))
         all_kwargs: dict[str, dict] = {}
 
@@ -215,7 +232,10 @@ class TestRunPipelineStepsCancel:
 
             return _mock
 
-        fake_funcs = {s: _make_mock(s) for s in ("compress", "analyze", "voiceover", "transcribe", "plan", "label")}
+        fake_funcs = {
+            s: _make_mock(s)
+            for s in ("compress", "analyze", "voiceover", "transcribe", "plan", "plan_voiceover", "label")
+        }
         with (
             patch("clio.pipeline._STEP_FUNCS", fake_funcs),
             patch("builtins.print"),
@@ -225,6 +245,7 @@ class TestRunPipelineStepsCancel:
 
         assert all_kwargs["plan"].get("confirm_artifact_overwrite") is True
         assert all_kwargs["voiceover"].get("confirm_artifact_overwrite") is True
+        assert all_kwargs["plan_voiceover"].get("confirm_artifact_overwrite") is True
         for step in ("compress", "analyze", "transcribe", "label"):
             assert "confirm_artifact_overwrite" not in all_kwargs[step]
 

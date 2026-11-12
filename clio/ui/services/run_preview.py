@@ -18,7 +18,7 @@ from clio.tasks._helpers import (
     _selection_from_files,
 )
 from clio.tasks.plan import plan_artifact_overwrite_required, plan_overwrite_confirmation_required
-from clio.tasks.scripts import voiceover_artifact_overwrite_required
+from clio.tasks.scripts import plan_voiceover_artifact_overwrite_required, voiceover_artifact_overwrite_required
 from clio.utils import plan_day_stem
 
 
@@ -167,6 +167,16 @@ def artifact_overwrite_paths(
                 task_prompts=task_prompts,
             )
         )
+    if "plan_voiceover" in selected_steps:
+        paths.extend(
+            plan_voiceover_artifact_overwrite_required(
+                artifact_config,
+                day_label,
+                overwrite=force,
+                context_override=context_override,
+                task_prompts=task_prompts,
+            )
+        )
     unique: dict[Path, Path] = {}
     for path in paths:
         unique.setdefault(path.resolve(), path)
@@ -227,6 +237,13 @@ def _step_preview(
         return _voiceover_step(config, analysis_jsons, force=force)
     if step == "plan":
         return _plan_step(config, all_analysis_jsons, day_label=day_label, force=force)
+    if step == "plan_voiceover":
+        return _plan_voiceover_step(
+            config,
+            all_analysis_jsons,
+            day_label=day_label,
+            force=force,
+        )
     if step == "label":
         return _label_step(config, analysis_jsons, force=force)
     return _unknown_step(step)
@@ -308,6 +325,26 @@ def _plan_step(config: AppConfig, analysis_jsons: list[Path], *, day_label: str,
     plan_md = config.plans_dir / f"{safe_day}_plan.md"
     skipped = 0 if force else int(plan_md.is_file() and _valid_json_file(plan_json))
     return _step("plan", total=total, will_run=total - skipped, will_skip=skipped)
+
+
+def _plan_voiceover_step(
+    config: AppConfig,
+    analysis_jsons: list[Path],
+    *,
+    day_label: str,
+    force: bool,
+) -> dict[str, Any]:
+    safe_day = plan_day_stem(day_label)
+    plan_json = config.plans_dir / f"{safe_day}_plan.json"
+    if not _valid_json_file(plan_json):
+        return _warning_step("plan_voiceover", t("api.preview_missing_plan_voiceover_plan"))
+    if not analysis_jsons:
+        return _warning_step("plan_voiceover", t("api.preview_missing_plan_voiceover_analysis"))
+
+    out_json = config.scripts_dir / f"{safe_day}_plan_voiceover.json"
+    out_md = config.scripts_dir / f"{safe_day}_plan_voiceover.md"
+    skipped = 0 if force else int(out_md.is_file() and _valid_json_file(out_json))
+    return _step("plan_voiceover", total=1, will_run=1 - skipped, will_skip=skipped)
 
 
 def _label_step(config: AppConfig, analysis_jsons: list[Path], *, force: bool) -> dict[str, Any]:

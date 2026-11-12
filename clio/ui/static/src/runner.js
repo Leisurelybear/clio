@@ -31,6 +31,7 @@ const RUN_STEPS = [
   { key: 'analyze' },
   { key: 'voiceover' },
   { key: 'plan' },
+  { key: 'plan_voiceover' },
   { key: 'label' },
 ];
 
@@ -193,9 +194,10 @@ function _shouldResetRunNavigationOnRender(runActive) {
 
 function togglePlanSubOptions() {
   const planCb = document.querySelector('.run-step-cb[data-step="plan"]');
+  const planVoiceoverCb = document.querySelector('.run-step-cb[data-step="plan_voiceover"]');
   const sub = document.querySelector('.run-step-sub');
   if (!sub) return;
-  const enabled = planCb?.checked ?? true;
+  const enabled = planCb?.checked || planVoiceoverCb?.checked || (!planCb && !planVoiceoverCb);
   sub.style.opacity = enabled ? '1' : '0.35';
   sub.querySelectorAll('input, button').forEach(el => el.disabled = !enabled);
 }
@@ -249,7 +251,9 @@ export function needsPlanOverwriteConfirmation(preview, options) {
 export function needsArtifactOverwriteConfirmation(preview, options) {
   return Boolean(
     Array.isArray(options?.steps)
-    && (options.steps.includes('plan') || options.steps.includes('voiceover'))
+    && (options.steps.includes('plan')
+      || options.steps.includes('voiceover')
+      || options.steps.includes('plan_voiceover'))
     && preview?.artifact_overwrite?.required,
   );
 }
@@ -394,7 +398,7 @@ async function startRun() {
     return;
   }
   try {
-    if (options.steps.includes('plan') || options.steps.includes('voiceover')) {
+    if (options.steps.includes('plan') || options.steps.includes('voiceover') || options.steps.includes('plan_voiceover')) {
       const previewResponse = await api('POST', '/api/run/preview', options);
       const preview = previewResponse?.preview || null;
       if (needsPlanOverwriteConfirmation(preview, options)) {
@@ -726,7 +730,7 @@ export async function _handleRunStatus(s) {
 
 function _completionTargetForSteps(steps) {
   const stepSet = new Set(Array.isArray(steps) ? steps : []);
-  if (stepSet.has('plan')) return { entity: 'plan' };
+  if (stepSet.has('plan') || stepSet.has('plan_voiceover')) return { entity: 'plan' };
   if (stepSet.has('voiceover')) return { entity: 'video', tab: 'voiceover' };
   if (stepSet.has('transcribe')) return { entity: 'video', tab: 'transcript' };
   if (stepSet.has('analyze')) return { entity: 'video', tab: 'texts' };

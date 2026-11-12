@@ -906,3 +906,110 @@ def test_preview_reports_user_edited_voiceover_after_prompt_context_change(tmp_p
         "required": True,
         "items": ["001_A_voiceover.json", "001_A_voiceover.md"],
     }
+
+
+def _prepare_plan_voiceover_preview(config: AppConfig, *, with_plan: bool = True, with_analysis: bool = True) -> None:
+    config.texts_dir.mkdir(parents=True, exist_ok=True)
+    config.plans_dir.mkdir(parents=True, exist_ok=True)
+    config.scripts_dir.mkdir(parents=True, exist_ok=True)
+    if with_analysis:
+        _write_analysis(config, "harbor")
+    if with_plan:
+        plan = {
+            "day_title": "Day 1",
+            "theme": "harbor",
+            "sequence": [{"index": "001", "title": "A", "use_timeline": "00:00-00:10"}],
+            "source_inputs": [{"index": "001", "source_stem": "001_A", "match_stem": "A", "segment_offset_sec": 0}],
+        }
+        (config.plans_dir / "day1_plan.json").write_text(json.dumps(plan), encoding="utf-8")
+
+
+def test_preview_plan_voiceover_warns_when_plan_is_missing(tmp_path: Path) -> None:
+    input_dir = tmp_path / "videos"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+    config = _config(input_dir, output_dir)
+    _prepare_plan_voiceover_preview(config, with_plan=False)
+
+    preview = build_run_preview(config, steps=["plan_voiceover"], force=False, use_transcripts=True)
+
+    step = preview["steps"][0]
+    assert step["name"] == "plan_voiceover"
+    assert step["label"] == "生成计划口播"
+    assert step["total"] == 0
+    assert step["will_run"] == 0
+    assert step["will_skip"] == 0
+    assert step["warnings"] == ["未找到日度计划，请先生成规划再生成计划口播。"]
+
+
+def test_preview_plan_voiceover_warns_when_analysis_is_missing(tmp_path: Path) -> None:
+    input_dir = tmp_path / "videos"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+    config = _config(input_dir, output_dir)
+    _prepare_plan_voiceover_preview(config, with_analysis=False)
+
+    preview = build_run_preview(config, steps=["plan_voiceover"], force=False, use_transcripts=True)
+
+    assert preview["steps"][0]["warnings"] == ["未找到分析 JSON，计划口播步骤可能没有输入。"]
+
+
+def test_preview_plan_voiceover_skips_only_complete_valid_outputs(tmp_path: Path) -> None:
+    input_dir = tmp_path / "videos"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+    config = _config(input_dir, output_dir)
+    _prepare_plan_voiceover_preview(config)
+    out_json = config.scripts_dir / "day1_plan_voiceover.json"
+    out_md = config.scripts_dir / "day1_plan_voiceover.md"
+    out_json.write_text("{}", encoding="utf-8")
+    out_md.write_text("# voiceover", encoding="utf-8")
+
+    skipped = build_run_preview(config, steps=["plan_voiceover"], force=False, use_transcripts=True)
+
+    assert skipped["steps"][0]["will_run"] == 0
+    assert skipped["steps"][0]["will_skip"] == 1
+
+    out_json.write_text("{invalid", encoding="utf-8")
+    invalid_json = build_run_preview(config, steps=["plan_voiceover"], force=False, use_transcripts=True)
+    assert invalid_json["steps"][0]["will_run"] == 1
+
+    out_json.write_text("{}", encoding="utf-8")
+    out_md.unlink()
+    missing_markdown = build_run_preview(config, steps=["plan_voiceover"], force=False, use_transcripts=True)
+    assert missing_markdown["steps"][0]["will_run"] == 1
+
+
+def test_preview_reports_user_edited_plan_voiceover_after_context_change(tmp_path: Path) -> None:
+    input_dir = tmp_path / "videos"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+    config = _config(input_dir, output_dir)
+    _prepare_plan_voiceover_preview(config)
+    out_json = config.scripts_dir / "day1_plan_voiceover.json"
+    out_md = config.scripts_dir / "day1_plan_voiceover.md"
+    out_json.write_text(
+        json.dumps(
+            {
+                "segments": [],
+                "_lineage": "old-lineage",
+                "_user_edited": True,
+                "_user_edited_at": "2026-11-10T00:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    out_md.write_text("# edited voiceover", encoding="utf-8")
+
+    preview = build_run_preview(
+        config,
+        steps=["plan_voiceover"],
+        force=False,
+        use_transcripts=True,
+        context_override="关注码头声音",
+    )
+
+    assert preview["artifact_overwrite"] == {
+        "required": True,
+        "items": ["day1_plan_voiceover.json", "day1_plan_voiceover.md"],
+    }

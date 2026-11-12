@@ -31,7 +31,7 @@ from clio.tasks.label import run_label_videos
 from clio.tasks.plan import run_plan_all_days, run_plan_vlog  # noqa: F401
 from clio.tasks.refine import run_refine_scripts, run_refine_texts  # noqa: F401
 from clio.tasks.reindex import auto_reindex_if_needed
-from clio.tasks.scripts import run_generate_scripts
+from clio.tasks.scripts import run_generate_plan_voiceovers, run_generate_scripts
 from clio.tasks.transcribe import run_transcribe_all
 
 
@@ -51,12 +51,13 @@ _STEP_FUNCS: dict[str, Callable[..., Any]] = {
     "analyze": run_analyze_all,
     "voiceover": run_generate_scripts,
     "plan": run_plan_vlog,
+    "plan_voiceover": run_generate_plan_voiceovers,
     "label": run_label_videos,
 }
 
 PIPELINE_STEPS = tuple(_STEP_FUNCS)
 
-_STEP_DAY_ARG = {"plan"}
+_STEP_DAY_ARG = {"plan", "plan_voiceover"}
 
 
 def run_pipeline_steps(
@@ -113,7 +114,7 @@ def run_pipeline_steps(
                     kwargs["overwrite"] = True
                 if step == "plan" and confirm_plan_overwrite:
                     kwargs["confirm_plan_overwrite"] = True
-                if step in {"plan", "voiceover"} and confirm_artifact_overwrite:
+                if step in {"plan", "voiceover", "plan_voiceover"} and confirm_artifact_overwrite:
                     kwargs["confirm_artifact_overwrite"] = True
                 if context_override:
                     kwargs["context_override"] = context_override

@@ -9,6 +9,7 @@ import {
   needsPlanOverwriteConfirmation,
   needsArtifactOverwriteConfirmation,
   startRun,
+  _completionTargetForSteps,
   getRunButtonText,
   _shouldResetRunNavigationOnRender,
   updateRunStartButtonState,
@@ -156,9 +157,10 @@ describe('needsPlanOverwriteConfirmation', () => {
 describe('needsArtifactOverwriteConfirmation', () => {
   const riskyPreview = { artifact_overwrite: { required: true, items: ['day1_plan.json'] } };
 
-  it('requires confirmation for plan or voiceover when artifacts are at risk', () => {
+  it('requires confirmation for plan, voiceover, or plan voiceover when artifacts are at risk', () => {
     expect(needsArtifactOverwriteConfirmation(riskyPreview, { steps: ['plan'] })).toBe(true);
     expect(needsArtifactOverwriteConfirmation(riskyPreview, { steps: ['voiceover'] })).toBe(true);
+    expect(needsArtifactOverwriteConfirmation(riskyPreview, { steps: ['plan_voiceover'] })).toBe(true);
   });
 
   it('does not require confirmation for other steps or risk-free previews', () => {
@@ -399,6 +401,30 @@ describe('startRun', () => {
     expect(startCall?.[2]).toEqual(expect.objectContaining({ steps: ['voiceover'] }));
   });
 
+  it('refreshes the preview for a plan-voiceover-only run', async () => {
+    document.body.innerHTML = `
+      <button id="btn-run-start"></button>
+      <div id="run-preview"></div>
+      <div id="run-progress"></div>
+      <input class="run-step-cb" data-step="plan" type="checkbox">
+      <input class="run-step-cb" data-step="plan_voiceover" type="checkbox" checked>
+      <input id="run-day" value="day1">
+      <input id="run-use-transcripts" type="checkbox" checked>
+      <input id="run-overwrite" type="checkbox">
+    `;
+    const { api } = await import('../api.js');
+    api.mockResolvedValueOnce({ preview: {} });
+    api.mockResolvedValueOnce({ ok: true, task_id: 'task-plan-voiceover' });
+
+    await startRun();
+
+    expect(api).toHaveBeenNthCalledWith(1, 'POST', '/api/run/preview', expect.objectContaining({
+      steps: ['plan_voiceover'],
+    }));
+    const startCall = api.mock.calls.find(([method, url]) => method === 'POST' && url === '/api/run/start');
+    expect(startCall?.[2]).toEqual(expect.objectContaining({ steps: ['plan_voiceover'] }));
+  });
+
   it('does not ask when the fresh preview reports no overwrite risk', async () => {
     const { api } = await import('../api.js');
     api.mockResolvedValueOnce({ preview: {} });
@@ -413,6 +439,13 @@ describe('startRun', () => {
   });
 });
 
+describe('_completionTargetForSteps', () => {
+  it('opens the plan after planned voiceover generation', () => {
+    expect(_completionTargetForSteps(['plan_voiceover'])).toEqual({ entity: 'plan' });
+    expect(_completionTargetForSteps(['plan', 'plan_voiceover'])).toEqual({ entity: 'plan' });
+  });
+});
+
 describe('staleWarningHtml', () => {
   it('shows a generic ASR hint only for the transcribe phase', () => {
     const html = staleWarningHtml('transcribe');
@@ -422,7 +455,7 @@ describe('staleWarningHtml', () => {
   });
 
   it('omits the ASR hint for non-transcribe phases', () => {
-    for (const phase of ['compress', 'analyze', 'voiceover', 'plan', 'label', '启动', '']) {
+    for (const phase of ['compress', 'analyze', 'voiceover', 'plan', 'plan_voiceover', 'label', '启动', '']) {
       const html = staleWarningHtml(phase);
       expect(html).toContain('stale-warn');
       expect(html).toContain('进度长时间未更新');
