@@ -7,10 +7,12 @@ import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from clio.ui.handler_protocol import HandlerProtocol
 from clio.ui.routes.plan import (
     handle_delete_plan,
     handle_get_cut_orphaned_backups,
@@ -765,7 +767,7 @@ class TestRunCutTask:
             _run_cut_task(context)
 
 
-def _prepare_cut_project(tmp_path: Path, monkeypatch) -> tuple[MagicMock, object, Path]:
+def _prepare_cut_project(tmp_path: Path, monkeypatch) -> tuple[MagicMock, Any, Path]:
     from clio.task_center.manager import TaskManager
     from clio.task_center.store import TaskStore
 
@@ -810,7 +812,7 @@ class TestHandlePostCutValidation:
         monkeypatch.setattr("clio.ui.routes.plan._run_cut_task", worker)
         handle_post_cut(handler, {}, {"day_label": "day1", "source": "compressed"})
 
-        payload = handler._send_json.call_args.args[0]
+        payload = cast(dict[str, Any], handler._send_json.call_args.args[0])
         manager.wait(payload["task_id"])
         assert captured["reencode"] is True
 
@@ -978,10 +980,15 @@ class TestLegacyCutThread:
         return handler
 
     def test_runs_in_background_thread(self, tmp_path: Path, monkeypatch):
-        calls: list[dict] = []
-        handler = self._prepare(tmp_path, monkeypatch, lambda *a, **k: calls.append(k) or [])
+        calls: list[dict[str, Any]] = []
 
-        handle_post_cut(handler, {}, {"day_label": "day1", "source": "compressed"})
+        def run_cut(*args, **kwargs):
+            calls.append(kwargs)
+            return []
+
+        handler = self._prepare(tmp_path, monkeypatch, run_cut)
+
+        handle_post_cut(cast(HandlerProtocol, handler), {}, {"day_label": "day1", "source": "compressed"})
 
         payload, _ = handler.responses[-1]
         assert payload["started"] is True
@@ -997,7 +1004,7 @@ class TestLegacyCutThread:
 
         handler = self._prepare(tmp_path, monkeypatch, _boom)
 
-        handle_post_cut(handler, {}, {"day_label": "day1", "source": "compressed"})
+        handle_post_cut(cast(HandlerProtocol, handler), {}, {"day_label": "day1", "source": "compressed"})
 
         deadline = time.time() + 5
         while handler._state.job_thread is not None and time.time() < deadline:
