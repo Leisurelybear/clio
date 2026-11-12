@@ -127,7 +127,11 @@ vlog-video-analysis/
     ├── export/
     │   └── jianying.py         # JianYing/CapCut draft export
     ├── ui/
-    │   ├── server.py           # stdlib http.server dispatcher and auth gate
+    │   ├── server.py           # Route handler namespace and thin HTTP server entry
+    │   ├── handler_factory.py  # Dynamic request-handler construction and dispatch
+    │   ├── handler_security.py # Bearer token and local-session request gates
+    │   ├── request_body.py     # Bounded JSON request-body parsing
+    │   ├── route_table.py      # Declarative route/auth policies and handler mapping
     │   ├── http_server.py      # Bounded ThreadingHTTPServer with request timeouts
     │   ├── router.py           # Declarative URL router ({param} + prefixes)
     │   ├── handler_protocol.py # Typed protocol for the dynamic handler methods

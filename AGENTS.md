@@ -23,7 +23,7 @@ analysis -> DeepSeek text planning/voiceover -> JianYing (CapCut) manual editing
 | Planning / export | `clio/plan_input.py`, `clio/plan_model.py`, `clio/plan_readiness.py`, `clio/export/` |
 | Same-day consistency | `clio/tasks/consistency.py`, `clio/ai/structured.py`, `clio/prompts.py` |
 | Task runtime | `clio/task_center/`, `clio/progress.py`, `clio/shutdown.py` |
-| Web backend | `clio/ui/server.py`, `clio/ui/routes/`, `clio/ui/services/` |
+| Web backend | `clio/ui/server.py`, `handler_factory.py`, `route_table.py`, `handler_security.py`, `request_body.py`, `clio/ui/routes/`, `clio/ui/services/` |
 | Web frontend | `clio/ui/static/src/`, `clio/ui/static/locales/` |
 | Desktop | `clio/desktop/` |
 | Tests | `clio/tests/`, `clio/ui/static/src/__tests__/` |
