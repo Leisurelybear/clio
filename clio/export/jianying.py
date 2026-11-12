@@ -23,6 +23,19 @@ from clio.utils import get_duration_sec, probe_media_details, write_text_atomic
 logger = logging.getLogger("clio.export.jianying")
 
 
+# Verified against pyJianYingDraft 0.3.1: JianYing attaches a transition to the
+# segment *before* the cut point through extra_material_refs.
+_TRANSITION_SPECS: dict[str, dict] = {
+    "dissolve": {
+        "name": "叠化",
+        "effect_id": "322577",
+        "resource_id": "6724845717472416269",
+        "duration_us": 500_000,
+        "is_overlap": True,
+    },
+}
+
+
 def _to_microseconds(seconds: float) -> int:
     return int(seconds * 1_000_000)
 
@@ -276,17 +289,38 @@ def _build_materials(
     )
 
 
+def _build_transition_material(spec: dict) -> dict:
+    return {
+        "category_id": "",
+        "category_name": "",
+        "duration": spec["duration_us"],
+        "effect_id": spec["effect_id"],
+        "id": str(uuid.uuid4()),
+        "is_overlap": spec["is_overlap"],
+        "name": spec["name"],
+        "platform": "all",
+        "resource_id": spec["resource_id"],
+        "type": "transition",
+    }
+
+
 def _build_tracks(
     plan_data: dict,
     index_to_material_id: dict[str, str],
     seq_text_ids: dict[int, str] | None = None,
     index_to_offset: dict[str, float] | None = None,
     index_to_duration_us: dict[str, int] | None = None,
+    transition_materials: list[dict] | None = None,
 ) -> list[dict]:
     """Build video and text tracks from plan sequence.
 
     index_to_duration_us clamps each timeline to the material's real length so
     a plan that overshoots the source never references missing footage.
+
+    A segment's transition describes the cut into that segment, so the
+    transition material is attached to the previous video segment. Segments
+    shorter than the transition are skipped instead of producing an invalid
+    overlap.
     """
     video_segments: list[dict] = []
     text_segments: list[dict] = []
@@ -294,6 +328,7 @@ def _build_tracks(
     skipped_count = 0
     index_to_offset = index_to_offset or {}
     index_to_duration_us = index_to_duration_us or {}
+    previous_video: dict | None = None
 
     for i, seg in enumerate(plan_data.get("sequence", [])):
         idx = seg.get("index", "")
@@ -329,20 +364,28 @@ def _build_tracks(
         material_id = index_to_material_id[idx]
         seg_uuid = str(uuid.uuid4())
 
-        video_segments.append(
-            {
-                "id": seg_uuid,
-                "material_id": material_id,
-                "target_timerange": {
-                    "start": accumulated_us,
-                    "duration": duration_us,
-                },
-                "source_timerange": {
-                    "start": source_start_us,
-                    "duration": duration_us,
-                },
-            }
-        )
+        video_segment = {
+            "id": seg_uuid,
+            "material_id": material_id,
+            "target_timerange": {
+                "start": accumulated_us,
+                "duration": duration_us,
+            },
+            "source_timerange": {
+                "start": source_start_us,
+                "duration": duration_us,
+            },
+        }
+        transition_kind = str(seg.get("transition") or "").strip().lower()
+        spec = _TRANSITION_SPECS.get(transition_kind)
+        if spec is not None and transition_materials is not None and previous_video is not None:
+            prev_duration = previous_video["target_timerange"]["duration"]
+            if prev_duration > spec["duration_us"] and duration_us > spec["duration_us"]:
+                material = _build_transition_material(spec)
+                transition_materials.append(material)
+                previous_video.setdefault("extra_material_refs", []).append(material["id"])
+        video_segments.append(video_segment)
+        previous_video = video_segment
 
         # Text segment for the on-screen caption
         text_mat_id = (seq_text_ids or {}).get(i)
@@ -484,13 +527,16 @@ def export_plan_to_jianying(
         for idx, mat_id in index_to_material_id.items()
         if mat_id in duration_by_material_id
     }
+    transition_materials: list[dict] = []
     tracks = _build_tracks(
         plan_data,
         index_to_material_id,
         seq_text_ids,
         index_to_offset,
         index_to_duration_us,
+        transition_materials=transition_materials,
     )
+    materials["transitions"] = transition_materials
 
     if sequence and not materials["videos"]:
         raise RuntimeError(t("export.no_usable_materials", {"count": len(sequence)}))

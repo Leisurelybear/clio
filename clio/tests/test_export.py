@@ -345,6 +345,88 @@ class TestBuildTracks:
         assert tracks == []
 
 
+class TestBuildTransitions:
+    def test_dissolve_attaches_transition_to_previous_segment(self) -> None:
+        plan_data = {
+            "sequence": [
+                {"index": "001", "use_timeline": "00:00-00:05"},
+                {"index": "001", "use_timeline": "00:05-00:10", "transition": "dissolve"},
+            ]
+        }
+        transitions: list[dict] = []
+
+        with patch("clio.export.jianying.parse_time_range") as mock_parse:
+            mock_parse.side_effect = [(0.0, 5.0), (5.0, 10.0)]
+            tracks = _build_tracks(plan_data, {"001": "mat-001"}, {}, transition_materials=transitions)
+
+        segments = tracks[0]["segments"]
+        assert "extra_material_refs" not in segments[1]
+        assert segments[0]["extra_material_refs"] == [transitions[0]["id"]]
+        assert len(transitions) == 1
+        assert transitions[0]["name"] == "叠化"
+        assert transitions[0]["resource_id"] == "6724845717472416269"
+        assert transitions[0]["effect_id"] == "322577"
+        assert transitions[0]["duration"] == 500_000
+        assert transitions[0]["type"] == "transition"
+        assert transitions[0]["is_overlap"] is True
+
+    def test_hard_cut_adds_no_transition(self) -> None:
+        plan_data = {
+            "sequence": [
+                {"index": "001", "use_timeline": "00:00-00:05"},
+                {"index": "001", "use_timeline": "00:05-00:10", "transition": "hard_cut"},
+            ]
+        }
+        transitions: list[dict] = []
+
+        with patch("clio.export.jianying.parse_time_range") as mock_parse:
+            mock_parse.side_effect = [(0.0, 5.0), (5.0, 10.0)]
+            tracks = _build_tracks(plan_data, {"001": "mat-001"}, {}, transition_materials=transitions)
+
+        assert transitions == []
+        assert all("extra_material_refs" not in seg for seg in tracks[0]["segments"])
+
+    def test_first_segment_transition_is_ignored(self) -> None:
+        plan_data = {"sequence": [{"index": "001", "use_timeline": "00:00-00:05", "transition": "dissolve"}]}
+        transitions: list[dict] = []
+
+        with patch("clio.export.jianying.parse_time_range", return_value=(0.0, 5.0)):
+            _build_tracks(plan_data, {"001": "mat-001"}, {}, transition_materials=transitions)
+
+        assert transitions == []
+
+    def test_short_segment_skips_transition(self) -> None:
+        plan_data = {
+            "sequence": [
+                {"index": "001", "use_timeline": "00:00-00:00.3"},
+                {"index": "001", "use_timeline": "00:05-00:10", "transition": "dissolve"},
+            ]
+        }
+        transitions: list[dict] = []
+
+        with patch("clio.export.jianying.parse_time_range") as mock_parse:
+            mock_parse.side_effect = [(0.0, 0.3), (5.0, 10.0)]
+            tracks = _build_tracks(plan_data, {"001": "mat-001"}, {}, transition_materials=transitions)
+
+        assert transitions == []
+        assert "extra_material_refs" not in tracks[0]["segments"][0]
+
+    def test_unknown_transition_kind_is_ignored(self) -> None:
+        plan_data = {
+            "sequence": [
+                {"index": "001", "use_timeline": "00:00-00:05"},
+                {"index": "001", "use_timeline": "00:05-00:10", "transition": "b_roll"},
+            ]
+        }
+        transitions: list[dict] = []
+
+        with patch("clio.export.jianying.parse_time_range") as mock_parse:
+            mock_parse.side_effect = [(0.0, 5.0), (5.0, 10.0)]
+            _build_tracks(plan_data, {"001": "mat-001"}, {}, transition_materials=transitions)
+
+        assert transitions == []
+
+
 class TestExportPlanToJianying:
     def test_missing_plan_raises_file_not_found(self, tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError, match="plan 文件不存在"):
@@ -371,6 +453,7 @@ class TestExportPlanToJianying:
                             "index": "001",
                             "use_timeline": "00:10-00:15",
                             "subtitle": "World",
+                            "transition": "dissolve",
                         },
                     ],
                 }
@@ -407,6 +490,10 @@ class TestExportPlanToJianying:
         assert draft["platform"]["os"] == "mac"
         assert len(draft["materials"]["videos"]) == 1
         assert len(draft["materials"]["texts"]) == 2
+        assert len(draft["materials"]["transitions"]) == 1
+        transition = draft["materials"]["transitions"][0]
+        assert transition["name"] == "叠化"
+        assert draft["tracks"][0]["segments"][0]["extra_material_refs"] == [transition["id"]]
         assert len(draft["tracks"]) >= 1
         assert draft["tracks"][0]["type"] == "video"
         assert (output_dir / "subtitles.srt").read_text(encoding="utf-8") == (
