@@ -2,6 +2,15 @@
 
 ## 2026-11-12
 
+Analysis timelines now carry shot-level attributes and use detected scene boundaries as authoritative timing guidance.
+
+- feat(analyze): add shot size, camera direction, first/last frame, energy, and audio fields to the structured timeline schema
+- feat(analyze): detect scene boundaries per analysis window, inject them into the prompt, and snap timeline timestamps to nearby boundaries
+- feat(analyze): bump analysis lineage to engine version 3 and include the scene detection version
+- test(analyze): cover prompt guidance, structured-field validation, boundary formatting, timestamp snapping, and window task integration
+
+Verification: focused pytest passes 164 tests; full pytest passes `3070 passed, 12 skipped`; Ruff, mypy over 273 source files, and `git diff --check` pass. Related commits: `c5600d7`, `336824c`.
+
 Editor save flows now have direct regression coverage for routing, refresh behavior, no-op states,
 and failure handling.
 

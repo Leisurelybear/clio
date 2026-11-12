@@ -14,7 +14,7 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
 
 Source: [`docs/analysis/2026-11-05-P0-P2-Issues.md`](docs/analysis/2026-11-05-P0-P2-Issues.md)
 
-Snapshot: 83 items; 74 completed locally; 1 partial; 2 awaiting real-environment verification; 6 pending.
+Snapshot: 83 items; 75 completed locally; 1 partial; 2 awaiting real-environment verification; 5 pending.
 O17 and O18 are complete as of this cleanup. The analysis document remains the source of truth for item-level
 status and verification notes.
 
@@ -28,7 +28,7 @@ P1 items:
   - `[x]` send `VideoMetadata` start/end offsets and `fps=3` for logical analyze windows
   - `[x]` add per-project `analyze.media_resolution` (`low | medium | high`, default `medium`)
   - `[x]` remove physical slicing from the analyze path and invalidate stale window caches
-- `[ ]` Q6 shot-level structured analysis attributes and scene boundaries
+- `[x]` Q6 shot-level structured analysis attributes and scene boundaries (`c5600d7`, `336824c`)
 - `[ ]` Q7 same-location entity and duplicate-scene consistency
 - `[ ]` Q11 outline -> shot selection -> review planning loop
 - `[x]` Q12 generate voiceover from the planned segments after planning (`89b9315`, `9da2483`)
