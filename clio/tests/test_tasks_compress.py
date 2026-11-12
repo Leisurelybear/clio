@@ -138,6 +138,32 @@ class TestRunCompressAll:
         assert len(records2) == 1
         assert call_count == 1  # still 1 — no new compress calls
 
+    def test_force_mode_recompresses_in_existing_slot(self, monkeypatch, tmp_path: Path):
+        """skip_existing=false must force a re-compress without allocating a new index."""
+        cfg = _cfg(tmp_path)
+        _add_video(cfg, "test.mp4")
+        monkeypatch.setattr("clio.tasks.compress.resolve_binary", lambda *a: "ffmpeg")
+        monkeypatch.setattr("clio.tasks.compress.get_duration_sec", lambda *a, **kw: 10.0)
+
+        call_count = [0]
+
+        def _mock_compress(inp, outp, c, **kw):
+            call_count[0] += 1
+            outp.write_bytes(b"\x00" * 60_000)
+            return outp
+
+        monkeypatch.setattr("clio.tasks.compress.compress_video", _mock_compress)
+        cfg.analyze.skip_existing = True
+        run_compress_all(cfg)
+        assert call_count[0] == 1
+
+        cfg.analyze.skip_existing = False
+        run_compress_all(cfg)
+
+        assert call_count[0] == 2, "force mode must re-compress"
+        outputs = sorted(path.name for path in cfg.compressed_dir.glob("*.mp4"))
+        assert outputs == ["001_test.mp4"], f"force mode must reuse the numeric slot, got {outputs}"
+
     def test_recompress_when_source_changes(self, monkeypatch, tmp_path: Path):
         """Changing the source file (mtime/size) must re-compress, not reuse the old output."""
         cfg = _cfg(tmp_path)

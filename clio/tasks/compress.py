@@ -255,6 +255,7 @@ def run_compress_all(
         selected = _selection_from_files(files)
         videos = [v for v in videos if _matches_selected_stem(v, selected)]
     config.compressed_dir.mkdir(parents=True, exist_ok=True)
+    force_compress = overwrite or not config.analyze.skip_existing
 
     # Phase 1: one compressed file per original, newest index follows shooting order.
     items: list[tuple[Path, Path]] = [(video, video) for video in videos]
@@ -271,7 +272,7 @@ def run_compress_all(
     # NOT proof of corruption: keep the artifact and only remove it after a
     # fresh replacement commits (GAP-P1-07).
     unverifiable: dict[str, list[Path]] = {}
-    if config.analyze.skip_existing and config.compressed_dir.is_dir():
+    if config.compressed_dir.is_dir():
         for f in config.compressed_dir.iterdir():
             if not f.is_file() or f.suffix.lower() not in VIDEO_EXTS:
                 continue
@@ -306,9 +307,9 @@ def run_compress_all(
         for i, (original, source) in enumerate(items, start=1):
             label_name = source.name if source == original else f"{original.name} → {source.name}"
 
-            # Reuse existing compressed file if it is fresh and still matches
-            # (only in skip mode; overwrite mode always forces a re-compress).
-            if not overwrite:
+            # Reuse existing compressed file if it is fresh and still matches.
+            # Force/rerun mode re-compresses but keeps the existing numeric slot.
+            if not force_compress:
                 use_idx, use_out, use_meta, reject_reason = _find_reusable(source, existing_map, config, ffprobe)
                 if use_idx is not None and use_out is not None:
                     if tracker:
@@ -331,7 +332,7 @@ def run_compress_all(
             # Leftover *_segNN files do NOT satisfy whole-file compress; continue to create
             # a new non-segment compressed file so the project can migrate forward.
 
-            overwrite_slot = _find_existing_slot(source, existing_map) if overwrite else None
+            overwrite_slot = _find_existing_slot(source, existing_map) if force_compress else None
             if overwrite_slot is not None:
                 use_idx, use_out = overwrite_slot
             else:
@@ -397,7 +398,7 @@ def run_compress_all(
             )
             meta.write(use_out)
 
-            _prune_stale_siblings(source, use_out, existing_map, config, force=overwrite)
+            _prune_stale_siblings(source, use_out, existing_map, config, force=force_compress)
 
             # Now that a fresh valid output is committed, drop previously
             # unverifiable same-source artifacts that were retained on scan

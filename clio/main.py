@@ -497,7 +497,7 @@ def main(argv: list[str] | None = None) -> int:
             from clio.tasks.reindex import auto_reindex_if_needed
 
             auto_reindex_if_needed(config)
-            run_compress_all(config, single_file=single_file)
+            run_compress_all(config, single_file=single_file, overwrite=args.force)
         elif args.command == "analyze":
             from clio.pipeline import run_analyze_all
             from clio.tasks.reindex import auto_reindex_if_needed

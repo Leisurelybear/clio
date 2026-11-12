@@ -135,7 +135,11 @@ def _run_rerun_task(context) -> dict[str, Any]:
             (
                 "compress",
                 lambda: run_compress_all(
-                    cfg, tracker=tracker, single_file=original_video, cancel_event=context.cancel_event
+                    cfg,
+                    tracker=tracker,
+                    single_file=original_video,
+                    cancel_event=context.cancel_event,
+                    overwrite=True,
                 ),
                 t("task.step.compress"),
             ),

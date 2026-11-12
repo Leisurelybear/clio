@@ -10,7 +10,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 
 | Priority | Total | Fixed | Satisfied | Confirmed | Environment verification | Duplicate | Not applicable | Pending audit |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| P0 | 9 | 1 | 0 | 8 | 0 | 0 | 0 | 0 |
+| P0 | 9 | 2 | 0 | 7 | 0 | 0 | 0 | 0 |
 | P1 | 35 | 0 | 8 | 4 | 0 | 0 | 0 | 23 |
 | P2 | 59 | 0 | 12 | 0 | 0 | 0 | 0 | 47 |
 | P3 | 14 | 0 | 0 | 0 | 0 | 0 | 0 | 14 |
@@ -20,7 +20,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | # | Priority | ID | Issue | Status | Evidence / verification |
 | ---: | --- | --- | --- | --- | --- |
 | 001 | P0 | R001 | LAN 模式不会自动生成 token: 示例配置的 api_token: "" 是空串而不是 None, if TOKEN is None 不成立 | Fixed | Blank tokens now normalize to `None`, so LAN binds generate and pass an auth token while loopback stays tokenless. Focused: 5 pytest cases passed. |
-| 002 | P0 | R004 | --force, analyze.skip_existing:false, 单视频重跑 (compress / all) 都只把 skip_existing 置为 False 而不传 overwrite, 于是不建 existing_map, 每次都分配新编号 | Confirmed | Confirmed against current code and tests; remediation pending. |
+| 002 | P0 | R004 | --force, analyze.skip_existing:false, 单视频重跑 (compress / all) 都只把 skip_existing 置为 False 而不传 overwrite, 于是不建 existing_map, 每次都分配新编号 | Fixed | Force/rerun mode now scans existing artifacts, re-compresses, and reuses the original numeric slot. Focused: 23 compress tests passed. |
 | 003 | P0 | E1 | "全部重跑"把 ClipRecord.text_path (.txt) 当作分析 JSON 传给口播步骤 | Confirmed | Confirmed against current code and tests; remediation pending. |
 | 004 | P0 | R005 | 网络层错误从不重试: google-genai 抛出的是 httpx.ConnectError/ReadTimeout, 它们不是 OSError, 被包装成"不可重试错误" | Confirmed | Confirmed against current code and tests; remediation pending. |
 | 005 | P0 | E2 | 结构校验重试把"上次模型输出"当作 prompt 前缀, 原始任务说明、上下文、转录全部丢失 | Confirmed | Confirmed against current code and tests; remediation pending. |
