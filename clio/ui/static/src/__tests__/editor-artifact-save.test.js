@@ -66,6 +66,7 @@ vi.mock('../latest.js', () => ({
 import { api, apiWithMeta } from '../api.js';
 import { applyLocale } from '../i18n.js';
 import { _prefillSubtitle, save } from '../editor-plan.js';
+import { saveEditorPlan } from '../editor-plan-persistence.js';
 import { state, artifactVersion } from '../state.js';
 import { addToast } from '../toast.js';
 import { markDirty, setStatus } from '../utils.js';
@@ -242,6 +243,20 @@ describe('save routing', () => {
       6000,
       { title: 'plan.save_failed_title' },
     );
+  });
+
+  it('notifies the plan readiness hook after a successful plan save', async () => {
+    state.currentEntity = 'plan';
+    state.plan = { day_title: 'draft', sequence: [] };
+    state.artifactVersions.plan.day1 = 'old-plan';
+    apiWithMeta.mockResolvedValue({ data: { ok: true }, version: 'new-plan' });
+    const onPlanSaved = vi.fn();
+
+    await saveEditorPlan({ onPlanSaved });
+
+    expect(onPlanSaved).toHaveBeenCalledOnce();
+    expect(state.dirty).toBe(false);
+    expect(artifactVersion('plan', 'day1')).toBe('new-plan');
   });
 
   it('does not call the save API when the editor is clean', async () => {

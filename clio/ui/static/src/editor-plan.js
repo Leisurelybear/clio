@@ -1,4 +1,4 @@
-import { state, artifactVersion, setArtifactVersion, clearArtifactVersion } from './state.js';
+import { state, setArtifactVersion } from './state.js';
 import { $, escapeHtml, markDirty, clearDirty, updateSidebarDay, setStatus } from './utils.js';
 import { api, apiWithMeta, icon } from './api.js';
 import { renderPreviewBar, startPreview, stopPreview, _playPreviewSegment, seekToGlobal } from './viewer.js';
@@ -6,8 +6,13 @@ import { buildTimeline, clampGlobal } from './plan-timeline.js';
 import { recomposePlanWaveformFromCache, isPlanWaveformMode } from './waveform.js';
 import { addToast } from './toast.js';
 import { alertDialog, confirmDialog } from './confirm.js';
-import { resolveEditorSaveTarget, artifactIfMatchHeader, isArtifactConflict } from './editor-save.js';
-import { applyLocale, getLocale, onLocaleChange, t } from './i18n.js';
+import {
+  applySavedConfigLanguage,
+  configSaveStatusForTab,
+  deletePlanArtifact,
+  saveEditorPlan,
+} from './editor-plan-persistence.js';
+import { onLocaleChange, t } from './i18n.js';
 import { exportJianyingDraft } from './plan-export.js';
 import { waitForTask } from './task-center.js';
 import { openPlanRangePicker } from './plan-range-picker.js';
@@ -99,26 +104,6 @@ function autoScrollDuringDrag(clientY) {
   const rect = scroller.getBoundingClientRect();
   const delta = computeDragAutoScrollDelta(clientY, rect.top, rect.bottom);
   if (delta) scroller.scrollTop += delta;
-}
-
-export function configSaveStatusForTab(tab) {
-  if (tab === 'project') {
-    return { message: t('plan.config_saved_project'), level: 'ok' };
-  }
-  if (tab === 'global') {
-    return {
-      message: t('plan.config_saved_global'),
-      level: 'ok',
-    };
-  }
-  return { message: t('plan.config_readonly'), level: 'warn' };
-}
-
-/** Apply `ui.language` from a freshly saved global config without a reload. */
-export function applySavedConfigLanguage(config = state.configGlobal) {
-  const next = config?.ui?.language;
-  if (!next || next === getLocale()) return getLocale();
-  return applyLocale(next);
 }
 
 function applySequence(next, opts = {}) {
@@ -323,43 +308,6 @@ export function _prefillSubtitle(li, seg) {
       subEl.placeholder = text || t('plan.subtitle.none');
     })
     .catch(() => { subEl.placeholder = t('plan.subtitle.load_failed'); });
-}
-
-export async function deletePlan(day = state.currentDay, options = {}) {
-  const label = String(day || '');
-  if (!label) return false;
-  const ask = options.confirm || confirm;
-  if (!ask(t('plan.delete_plan_confirm', { day: label }))) return false;
-  const request = options.api || api;
-  try {
-    await request('DELETE', `/api/plan?day=${encodeURIComponent(label)}`);
-  } catch (e) {
-    const message = t('plan.delete_plan_failed', { detail: e.message });
-    setStatus(message, 'err');
-    addToast(message, 'error', 6000, { persist: false });
-    return false;
-  }
-  clearDirty();
-  state.plan = null;
-  clearArtifactVersion('plan', label);
-  state.planPreviewMedia = null;
-  state.previewCutFallbacks?.clear();
-  state._previewMedia = null;
-  const message = t('plan.delete_plan_done', { day: label });
-  setStatus(message, 'ok');
-  addToast(message, 'success', undefined, { persist: false });
-
-  const { loadPlans, selectPlan, saveProject } = options.sidebar || await import('./sidebar.js');
-  await loadPlans();
-  if (state.availablePlans.length) {
-    await selectPlan(state.availablePlans[0].day_label);
-  } else {
-    state.currentDay = label;
-    updateSidebarDay();
-    saveProject();
-    renderPlan();
-  }
-  return true;
 }
 
 export function renderPlan() {
@@ -845,105 +793,12 @@ export async function executeCut() {
 }
 
 
-let _saveGeneration = 0;
-
-function _bumpSaveGeneration() {
-  _saveGeneration += 1;
-  return _saveGeneration;
+export async function deletePlan(day = state.currentDay, options = {}) {
+  return deletePlanArtifact(day, { ...options, render: options.render || renderPlan });
 }
 
-export async function save() {
-  if (!state.dirty) { setStatus(t('plan.nothing_to_save'), 'warn'); return; }
-  const generation = _bumpSaveGeneration();
-  const entity = state.currentEntity;
-  const day = state.currentDay;
-  const tab = state.currentTab;
-  const videoFile = state.currentVideo;
-  const planData = state.plan;
-  const textsData = state.texts;
-  const voiceoverData = state.voiceover;
-  const target = resolveEditorSaveTarget({
-    entity,
-    tab,
-    configTab: state.configTab,
-  });
-  if (target.action === 'noop') {
-    setStatus(t(target.reasonKey || 'plan.no_save_target'), 'warn');
-    return;
-  }
-  try {
-    if (target.action === 'config') {
-      const ct = target.configTab || 'global';
-      let r;
-      if (ct === 'global') {
-        r = await api('PUT', '/api/config/global', state.configGlobal);
-      } else {
-        r = await api('PUT', '/api/config/project', state.configProject);
-      }
-      if (r.error) throw new Error(r.error);
-      if (generation !== _saveGeneration) return;
-      clearDirty();
-      if (ct === 'global') applySavedConfigLanguage();
-      const status = configSaveStatusForTab(ct);
-      setStatus(status.message, status.level);
-      addToast(status.message, status.level === 'ok' ? 'success' : 'warning', undefined, { persist: false });
-      try {
-        if (typeof window.refreshFfmpegDepsUi === 'function') {
-          await window.refreshFfmpegDepsUi();
-        } else {
-          const { loadFfmpegDeps, renderVideoList } = await import('./sidebar-data.js');
-          await loadFfmpegDeps();
-          renderVideoList();
-        }
-      } catch { /* ignore */ }
-      return;
-    }
-    let versionKind = null;
-    let versionKey = null;
-    let requestUrl = null;
-    let requestBody = null;
-    if (target.action === 'plan') {
-      versionKind = 'plan';
-      versionKey = day;
-      requestUrl = `/api/plan?day=${day}`;
-      requestBody = planData;
-    } else if (target.action === 'texts') {
-      const v = state.videos.find(x => x.file === videoFile);
-      if (!v || !v.text_json) throw new Error(t('plan.no_texts_json'));
-      versionKind = 'texts';
-      versionKey = v.text_json;
-      requestUrl = `/api/texts?file=${encodeURIComponent(v.text_json)}`;
-      requestBody = textsData;
-    } else if (target.action === 'voiceover') {
-      const v = state.videos.find(x => x.file === videoFile);
-      if (!v || !v.script_json) throw new Error(t('plan.no_voiceover_json'));
-      versionKind = 'voiceover';
-      versionKey = v.script_json;
-      requestUrl = `/api/voiceover?file=${encodeURIComponent(v.script_json)}`;
-      requestBody = voiceoverData;
-    } else {
-      setStatus(t('plan.no_save_target'), 'warn');
-      return;
-    }
-    const expected = artifactVersion(versionKind, versionKey);
-    const result = await apiWithMeta('PUT', requestUrl, requestBody, {
-      headers: artifactIfMatchHeader(expected),
-    });
-    if (generation !== _saveGeneration) return;
-    setArtifactVersion(versionKind, versionKey, result.version || result.data?.version);
-    clearDirty();
-    setStatus(t('plan.saved'), 'ok');
-    addToast(t('plan.saved'), 'success', undefined, { persist: false });
-    if (target.action === 'plan') schedulePlanReadinessCheck();
-  } catch (e) {
-    if (isArtifactConflict(e)) {
-      const msg = t('plan.save_conflict');
-      setStatus(msg, 'err');
-      addToast(msg, 'error', 8000, { title: t('plan.save_conflict_title') });
-      return;
-    }
-    const msg = t('plan.save_failed', { detail: e.message });
-    setStatus(msg, 'err');
-    addToast(msg, 'error', 6000, { title: t('plan.save_failed_title') });
-  }
+export function save() {
+  return saveEditorPlan({ onPlanSaved: schedulePlanReadinessCheck });
 }
+
+export { applySavedConfigLanguage, configSaveStatusForTab };

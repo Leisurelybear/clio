@@ -2,6 +2,14 @@
 
 ## 2026-11-13
 
+Plan editor persistence actions now live in a focused module while the existing `editor-plan.js`
+exports remain compatible.
+
+- refactor(ui): extract plan deletion and artifact/config save handling into `editor-plan-persistence.js`
+- test(ui): verify the plan readiness hook after a successful plan save
+
+Verification: Vitest passes 896 tests across 84 files; `npm run typecheck` and `git diff --check` pass.
+
 Daily plans can now optionally ask Gemini to review whether adjacent visual transitions make sense.
 
 - feat(plan): add opt-in `plan.visual_transition_review` using the effective `video_analyze` Gemini binding
