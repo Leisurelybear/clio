@@ -8,6 +8,7 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
@@ -282,7 +283,7 @@ class TestWithRetry:
 
     def test_jitter_expands_exponential_delay(self, monkeypatch):
         monkeypatch.setattr("clio.utils.random.uniform", lambda low, high: high)
-        delays = []
+        delays: list[float] = []
         calls = []
 
         def fn():
@@ -306,7 +307,7 @@ class TestWithRetry:
         assert delays == [pytest.approx(2.5)]
 
     def test_jitter_can_be_disabled(self):
-        delays = []
+        delays: list[float] = []
         calls = []
 
         def fn():
@@ -328,7 +329,7 @@ class TestWithRetry:
 
     def test_delay_for_overrides_backoff(self, monkeypatch):
         monkeypatch.setattr("clio.utils.random.uniform", lambda low, high: high)
-        delays = []
+        delays: list[float] = []
         calls = []
 
         def fn():
@@ -349,7 +350,7 @@ class TestWithRetry:
         assert delays == [2.0]
 
     def test_delay_for_none_falls_back_to_backoff(self):
-        delays = []
+        delays: list[float] = []
         calls = []
 
         def fn():
@@ -371,7 +372,7 @@ class TestWithRetry:
         assert delays == [1.0]
 
     def test_delay_for_error_falls_back_to_backoff(self):
-        delays = []
+        delays: list[float] = []
         calls = []
 
         def fn():
@@ -396,7 +397,7 @@ class TestWithRetry:
         assert delays == [1.0]
 
     def test_max_delay_clamps_requested_delay(self):
-        delays = []
+        delays: list[float] = []
         calls = []
 
         def fn():
@@ -481,11 +482,11 @@ class TestParseRetryAfter:
 
     def test_retry_after_seconds_reads_response_header(self):
         exc = SimpleNamespace(response=SimpleNamespace(headers={"Retry-After": "7"}))
-        assert retry_after_seconds(exc) == 7.0
+        assert retry_after_seconds(cast(BaseException, exc)) == 7.0
 
     def test_retry_after_seconds_without_response(self):
         assert retry_after_seconds(ValueError("no response")) is None
-        assert retry_after_seconds(SimpleNamespace(response=None)) is None
+        assert retry_after_seconds(cast(BaseException, SimpleNamespace(response=None))) is None
 
     def test_retry_after_seconds_ignores_broken_header_mapping(self):
         class BrokenHeaders:
@@ -493,7 +494,7 @@ class TestParseRetryAfter:
                 raise TypeError("broken headers")
 
         exc = SimpleNamespace(response=SimpleNamespace(headers=BrokenHeaders()))
-        assert retry_after_seconds(exc) is None
+        assert retry_after_seconds(cast(BaseException, exc)) is None
 
 
 # ── discover_ffmpeg_bin / resolve_binary ────────────────────────

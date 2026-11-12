@@ -11,6 +11,7 @@ import tarfile
 import threading
 import zipfile
 from pathlib import Path
+from typing import Literal
 from unittest.mock import MagicMock
 
 import pytest
@@ -45,7 +46,7 @@ def _tar(
     entries: dict[str, bytes],
     *,
     symlink: str | None = None,
-    mode: str = "w:gz",
+    mode: Literal["w", "w:gz", "w:xz"] = "w:gz",
     hardlink: tuple[str, str] | None = None,
     device: str | None = None,
     device_type: bytes = tarfile.CHRTYPE,
@@ -73,11 +74,17 @@ def _tar(
     return path
 
 
+def _selected_asset(system: str, machine: str) -> installer._Asset:
+    asset = installer.select_asset(system, machine)
+    assert asset is not None
+    return asset
+
+
 def test_select_asset_platform_matrix():
-    assert installer.select_asset("win32", "AMD64").archive.endswith("win64-gpl-9.0.zip")
-    assert installer.select_asset("win32", "arm64").archive.endswith("winarm64-gpl-9.0.zip")
-    assert installer.select_asset("linux", "x86_64").archive.endswith("linux64-gpl-9.0.tar.xz")
-    assert installer.select_asset("linux", "aarch64").archive.endswith("linuxarm64-gpl-9.0.tar.xz")
+    assert _selected_asset("win32", "AMD64").archive.endswith("win64-gpl-9.0.zip")
+    assert _selected_asset("win32", "arm64").archive.endswith("winarm64-gpl-9.0.zip")
+    assert _selected_asset("linux", "x86_64").archive.endswith("linux64-gpl-9.0.tar.xz")
+    assert _selected_asset("linux", "aarch64").archive.endswith("linuxarm64-gpl-9.0.tar.xz")
     assert installer.select_asset("darwin", "arm64") is None
     assert installer.select_asset("freebsd", "amd64") is None
     assert installer.select_asset("unsupported", "amd64") is None

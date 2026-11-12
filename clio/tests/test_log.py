@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import logging
 import os
+from typing import TextIO, cast
 
 import pytest
 
@@ -230,7 +231,7 @@ class TestHourlyFileHandlerFailure:
         monkeypatch.setattr("sys.__stderr__", protected)
         handler = _HourlyFileHandler(tmp_path)
         failing = _FailingFile()
-        handler._current_file = failing
+        handler._current_file = cast(TextIO, failing)
 
         handler.emit(_make_record())
 
@@ -242,7 +243,7 @@ class TestHourlyFileHandlerFailure:
     def test_emit_failure_does_not_recurse_or_raise(self, tmp_path, monkeypatch):
         monkeypatch.setattr("sys.__stderr__", io.StringIO())
         handler = _HourlyFileHandler(tmp_path)
-        handler._current_file = _FailingFile()
+        handler._current_file = cast(TextIO, _FailingFile())
 
         # Repeated emits must not raise RecursionError even though the handler
         # keeps failing; the protected-stderr path breaks the feedback loop.
@@ -254,7 +255,7 @@ class TestHourlyFileHandlerFailure:
         monkeypatch.setattr("sys.__stderr__", protected)
         handler = _HourlyFileHandler(tmp_path)
         failing = _FailingFile()
-        handler._current_file = failing
+        handler._current_file = cast(TextIO, failing)
 
         for _ in range(_MAX_CONSECUTIVE_FAILURES):
             handler.emit(_make_record())
@@ -285,7 +286,7 @@ class TestHourlyFileHandlerFailure:
                 return 64 * 1024 * 1024
 
         handler = _HourlyFileHandler(tmp_path)
-        handler._current_file = _HugeFile()
+        handler._current_file = cast(TextIO, _HugeFile())
 
         handler.emit(_make_record())
 
