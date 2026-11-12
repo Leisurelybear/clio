@@ -42,6 +42,14 @@ class TestPromptResolver:
 
         assert result == "Custom {title} {index}"
 
+    def test_missing_project_dir_attribute_uses_template_parent(self, tmp_path: Path):
+        from clio.prompt_overrides import prompt_override_dir
+
+        template = tmp_path / "templates" / "vlog_template.md"
+        config = SimpleNamespace(script=SimpleNamespace(template_file=template))
+
+        assert prompt_override_dir(config) == tmp_path / "templates" / "prompts"
+
     def test_runtime_prompt_overrides_file_prompt(self, tmp_path: Path):
         from clio.prompt_overrides import resolve_prompt_template
 

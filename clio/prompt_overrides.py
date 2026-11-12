@@ -30,10 +30,7 @@ class _PromptFormatError(ValueError):
 
 
 def _project_dir(config: AppConfig) -> Path:
-    try:
-        pd = config.project_dir
-    except Exception:
-        pd = None
+    pd = getattr(config, "project_dir", None)
     if isinstance(pd, Path):
         return pd
     template_file = getattr(getattr(config, "script", None), "template_file", None)
