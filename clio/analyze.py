@@ -15,7 +15,9 @@ from clio.ai.structured import (
     JSON_OBJECT_OUTPUT,
     PLAN_VOICEOVER_OUTPUT,
     VIDEO_ANALYSIS_OUTPUT,
+    VLOG_PLAN_OUTLINE_OUTPUT,
     VLOG_PLAN_OUTPUT,
+    VLOG_PLAN_REVIEW_OUTPUT,
     VOICEOVER_OUTPUT,
     WINDOW_SUMMARY_OUTPUT,
 )
@@ -28,7 +30,10 @@ from clio.prompt_overrides import format_prompt_template, resolve_prompt_templat
 from clio.prompts import (
     ANALYZE_PROMPT,
     ENTITY_CONSISTENCY_CONTEXT,
+    PLAN_OUTLINE_CONTEXT,
+    PLAN_OUTLINE_PROMPT,
     PLAN_PROMPT,
+    PLAN_REVIEW_PROMPT,
     PLAN_VOICEOVER_LOW_CONFIDENCE,
     PLAN_VOICEOVER_NO_TIMELINE,
     PLAN_VOICEOVER_PROMPT,
@@ -1385,6 +1390,89 @@ def generate_plan_voiceover(
     return result
 
 
+def _normalize_plan_outline(data: Any, clips: list[dict], max_beats: int = 0) -> dict[str, Any] | None:
+    """Keep only outline beats that cite real clips and have usable timing."""
+    if not isinstance(data, dict):
+        return None
+    raw_beats = data.get("beats")
+    if not isinstance(raw_beats, list):
+        return None
+
+    valid_indices = {
+        _plan_index_key(clip.get("index")): str(clip.get("index")).strip()
+        for clip in clips
+        if str(clip.get("index") or "").strip()
+    }
+    beats: list[dict[str, Any]] = []
+    for raw in raw_beats:
+        if not isinstance(raw, dict):
+            continue
+        candidates = raw.get("candidate_indices")
+        if not isinstance(candidates, list):
+            continue
+        candidate_indices: list[str] = []
+        for candidate in candidates:
+            normalized = valid_indices.get(_plan_index_key(candidate))
+            if normalized and normalized not in candidate_indices:
+                candidate_indices.append(normalized)
+                if len(candidate_indices) == 3:
+                    break
+        if not candidate_indices:
+            continue
+        raw_duration = raw.get("target_duration_sec")
+        if not isinstance(raw_duration, (int, float, str)):
+            continue
+        try:
+            duration = float(raw_duration)
+        except ValueError:
+            continue
+        if not math.isfinite(duration) or duration <= 0:
+            continue
+        beats.append(
+            {
+                "position": len(beats) + 1,
+                "narrative_beat": str(raw.get("narrative_beat") or "").strip(),
+                "purpose": str(raw.get("purpose") or "").strip(),
+                "target_duration_sec": round(duration, 2),
+                "candidate_indices": candidate_indices,
+            }
+        )
+    if max_beats > 0:
+        beats = beats[:max_beats]
+    if not beats:
+        return None
+    return {
+        "day_title": str(data.get("day_title") or "").strip(),
+        "theme": str(data.get("theme") or "").strip(),
+        "beats": beats,
+        "opening_tip": str(data.get("opening_tip") or "").strip(),
+        "ending_tip": str(data.get("ending_tip") or "").strip(),
+    }
+
+
+def _plan_from_review_payload(data: Any) -> dict[str, Any] | None:
+    """Accept the reviewed wrapper or a direct final plan from custom prompts."""
+    if not isinstance(data, dict):
+        return None
+    corrected = data.get("corrected_plan")
+    if isinstance(corrected, dict):
+        return copy.deepcopy(corrected)
+    if isinstance(data.get("sequence"), list):
+        return copy.deepcopy(data)
+    return None
+
+
+def _filter_plan_indices(result: dict, clips: list[dict]) -> dict:
+    valid_indices = {_plan_index_key(clip.get("index")) for clip in clips}
+    original_count = len(result.get("sequence", []))
+    result["sequence"] = [
+        segment for segment in result.get("sequence", []) if _plan_index_key(segment.get("index")) in valid_indices
+    ]
+    if len(result["sequence"]) < original_count:
+        print(t("analyze.plan_dropped_invalid_index", {"count": original_count - len(result["sequence"])}))
+    return result
+
+
 def plan_daily_vlog(
     clips: list[dict],
     config: AppConfig,
@@ -1401,18 +1489,24 @@ def plan_daily_vlog(
     provider, model = get_task_provider(config, TaskName.VLOG_PLAN)
 
     plan_template = resolve_prompt_template("vlog_plan", PLAN_PROMPT, config, task_prompts=task_prompts)
+    outline_template = resolve_prompt_template("plan_outline", PLAN_OUTLINE_PROMPT, config, task_prompts=task_prompts)
+    review_template = resolve_prompt_template("plan_review", PLAN_REVIEW_PROMPT, config, task_prompts=task_prompts)
     # Keep the legacy override placeholder meaningful for custom templates,
     # while the built-in example uses a neutral marker instead of a real index.
     first_idx = clips[0].get("index", "001") if clips else "001"
     example_index = first_idx if plan_template != PLAN_PROMPT else "<必须从上面的素材列表原样选择>"
+    clips_json = json.dumps(clips, ensure_ascii=False, indent=None)
+    max_clips = int(getattr(config.plan, "max_clips_per_day", 0) or 0)
+    target_duration_sec = float(getattr(config.plan, "target_duration_sec", 0) or 0)
     base = format_prompt_template(
         "vlog_plan",
         plan_template,
-        clips_json=json.dumps(clips, ensure_ascii=False, indent=None),
-        max_clips=config.plan.max_clips_per_day,
-        target_duration_sec=config.plan.target_duration_sec,
+        clips_json=clips_json,
+        max_clips=max_clips,
+        target_duration_sec=target_duration_sec,
         example_index=example_index,
     )
+    context_suffix = ""
     whisper_cfg = getattr(config, "whisper", None)
     if use_transcripts and bool(getattr(whisper_cfg, "enabled", False)):
         limit = int(getattr(whisper_cfg, "max_segments_per_clip", 5) or 5)
@@ -1422,7 +1516,9 @@ def plan_daily_vlog(
             transcript_template = resolve_prompt_template(
                 "transcript_context", TRANSCRIPT_CONTEXT, config, task_prompts=task_prompts
             )
-            base += format_prompt_template("transcript_context", transcript_template, transcripts_json=transcript_json)
+            context_suffix += format_prompt_template(
+                "transcript_context", transcript_template, transcripts_json=transcript_json
+            )
     if entity_consistency:
         consistency_payload = {
             "entities": entity_consistency.get("entities", []),
@@ -1434,24 +1530,64 @@ def plan_daily_vlog(
             config,
             task_prompts=task_prompts,
         )
-        base += format_prompt_template(
+        context_suffix += format_prompt_template(
             "entity_consistency_context",
             consistency_context,
             consistency_json=json.dumps(consistency_payload, ensure_ascii=False, indent=None),
         )
+
     system = _system_context(config)
-    prompt = _wrap_with_context(
-        f"日 vlog 标签: {day_label}\n\n{base}",
+    outline_body = format_prompt_template(
+        "plan_outline",
+        outline_template,
+        clips_json=clips_json,
+        max_clips=max_clips,
+        target_duration_sec=target_duration_sec,
+    )
+    outline_prompt = _wrap_with_context(
+        f"日 vlog 标签: {day_label}\n\n{outline_body + context_suffix}",
         config,
         context_override=context_override,
         include_spec=False,
     )
-    max_clips = int(getattr(config.plan, "max_clips_per_day", 0) or 0)
-    target_duration_sec = float(getattr(config.plan, "target_duration_sec", 0) or 0)
 
-    def call_plan(call_prompt: str) -> str:
+    def make_shot_selection_prompt(outline: dict[str, Any] | None) -> str:
+        prompt = base + context_suffix
+        if outline:
+            outline_json = json.dumps(outline, ensure_ascii=False, indent=None)
+            prompt += "\n\n" + format_prompt_template(
+                "plan_outline_context",
+                PLAN_OUTLINE_CONTEXT,
+                outline_json=outline_json,
+            )
+        return _wrap_with_context(
+            f"日 vlog 标签: {day_label}\n\n{prompt}",
+            config,
+            context_override=context_override,
+            include_spec=False,
+        )
+
+    def make_review_prompt(candidate: dict, issues: list[str]) -> str:
+        issue_text = "；".join(issues) if issues else t("analyze.plan_review_no_issues")
+        review_body = format_prompt_template(
+            "plan_review",
+            review_template,
+            clips_json=clips_json,
+            draft_json=json.dumps(candidate, ensure_ascii=False, indent=None),
+            validation_issues=issue_text,
+            max_clips=max_clips,
+            target_duration_sec=target_duration_sec,
+        )
+        return _wrap_with_context(
+            f"日 vlog 标签: {day_label}\n\n{review_body + context_suffix}",
+            config,
+            context_override=context_override,
+            include_spec=False,
+        )
+
+    def call_stage(label: str, call_prompt: str, structured_output) -> str:
         return _call_ai(
-            t("analyze.label.vlog_plan"),
+            label,
             provider.provider_id,
             model,
             call_prompt,
@@ -1460,7 +1596,7 @@ def plan_daily_vlog(
                 model,
                 temperature=_task_temperature(config, TaskName.VLOG_PLAN),
                 system=system,
-                structured_output=VLOG_PLAN_OUTPUT,
+                structured_output=structured_output,
             ),
             debug_print=config.ai.debug_print_prompt,
             token_store=token_store,
@@ -1469,27 +1605,59 @@ def plan_daily_vlog(
             **_usage_meta(config, TaskName.VLOG_PLAN),
         )
 
+    def validate_candidate(candidate: dict) -> tuple[dict, list[str]]:
+        result = _filter_plan_indices(_validate_plan(candidate, day_label), validation_clips)
+        issues = _plan_validation_issues(result, validation_clips, target_duration_sec, check_duration=False)
+        if not issues:
+            result = _validate_plan_ranges(result, validation_clips, max_clips, target_duration_sec)
+            issues = _plan_validation_issues(result, validation_clips, target_duration_sec)
+        return result, issues
+
+    def parse_review(text_value: str, fallback: dict) -> dict:
+        try:
+            payload = extract_json(text_value)
+        except ValueError:
+            print(t("analyze.plan_review_fallback"))
+            return fallback
+        candidate = _plan_from_review_payload(payload)
+        if candidate is None:
+            print(t("analyze.plan_review_fallback"))
+            return fallback
+        return candidate
+
     with provider_use(provider):
-        text = call_plan(prompt)
+        outline: dict[str, Any] | None = None
+        try:
+            outline_payload = extract_json(
+                call_stage(t("analyze.label.vlog_plan_outline"), outline_prompt, VLOG_PLAN_OUTLINE_OUTPUT)
+            )
+            outline = _normalize_plan_outline(outline_payload, clips, max_beats=max_clips)
+        except ValueError:
+            pass
+        if outline is None:
+            print(t("analyze.plan_outline_fallback"))
+
+        draft_text = call_stage(
+            t("analyze.label.vlog_plan"),
+            make_shot_selection_prompt(outline),
+            VLOG_PLAN_OUTPUT,
+        )
+        draft = _validate_plan(extract_json(draft_text), day_label)
+        raw_sequence_count = len(draft.get("sequence", []))
+        draft, draft_issues = validate_candidate(draft)
+
+        reviewed = parse_review(
+            call_stage(
+                t("analyze.label.vlog_plan_review"),
+                make_review_prompt(draft, draft_issues),
+                VLOG_PLAN_REVIEW_OUTPUT,
+            ),
+            draft,
+        )
         for attempt in range(2):
-            result = _validate_plan(extract_json(text), day_label)
-            raw_sequence_count = len(result.get("sequence", []))
-
-            valid_indices = {_plan_index_key(clip.get("index")) for clip in validation_clips}
-            original_count = len(result["sequence"])
-            result["sequence"] = [
-                segment for segment in result["sequence"] if _plan_index_key(segment.get("index")) in valid_indices
-            ]
-            if len(result["sequence"]) < original_count:
-                print(t("analyze.plan_dropped_invalid_index", {"count": original_count - len(result["sequence"])}))
-
-            issues = _plan_validation_issues(result, validation_clips, target_duration_sec, check_duration=False)
-            if not issues:
-                result = _validate_plan_ranges(result, validation_clips, max_clips, target_duration_sec)
-                issues = _plan_validation_issues(result, validation_clips, target_duration_sec)
+            result, issues = validate_candidate(reviewed)
             if not issues:
                 return result
-
             if attempt == 1:
                 if not result.get("sequence"):
                     raise RuntimeError(t("analyze.plan_no_usable_clips", {"count": raw_sequence_count}))
@@ -1497,15 +1665,16 @@ def plan_daily_vlog(
 
             issue_text = "；".join(issues)
             print(t("analyze.plan_validation_retry", {"errors": issue_text}))
-            text = call_plan(
-                f"{prompt}\n\n"
-                + t(
-                    "analyze.plan_validation_prompt",
-                    {"errors": issue_text, "previous_json": json.dumps(result, ensure_ascii=False)},
-                )
+            reviewed = parse_review(
+                call_stage(
+                    t("analyze.label.vlog_plan_review"),
+                    make_review_prompt(result, issues),
+                    VLOG_PLAN_REVIEW_OUTPUT,
+                ),
+                result,
             )
 
-    raise AssertionError("plan retry loop exited unexpectedly")
+    raise AssertionError("plan review loop exited unexpectedly")
 
 
 def refine_text(

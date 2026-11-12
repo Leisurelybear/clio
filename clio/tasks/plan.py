@@ -28,7 +28,13 @@ from clio.plan_input import build_plan_clips
 from clio.processing_state import ProcessingState
 from clio.progress import ProgressReporter
 from clio.prompt_overrides import resolve_prompt_template
-from clio.prompts import PLAN_PROMPT, TRANSCRIPT_CONTEXT
+from clio.prompts import (
+    PLAN_OUTLINE_CONTEXT,
+    PLAN_OUTLINE_PROMPT,
+    PLAN_PROMPT,
+    PLAN_REVIEW_PROMPT,
+    TRANSCRIPT_CONTEXT,
+)
 from clio.schema import add_schema_version
 from clio.tasks._helpers import (
     _filename_capture_time,
@@ -240,9 +246,9 @@ def _plan_lineage_fingerprint(
 ) -> str:
     """Fingerprint everything that can change a cached plan result.
 
-    Changing the vlog_plan prompt, its provider/model, the clip inputs, or the
-    transcripts toggle invalidates the skip_existing cache so users never
-    silently keep a plan generated under an older lineage.
+    Changing any planning-stage prompt, the task provider/model, the clip
+    inputs, or the transcripts toggle invalidates the skip_existing cache so
+    users never silently keep a plan generated under an older lineage.
     """
     from clio.analyze import _prompt_context_parts
 
@@ -254,10 +260,19 @@ def _plan_lineage_fingerprint(
             task_prompts,
             context_override,
         )
-    try:
-        prompt = resolve_prompt_template("vlog_plan", PLAN_PROMPT, config, task_prompts=task_prompts)
-    except (OSError, UnicodeError):
-        prompt = PLAN_PROMPT
+    prompts: dict[str, str] = {}
+    for prompt_name, builtin_template in (
+        ("vlog_plan", PLAN_PROMPT),
+        ("plan_outline", PLAN_OUTLINE_PROMPT),
+        ("plan_review", PLAN_REVIEW_PROMPT),
+    ):
+        try:
+            prompts[prompt_name] = resolve_prompt_template(
+                prompt_name, builtin_template, config, task_prompts=task_prompts
+            )
+        except (OSError, UnicodeError):
+            prompts[prompt_name] = builtin_template
+    prompts["plan_outline_context"] = PLAN_OUTLINE_CONTEXT
     transcripts_enabled = bool(getattr(config.plan, "use_transcripts", False)) and bool(
         getattr(config.whisper, "enabled", False)
     )
@@ -282,7 +297,7 @@ def _plan_lineage_fingerprint(
         {
             "task": _task_lineage_settings(config, "vlog_plan"),
             "day_label": day_label,
-            "prompt": prompt,
+            "prompts": prompts,
             "use_transcripts": transcripts_enabled,
             "max_clips_per_day": getattr(config.plan, "max_clips_per_day", 12),
             "target_duration_sec": getattr(config.plan, "target_duration_sec", 180),

@@ -233,6 +233,18 @@ class TestPlanLineageFingerprint:
         loaded_config.ai.tasks.pop("vlog_plan")
         assert _plan_lineage_fingerprint(loaded_config, []) != ""
 
+    @pytest.mark.parametrize("prompt_name", ["vlog_plan", "plan_outline", "plan_review"])
+    def test_changes_on_each_planning_stage_prompt(self, loaded_config: AppConfig, prompt_name: str) -> None:
+        clips = [{"index": "001", "source_stem": "GL010683", "title": "t"}]
+        base = _plan_lineage_fingerprint(loaded_config, clips)
+        changed = _plan_lineage_fingerprint(
+            loaded_config,
+            clips,
+            task_prompts={prompt_name: "custom planning stage prompt"},
+        )
+
+        assert base != changed
+
     def test_changes_on_use_transcripts(self, loaded_config: AppConfig) -> None:
         clips = [{"index": "001", "source_stem": "GL010683", "title": "t"}]
         base = _plan_lineage_fingerprint(loaded_config, clips)

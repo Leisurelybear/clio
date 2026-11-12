@@ -418,6 +418,15 @@ PLAN_OUTLINE_PROMPT = """你是旅行 vlog 剪辑策划。先不要直接排定�
 """
 
 
+PLAN_OUTLINE_CONTEXT = """## 已确认的叙事大纲
+<plan_outline>
+{outline_json}
+</plan_outline>
+请严格按大纲的节拍顺序选择具体镜头与 use_timeline，并给出相邻片段之间的 transition；
+只能使用候选索引或素材列表中同样合适的真实 index。
+"""
+
+
 PLAN_REVIEW_PROMPT = """你是旅行 vlog 的剪辑规划复审员。请检查初稿，并输出修正后的完整最终计划。
 
 ## 当天素材
@@ -597,6 +606,7 @@ PROMPT_DEFAULTS = {
     "PLAN_VOICEOVER_PROMPT": PLAN_VOICEOVER_PROMPT,
     "PLAN_PROMPT": PLAN_PROMPT,
     "PLAN_OUTLINE_PROMPT": PLAN_OUTLINE_PROMPT,
+    "PLAN_OUTLINE_CONTEXT": PLAN_OUTLINE_CONTEXT,
     "PLAN_REVIEW_PROMPT": PLAN_REVIEW_PROMPT,
     "ENTITY_CONSISTENCY_PROMPT": ENTITY_CONSISTENCY_PROMPT,
     "REFINE_TEXT_PROMPT": REFINE_TEXT_PROMPT,
