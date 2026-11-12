@@ -5,7 +5,9 @@ import json
 import os
 import sys
 import types
+from collections.abc import Iterator
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import MagicMock
 from urllib.parse import parse_qs, urlparse
 
@@ -21,9 +23,13 @@ from clio.desktop.server_host import (
 )
 
 
+def _fake_module(name: str) -> Any:
+    return types.ModuleType(name)
+
+
 def test_ask_yes_no_uses_tk_messagebox(monkeypatch):
     root = MagicMock()
-    fake_tk = types.ModuleType("tkinter")
+    fake_tk = _fake_module("tkinter")
     fake_tk.Tk = MagicMock(return_value=root)
     fake_tk.messagebox = MagicMock()
     fake_tk.messagebox.askyesno.return_value = False
@@ -37,7 +43,7 @@ def test_ask_yes_no_uses_tk_messagebox(monkeypatch):
 
 
 def test_ask_yes_no_falls_back_to_confirm_when_dialog_fails(monkeypatch):
-    fake_tk = types.ModuleType("tkinter")
+    fake_tk = _fake_module("tkinter")
     fake_tk.Tk = MagicMock(side_effect=RuntimeError("headless"))
     fake_tk.messagebox = MagicMock()
     monkeypatch.setitem(sys.modules, "tkinter", fake_tk)
@@ -152,12 +158,24 @@ class _FakeHandle:
     token = "fake-token"
 
 
-class _EventList(list):
-    """List supporting `+= handler` like pywebview's Event objects."""
+class _EventList:
+    """Collection supporting `+= handler` like pywebview's Event objects."""
 
-    def __iadd__(self, other):
+    def __init__(self) -> None:
+        self._handlers: list[object] = []
+
+    def append(self, handler: object) -> None:
+        self._handlers.append(handler)
+
+    def __iadd__(self, other: object) -> _EventList:
         self.append(other)
         return self
+
+    def __iter__(self) -> Iterator[object]:
+        return iter(self._handlers)
+
+    def __bool__(self) -> bool:
+        return bool(self._handlers)
 
 
 class _FakeWindow:
@@ -173,15 +191,15 @@ class _FakeWindow:
         self.restored = True
 
 
-def _install_fake_webview(monkeypatch):
-    fake = types.ModuleType("webview")
+def _install_fake_webview(monkeypatch) -> Any:
+    fake = _fake_module("webview")
     fake.create_window = MagicMock(return_value=_FakeWindow())
     fake.start = MagicMock()
     monkeypatch.setitem(sys.modules, "webview", fake)
     return fake
 
 
-def _run_main(monkeypatch, tmp_path, config_text: str = "key: value\n"):
+def _run_main(monkeypatch, tmp_path, config_text: str = "key: value\n") -> tuple[int, Any]:
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text(config_text, encoding="utf-8")
     monkeypatch.setattr("clio.config.load_config", MagicMock(return_value=MagicMock()))
@@ -212,12 +230,12 @@ def test_main_continues_when_web_running_and_user_accepts(monkeypatch, tmp_path)
     assert rv == 0
     fake_webview.create_window.assert_called_once()
     fake_webview.start.assert_called_once()
-    app_mod.write_lock.assert_called_once()
+    cast(Any, app_mod.write_lock).assert_called_once()
     cfg_file = tmp_path / "config.yaml"
-    assert app_mod.write_lock.call_args.args[0].resolve() == cfg_file.parent.resolve()
-    assert app_mod.write_lock.call_args.args[1] == _FakeHandle.port
-    assert app_mod.write_lock.call_args.args[2] == os.getpid()
-    assert "token" in app_mod.write_lock.call_args.kwargs
+    assert cast(Any, app_mod.write_lock).call_args.args[0].resolve() == cfg_file.parent.resolve()
+    assert cast(Any, app_mod.write_lock).call_args.args[1] == _FakeHandle.port
+    assert cast(Any, app_mod.write_lock).call_args.args[2] == os.getpid()
+    assert "token" in cast(Any, app_mod.write_lock).call_args.kwargs
 
 
 def test_main_creates_window_with_text_selection_enabled(monkeypatch, tmp_path):
@@ -256,7 +274,7 @@ def test_main_focuses_existing_instance_and_exits(monkeypatch, tmp_path):
     rv, _ = _run_main(monkeypatch, tmp_path)
     assert rv == 0
     start_mock.assert_not_called()
-    app_mod.remove_lock.assert_not_called()
+    cast(Any, app_mod.remove_lock).assert_not_called()
 
 
 def test_main_ignores_lock_without_valid_port(monkeypatch, tmp_path):
@@ -282,7 +300,7 @@ def test_main_takes_over_stale_lock(monkeypatch, tmp_path):
     rv, fake_webview = _run_main(monkeypatch, tmp_path)
     assert rv == 0
     fake_webview.create_window.assert_called_once()
-    app_mod.write_lock.assert_called_once()
+    cast(Any, app_mod.write_lock).assert_called_once()
 
 
 def test_main_refuses_real_webview_under_pytest(monkeypatch, tmp_path):
@@ -291,7 +309,7 @@ def test_main_refuses_real_webview_under_pytest(monkeypatch, tmp_path):
     monkeypatch.setattr(app_mod, "read_lock", MagicMock(return_value=None))
     start_mock = MagicMock()
     monkeypatch.setattr("clio.desktop.server_host.start_server", start_mock)
-    real_like = types.ModuleType("webview")
+    real_like = _fake_module("webview")
     real_like.__file__ = "/site-packages/webview/__init__.py"
     monkeypatch.setitem(sys.modules, "webview", real_like)
     cfg_file = tmp_path / "config.yaml"
@@ -314,7 +332,7 @@ def test_main_allows_real_webview_with_explicit_pytest_override(monkeypatch, tmp
     monkeypatch.setattr(app_mod, "write_lock", MagicMock())
     monkeypatch.setattr(app_mod, "remove_lock", MagicMock())
     monkeypatch.setattr(app_mod, "set_desktop_focus_callback", MagicMock())
-    real_like = types.ModuleType("webview")
+    real_like = _fake_module("webview")
     real_like.__file__ = "/site-packages/webview/__init__.py"
     real_like.create_window = MagicMock(return_value=_FakeWindow())
     real_like.start = MagicMock()
@@ -337,13 +355,13 @@ def test_main_registers_focus_callback_that_shows_window(monkeypatch, tmp_path):
     monkeypatch.setattr(app_mod, "is_web_running", MagicMock(return_value=False))
     monkeypatch.setattr(app_mod, "focus_first_instance", MagicMock(return_value=False))
     monkeypatch.setattr(app_mod, "write_lock", MagicMock())
-    callback_holder = {}
+    callback_holder: dict[str, Any] = {}
     monkeypatch.setattr(
         app_mod,
         "set_desktop_focus_callback",
         lambda cb: callback_holder.update(cb=cb),
     )
-    fake = types.ModuleType("webview")
+    fake = _fake_module("webview")
     window = _FakeWindow()
     fake.create_window = MagicMock(return_value=window)
     fake.start = MagicMock()
@@ -367,7 +385,7 @@ def test_main_removes_lock_on_close(monkeypatch, tmp_path):
     rv, fake_webview = _run_main(monkeypatch, tmp_path)
     assert rv == 0
     fake_webview.start.assert_called_once()
-    app_mod.remove_lock.assert_called_once()
+    cast(Any, app_mod.remove_lock).assert_called_once()
 
 
 def test_main_closed_event_does_not_stop_server_double(monkeypatch, tmp_path):
@@ -447,7 +465,7 @@ def test_main_sets_up_logging_with_config_logs_dir(monkeypatch, tmp_path):
 
 
 def _fake_webview_with_failing_start(monkeypatch):
-    fake = types.ModuleType("webview")
+    fake = _fake_module("webview")
     fake.create_window = MagicMock(return_value=_FakeWindow())
     fake.start = MagicMock(side_effect=RuntimeError("WebView2 runtime not found"))
     monkeypatch.setitem(sys.modules, "webview", fake)
@@ -473,7 +491,7 @@ def test_main_shows_webview2_error_when_start_raises(monkeypatch, tmp_path):
     rv = app_mod.main(argv=[], config_path=cfg_file)
     assert rv == 1
     assert len(error_shown) == 1 and isinstance(error_shown[0], RuntimeError)
-    app_mod.remove_lock.assert_called_once()
+    cast(Any, app_mod.remove_lock).assert_called_once()
 
 
 def test_main_shows_error_when_create_window_returns_none(monkeypatch, tmp_path):
@@ -488,7 +506,7 @@ def test_main_shows_error_when_create_window_returns_none(monkeypatch, tmp_path)
     monkeypatch.setattr(app_mod, "set_desktop_focus_callback", MagicMock())
     error_shown = []
     monkeypatch.setattr(app_mod, "_show_window_start_error", lambda e: error_shown.append(e))
-    fake = types.ModuleType("webview")
+    fake = _fake_module("webview")
     fake.create_window = MagicMock(return_value=None)
     fake.start = MagicMock()
     monkeypatch.setitem(sys.modules, "webview", fake)
@@ -499,8 +517,8 @@ def test_main_shows_error_when_create_window_returns_none(monkeypatch, tmp_path)
 
     assert rv == 1
     assert len(error_shown) == 1 and isinstance(error_shown[0], RuntimeError)
-    app_mod.write_lock.assert_not_called()
-    app_mod.remove_lock.assert_called_once()
+    cast(Any, app_mod.write_lock).assert_not_called()
+    cast(Any, app_mod.remove_lock).assert_called_once()
 
 
 def test_main_shows_webview2_error_when_create_window_raises(monkeypatch, tmp_path):
@@ -516,7 +534,7 @@ def test_main_shows_webview2_error_when_create_window_raises(monkeypatch, tmp_pa
     monkeypatch.setattr(app_mod, "set_desktop_focus_callback", MagicMock())
     error_shown = []
     monkeypatch.setattr(app_mod, "_show_window_start_error", lambda e: error_shown.append(e))
-    fake = types.ModuleType("webview")
+    fake = _fake_module("webview")
     fake.create_window = MagicMock(side_effect=RuntimeError("no WebView2"))
     fake.start = MagicMock()
     monkeypatch.setitem(sys.modules, "webview", fake)
@@ -525,8 +543,8 @@ def test_main_shows_webview2_error_when_create_window_raises(monkeypatch, tmp_pa
     rv = app_mod.main(argv=[], config_path=cfg_file)
     assert rv == 1
     assert len(error_shown) == 1 and isinstance(error_shown[0], RuntimeError)
-    app_mod.write_lock.assert_not_called()
-    app_mod.remove_lock.assert_called_once()
+    cast(Any, app_mod.write_lock).assert_not_called()
+    cast(Any, app_mod.remove_lock).assert_called_once()
 
 
 # ---------------------------------------------------------------------------
