@@ -520,6 +520,26 @@ class TestComputeSegmentOffset:
             result = _compute_segment_offset("001_src_seg2", cfg.compressed_dir, Path("/dummy.mp4"), "ffprobe")
             assert result == 60.0
 
+    def test_probe_timeout_returns_zero_offset(self, cfg):
+        for s in ["001_src_seg1.mp4", "001_src_seg2.mp4"]:
+            (cfg.compressed_dir / s).write_bytes(b"\x00")
+        with patch("clio.tasks.cut.get_duration_sec", side_effect=TimeoutError("probe timed out")):
+            from clio.tasks.cut import _compute_segment_offset
+
+            result = _compute_segment_offset("001_src_seg2", cfg.compressed_dir, Path("/dummy.mp4"), "ffprobe")
+        assert result == 0.0
+
+    def test_unexpected_probe_error_propagates(self, cfg):
+        for s in ["001_src_seg1.mp4", "001_src_seg2.mp4"]:
+            (cfg.compressed_dir / s).write_bytes(b"\x00")
+        with (
+            patch("clio.tasks.cut.get_duration_sec", side_effect=RuntimeError("unexpected probe bug")),
+            pytest.raises(RuntimeError, match="unexpected probe bug"),
+        ):
+            from clio.tasks.cut import _compute_segment_offset
+
+            _compute_segment_offset("001_src_seg2", cfg.compressed_dir, Path("/dummy.mp4"), "ffprobe")
+
     @pytest.mark.parametrize("alias", ["part", "pt", "chunk", "PART"])
     def test_computes_offset_for_legacy_aliases(self, cfg, alias):
         for n in (1, 2):

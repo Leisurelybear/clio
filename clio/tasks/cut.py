@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -34,6 +35,7 @@ from clio.utils import (
 from clio.vmeta import VideoMeta
 
 _VIDEO_OUT_EXTS = {".mp4", ".mov", ".mkv", ".m4v", ".webm"}
+_PROBE_FAILURES = (OSError, subprocess.SubprocessError, TypeError, ValueError)
 CUT_BAK_SUFFIX = ".clio_bak"
 
 
@@ -320,7 +322,7 @@ def _compute_segment_offset(compressed_stem: str, comp_dir: Path, original_path:
         return 0.0
     try:
         dur = get_duration_sec(original_path, ffprobe)
-    except Exception:
+    except _PROBE_FAILURES:
         return 0.0
     return round((seg_num - 1) * dur / total, 1)
 
@@ -488,7 +490,7 @@ def run_cut_all(
                 if end > media_dur:
                     print(t("task.cut.clamp_end", {"end": end, "duration": media_dur}))
                     end = media_dur
-            except Exception:
+            except _PROBE_FAILURES:
                 pass
             if end <= start:
                 print(t("task.cut.skip_beyond_duration", {"start": start, "end": end, "title": seg.get("title", "")}))
@@ -509,9 +511,10 @@ def run_cut_all(
                 if text_json_paths:
                     try:
                         data = json.loads(text_json_paths[0].read_text(encoding="utf-8"))
-                        identity = load_identity(data)
-                        offset = legacy_segment_offset_sec(identity)
-                    except Exception:
+                        if isinstance(data, dict):
+                            identity = load_identity(data)
+                            offset = legacy_segment_offset_sec(identity)
+                    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
                         pass
                 # Fall back to vmeta-based computation for v1 files
                 if offset == 0.0:
