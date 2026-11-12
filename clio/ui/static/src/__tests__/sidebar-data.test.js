@@ -35,6 +35,12 @@ vi.mock('../utils.js', async () => {
   };
 });
 
+vi.mock('../confirm.js', () => ({
+  confirmDialog: vi.fn(async () => true),
+  alertDialog: vi.fn(async () => undefined),
+  promptDialog: vi.fn(async () => ''),
+}));
+
 vi.mock('../runner.js', () => ({
   updateRunFilesBadge: vi.fn(),
 }));
@@ -261,8 +267,9 @@ describe('removeSelectedVideosFromProject', () => {
     state.currentEntity = 'run';
     state.source = 'original';
 
-    const confirmSpy = vi.fn(() => true);
-    vi.stubGlobal('confirm', confirmSpy);
+    const { confirmDialog: confirmSpy } = await import('../confirm.js');
+    vi.mocked(confirmSpy).mockReset();
+    vi.mocked(confirmSpy).mockResolvedValue(true);
     api.mockImplementation(async (method, url) => {
       if (method === 'GET' && url === '/api/videos/selected') {
         return { videos: ['D:/clips/001_a.mp4', 'D:/clips/002_b.mp4', 'D:/clips/003_c.mp4'] };
@@ -277,7 +284,7 @@ describe('removeSelectedVideosFromProject', () => {
     const { removeSelectedVideosFromProject } = await import('../sidebar-data.js');
     const result = await removeSelectedVideosFromProject();
 
-    expect(confirmSpy).toHaveBeenCalledWith('确定从项目中移除所选的 2 个视频吗？');
+    expect(confirmSpy).toHaveBeenCalledWith('确定从项目中移除所选的 2 个视频吗？', expect.anything());
     expect(result).toEqual({ removed: 2, failed: 0 });
     expect(api).toHaveBeenCalledWith('PUT', '/api/videos/selected', {
       videos: ['D:/clips/002_b.mp4'],
@@ -313,7 +320,8 @@ describe('removeSelectedVideosFromProject', () => {
     state.currentEntity = 'run';
     state.source = 'compressed';
 
-    vi.stubGlobal('confirm', vi.fn(() => true));
+    const { confirmDialog } = await import('../confirm.js');
+    vi.mocked(confirmDialog).mockResolvedValue(true);
     api.mockImplementation(async (method, url) => {
       if (method === 'GET' && url === '/api/videos/selected') {
         return { videos: ['D:/clips/001_a.mp4', 'D:/clips/002_b.mp4'] };

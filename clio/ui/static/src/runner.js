@@ -12,6 +12,7 @@ import { registerNotification } from './notification-center.js';
 import { subscribeTaskEvents, fetchTask } from './task-center.js';
 import { transcriptionFailureNotice } from './transcription-status.js';
 import { hasKey, onLocaleChange, t } from './i18n.js';
+import { confirmDialog } from './confirm.js';
 
 let _lastRunDay = 'day1';
 let _runActive = false;
@@ -398,7 +399,7 @@ async function startRun() {
       const preview = previewResponse?.preview || null;
       if (needsPlanOverwriteConfirmation(preview, options)) {
         const day = preview.plan_overwrite.day_label || options.day_label;
-        if (!confirm(t('run.confirm_plan_overwrite', { day }))) {
+        if (!(await confirmDialog(t('run.confirm_plan_overwrite', { day }), { danger: true }))) {
           updateRunStartButtonState();
           return;
         }
@@ -406,7 +407,7 @@ async function startRun() {
       }
       if (needsArtifactOverwriteConfirmation(preview, options)) {
         const items = (preview.artifact_overwrite.items || []).join(t('common.list_separator'));
-        if (!confirm(t('run.confirm_artifact_overwrite', { items }))) {
+        if (!(await confirmDialog(t('run.confirm_artifact_overwrite', { items }), { danger: true }))) {
           updateRunStartButtonState();
           return;
         }

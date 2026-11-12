@@ -22,6 +22,12 @@ vi.mock('../notification-center.js', () => ({
   registerNotification: vi.fn(() => Promise.resolve(null)),
 }));
 
+vi.mock('../confirm.js', () => ({
+  confirmDialog: vi.fn(async () => true),
+  alertDialog: vi.fn(async () => undefined),
+  promptDialog: vi.fn(async () => ''),
+}));
+
 vi.mock('../sidebar.js', () => ({
   loadVideos: vi.fn(() => Promise.resolve()),
   loadPlans: vi.fn(() => Promise.resolve()),
@@ -294,7 +300,9 @@ describe('startRun', () => {
     document.body.innerHTML = baseDom;
     const { api } = await import('../api.js');
     vi.mocked(api).mockReset();
-    vi.stubGlobal('confirm', vi.fn(() => true));
+    const { confirmDialog } = await import('../confirm.js');
+    vi.mocked(confirmDialog).mockReset();
+    vi.mocked(confirmDialog).mockResolvedValue(true);
   });
 
   it('stops without starting when the overwrite confirmation is declined', async () => {
@@ -302,7 +310,8 @@ describe('startRun', () => {
     api.mockResolvedValueOnce({
       preview: { plan_overwrite: { required: true, day_label: 'day2' } },
     });
-    vi.mocked(confirm).mockReturnValue(false);
+    const { confirmDialog } = await import('../confirm.js');
+    vi.mocked(confirmDialog).mockResolvedValue(false);
 
     await startRun();
 
@@ -324,7 +333,8 @@ describe('startRun', () => {
 
     await startRun();
 
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('替换 day2 的现有计划'));
+    const { confirmDialog } = await import('../confirm.js');
+    expect(confirmDialog).toHaveBeenCalledWith(expect.stringContaining('替换 day2 的现有计划'), expect.anything());
     const startCall = api.mock.calls.find(([method, url]) => method === 'POST' && url === '/api/run/start');
     expect(startCall?.[2]).toEqual(expect.objectContaining({
       files: ['A.mp4'],
@@ -338,12 +348,13 @@ describe('startRun', () => {
     api.mockResolvedValueOnce({
       preview: { artifact_overwrite: { required: true, items: ['001_A_voiceover.json'] } },
     });
-    vi.mocked(confirm).mockReturnValue(false);
+    const { confirmDialog } = await import('../confirm.js');
+    vi.mocked(confirmDialog).mockResolvedValue(false);
 
     await startRun();
 
     expect(api).toHaveBeenCalledTimes(1);
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('001_A_voiceover.json'));
+    expect(confirmDialog).toHaveBeenCalledWith(expect.stringContaining('001_A_voiceover.json'), expect.anything());
     expect(api).not.toHaveBeenCalledWith('POST', '/api/run/start', expect.anything());
   });
 
@@ -395,7 +406,8 @@ describe('startRun', () => {
 
     await startRun();
 
-    expect(confirm).not.toHaveBeenCalled();
+    const { confirmDialog } = await import('../confirm.js');
+    expect(confirmDialog).not.toHaveBeenCalled();
     const startCall = api.mock.calls.find(([method, url]) => method === 'POST' && url === '/api/run/start');
     expect(startCall?.[2]).not.toHaveProperty('confirm_plan_overwrite');
   });

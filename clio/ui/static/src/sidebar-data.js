@@ -23,6 +23,7 @@ import { toggleSelectionFor, videoSelectionKey } from './video-selection.js';
 import { selectVideosButtonHtml } from './select-btn.js';
 import { bindVideoInfoHover, clearVideoInfoCache } from './video-info.js';
 import { t, onLocaleChange } from './i18n.js';
+import { confirmDialog } from './confirm.js';
 
 // ── Video relink helper ───────────────────────────────────────
 
@@ -118,7 +119,7 @@ export async function removeSelectedVideosFromProject() {
     setStatus(t('sidebar.remove_selected_none'), 'warn');
     return null;
   }
-  if (!confirm(t('sidebar.remove_selected_confirm', { count: files.length }))) return null;
+  if (!(await confirmDialog(t('sidebar.remove_selected_confirm', { count: files.length }), { danger: true }))) return null;
   const targets = await _selectedVideoTargets(files);
   return _removeVideos(targets);
 }
@@ -544,7 +545,7 @@ function renderVideoItem(v) {
           return;
         }
         if (task === 'remove') {
-          if (confirm(t('sidebar.confirm_remove', { file }))) {
+          if (await confirmDialog(t('sidebar.confirm_remove', { file }), { danger: true })) {
             await removeVideoFromProject(file, v.abs_path || (v.match && v.match.abs_path) || null);
           }
           return;
