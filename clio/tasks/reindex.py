@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
+import subprocess
 import time as _time
 from collections import defaultdict
 from pathlib import Path
@@ -17,6 +19,7 @@ from clio.vmeta import SegmentEntry, VideoIndex, VideoMeta
 
 _OFFLINE_CACHE_NAME = ".reindex_offline.json"
 _OFFLINE_CACHE_VERSION = 1
+_PROBE_ERRORS = (OSError, ValueError, subprocess.SubprocessError)
 
 
 def _offline_cache_path(compressed_dir: Path) -> Path:
@@ -250,10 +253,8 @@ def run_reindex(config: AppConfig, ffprobe: str | None = None, stems: set[str] |
 
         seg_entries: list[SegmentEntry] = []
         source_dur = 0.0
-        try:
+        with contextlib.suppress(*_PROBE_ERRORS):
             source_dur = get_duration_sec(source_path, ffprobe)
-        except Exception:
-            pass
 
         for cp in comp_files:
             idx_str = cp.stem.split("_", 1)[0]
@@ -282,10 +283,8 @@ def run_reindex(config: AppConfig, ffprobe: str | None = None, stems: set[str] |
             # Never fabricate average offsets across same-stem files.
             tgt_dur = meta.target_duration_sec if meta is not None else 0.0
             if meta is None:
-                try:
+                with contextlib.suppress(*_PROBE_ERRORS):
                     tgt_dur = get_duration_sec(cp, ffprobe)
-                except Exception:
-                    pass
                 meta = VideoMeta.build(
                     source=source_path,
                     target=cp,

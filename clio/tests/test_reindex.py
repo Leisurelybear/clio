@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -98,6 +99,57 @@ class TestRunReindex:
         assert result == 0
         captured = capsys.readouterr()
         assert "compressed_dir 不存在" in captured.out
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            OSError("ffprobe unavailable"),
+            ValueError("invalid duration"),
+            subprocess.CalledProcessError(1, "ffprobe"),
+        ],
+    )
+    def test_probe_failures_degrade_to_zero_duration(
+        self,
+        config: AppConfig,
+        compressed_dir: Path,
+        input_dir: Path,
+        error: Exception,
+    ) -> None:
+        (compressed_dir / "001_GL010683.mp4").write_text("fake")
+        (input_dir / "GL010683.mp4").write_text("fake")
+
+        with (
+            patch("clio.tasks.reindex.VideoMeta.read", return_value=None),
+            patch("clio.tasks.reindex.VideoMeta.build") as mock_build,
+            patch("clio.tasks.reindex.get_duration_sec", side_effect=error),
+            patch("clio.tasks.reindex.resolve_binary", return_value="ffprobe"),
+        ):
+            mock_meta = MagicMock()
+            mock_meta.target_duration_sec = 0.0
+            mock_meta.split_info = None
+            mock_build.return_value = mock_meta
+
+            result = run_reindex(config)
+
+        assert result == 1
+        mock_build.assert_called_once_with(
+            source=input_dir / "GL010683.mp4",
+            target=compressed_dir / "001_GL010683.mp4",
+            source_duration=0.0,
+            target_duration=0.0,
+        )
+
+    def test_unexpected_probe_error_propagates(self, config: AppConfig, compressed_dir: Path, input_dir: Path) -> None:
+        (compressed_dir / "001_GL010683.mp4").write_text("fake")
+        (input_dir / "GL010683.mp4").write_text("fake")
+
+        with (
+            patch("clio.tasks.reindex.VideoMeta.read", return_value=None),
+            patch("clio.tasks.reindex.get_duration_sec", side_effect=RuntimeError("unexpected bug")),
+            patch("clio.tasks.reindex.resolve_binary", return_value="ffprobe"),
+            pytest.raises(RuntimeError, match="unexpected bug"),
+        ):
+            run_reindex(config)
 
     def test_writes_vindex_and_vmeta(self, config: AppConfig, compressed_dir: Path, input_dir: Path) -> None:
         for name in ["001_GL010683.mp4", "002_GL010683.mp4", "001_GL010695.mp4"]:
