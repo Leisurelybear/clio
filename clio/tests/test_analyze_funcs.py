@@ -22,8 +22,10 @@ from clio.analyze import (
     _validate_analysis,
     _validate_plan,
     _validate_plan_ranges,
+    _validate_plan_voiceover,
     _validate_voiceover,
     _wrap_with_context,
+    generate_plan_voiceover,
     plan_daily_vlog,
 )
 from clio.config import AppConfig
@@ -36,6 +38,7 @@ def _fake_config(context: str = "", context_override: str | None = None) -> AppC
             ai=SimpleNamespace(context=context, debug_print_prompt=False),
             plan=SimpleNamespace(max_clips_per_day=10, target_duration_sec=300),
             script=SimpleNamespace(target_words=150),
+            whisper=SimpleNamespace(max_segments_per_clip=5),
             paths=SimpleNamespace(input_dir=Path("/tmp")),
             project_dir=None,
         ),
@@ -1335,6 +1338,133 @@ class TestPlanDailyVlog:
             plan_daily_vlog(clips, cfg)
 
         assert call.call_count == 2
+
+
+def test_validate_plan_voiceover_collects_contract_issues():
+    issues: list[str] = []
+
+    result = _validate_plan_voiceover(
+        {
+            "segments": [{"position": 2, "voiceover": " ", "extra": True}],
+            "extra": True,
+        },
+        "day1 position 1",
+        position=1,
+        issues=issues,
+    )
+
+    assert result == {"segments": [{"position": 1, "voiceover": ""}]}
+    assert len(issues) == 4
+
+
+def test_validate_plan_voiceover_rejects_invalid_segments_shape():
+    issues: list[str] = []
+
+    result = _validate_plan_voiceover(
+        {"segments": "not-a-list"},
+        "day1 position 0",
+        position=0,
+        issues=issues,
+    )
+
+    assert result == {"segments": [{"position": 0, "voiceover": ""}]}
+    assert len(issues) == 1
+
+
+def test_generate_plan_voiceover_uses_planned_interval_and_transcript_offset(monkeypatch):
+    from clio.ai.base import TaskName
+    from clio.ai.structured import PLAN_VOICEOVER_OUTPUT
+
+    cfg = _fake_config()
+    provider = MagicMock(provider_id="mock")
+    seen: dict[str, Any] = {}
+    captured: dict[str, Any] = {}
+
+    def fake_generate(*args, **kwargs):
+        seen.update(kwargs)
+        return AIResponse('{"segments":[{"position":1,"voiceover":"planned words"}]}')
+
+    provider.generate_text.side_effect = fake_generate
+    monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (provider, "model"))
+    monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, *a, **kw: prompt)
+
+    def fake_call(label, provider_id, model, prompt, fn, **kwargs):
+        captured["label"] = label
+        captured["prompt"] = prompt
+        captured["task_name"] = kwargs["task_name"]
+        fn()
+        return '{"segments":[{"position":1,"voiceover":"  planned words  "}]}'
+
+    monkeypatch.setattr("clio.analyze._call_ai", fake_call)
+    plan = {
+        "day_title": "Coast day",
+        "theme": "coast",
+        "opening_tip": "start with the sea",
+        "ending_tip": "end at sunset",
+        "sequence": [
+            {"index": "001", "title": "Arrival", "use_timeline": "00:00-00:10", "voiceover_hint": "arrive"},
+            {"index": "002", "title": "Boat", "use_timeline": "00:20-00:30", "voiceover_hint": "board"},
+            {"index": "003", "title": "Sunset", "use_timeline": "00:30-00:40", "voiceover_hint": "end"},
+        ],
+    }
+    clip_data = {
+        "index": "002",
+        "title": "Boat",
+        "segment_offset_sec": 10,
+        "timeline": [
+            {"start": "00:05", "end": "00:10", "description": "outside-before"},
+            {"start": "00:18", "end": "00:22", "description": "inside-start"},
+            {"start": "00:25", "end": "00:32", "description": "inside-overlap"},
+            {"start": "00:40", "end": "00:45", "description": "outside-after"},
+        ],
+    }
+    transcript = {
+        "segments": [
+            {"start": 5.0, "end": 9.0, "text": "outside transcript", "avg_logprob": -0.1},
+            {"start": 30.0, "end": 35.0, "text": "inside transcript", "avg_logprob": -0.1},
+            {"start": 41.0, "end": 45.0, "text": "outside transcript after", "avg_logprob": -0.1},
+        ]
+    }
+
+    result = generate_plan_voiceover(plan, clip_data, 1, "Template: {title}", cfg, transcript=transcript)
+
+    assert result == {
+        "position": 1,
+        "index": "002",
+        "title": "Boat",
+        "use_timeline": "00:20-00:30",
+        "voiceover_hint": "board",
+        "voiceover": "planned words",
+        "duration_sec": 10.0,
+    }
+    prompt = captured["prompt"]
+    assert "inside-start" in prompt
+    assert "inside-overlap" in prompt
+    assert "outside-before" not in prompt
+    assert "outside-after" not in prompt
+    assert "inside transcript" in prompt
+    assert "outside transcript" not in prompt
+    assert captured["task_name"] is TaskName.VOICEOVER
+    assert seen["structured_output"] is PLAN_VOICEOVER_OUTPUT
+
+
+def test_generate_plan_voiceover_stops_before_provider_when_cancelled(monkeypatch):
+    from threading import Event
+
+    cfg = _fake_config()
+    cancel_event = Event()
+    cancel_event.set()
+    monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: pytest.fail("provider should not be resolved"))
+
+    with pytest.raises(RuntimeError):
+        generate_plan_voiceover(
+            {"sequence": [{"index": "001", "use_timeline": "00:00-00:10"}]},
+            {"index": "001", "timeline": []},
+            0,
+            "template",
+            cfg,
+            cancel_event=cancel_event,
+        )
 
 
 def test_voiceover_prompt_includes_timeline_duration(monkeypatch):

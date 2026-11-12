@@ -74,6 +74,15 @@ class DailyVlogPlan(_StrictModel):
     ending_tip: str
 
 
+class PlanVoiceoverSegment(_StrictModel):
+    position: int
+    voiceover: str
+
+
+class PlanVoiceover(_StrictModel):
+    segments: list[PlanVoiceoverSegment]
+
+
 class WindowSummary(_StrictModel):
     title: str
     summary: str
@@ -89,6 +98,7 @@ def _output(name: str, model: type[BaseModel]) -> StructuredOutput:
 
 VIDEO_ANALYSIS_OUTPUT = _output("video_analysis", VideoAnalysis)
 VOICEOVER_OUTPUT = _output("voiceover", Voiceover)
+PLAN_VOICEOVER_OUTPUT = _output("plan_voiceover", PlanVoiceover)
 VLOG_PLAN_OUTPUT = _output("vlog_plan", DailyVlogPlan)
 WINDOW_SUMMARY_OUTPUT = _output("window_summary", WindowSummary)
 JSON_OBJECT_OUTPUT = StructuredOutput(name="json_object")

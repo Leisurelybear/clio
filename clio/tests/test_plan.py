@@ -177,8 +177,13 @@ class TestSourceInputsFromClips:
             [{"index": "001", "source_stem": "GL010683"}, {"index": None, "source_stem": None}]
         )
         assert inputs == [
-            {"index": "001", "source_stem": "GL010683"},
-            {"index": "", "source_stem": ""},
+            {
+                "index": "001",
+                "source_stem": "GL010683",
+                "match_stem": "",
+                "segment_offset_sec": 0.0,
+            },
+            {"index": "", "source_stem": "", "match_stem": "", "segment_offset_sec": 0.0},
         ]
 
 
@@ -320,7 +325,9 @@ class TestRunPlanVlog:
             result = run_plan_vlog(loaded_config, "day1")
         assert result is not None
         assert result["_schema_version"] == 2
-        assert result["source_inputs"] == [{"index": "001", "source_stem": "GL010683"}]
+        assert result["source_inputs"] == [
+            {"index": "001", "source_stem": "GL010683", "match_stem": "001_GL010683", "segment_offset_sec": 0.0}
+        ]
         assert result["_lineage"]
         json_path = loaded_config.plans_dir / "day1_plan.json"
         md_path = loaded_config.plans_dir / "day1_plan.md"

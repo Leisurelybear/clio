@@ -188,6 +188,57 @@ SCRIPT_PROMPT = """你是旅行 vlog 口播文案写手。根据以下素材分�
 }}
 """
 
+PLAN_VOICEOVER_TIMELINE_SECTION = "### 时间轴\n"
+PLAN_VOICEOVER_TRANSCRIPT_SECTION = "\n\n### 对齐转录\n"
+PLAN_VOICEOVER_RANGE_WITH_DURATION = "计划裁剪区间: {range}，可用时长约 {duration:.1f} 秒。"
+PLAN_VOICEOVER_RANGE_UNPARSED = "计划裁剪区间无法解析，请勿虚构精确时长。"
+PLAN_VOICEOVER_NO_TIMELINE = "（无匹配时间轴）"
+PLAN_VOICEOVER_LOW_CONFIDENCE = "（低置信度）"
+
+PLAN_VOICEOVER_PROMPT = """你是旅行 vlog 口播文案写手。
+现在不是孤立地介绍一段素材，而是为已经排好顺序的日度 vlog 计划写其中一段口播。
+请只为当前计划片段写口播，并根据前后片段自然衔接。用中文回复。
+
+## 当天信息
+日期标题: {day_title}
+主题: {theme}
+当前片段位置: {position}
+
+## 口播模板
+{template}
+
+## 相邻计划片段
+前一段:
+{previous_segment_json}
+
+当前段:
+{current_segment_json}
+
+后一段:
+{next_segment_json}
+
+## 当前片段可用素材时间轴与对齐转录
+{timeline_text}
+
+## 口播要求
+- 只写当前片段的口播正文，不要改计划，不要写转场说明，不要输出字幕字段
+- 必须结合当前片段 use_timeline 范围内真实出现的画面细节；
+  时间轴中的“对齐转录”只在内容与画面一致时参考，低置信度转录不能当作事实
+- 第一人称、自然口语化，开头承接上一段，结尾为下一段留出自然过渡；不要重复复述前后段内容
+- 控制在约 {target_words} 字以内；短片段按实际裁剪时长主动缩短。按每秒约 2.5-3.5 个汉字估算，不要写成长篇旁白
+- 开场建议: {opening_tip}
+- 结尾建议: {ending_tip}
+- 若当前片段需要收束全天内容，优先使用 ending_tip；若在开场附近，优先使用 opening_tip
+
+请输出 JSON（不要 markdown 代码块）：
+{{
+  "segments": [
+    {{"position": {position}, "voiceover": "只写当前片段的口播正文"}}
+  ]
+}}
+"""
+
+
 WINDOW_SUMMARY_PROMPT = """你是旅行视频内容编辑。下面是同一段长视频分窗分析后合并的全局素材信息。
 
 请综合全片时间线和亮点，重写全片摘要字段，不能只依据第一个分析窗口：
@@ -375,6 +426,7 @@ REFINE_SCRIPT_FIX_PROMPT = """用户对下面这段 vlog 口播文案给出了**
 PROMPT_DEFAULTS = {
     "ANALYZE_PROMPT": ANALYZE_PROMPT,
     "SCRIPT_PROMPT": SCRIPT_PROMPT,
+    "PLAN_VOICEOVER_PROMPT": PLAN_VOICEOVER_PROMPT,
     "PLAN_PROMPT": PLAN_PROMPT,
     "REFINE_TEXT_PROMPT": REFINE_TEXT_PROMPT,
     "REFINE_TEXT_FIX_PROMPT": REFINE_TEXT_FIX_PROMPT,

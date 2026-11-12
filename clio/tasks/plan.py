@@ -203,15 +203,23 @@ def _analysis_day_label(data: dict[str, Any]) -> str:
     return label or "day1"
 
 
-def _source_inputs_from_clips(clips: list[dict]) -> list[dict[str, str]]:
+def _source_inputs_from_clips(clips: list[dict]) -> list[dict[str, Any]]:
     """Build authoritative input-pool provenance for a generated plan."""
-    return [
-        {
-            "index": str(c.get("index") or ""),
-            "source_stem": str(c.get("source_stem") or ""),
-        }
-        for c in clips
-    ]
+    rows: list[dict[str, Any]] = []
+    for clip in clips:
+        try:
+            segment_offset_sec = float(clip.get("segment_offset_sec", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            segment_offset_sec = 0.0
+        rows.append(
+            {
+                "index": str(clip.get("index") or ""),
+                "source_stem": str(clip.get("source_stem") or ""),
+                "match_stem": str(clip.get("match_stem") or ""),
+                "segment_offset_sec": segment_offset_sec,
+            }
+        )
+    return rows
 
 
 def _plan_lineage_fingerprint(

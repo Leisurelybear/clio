@@ -541,3 +541,239 @@ class TestRunGenerateScripts:
         state = ProcessingState(cfg.paths.output_dir)
         with pytest.raises(RuntimeError):
             _process_one_script(cfg.texts_dir / "001.json", cfg, "template", MagicMock(), None, False, state, None)
+
+
+def _write_plan_voiceover_inputs(
+    cfg: AppConfig,
+    *,
+    offset_sec: float = 0.0,
+    source_inputs: object | None = None,
+) -> dict:
+    cfg.plans_dir.mkdir(parents=True, exist_ok=True)
+    (cfg.texts_dir / "001_A.json").write_text(
+        json.dumps(
+            {
+                "index": 1,
+                "title": "A",
+                "summary": "harbor walk",
+                "timeline": [{"start": "00:00", "end": "00:10", "description": "walk"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    plan = {
+        "day_title": "Day 1",
+        "theme": "harbor",
+        "opening_tip": "",
+        "ending_tip": "",
+        "sequence": [
+            {
+                "index": "001",
+                "title": "A",
+                "use_timeline": "00:00-00:10",
+                "voiceover_hint": "walk",
+            }
+        ],
+        "source_inputs": source_inputs
+        if source_inputs is not None
+        else [
+            {
+                "index": "001",
+                "source_stem": "001_A",
+                "match_stem": "A",
+                "segment_offset_sec": offset_sec,
+            }
+        ],
+    }
+    (cfg.plans_dir / "day1_plan.json").write_text(json.dumps(plan), encoding="utf-8")
+    return plan
+
+
+def _fake_plan_voiceover(*args, **kwargs) -> dict:
+    position = args[2]
+    plan = args[0]
+    segment = plan["sequence"][position]
+    return {
+        "position": position,
+        "index": segment["index"],
+        "title": segment["title"],
+        "use_timeline": segment["use_timeline"],
+        "voiceover_hint": segment["voiceover_hint"],
+        "voiceover": f"voice {position}",
+    }
+
+
+def test_plan_voiceover_returns_none_when_plan_is_missing(cfg: AppConfig):
+    from clio.tasks.scripts import run_generate_plan_voiceovers
+
+    with patch("clio.tasks.scripts.generate_plan_voiceover") as mock_generate:
+        result = run_generate_plan_voiceovers(cfg, day_label="day1")
+
+    assert result is None
+    mock_generate.assert_not_called()
+
+
+def test_plan_voiceover_writes_json_and_markdown(cfg: AppConfig):
+    from clio.tasks.scripts import run_generate_plan_voiceovers
+
+    _write_plan_voiceover_inputs(cfg)
+    with patch("clio.tasks.scripts.generate_plan_voiceover", side_effect=_fake_plan_voiceover):
+        result = run_generate_plan_voiceovers(cfg, day_label="day1")
+
+    assert result is not None
+    assert result["_schema_version"] == 2
+    assert result["_lineage"]
+    assert result["segments"][0]["voiceover"] == "voice 0"
+    out_json = cfg.scripts_dir / "day1_plan_voiceover.json"
+    out_md = cfg.scripts_dir / "day1_plan_voiceover.md"
+    assert json.loads(out_json.read_text(encoding="utf-8")) == result
+    markdown = out_md.read_text(encoding="utf-8")
+    assert "Day 1" in markdown
+    assert "A" in markdown
+    assert "voice 0" in markdown
+
+
+def test_plan_voiceover_same_lineage_skips_without_ai(cfg: AppConfig):
+    from clio.tasks.scripts import run_generate_plan_voiceovers
+
+    _write_plan_voiceover_inputs(cfg)
+    with patch("clio.tasks.scripts.generate_plan_voiceover", side_effect=_fake_plan_voiceover):
+        first = run_generate_plan_voiceovers(cfg, day_label="day1")
+
+    out_json = cfg.scripts_dir / "day1_plan_voiceover.json"
+    old_bytes = out_json.read_bytes()
+    with patch("clio.tasks.scripts.generate_plan_voiceover") as mock_generate:
+        second = run_generate_plan_voiceovers(cfg, day_label="day1")
+
+    mock_generate.assert_not_called()
+    assert second == first
+    assert out_json.read_bytes() == old_bytes
+
+
+def test_plan_voiceover_changed_analysis_regenerates(cfg: AppConfig):
+    from clio.tasks.scripts import run_generate_plan_voiceovers
+
+    _write_plan_voiceover_inputs(cfg)
+    with patch("clio.tasks.scripts.generate_plan_voiceover", side_effect=_fake_plan_voiceover):
+        run_generate_plan_voiceovers(cfg, day_label="day1")
+
+    analysis_path = cfg.texts_dir / "001_A.json"
+    analysis = json.loads(analysis_path.read_text(encoding="utf-8"))
+    analysis["summary"] = "changed harbor walk"
+    analysis_path.write_text(json.dumps(analysis), encoding="utf-8")
+
+    with patch("clio.tasks.scripts.generate_plan_voiceover", side_effect=_fake_plan_voiceover) as mock_generate:
+        result = run_generate_plan_voiceovers(cfg, day_label="day1")
+
+    assert result is not None
+    mock_generate.assert_called_once()
+
+
+def test_plan_voiceover_user_edit_requires_confirmation_then_backs_up(cfg: AppConfig):
+    from clio.artifact_guard import ArtifactOverwriteConfirmationRequired, mark_user_edited
+    from clio.tasks.scripts import run_generate_plan_voiceovers
+
+    _write_plan_voiceover_inputs(cfg)
+    with patch("clio.tasks.scripts.generate_plan_voiceover", side_effect=_fake_plan_voiceover):
+        run_generate_plan_voiceovers(cfg, day_label="day1")
+
+    out_json = cfg.scripts_dir / "day1_plan_voiceover.json"
+    out_md = cfg.scripts_dir / "day1_plan_voiceover.md"
+    edited = json.loads(out_json.read_text(encoding="utf-8"))
+    mark_user_edited(edited, edited_at="2026-11-10T00:00:00Z")
+    out_json.write_text(json.dumps(edited), encoding="utf-8")
+    old_json = out_json.read_bytes()
+    old_md = out_md.read_bytes()
+    analysis_path = cfg.texts_dir / "001_A.json"
+    analysis = json.loads(analysis_path.read_text(encoding="utf-8"))
+    analysis["summary"] = "new harbor walk"
+    analysis_path.write_text(json.dumps(analysis), encoding="utf-8")
+
+    with patch("clio.tasks.scripts.generate_plan_voiceover") as mock_generate:
+        with pytest.raises(ArtifactOverwriteConfirmationRequired):
+            run_generate_plan_voiceovers(cfg, day_label="day1")
+        mock_generate.assert_not_called()
+        assert out_json.read_bytes() == old_json
+        assert out_md.read_bytes() == old_md
+
+    with patch("clio.tasks.scripts.generate_plan_voiceover", side_effect=_fake_plan_voiceover) as mock_generate:
+        run_generate_plan_voiceovers(cfg, day_label="day1", confirm_artifact_overwrite=True)
+
+    mock_generate.assert_called_once()
+    result = json.loads(out_json.read_text(encoding="utf-8"))
+    assert "_user_edited" not in result
+    backups = sorted(cfg.scripts_dir.glob("day1_plan_voiceover.*.bak.*"))
+    assert {backup.name.split(".bak.", 1)[0] for backup in backups} == {
+        "day1_plan_voiceover.json",
+        "day1_plan_voiceover.md",
+    }
+
+
+def test_plan_voiceover_cancel_does_not_write_outputs(cfg: AppConfig):
+    from threading import Event
+
+    from clio.tasks.scripts import run_generate_plan_voiceovers
+
+    _write_plan_voiceover_inputs(cfg)
+    cancel_event = Event()
+    cancel_event.set()
+    with patch("clio.tasks.scripts.generate_plan_voiceover") as mock_generate:
+        result = run_generate_plan_voiceovers(cfg, day_label="day1", cancel_event=cancel_event)
+
+    assert result is None
+    mock_generate.assert_not_called()
+    assert not (cfg.scripts_dir / "day1_plan_voiceover.json").exists()
+    assert not (cfg.scripts_dir / "day1_plan_voiceover.md").exists()
+
+
+def test_plan_voiceover_tolerates_non_list_source_inputs(cfg: AppConfig):
+    from clio.tasks.scripts import run_generate_plan_voiceovers
+
+    _write_plan_voiceover_inputs(cfg, source_inputs="invalid")
+    with patch("clio.tasks.scripts.generate_plan_voiceover", side_effect=_fake_plan_voiceover) as mock_generate:
+        result = run_generate_plan_voiceovers(cfg, day_label="day1")
+
+    assert result is not None
+    mock_generate.assert_called_once()
+
+
+def test_plan_voiceover_uses_match_stem_and_segment_offset(cfg: AppConfig):
+    from clio.tasks.scripts import run_generate_plan_voiceovers
+
+    _write_plan_voiceover_inputs(cfg, offset_sec=12.5)
+    cfg.transcripts_dir.mkdir(parents=True, exist_ok=True)
+    transcript = {"segments": [{"start": 12.5, "end": 15.0, "text": "source speech"}]}
+    (cfg.transcripts_dir / "A_transcript.json").write_text(json.dumps(transcript), encoding="utf-8")
+    captured: dict = {}
+
+    def fake_generate(plan, clip_data, position, template, config, **kwargs):
+        captured["clip_data"] = clip_data
+        captured["transcript"] = kwargs["transcript"]
+        return _fake_plan_voiceover(plan, clip_data, position, template, config, **kwargs)
+
+    with patch("clio.tasks.scripts.generate_plan_voiceover", side_effect=fake_generate):
+        run_generate_plan_voiceovers(cfg, day_label="day1")
+
+    assert captured["transcript"] == transcript
+    assert captured["clip_data"]["segment_offset_sec"] == 12.5
+
+
+def test_plan_voiceover_artifact_overwrite_required_preserves_same_lineage_edit(cfg: AppConfig):
+    from clio.artifact_guard import mark_user_edited
+    from clio.tasks.scripts import plan_voiceover_artifact_overwrite_required, run_generate_plan_voiceovers
+
+    _write_plan_voiceover_inputs(cfg)
+    with patch("clio.tasks.scripts.generate_plan_voiceover", side_effect=_fake_plan_voiceover):
+        run_generate_plan_voiceovers(cfg, day_label="day1")
+
+    out_json = cfg.scripts_dir / "day1_plan_voiceover.json"
+    edited = json.loads(out_json.read_text(encoding="utf-8"))
+    mark_user_edited(edited)
+    out_json.write_text(json.dumps(edited), encoding="utf-8")
+
+    assert plan_voiceover_artifact_overwrite_required(cfg, "day1") == []
+    overwrite = plan_voiceover_artifact_overwrite_required(cfg, "day1", overwrite=True)
+    assert {path.name for path in overwrite} == {
+        "day1_plan_voiceover.json",
+        "day1_plan_voiceover.md",
+    }

@@ -13,6 +13,7 @@ from clio.ai.base import AIResponse, TaskName
 from clio.ai.factory import get_task_config, get_task_provider, get_video_provider, provider_use
 from clio.ai.structured import (
     JSON_OBJECT_OUTPUT,
+    PLAN_VOICEOVER_OUTPUT,
     VIDEO_ANALYSIS_OUTPUT,
     VLOG_PLAN_OUTPUT,
     VOICEOVER_OUTPUT,
@@ -27,6 +28,13 @@ from clio.prompt_overrides import format_prompt_template, resolve_prompt_templat
 from clio.prompts import (
     ANALYZE_PROMPT,
     PLAN_PROMPT,
+    PLAN_VOICEOVER_LOW_CONFIDENCE,
+    PLAN_VOICEOVER_NO_TIMELINE,
+    PLAN_VOICEOVER_PROMPT,
+    PLAN_VOICEOVER_RANGE_UNPARSED,
+    PLAN_VOICEOVER_RANGE_WITH_DURATION,
+    PLAN_VOICEOVER_TIMELINE_SECTION,
+    PLAN_VOICEOVER_TRANSCRIPT_SECTION,
     REFINE_SCRIPT_FIX_PROMPT,
     REFINE_SCRIPT_PROMPT,
     REFINE_TEXT_FIX_PROMPT,
@@ -369,6 +377,57 @@ def _validate_voiceover(data: dict, source: str, *, issues: list[str] | None = N
         _record_validation_issue(issues, t("analyze.warn_duration_hint_invalid", {"source": source}))
     data["duration_hint_sec"] = max(0.0, number_value)
     return data
+
+
+def _validate_plan_voiceover(data: dict, source: str, *, position: int, issues: list[str] | None = None) -> dict:
+    """Validate one planned-segment voiceover and keep the contract narrow."""
+    data = copy.deepcopy(data) if isinstance(data, dict) else {}
+    extra = sorted(set(data) - {"segments"})
+    if extra:
+        _record_validation_issue(
+            issues,
+            t("analyze.plan_voiceover_extra_fields", {"source": source, "fields": ", ".join(extra)}),
+        )
+    segments = data.get("segments")
+    if not isinstance(segments, list):
+        _record_validation_issue(
+            issues,
+            t("analyze.plan_voiceover_invalid_segments", {"source": source}),
+        )
+        return {"segments": [{"position": position, "voiceover": ""}]}
+    if len(segments) != 1 or not isinstance(segments[0], dict):
+        _record_validation_issue(
+            issues,
+            t("analyze.plan_voiceover_invalid_segments", {"source": source}),
+        )
+    segment = segments[0] if segments and isinstance(segments[0], dict) else {}
+    segment_extra = sorted(set(segment) - {"position", "voiceover"})
+    if segment_extra:
+        _record_validation_issue(
+            issues,
+            t("analyze.plan_voiceover_extra_fields", {"source": source, "fields": ", ".join(segment_extra)}),
+        )
+    raw_position = segment.get("position")
+    if isinstance(raw_position, (int, float, str)) and not isinstance(raw_position, bool):
+        try:
+            returned_position = int(raw_position)
+        except (TypeError, ValueError, OverflowError):
+            returned_position = None
+    else:
+        returned_position = None
+    if returned_position != position:
+        _record_validation_issue(
+            issues,
+            t(
+                "analyze.plan_voiceover_wrong_position",
+                {"source": source, "expected": position, "actual": raw_position},
+            ),
+        )
+    voiceover = segment.get("voiceover")
+    if not isinstance(voiceover, str) or not voiceover.strip():
+        _record_validation_issue(issues, t("analyze.plan_voiceover_empty", {"source": source}))
+        voiceover = ""
+    return {"segments": [{"position": position, "voiceover": voiceover.strip()}]}
 
 
 def _validate_plan(data: dict, source: str) -> dict:
@@ -1115,6 +1174,162 @@ def generate_voiceover(
             retry=call_voiceover,
             analysis=False,
         )
+
+
+def generate_plan_voiceover(
+    plan: dict,
+    clip_data: dict,
+    position: int,
+    template: str,
+    config: AppConfig,
+    transcript: dict | None = None,
+    token_store=None,
+    cancel_event: threading.Event | None = None,
+    context_override: str | None = None,
+    task_prompts: dict[str, str] | None = None,
+    day_label: str = "day1",
+) -> dict:
+    """Generate one voiceover from its planned sequence position and adjacent context."""
+    if cancel_event and cancel_event.is_set():
+        raise RuntimeError(t("analyze.voiceover_cancelled"))
+
+    sequence = plan.get("sequence", [])
+    if not isinstance(sequence, list) or position < 0 or position >= len(sequence):
+        raise ValueError(t("analyze.plan_voiceover_invalid_position", {"position": position}))
+    current_segment = sequence[position] if isinstance(sequence[position], dict) else {}
+    previous_segment = sequence[position - 1] if position > 0 and isinstance(sequence[position - 1], dict) else {}
+    next_segment = (
+        sequence[position + 1] if position + 1 < len(sequence) and isinstance(sequence[position + 1], dict) else {}
+    )
+
+    plan_range = str(current_segment.get("use_timeline") or "").strip()
+    duration_sec: float | None = None
+    intervals: list[tuple[float, float]] = []
+    try:
+        start, end = parse_time_range(plan_range)
+    except (TypeError, ValueError):
+        start = end = 0.0
+    else:
+        if math.isfinite(start) and math.isfinite(end) and end > start:
+            duration_sec = round(end - start, 3)
+            intervals = [(start, end)]
+
+    timeline_lines: list[str] = []
+    timeline = clip_data.get("timeline", [])
+    if isinstance(timeline, list):
+        for item in timeline:
+            if not isinstance(item, dict):
+                continue
+            if intervals:
+                try:
+                    row_start, row_end = parse_time_range(f"{item.get('start', '')}-{item.get('end', '')}")
+                except (TypeError, ValueError):
+                    continue
+                if row_end <= intervals[0][0] + 0.05 or row_start >= intervals[0][1] - 0.05:
+                    continue
+            timeline_lines.append(f"- {item.get('start', '?')}-{item.get('end', '?')}: {item.get('description', '')}")
+
+    offset_sec = clip_data.get("segment_offset_sec", 0.0)
+    try:
+        offset = float(offset_sec)
+    except (TypeError, ValueError):
+        offset = 0.0
+    transcript_limit = int(getattr(config.whisper, "max_segments_per_clip", 5) or 0)
+    selected_transcript = _select_transcript_segments(
+        transcript or {},
+        intervals,
+        offset_sec=offset,
+        limit=transcript_limit,
+    )
+    transcript_lines: list[str] = []
+    for segment in selected_transcript:
+        cleaned = _clean_transcript_segment(segment)
+        if cleaned is None:
+            continue
+        start_text = cleaned.get("start")
+        end_text = cleaned.get("end")
+        prefix = (
+            f"{start_text:g}-{end_text:g}s" if isinstance(start_text, float) and isinstance(end_text, float) else "?"
+        )
+        low_confidence = PLAN_VOICEOVER_LOW_CONFIDENCE if cleaned.get("low_confidence") else ""
+        transcript_lines.append(f"- {prefix}{low_confidence}: {cleaned['text']}")
+
+    duration_note = (
+        PLAN_VOICEOVER_RANGE_WITH_DURATION.format(range=plan_range, duration=duration_sec)
+        if duration_sec is not None
+        else PLAN_VOICEOVER_RANGE_UNPARSED
+    )
+    timeline_text = (
+        duration_note + PLAN_VOICEOVER_TIMELINE_SECTION + ("\n".join(timeline_lines) or PLAN_VOICEOVER_NO_TIMELINE)
+    )
+    if transcript_lines:
+        timeline_text += PLAN_VOICEOVER_TRANSCRIPT_SECTION + "\n".join(transcript_lines)
+
+    template_text = resolve_prompt_template("plan_voiceover", PLAN_VOICEOVER_PROMPT, config, task_prompts=task_prompts)
+    base = format_prompt_template(
+        "plan_voiceover",
+        template_text,
+        day_title=plan.get("day_title", day_label),
+        theme=plan.get("theme", ""),
+        position=position,
+        current_segment_json=json.dumps(current_segment, ensure_ascii=False),
+        previous_segment_json=json.dumps(previous_segment, ensure_ascii=False),
+        next_segment_json=json.dumps(next_segment, ensure_ascii=False),
+        timeline_text=timeline_text,
+        template=template,
+        target_words=config.script.target_words,
+        opening_tip=plan.get("opening_tip", ""),
+        ending_tip=plan.get("ending_tip", ""),
+    )
+    system = _system_context(config)
+    prompt = _wrap_with_context(base, config, context_override=context_override, include_spec=False)
+    provider, model = get_task_provider(config, TaskName.VOICEOVER)
+
+    def call_voiceover(call_prompt: str) -> str:
+        return _call_ai(
+            t("analyze.label.plan_voiceover"),
+            provider.provider_id,
+            model,
+            call_prompt,
+            lambda: provider.generate_text(
+                call_prompt,
+                model,
+                cancel_event=cancel_event,
+                temperature=_task_temperature(config, TaskName.VOICEOVER),
+                system=system,
+                structured_output=PLAN_VOICEOVER_OUTPUT,
+            ),
+            debug_print=config.ai.debug_print_prompt,
+            token_store=token_store,
+            task_name=TaskName.VOICEOVER,
+            cancel_event=cancel_event,
+            system_message=system,
+            **_usage_meta(config, TaskName.VOICEOVER),
+        )
+
+    with provider_use(provider):
+        text = call_voiceover(prompt)
+        validated = _validate_with_retry(
+            text,
+            f"{day_label} position {position}",
+            validate=lambda data, source, issues=None: _validate_plan_voiceover(
+                data, source, position=position, issues=issues
+            ),
+            retry=call_voiceover,
+            analysis=False,
+        )
+
+    result: dict[str, Any] = {
+        "position": position,
+        "index": str(current_segment.get("index") or ""),
+        "title": str(current_segment.get("title") or ""),
+        "use_timeline": plan_range,
+        "voiceover_hint": str(current_segment.get("voiceover_hint") or ""),
+        "voiceover": validated["segments"][0]["voiceover"],
+    }
+    if duration_sec is not None:
+        result["duration_sec"] = duration_sec
+    return result
 
 
 def plan_daily_vlog(

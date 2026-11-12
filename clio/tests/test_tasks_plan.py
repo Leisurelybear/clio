@@ -83,6 +83,25 @@ def _write_existing_plan(cfg: AppConfig, day_label: str = "day1") -> None:
     (cfg.plans_dir / f"{day_label}_plan.md").write_text("# full", encoding="utf-8")
 
 
+def test_source_inputs_preserve_match_stem_and_segment_offset():
+    from clio.tasks.plan import _source_inputs_from_clips
+
+    assert _source_inputs_from_clips(
+        [
+            {
+                "index": 7,
+                "source_stem": "007_GoPro",
+                "match_stem": "GoPro",
+                "segment_offset_sec": "12.5",
+            },
+            {"index": 8, "source_stem": "008_Clip", "segment_offset_sec": "invalid"},
+        ]
+    ) == [
+        {"index": "7", "source_stem": "007_GoPro", "match_stem": "GoPro", "segment_offset_sec": 12.5},
+        {"index": "8", "source_stem": "008_Clip", "match_stem": "", "segment_offset_sec": 0.0},
+    ]
+
+
 def test_plan_lineage_changes_with_analysis_timeline(cfg: AppConfig):
     from clio.tasks.plan import _plan_lineage_fingerprint
 
@@ -133,7 +152,9 @@ def test_planner_uses_projection_while_validation_keeps_full_clips(cfg: AppConfi
     assert "transcript" not in projected[0]
     assert "transcript_segments" not in projected[0]["timeline"][0]
     assert result is not None
-    assert result["source_inputs"] == [{"index": "001", "source_stem": "A"}]
+    assert result["source_inputs"] == [
+        {"index": "001", "source_stem": "A", "match_stem": "A", "segment_offset_sec": 0.0}
+    ]
     assert "注入规划" in capsys.readouterr().out
 
 
@@ -270,7 +291,9 @@ class TestRunPlanVlogFilesFilter:
 
         mock_plan.assert_called_once()
         assert result is not None
-        assert result["source_inputs"] == [{"index": "001", "source_stem": "A"}]
+        assert result["source_inputs"] == [
+            {"index": "001", "source_stem": "A", "match_stem": "A", "segment_offset_sec": 0.0}
+        ]
 
     def test_empty_files_selection_requires_confirmation(self, cfg: AppConfig):
         from clio.tasks.plan import PlanOverwriteConfirmationRequired, run_plan_vlog
@@ -315,7 +338,9 @@ class TestRunPlanVlogProjectSelection:
 
         mock_plan.assert_called_once()
         assert result is not None
-        assert result["source_inputs"] == [{"index": "001", "source_stem": "A"}]
+        assert result["source_inputs"] == [
+            {"index": "001", "source_stem": "A", "match_stem": "A", "segment_offset_sec": 0.0}
+        ]
 
     def test_empty_selection_has_no_usable_media(self, cfg: AppConfig):
         from clio.tasks._video_loader import save_selected_videos
@@ -468,8 +493,8 @@ class TestPlanSourceInputs:
         assert result is not None
         si = result["source_inputs"]
         assert si == [
-            {"index": "001", "source_stem": "A"},
-            {"index": "002", "source_stem": "B"},
+            {"index": "001", "source_stem": "A", "match_stem": "A", "segment_offset_sec": 0.0},
+            {"index": "002", "source_stem": "B", "match_stem": "B", "segment_offset_sec": 0.0},
         ]
         on_disk = json.loads((cfg.plans_dir / "day1_plan.json").read_text(encoding="utf-8"))
         assert on_disk["source_inputs"] == si
@@ -484,7 +509,9 @@ class TestPlanSourceInputs:
             result = run_plan_vlog(cfg, day_label="day1", files=["A"], overwrite=True)
 
         assert result is not None
-        assert result["source_inputs"] == [{"index": "001", "source_stem": "A"}]
+        assert result["source_inputs"] == [
+            {"index": "001", "source_stem": "A", "match_stem": "A", "segment_offset_sec": 0.0}
+        ]
 
     def test_legacy_part_transcript_matches_original_stem(self, cfg: AppConfig):
         from clio.tasks.plan import run_plan_vlog
@@ -522,7 +549,9 @@ class TestPlanSourceInputs:
             result = run_plan_vlog(cfg, day_label="day1", overwrite=True)
 
         assert result is not None
-        assert result["source_inputs"] == [{"index": "001", "source_stem": "A"}]
+        assert result["source_inputs"] == [
+            {"index": "001", "source_stem": "A", "match_stem": "A", "segment_offset_sec": 0.0}
+        ]
 
     def test_plan_md_lists_source_inputs(self, cfg: AppConfig):
         from clio.tasks.plan import run_plan_vlog
