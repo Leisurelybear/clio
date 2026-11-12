@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -25,15 +26,19 @@ from clio.analyze import (
     _wrap_with_context,
     plan_daily_vlog,
 )
+from clio.config import AppConfig
 
 
-def _fake_config(context: str = "", context_override: str | None = None) -> SimpleNamespace:
-    return SimpleNamespace(
-        ai=SimpleNamespace(context=context, debug_print_prompt=False),
-        plan=SimpleNamespace(max_clips_per_day=10, target_duration_sec=300),
-        script=SimpleNamespace(target_words=150),
-        paths=SimpleNamespace(input_dir=Path("/tmp")),
-        project_dir=None,
+def _fake_config(context: str = "", context_override: str | None = None) -> AppConfig:
+    return cast(
+        AppConfig,
+        SimpleNamespace(
+            ai=SimpleNamespace(context=context, debug_print_prompt=False),
+            plan=SimpleNamespace(max_clips_per_day=10, target_duration_sec=300),
+            script=SimpleNamespace(target_words=150),
+            paths=SimpleNamespace(input_dir=Path("/tmp")),
+            project_dir=None,
+        ),
     )
 
 
@@ -243,7 +248,7 @@ class TestWrapWithContext:
         ctx_file = templates / "trip_context.md"
         ctx_file.write_text("## Trip Context\n\nParis 2025", encoding="utf-8")
         cfg = _fake_config("")
-        cfg.project_dir = tmp_path
+        cast(Any, cfg).project_dir = tmp_path
         # Ensure property-style access works on SimpleNamespace/MagicMock fixtures
         if not hasattr(cfg, "project_dir") or cfg.project_dir is None:
             object.__setattr__(cfg, "project_dir", tmp_path)
@@ -880,7 +885,7 @@ class TestPlanDailyVlog:
 
         def make_config():
             cfg = _fake_config()
-            cfg.ai.providers = {}
+            cast(Any, cfg.ai).providers = {}
             cfg.plan.target_duration_sec = 20
             return cfg
 
@@ -908,7 +913,7 @@ class TestPlanDailyVlog:
             ]
         }
         cfg = _fake_config()
-        cfg.ai.providers = {}
+        cast(Any, cfg.ai).providers = {}
         cfg.plan.target_duration_sec = 20
         monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (MagicMock(), "model"))
         monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, cfg, **kw: prompt)
@@ -968,7 +973,7 @@ class TestPlanDailyVlog:
         monkeypatch.setattr("clio.analyze._wrap_with_context", lambda *a, **kw: "prompt")
         monkeypatch.setattr("clio.analyze._call_ai", lambda *a, **kw: '{"sequence": []}')
         cfg = _fake_config()
-        cfg.ai.providers = {}
+        cast(Any, cfg.ai).providers = {}
         with pytest.raises(RuntimeError, match="没有可用片段.*原始 0 段"):
             plan_daily_vlog([{"index": "001", "title": "A"}], cfg)
 
@@ -978,7 +983,7 @@ class TestPlanDailyVlog:
         monkeypatch.setattr("clio.analyze._wrap_with_context", lambda *a, **kw: "prompt")
         monkeypatch.setattr("clio.analyze._call_ai", lambda *a, **kw: '{"title": "plan"}')
         cfg = _fake_config()
-        cfg.ai.providers = {}
+        cast(Any, cfg.ai).providers = {}
         with pytest.raises(RuntimeError, match="没有可用片段.*原始 0 段"):
             plan_daily_vlog([{"index": "001", "title": "A"}], cfg)
 
@@ -1109,7 +1114,7 @@ def test_generate_voiceover_forwards_task_temperature(monkeypatch):
     from clio.config.models import TaskConfig
 
     cfg = _fake_config()
-    cfg.ai.tasks = {"voiceover": TaskConfig(provider="mock", model="model", temperature=0.7)}
+    cast(Any, cfg.ai).tasks = {"voiceover": TaskConfig(provider="mock", model="model", temperature=0.7)}
     provider = MagicMock(provider_id="mock")
     seen: dict = {}
 
@@ -1136,7 +1141,7 @@ def test_generate_voiceover_omits_temperature_when_unconfigured(monkeypatch):
     from clio.analyze import generate_voiceover
 
     cfg = _fake_config()
-    cfg.ai.tasks = {}
+    cast(Any, cfg.ai).tasks = {}
     provider = MagicMock(provider_id="mock")
     seen: dict = {}
 
