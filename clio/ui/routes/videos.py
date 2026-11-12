@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import subprocess
 import threading
 from copy import deepcopy
 from http import HTTPStatus
@@ -36,6 +37,7 @@ if TYPE_CHECKING:
     from clio.ui.handler_protocol import HandlerProtocol
 
 _SEG_RE = re.compile(r"^(.+)_(?:seg|part|pt|chunk)(\d+)$", re.IGNORECASE)
+_MEDIA_PROBE_ERRORS = (OSError, subprocess.SubprocessError, TypeError, ValueError)
 _VIDEOS_CACHE_LOCK = threading.Lock()
 _VIDEOS_CACHE_MAX = 20
 _VIDEOS_CACHE: dict[tuple[str, str, str], tuple[tuple[Any, ...], dict[str, Any]]] = {}
@@ -489,7 +491,7 @@ def _build_videos_payload(
             # resolve ffprobe once for segment offset computation
             try:
                 _ffprobe = resolve_binary(cfg.paths.ffprobe, "ffprobe")
-            except Exception:
+            except _MEDIA_PROBE_ERRORS:
                 _ffprobe = None
             for gk, members in group_members.items():
                 members.sort(key=lambda x: x[1])
@@ -523,7 +525,7 @@ def _build_videos_payload(
                             for member_idx, seg_num, _fname in missing:
                                 offsets[member_idx] = round((seg_num - 1) * seg_dur, 1)
                                 durations[member_idx] = round(seg_dur, 1)
-                        except Exception:
+                        except _MEDIA_PROBE_ERRORS:
                             pass
                 for member_idx, seg_num, fname in members:
                     for v in videos:
@@ -537,7 +539,7 @@ def _build_videos_payload(
         try:
             cfg = handler._get_config(proj_dir)
             _ffprobe = resolve_binary(cfg.paths.ffprobe, "ffprobe")
-        except Exception:
+        except _MEDIA_PROBE_ERRORS:
             _ffprobe = None
 
         if selected_ordered is not None:
@@ -601,7 +603,7 @@ def _build_videos_payload(
                     seg_dur = dur / len(comp)
                     for i, (_, idx) in enumerate(comp):
                         seg_offsets[idx] = round(i * seg_dur, 1)
-                except Exception:
+                except _MEDIA_PROBE_ERRORS:
                     pass
             segment_matches = [{"source": "compressed", "file": cf, "index": ci} for cf, ci in comp]
             for c_file, c_idx in comp:
@@ -837,12 +839,12 @@ def handle_get_video_info(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
         try:
             cfg = handler._get_config(proj_dir)
             ffprobe = resolve_binary(cfg.paths.ffprobe, "ffprobe")
-        except Exception:
+        except _MEDIA_PROBE_ERRORS:
             ffprobe = None
         if ffprobe:
             try:
                 probed = probe_media_details(target, ffprobe)
-            except Exception as exc:
+            except _MEDIA_PROBE_ERRORS as exc:
                 probe_error = str(exc)
             else:
                 # Keep stat/.vmeta fallbacks when ffprobe omits a field.

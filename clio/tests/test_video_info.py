@@ -220,13 +220,25 @@ class TestHandleGetVideoInfo:
         compressed.write_bytes(b"12345")
         with (
             patch("clio.ui.routes.videos.resolve_binary", return_value="ffprobe"),
-            patch("clio.ui.routes.videos.probe_media_details", side_effect=RuntimeError("probe boom")),
+            patch("clio.ui.routes.videos.probe_media_details", side_effect=ValueError("probe boom")),
         ):
             handle_get_video_info(handler, {"source": ["compressed"], "file": ["001_x.mp4"]})
         payload = _payload(handler)
         assert payload["ok"] is True
         assert payload["size_bytes"] == 5
         assert "probe boom" in payload["probe_error"]
+
+    def test_unexpected_probe_failure_propagates(self, tmp_path: Path):
+        handler, _proj_dir, proj_out = _handler(tmp_path)
+        comp_dir = proj_out / "compressed"
+        comp_dir.mkdir()
+        (comp_dir / "001_x.mp4").write_bytes(b"12345")
+        with (
+            patch("clio.ui.routes.videos.resolve_binary", return_value="ffprobe"),
+            patch("clio.ui.routes.videos.probe_media_details", side_effect=RuntimeError("probe boom")),
+            pytest.raises(RuntimeError, match="probe boom"),
+        ):
+            handle_get_video_info(handler, {"source": ["compressed"], "file": ["001_x.mp4"]})
 
     def test_probe_none_fields_keep_stat_fallback(self, tmp_path: Path):
         handler, _proj_dir, proj_out = _handler(tmp_path)
@@ -273,11 +285,15 @@ class TestHandleGetVideoInfo:
         assert payload["compression"]["target_duration_sec"] == pytest.approx(60.0)
 
     def test_missing_ffprobe_degrades(self, tmp_path: Path):
-        handler, _proj_dir, proj_out = _handler(tmp_path, ffprobe=None)
+        handler, _proj_dir, proj_out = _handler(tmp_path)
         comp_dir = proj_out / "compressed"
         comp_dir.mkdir()
         (comp_dir / "001_x.mp4").write_bytes(b"12345")
-        handle_get_video_info(handler, {"source": ["compressed"], "file": ["001_x.mp4"]})
+        with patch(
+            "clio.ui.routes.videos.resolve_binary",
+            side_effect=FileNotFoundError("ffprobe unavailable"),
+        ):
+            handle_get_video_info(handler, {"source": ["compressed"], "file": ["001_x.mp4"]})
         payload = _payload(handler)
         assert payload["ok"] is True
         assert payload["probe_error"] == "ffprobe unavailable"
