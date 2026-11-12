@@ -2,6 +2,18 @@
 
 ## 2026-11-13
 
+Sparse analysis windows now get one bounded completion retry instead of silently keeping large
+timeline holes. The retry targets only the largest qualifying gap, merges completion rows back in
+source time, and preserves the original analysis when the retry fails or is cancelled.
+
+- feat(analyze): retry sparse windows for missing timeline coverage
+- test(analyze): cover gap selection, completion merging, caching, failure fallback, and cancellation
+
+Verification: full pytest passes 3188 tests with 12 skipped; Ruff, format check, mypy over 284 source
+files, and `git diff --check` pass. Commit: `b7a8de6`.
+
+## 2026-11-13
+
 Large plan inputs now use a deterministic two-stage candidate shortlist before the existing outline,
 shot-selection, and review loop. The shortlist reuses the `vlog_plan` provider/model, sends compact clip
 cards, records usage separately, and falls back to local ranking when the model returns invalid indices.

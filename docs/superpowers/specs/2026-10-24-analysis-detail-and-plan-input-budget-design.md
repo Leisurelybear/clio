@@ -197,7 +197,9 @@ AnalyzeConfig.media_resolution
   - 分析完成后由 `measure_timeline_coverage()` 计算有效区间、`coverage` 和包含首尾空白的 `max_gap`。
   - 非法、负值、倒序和越界区间会被忽略或裁剪；零时长和空 timeline 不会抛错。
   - 日志输出 `[analyze] <name>: rows=N coverage=xx% max_gap=Ns`。
-  - P0 只告警；P2 再考虑对稀疏窗口做一次“补全缺失区间”的重试。
+  - P2a 已完成（`b7a8de6`）：覆盖 <80% 且最大空白 >=30 秒，或最大空白 >=90 秒时，只对最大空白发起一次补全重试；低于 30 秒不重试。
+  - 重试复用同一压缩源与 `fps=3`，补全结果按 gap 起点平移，只合并落入 gap 的 timeline / key_moments，并与邻近重复行按完整度和 score 合并。
+  - summary / highlights / location 同步补全；重试失败仅告警并保留原分析，成功后写回窗口缓存；analysis engine v4 使旧缓存失效。
 
 ## 7. Layer 3：Plan 输入投影
 
@@ -391,7 +393,7 @@ def plan_daily_vlog(
 | P0b | 分析 prompt 密度契约 + score/tags/key_moments + 校验/合并 | 新分析 avg gap ≤20s，description ≤40 字，key_moments 3-8 条 |
 | P0c | `plan_input.build_plan_clips` + 去内联转录 + plan lineage | France 项目 plan prompt <60k tokens |
 | P1 | 两阶段候选筛选（已完成，`47703f8`） | 142 素材 plan prompt <30k tokens，选片质量不下降 |
-| P2 | 稀疏窗口补全重试、按场景切片、compress width/fps 推荐 | 可选，单独评估 |
+| P2 | 稀疏窗口补全重试（已完成，`b7a8de6`）、按场景切片、compress width/fps 推荐 | P2a 已完成；其余可选 |
 
 ## 13. 风险
 
