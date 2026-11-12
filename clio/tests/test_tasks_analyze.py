@@ -6,14 +6,16 @@ import json
 import threading
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
+from clio.config import AppConfig
 from clio.tasks.analyze import run_analyze_all
 from clio.vmeta import VideoMeta
 
 
-def _cfg(tmp_path: Path) -> SimpleNamespace:
+def _cfg(tmp_path: Path) -> AppConfig:
     cfg = SimpleNamespace(
         paths=SimpleNamespace(
             output_dir=tmp_path / "output",
@@ -40,7 +42,7 @@ def _cfg(tmp_path: Path) -> SimpleNamespace:
     Path(cfg.project_dir).mkdir(parents=True, exist_ok=True)
     cfg.compressed_dir.mkdir(parents=True, exist_ok=True)
     cfg.texts_dir.mkdir(parents=True, exist_ok=True)
-    return cfg
+    return cast(AppConfig, cfg)
 
 
 def _add_original(cfg, name: str = "GL010695.mp4"):
@@ -114,8 +116,9 @@ def test_window_summary_lineage_changes_only_when_multi_window(tmp_path: Path):
     from clio.tasks.analyze import _analysis_lineage_fingerprint
 
     cfg = _cfg(tmp_path)
-    cfg.ai.tasks = {"refine_text": TaskConfig(provider="text", model="model-a")}
-    cfg.ai.providers = {"text": SimpleNamespace(type="openai", base_url="", max_tokens=0)}
+    ai = cast(Any, cfg.ai)
+    ai.tasks = {"refine_text": TaskConfig(provider="text", model="model-a")}
+    ai.providers = {"text": SimpleNamespace(type="openai", base_url="", max_tokens=0)}
     single_before = _analysis_lineage_fingerprint(cfg)
     multi_before = _analysis_lineage_fingerprint(cfg, multi_window=True)
 
@@ -190,6 +193,7 @@ def test_same_named_originals_only_analyze_selected_path(monkeypatch, tmp_path: 
     b = b_dir / "clip.mp4"
     a.write_bytes(b"a")
     b.write_bytes(b"b")
+    assert cfg.project_dir is not None
     save_selected_videos(cfg.project_dir, [a, b])
 
     comp_a = cfg.compressed_dir / "001_clip.mp4"
@@ -312,7 +316,9 @@ class TestRunAnalyzeAll:
         cfg.analyze.skip_existing = True
         records = run_analyze_all(cfg)
         assert len(records) == 1
-        assert records[0].analysis["title"] == "Fresh"
+        analysis = records[0].analysis
+        assert analysis is not None
+        assert analysis["title"] == "Fresh"
 
         # Old stale files are removed after the fresh one is committed.
         assert not existing_json.exists()
@@ -444,7 +450,9 @@ class TestRunAnalyzeAll:
 
         records = run_analyze_all(cfg, files=["002_GL010684"])
         assert len(records) == 1
-        assert records[0].compressed_path.name == "002_GL010684.mp4"
+        compressed_path = records[0].compressed_path
+        assert compressed_path is not None
+        assert compressed_path.name == "002_GL010684.mp4"
 
     def test_files_filter_merges_summary_csv_not_truncate(self, monkeypatch, tmp_path: Path):
         """Selection re-analyze must not drop other rows from summary.csv (I3 family)."""
@@ -555,8 +563,12 @@ class TestRunAnalyzeAll:
 
         records = run_analyze_all(cfg, single_file=src)
         assert len(records) == 2
-        assert records[0].compressed_path.name == "001_GL010695_seg01.mp4"
-        assert records[1].compressed_path.name == "002_GL010695_seg02.mp4"
+        first_path = records[0].compressed_path
+        second_path = records[1].compressed_path
+        assert first_path is not None
+        assert second_path is not None
+        assert first_path.name == "001_GL010695_seg01.mp4"
+        assert second_path.name == "002_GL010695_seg02.mp4"
 
     def test_overwrite_flag(self, monkeypatch, tmp_path: Path):
         cfg = _cfg(tmp_path)
@@ -635,7 +647,7 @@ class TestRunAnalyzeAll:
         cfg.analyze.max_analyze_duration_min = 0
         cfg.analyze.window_max_min = 15
         cfg.analyze.window_overlap_sec = 20
-        cfg.ai.tasks = {"refine_text": SimpleNamespace(provider="text", model="model")}
+        cast(Any, cfg.ai).tasks = {"refine_text": SimpleNamespace(provider="text", model="model")}
         _add_original(cfg, "GL010695.mp4")
         comp = cfg.compressed_dir / "001_GL010695.mp4"
         comp.write_bytes(b"\x00" * 100)
