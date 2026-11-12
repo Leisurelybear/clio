@@ -11,7 +11,7 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, overload
 
 from clio.identity import MediaIdentity, _extract_original_stem, load_identity
 from clio.plan_readiness import expand_index_keys
@@ -153,6 +153,12 @@ class ArtifactIndex:
     def ambiguous_artifacts(self) -> tuple[Path, ...]:
         """Artifacts skipped because a legacy index maps to multiple videos."""
         return tuple(self._ambiguous_artifacts)
+
+    @overload
+    def lookup(self, *, compressed_stem: str, original_stem: None = None) -> ArtifactGroup | None: ...
+
+    @overload
+    def lookup(self, *, compressed_stem: None = None, original_stem: str) -> list[ArtifactGroup] | None: ...
 
     def lookup(
         self,

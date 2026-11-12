@@ -82,6 +82,7 @@ files = [
     "clio/schema.py",
     "clio/_str_enum.py",
     "clio/identity.py",
+    "clio/index.py",
     "clio/gpmf.py",
     "clio/plan_preview.py",
     "clio/processing_state.py",
