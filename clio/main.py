@@ -662,7 +662,7 @@ def main(argv: list[str] | None = None) -> int:
     except FileNotFoundError as e:
         print(t("cli.error", {"detail": e}), file=sys.stderr)
         return 1
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - CLI boundary converts all command failures to exit code 1
         print(t("cli.error", {"detail": e}), file=sys.stderr)
         return 1
     finally:
