@@ -11,7 +11,7 @@ import { addToast } from './toast.js';
 import { registerNotification } from './notification-center.js';
 import { subscribeTaskEvents, fetchTask } from './task-center.js';
 import { transcriptionFailureNotice } from './transcription-status.js';
-import { hasKey, onLocaleChange, t } from './i18n.js';
+import { onLocaleChange, t } from './i18n.js';
 import { confirmDialog } from './confirm.js';
 import {
   formatRunStartError,
@@ -19,6 +19,7 @@ import {
   needsPlanOverwriteConfirmation,
   renderRunPreviewHtml,
 } from './runner-preview.js';
+import { buildSkippedDiagnostics, renderProcessingState, renderSkippedDiagnosticsHtml, STEP_KEYS, stepShortLabel } from './runner-diagnostics.js';
 
 let _lastRunDay = 'day1';
 let _runActive = false;
@@ -41,19 +42,6 @@ const RUN_STEPS = [
   { key: 'plan_voiceover' },
   { key: 'label' },
 ];
-
-/** Step order used by the processing-state table and the skipped diagnostics. */
-const STEP_KEYS = ['compress', 'transcribe', 'analyze', 'voiceover', 'plan', 'label'];
-
-function stepShortLabel(step) {
-  const key = `run.step_short.${step}`;
-  return hasKey(key) ? t(key) : step;
-}
-
-function skipReasonHint(step) {
-  const key = `run.skip_hint.${step}`;
-  return hasKey(key) ? t(key) : t('run.skip_hint.fallback');
-}
 
 const FFMPEG_RUN_STEPS = new Set(['compress', 'label', 'transcribe']);
 const MEDIA_STEP_DEPENDENCIES = {
@@ -696,67 +684,6 @@ async function _showRunCompletionTarget(steps) {
   }
 }
 
-const _STATUS_ICON = { done: '✅', skipped: '⏭️', error: '✗', cancelled: '⏹', running: '…' };
-
-async function renderProcessingState(container) {
-  try {
-    const st = await api('GET', '/api/processing-state');
-    const files = st.files;
-    const stepKeys = STEP_KEYS;
-    const entries = Object.entries(files).sort((a, b) => a[0].localeCompare(b[0]));
-    if (!entries.length) { if (container) container.innerHTML = ''; return; }
-    let html = `<h4 style="margin:12px 0 4px">${t('run.processing_state')}</h4><div class="state-table"><div class="state-row state-header"><span class="state-file">${t('run.table.file')}</span>`;
-    for (const k of stepKeys) html += `<span class="state-cell">${stepShortLabel(k)}</span>`;
-    html += '</div>';
-    for (const [file, steps] of entries) {
-      html += `<div class="state-row"><span class="state-file">${escapeHtml(file)}</span>`;
-      for (const k of stepKeys) {
-        const v = steps[k];
-        html += `<span class="state-cell">${v ? _STATUS_ICON[v] || v : ''}</span>`;
-      }
-      html += '</div>';
-    }
-    html += '</div>';
-    html += renderSkippedDiagnosticsHtml(buildSkippedDiagnostics(st));
-    if (container) container.innerHTML = html;
-  } catch { /* ignore */ }
-}
-
-function buildSkippedDiagnostics(processingState) {
-  const files = processingState?.files || {};
-  const stateSteps = Array.isArray(processingState?.steps) ? processingState.steps : STEP_KEYS;
-  const stepKeys = stateSteps.filter(step => hasKey(`run.step_short.${step}`));
-  const diagnostics = [];
-  for (const [file, steps] of Object.entries(files).sort((a, b) => a[0].localeCompare(b[0]))) {
-    if (!steps || typeof steps !== 'object') continue;
-    for (const step of stepKeys) {
-      if (steps[step] !== 'skipped') continue;
-      diagnostics.push({
-        file,
-        step,
-        label: stepShortLabel(step),
-        reason: skipReasonHint(step),
-      });
-    }
-  }
-  return diagnostics;
-}
-function renderSkippedDiagnosticsHtml(diagnostics) {
-  const rows = (diagnostics || []).map(item => `
-    <div class="skip-row">
-      <span class="skip-file">${escapeHtml(item.file)}</span>
-      <span class="skip-step">${escapeHtml(item.label || item.step)}</span>
-      <span class="skip-reason">${escapeHtml(item.reason)}</span>
-    </div>
-  `).join('');
-  return `
-    <details class="skip-panel" ${rows ? 'open' : ''}>
-      <summary>${t('run.skipped.summary')}</summary>
-      <p class="muted">${t('run.skipped.hint')}</p>
-      ${rows ? `<div class="skip-table">${rows}</div>` : `<p class="muted">${t('run.skipped.empty')}</p>`}
-    </details>
-  `;
-}
 // The Run pane is rendered from JS strings, so re-render it on a language switch
 // instead of leaving stale copy behind. A live run keeps painting its own progress.
 onLocaleChange(() => {
