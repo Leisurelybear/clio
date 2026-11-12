@@ -232,7 +232,7 @@ def handle_post_export(
             )
         except (FileNotFoundError, ValueError) as e:
             return handler._send_json({"ok": False, "error": str(e)}, 400)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - terminal HTTP boundary returns unexpected export failures as 500
             return handler._send_json({"ok": False, "error": str(e)}, 500)
 
     result_body = {"ok": True, "path": str(result_path)}
