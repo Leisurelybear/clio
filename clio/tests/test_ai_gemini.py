@@ -497,6 +497,11 @@ class TestAnalyzeVideo:
             self._video.write_bytes(b"\x00" * 1024)
             yield
 
+    def test_close_ignores_sdk_failure(self):
+        self._client_mock.close.side_effect = RuntimeError("close failed")
+
+        self._prov.close()
+
     def test_success(self, tmp_path):
         from google.genai import types
 
@@ -583,6 +588,21 @@ class TestAnalyzeVideo:
             self._prov.analyze_video(str(self._video), "desc", "gemini-2.5-flash")
 
         self._client_mock.files.upload.assert_called_once()
+
+    def test_remote_cleanup_failure_does_not_mask_result(self, tmp_path):
+        from google.genai import types
+
+        uploaded = MagicMock(spec=types.File)
+        uploaded.name = "files/test123"
+        uploaded.state = types.FileState.ACTIVE
+        self._client_mock.files.upload.return_value = uploaded
+        self._client_mock.files.get.return_value = uploaded
+        self._client_mock.models.generate_content.return_value = MagicMock(text="result", usage_metadata=None)
+        self._client_mock.files.delete.side_effect = RuntimeError("delete failed")
+
+        result = self._prov.analyze_video(str(self._video), "desc", "gemini-2.5-flash")
+
+        assert result.text == "result"
 
     def test_cleanup_on_failure(self, tmp_path):
         from google.genai import types

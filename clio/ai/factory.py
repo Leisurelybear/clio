@@ -37,7 +37,7 @@ _provider_cache_lock = threading.Lock()
 def _close_provider(provider: TextAIProvider) -> None:
     try:
         provider.close()
-    except Exception:
+    except Exception:  # noqa: BLE001 - provider implementations own their cleanup exceptions
         pass
 
 

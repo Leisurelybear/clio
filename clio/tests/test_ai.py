@@ -89,6 +89,16 @@ class TestBuildProvider:
         assert instances[0].close_count == 1
 
 
+def test_close_provider_ignores_cleanup_failure():
+    import clio.ai.factory as factory
+
+    class BrokenProvider:
+        def close(self):
+            raise RuntimeError("cleanup failed")
+
+    factory._close_provider(BrokenProvider())
+
+
 class TestGetTaskProvider:
     def test_gemini_task(self, loaded_config):
         provider, model = get_task_provider(loaded_config, TaskName.VIDEO_ANALYZE)

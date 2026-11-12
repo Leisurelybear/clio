@@ -246,7 +246,7 @@ class GeminiProvider:
         if self._client is not None:
             try:
                 self._client.close()
-            except Exception:
+            except Exception:  # noqa: BLE001 - SDK client cleanup is best effort
                 pass
 
     def generate_text(
@@ -352,5 +352,5 @@ class GeminiProvider:
             if uploaded is not None and uploaded.name is not None:
                 try:
                     self._client.files.delete(name=uploaded.name)
-                except Exception:
+                except Exception:  # noqa: BLE001 - remote file cleanup must not mask the analysis result
                     pass
