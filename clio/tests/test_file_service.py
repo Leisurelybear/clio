@@ -18,6 +18,7 @@ from clio.ui.services.file_service import (
     _find_original_for_compressed,
     _find_texts_dirs,
     _is_safe_basename,
+    _migrate_project_configs,
     _save_atomic,
     content_version,
     parse_if_match,
@@ -747,3 +748,21 @@ class TestCreateProjectYaml:
         assert "logs_dir" not in data.get("paths", {})
         assert "fps" not in data.get("compress", {})
         assert "codec" not in data.get("compress", {})
+
+
+class TestMigrateProjectConfigs:
+    def test_broken_project_does_not_stop_batch(self, tmp_path: Path):
+        broken = tmp_path / "broken"
+        broken.mkdir()
+        (broken / "project.yaml").write_text("ai: []\n", encoding="utf-8")
+        valid = tmp_path / "valid"
+        valid.mkdir()
+        (valid / "project.yaml").write_text("{}\n", encoding="utf-8")
+
+        updated, errors = _migrate_project_configs(tmp_path)
+
+        assert updated == 1
+        assert len(errors) == 1
+        assert errors[0].startswith("broken: ")
+        migrated = yaml.safe_load((valid / "project.yaml").read_text(encoding="utf-8"))
+        assert migrated["whisper"]["model_size"] == "medium"

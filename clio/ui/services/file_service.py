@@ -332,7 +332,7 @@ def _migrate_project_configs(projects_root: Path) -> tuple[int, list[str]]:
                 yml = yaml.dump(raw, allow_unicode=True, default_flow_style=False, sort_keys=False, indent=2)
                 _save_atomic(proj_yaml, yml.encode("utf-8"))
                 updated += 1
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - one broken project must not stop the batch migration
             errors.append(f"{proj_dir.name}: {e}")
     return updated, errors
 
