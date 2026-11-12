@@ -3,6 +3,7 @@
 
 import subprocess
 import sys
+from contextlib import suppress
 from pathlib import Path
 
 
@@ -11,10 +12,8 @@ def _reconfigure_stdio() -> None:
         stream = getattr(sys, name, None)
         if stream is None or not hasattr(stream, "reconfigure"):
             continue
-        try:
+        with suppress(OSError, ValueError):
             stream.reconfigure(encoding="utf-8", errors="replace")
-        except Exception:
-            pass
 
 
 _reconfigure_stdio()

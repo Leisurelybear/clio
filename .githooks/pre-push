@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 """Pre-push hook: run ruff check on all tracked .py files."""
+
 import subprocess
 import sys
+from contextlib import suppress
 from pathlib import Path
 
 
@@ -10,10 +12,8 @@ def _reconfigure_stdio() -> None:
         stream = getattr(sys, name, None)
         if stream is None or not hasattr(stream, "reconfigure"):
             continue
-        try:
+        with suppress(OSError, ValueError):
             stream.reconfigure(encoding="utf-8", errors="replace")
-        except Exception:
-            pass
 
 
 _reconfigure_stdio()
@@ -30,8 +30,7 @@ if RUFF is None:
     if not python.is_file():
         python = REPO_ROOT / ".venv" / "bin" / "python"
     if python.is_file():
-        result = subprocess.run([str(python), "-m", "ruff", "--version"],
-                                capture_output=True, text=True, cwd=REPO_ROOT)
+        result = subprocess.run([str(python), "-m", "ruff", "--version"], capture_output=True, text=True, cwd=REPO_ROOT)
         if result.returncode == 0:
             RUFF = [str(python), "-m", "ruff"]
         else:
@@ -46,7 +45,9 @@ if not isinstance(RUFF, list):
 
 result = subprocess.run(
     ["git", "ls-files", "--", "*.py"],
-    capture_output=True, text=True, cwd=REPO_ROOT,
+    capture_output=True,
+    text=True,
+    cwd=REPO_ROOT,
 )
 if result.returncode != 0 or not result.stdout.strip():
     sys.exit(0)
