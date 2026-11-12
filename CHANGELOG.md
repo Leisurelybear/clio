@@ -2,6 +2,15 @@
 
 ## 2026-11-12
 
+Daily planning now consumes GPMF sidecar capture metadata by default, so clips can be ordered by actual recording time instead of filename guesses.
+
+- feat(plan): read capture time and GPS from `<stem>.gpmf.json` with common field aliases and epoch conversion
+- feat(plan): prefer sidecar capture time over ffprobe and filename inference, and include valid coordinates in planning context and lineage
+- fix(gpmf): treat missing video files, corrupt sidecars, invalid coordinates, and non-GoPro data as a silent no-op
+- test(plan): cover offline originals, sidecar fallbacks, GPS validation, prompt rendering, and lineage invalidation
+
+Verification: full pytest passes `2971 passed, 12 skipped`; Vitest passes 882 tests across 81 files; Ruff, mypy, and `git diff --check` pass.
+
 Fixed-output AI tasks now request native structured responses instead of relying only on prompt shape and tolerant JSON extraction.
 
 - feat(ai): add strict Pydantic schemas for video analysis, voiceover, daily plans, and window summaries

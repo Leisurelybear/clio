@@ -1,7 +1,7 @@
 # Design: GoPro GPMF telemetry as highlight signal (R-024)
 
 **Date**: 2026-07-16  
-**Status**: MVP + R-024b opt-in analyze injection (`analyze.use_gpmf`, default false).
+**Status**: MVP + R-024b opt-in analyze injection (`analyze.use_gpmf`, default false) + Q4 default planning metadata (`7189ede`).
 
 ## Problem
 
@@ -15,7 +15,7 @@ Visual-only AI analysis misses motion peaks (speed spikes, elevation change, rap
 | --- | --- |
 | No GPMF in file | `has_gpmf=False`, empty prompt block, pipeline continues |
 | GPMF marker but no GPS samples | probe-only note optional; never error |
-| Sidecar present | use peaks/elev when available |
+| Sidecar present | use peaks/elev and, for planning, capture time/GPS when available |
 | `video_path` missing / unreadable | empty summary, no exception |
 
 ## Goals (MVP)
@@ -58,6 +58,9 @@ class TelemetrySummary:
     # optional series (normalized 0..1 or physical units when known)
     speed_peaks: list[dict]   # [{t_sec, value, unit}]
     elev_delta_m: float | None
+    capture_time: str | None  # normalized ISO-8601 capture timestamp
+    latitude: float | None
+    longitude: float | None
     notes: list[str]
 ```
 
@@ -73,6 +76,10 @@ When `has_gpmf` and peaks exist, append to analyze context:
 ```
 
 MVP delivers `format_telemetry_for_prompt(summary) -> str` only; analyze.py wiring is a follow-up commit if peaks prove useful.
+
+## Planning metadata (Q4)
+
+Planning always attempts to read the sidecar next to the original clip, independently of `analyze.use_gpmf`. Missing, corrupt, invalid, or non-GoPro sidecars remain a silent no-op. When valid, capture time is preferred over ffprobe and filename inference; a latitude/longitude pair is included only when both coordinates are finite and in range. Sidecar-only metadata remains available when the original video is temporarily offline.
 
 ## File layout
 
