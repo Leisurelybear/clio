@@ -199,7 +199,7 @@ def _run_rerun_task(context) -> dict[str, Any]:
 
 def _resolve_run_project_dir(
     proj_dir: Path,
-    project_dir_raw: str | None,
+    project_dir_raw: object,
     *,
     allowed_paths: set[str] | None = None,
 ) -> tuple[Path, str | None]:

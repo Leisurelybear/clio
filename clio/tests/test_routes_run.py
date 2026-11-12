@@ -123,6 +123,7 @@ class TestResolveRunProjectDir:
         result, error = _resolve_run_project_dir(proj, str(tmp_path / "missing"))
 
         assert result is proj
+        assert error is not None
         assert "project_dir not found" in error
 
     def test_override_not_allowed_error(self, tmp_path: Path):
@@ -136,6 +137,7 @@ class TestResolveRunProjectDir:
         result, error = _resolve_run_project_dir(proj, str(other), allowed_paths={str(allowed_root.resolve())})
 
         assert result is proj
+        assert error is not None
         assert "not allowed" in error
 
 
@@ -170,6 +172,7 @@ class TestApplyRunInputDirOverride:
         result, error = _apply_run_input_dir_override(cfg, str(tmp_path / "missing"))
 
         assert result is cfg
+        assert error is not None
         assert "project_dir not found" in error or "input_dir not found" in error
 
     def test_outside_allowlist_returns_error(self, tmp_path: Path):
@@ -422,7 +425,7 @@ class TestHandlePostRunPreview:
         cfg = MagicMock()
         handler._resolve_project_dir.return_value = proj_dir
         handler._get_config.return_value = cfg
-        expected = {"input": {}, "steps": [], "totals": {}}
+        expected: dict[str, object] = {"input": {}, "steps": [], "totals": {}}
         build = MagicMock(return_value=expected)
         monkeypatch.setattr("clio.ui.routes.run.build_run_preview", build)
 
@@ -455,7 +458,7 @@ class TestHandlePostRunPreview:
         handler._resolve_project_dir.return_value = tmp_path / "input"
         cfg = MagicMock()
         handler._get_config.return_value = cfg
-        expected = {"input": {}, "steps": [], "totals": {}}
+        expected: dict[str, object] = {"input": {}, "steps": [], "totals": {}}
         preflight = {
             "ok": False,
             "required": ["ffmpeg"],
@@ -505,7 +508,7 @@ class TestHandlePostRunPreview:
         handler._resolve_project_dir.return_value = query_dir
         cfg = MagicMock()
         handler._get_config.return_value = cfg
-        expected = {"input": {}, "steps": [], "totals": {}}
+        expected: dict[str, object] = {"input": {}, "steps": [], "totals": {}}
         build = MagicMock(return_value=expected)
         monkeypatch.setattr("clio.ui.routes.run.build_run_preview", build)
         monkeypatch.setattr(
