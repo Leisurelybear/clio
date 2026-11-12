@@ -1,7 +1,6 @@
 import { state, artifactVersion, setArtifactVersion, clearArtifactVersion } from './state.js';
 import { $, escapeHtml, markDirty, clearDirty, updateSidebarDay, setStatus } from './utils.js';
 import { api, apiWithMeta, icon } from './api.js';
-import { beginLatest, endLatest, isLatest, isAbortError } from './latest.js';
 import { renderPreviewBar, startPreview, stopPreview, _playPreviewSegment, seekToGlobal } from './viewer.js';
 import { buildTimeline, clampGlobal } from './plan-timeline.js';
 import { recomposePlanWaveformFromCache, isPlanWaveformMode } from './waveform.js';
@@ -13,6 +12,13 @@ import { exportJianyingDraft } from './plan-export.js';
 import { waitForTask } from './task-center.js';
 import { openPlanRangePicker } from './plan-range-picker.js';
 import { openPlanInsertModal } from './editor-plan-insert.js';
+import {
+  configurePlanReadiness,
+  getPlanReadiness,
+  refreshPlanReadiness,
+  schedulePlanReadinessCheck,
+  updatePlanActionButtonsGate,
+} from './editor-plan-readiness.js';
 import {
   reorderSequence,
   removeSegment,
@@ -30,8 +36,6 @@ import {
   redoPlanSnapshot,
 } from './plan-edit.js';
 
-let _readinessTimer = null;
-let _lastReadiness = { ok: true, errors: [], warnings: [] };
 let _dragFromIndex = null;
 let _dropToIndex = null;
 let _highlightTimer = null;
@@ -39,6 +43,14 @@ let _expandedSegIndex = null;
 const _planHistory = createPlanHistory();
 let _historyPlanRef = null;
 let _fieldEditSnapshot = null;
+
+configurePlanReadiness({
+  onIssueClick: (idx) => {
+    _expandedSegIndex = idx;
+    if (document.getElementById('plan-list')) renderPlan();
+    document.querySelector(`[data-preview-index="${idx}"]`)?.scrollIntoView({ block: 'nearest' });
+  },
+});
 
 // The plan pane is rendered from JS strings, so re-render it on a language switch
 // instead of leaving stale copy behind.
@@ -157,95 +169,6 @@ function paintDropIndicator(fromIndex, toIndex, length) {
   }
 }
 
-function scheduleReadinessCheck() {
-  if (_readinessTimer) clearTimeout(_readinessTimer);
-  _readinessTimer = setTimeout(() => {
-    _readinessTimer = null;
-    refreshReadinessPanel();
-  }, 400);
-}
-
-async function refreshReadinessPanel() {
-  const panel = $('plan-readiness');
-  if (!panel || !state.plan) return;
-  const ac = beginLatest('plan-readiness');
-  panel.innerHTML = `<p class="muted">${t('plan.readiness_checking')}</p>`;
-  try {
-    const r = await api('POST', '/api/plan/readiness', {
-      day: state.currentDay || 'day1',
-      source: $('cut-source')?.value || 'original',
-      plan: state.plan,
-    }, { signal: ac.signal });
-    if (!isLatest('plan-readiness', ac)) return;
-    const errors = r.errors || [];
-    const warnings = r.warnings || [];
-    _lastReadiness = { ok: !!r.ok, errors, warnings };
-    renderReadinessList(panel, errors, warnings);
-    updateActionButtonsGate();
-  } catch (e) {
-    if (isAbortError(e) || !isLatest('plan-readiness', ac)) return;
-    panel.innerHTML = `<p class="err">${t('plan.readiness_failed', { detail: escapeHtml(e.message || e) })}</p>`;
-    _lastReadiness = { ok: false, errors: [{ message: String(e.message || e) }], warnings: [] };
-    updateActionButtonsGate();
-  } finally {
-    endLatest('plan-readiness', ac);
-  }
-}
-
-function renderReadinessList(panel, errors, warnings) {
-  if (!errors.length && !warnings.length) {
-    panel.innerHTML = `<p class="ok">${t('plan.readiness_ok')}</p>`;
-    return;
-  }
-  const parts = [`<h3>${t('plan.readiness_title')}</h3>`];
-  if (errors.length) {
-    parts.push('<ul class="plan-readiness-errors">');
-    for (const issue of errors) {
-      const idx = issue.segment_index;
-      parts.push(
-        `<li class="plan-issue-error" data-seg="${idx != null ? idx : ''}">${escapeHtml(issue.message || issue.code || t('plan.issue_error'))}</li>`
-      );
-    }
-    parts.push('</ul>');
-  }
-  if (warnings.length) {
-    parts.push('<ul class="plan-readiness-warnings">');
-    for (const issue of warnings) {
-      const idx = issue.segment_index;
-      parts.push(
-        `<li class="plan-issue-warn" data-seg="${idx != null ? idx : ''}">${escapeHtml(issue.message || issue.code || t('plan.issue_warning'))}</li>`
-      );
-    }
-    parts.push('</ul>');
-  }
-  panel.innerHTML = parts.join('');
-  panel.querySelectorAll('[data-seg]').forEach((el) => {
-    el.onclick = () => {
-      const raw = el.getAttribute('data-seg');
-      if (raw === '' || raw == null) return;
-      const idx = parseInt(raw, 10);
-      if (!Number.isFinite(idx) || idx < 0) return;
-      _expandedSegIndex = idx;
-      if (document.getElementById('plan-list')) renderPlan();
-      document.querySelector(`[data-preview-index="${idx}"]`)?.scrollIntoView({ block: 'nearest' });
-    };
-  });
-}
-
-function updateActionButtonsGate() {
-  const hasErrors = (_lastReadiness.errors || []).length > 0;
-  const cutBtn = $('btn-cut-exec');
-  const expBtn = $('btn-jianying-export');
-  if (cutBtn) {
-    cutBtn.disabled = hasErrors;
-    cutBtn.title = hasErrors ? t('plan.fix_errors_first') : '';
-  }
-  if (expBtn) {
-    expBtn.disabled = hasErrors;
-    expBtn.title = hasErrors ? t('plan.fix_errors_first') : '';
-  }
-}
-
 async function ensureSavedBeforeAction() {
   if (!state.dirty) return true;
   await alertDialog(t('plan.save_before_action'));
@@ -253,8 +176,8 @@ async function ensureSavedBeforeAction() {
 }
 
 async function confirmWarningsIfNeeded() {
-  const warnings = _lastReadiness.warnings || [];
-  const errors = _lastReadiness.errors || [];
+  const warnings = getPlanReadiness().warnings || [];
+  const errors = getPlanReadiness().errors || [];
   if (errors.length) {
     addToast(errors[0].message || t('plan.errors_block'), 'error', 6000);
     return false;
@@ -278,7 +201,7 @@ function restorePlanFromHistory(restored) {
   if (state.previewActive) stopPreview();
   markDirty();
   renderPlan();
-  scheduleReadinessCheck();
+  schedulePlanReadinessCheck();
 }
 
 export function undoPlanEdit() {
@@ -369,7 +292,7 @@ function openRangePickerForSegment(segIndex) {
       } else {
         renderPlan();
       }
-      scheduleReadinessCheck();
+      schedulePlanReadinessCheck();
     },
   });
 }
@@ -520,7 +443,7 @@ export function renderPlan() {
       }
       p[k] = el.value;
       markDirty();
-      scheduleReadinessCheck();
+      schedulePlanReadinessCheck();
     };
   }
   const ol = pane.querySelector('#plan-list');
@@ -640,7 +563,7 @@ export function renderPlan() {
           _refreshPreviewTimeline();
         }
         markDirty();
-        scheduleReadinessCheck();
+        schedulePlanReadinessCheck();
       };
     });
     _prefillSubtitle(li, seg);
@@ -783,7 +706,7 @@ export function renderPlan() {
   `;
   pane.appendChild(exportSection);
 
-  $('cut-source')?.addEventListener('change', () => scheduleReadinessCheck());
+  $('cut-source')?.addEventListener('change', () => schedulePlanReadinessCheck());
 
   $('btn-cut-open-dir')?.addEventListener('click', async () => {
     const custom = $('cut-outdir')?.value?.trim();
@@ -810,9 +733,9 @@ export function renderPlan() {
     const btn = $('btn-jianying-export');
     if (btn?.disabled) return;
     if (!(await ensureSavedBeforeAction())) return;
-    await refreshReadinessPanel();
+    await refreshPlanReadiness();
     if (!(await confirmWarningsIfNeeded())) return;
-    const force = (_lastReadiness.warnings || []).length > 0;
+    const force = (getPlanReadiness().warnings || []).length > 0;
     const resultDiv = $('export-result');
     resultDiv.innerHTML = `<span class="muted">${t('plan.exporting')}</span>`;
     if (btn) {
@@ -832,11 +755,11 @@ export function renderPlan() {
         btn.disabled = false;
         btn.innerHTML = btn.dataset.prevLabel || `${icon('export', 16)} ${t('plan.export_button')}`;
       }
-      updateActionButtonsGate();
+      updatePlanActionButtonsGate();
     }
   });
   $('btn-cut-exec').onclick = executeCut;
-  scheduleReadinessCheck();
+  schedulePlanReadinessCheck();
 }
 
 
@@ -845,9 +768,9 @@ export async function executeCut() {
   const result = $('cut-result');
   if (btn?.disabled) return;
   if (!(await ensureSavedBeforeAction())) return;
-  await refreshReadinessPanel();
+  await refreshPlanReadiness();
   if (!(await confirmWarningsIfNeeded())) return;
-  const force = (_lastReadiness.warnings || []).length > 0;
+  const force = (getPlanReadiness().warnings || []).length > 0;
   btn.disabled = true;
   btn.textContent = t('plan.cutting');
   result.innerHTML = `<p class="muted">${t('plan.cutting_wait')}</p>`;
@@ -861,7 +784,7 @@ export async function executeCut() {
       setStatus(t('plan.cut_failed_no_plan'), 'err');
       btn.disabled = false;
       btn.textContent = t('plan.cut_exec');
-      updateActionButtonsGate();
+      updatePlanActionButtonsGate();
       return;
     }
     const body = {
@@ -917,7 +840,7 @@ export async function executeCut() {
   } finally {
     btn.disabled = false;
     btn.textContent = t('plan.cut_exec');
-    updateActionButtonsGate();
+    updatePlanActionButtonsGate();
   }
 }
 
@@ -1011,7 +934,7 @@ export async function save() {
     clearDirty();
     setStatus(t('plan.saved'), 'ok');
     addToast(t('plan.saved'), 'success', undefined, { persist: false });
-    if (target.action === 'plan') scheduleReadinessCheck();
+    if (target.action === 'plan') schedulePlanReadinessCheck();
   } catch (e) {
     if (isArtifactConflict(e)) {
       const msg = t('plan.save_conflict');
