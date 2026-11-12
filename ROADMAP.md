@@ -8,15 +8,15 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
 ## Active backlog (2026-11-12)
 
 - 2026-11 P0/P1/P2 review remediation from `docs/analysis/2026-11-05-P0-P2-Issues.md`:
-  - Snapshot: 83 items; 63 completed; 1 partial (O15), 2 awaiting real-environment
-    verification, and 17 pending. O7 is pushed in `b6c9cd2`; B10 `33a2233`,
-    O11 `cb8613d`, O15 security headers `a97bf4d`, O4 `6974751`, F2 `e3061f8`,
+  - Snapshot: 83 items; 64 completed; 2 awaiting real-environment verification, and
+    17 pending. O7 is pushed in `b6c9cd2`; B10 `33a2233`,
+    O11 `cb8613d`, O15 security headers `a97bf4d`, O15 safe HTML `7390edd`, O4 `6974751`, F2 `e3061f8`,
     F5 `de704a5`, O13 `ea32a69`, and O10 `e9ee689` / `ae6e237` / `f8897b0` /
     `eaa224f` / `d490b3b` / `4c5691f` / `c7ebd73` / `ac4a0e6` / `d508b06` /
     `1912487` / `db68cca` / `3874778` / `ab152de` / `9459898` / `5fcb9ba` /
     `ffb1508` / `0ccd995` / `c367228` ... `823cd2a` are local. O10 is complete;
     `52fab55` enables `BLE001` / `SIM105` and removes the remaining external
-    exception marker.
+    exception marker. O15 now has default-escaping HTML construction and regression coverage.
   - Verification: targeted C2 pytest (270 passed), C15 pytest (58 passed), full pytest
     (2837 passed, 12 skipped, 13 deselected with symlink tests excluded), full Vitest
     (857 passed), O7 targeted pytest (153 passed), full pytest after O7 (2846 passed,
@@ -62,7 +62,8 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
     full pytest (2938 passed, 12 skipped), Ruff over 263 files, `ruff format --check`, mypy
     over 39 files, and `git diff --check`; `BLE001` and `SIM105` are both zero.
     CI run 42820037572 (head `262abde`) and CI run 42840852167 (head `958bc57`) passed
-    all Python 3.11/3.12 platform jobs plus quality, package, and Vitest jobs.
+    all Python 3.11/3.12 platform jobs plus quality, package, and Vitest jobs. O15
+    default-escaping helper passed full Vitest (882 tests across 81 files).
   - [x] P0 completed (14): B1 `a01b156`; B2 `a436315`; C1 `14b873b`; C2 `91e4699`;
     D1 `e2f626b`; D2 `1698309`; D3 `3a45b18`; Q1 `719f715`; Q2 `c06515c`;
     Q8 `89d5d7e`; Q3 `3ad0e5f`; Q9 `325a599`; Q10 `b452c60`; O19 `262abde`.
@@ -80,12 +81,13 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
     C16 `c75c067` / `8aca38e` / `f593d28` / `eb3e0f6` / `46daa41` / `2c359c6` /
     `fdcdd7d` / `4b300a3` / `1ac279c` / `74f70c4`; O13 `ea32a69`;
     O10 `e9ee689` ... `823cd2a` plus lint gate `52fab55`.
-  - [~] P2 partial (1): O15 `a97bf4d` (default HTML escaping remains).
+  - [x] P2 partial (0): O15 completed by `a97bf4d` (security headers) and `7390edd`
+    (default-escaping HTML template).
   - [ ] P2 awaiting real-environment verification (2): C10; D12 (`082cc7e` completes
     the code-side fixes: timeline clamping, draft_meta_info.json, platform/fps probing).
   - [ ] P2 pending (8): O8; O9; O14; O16; O18; Q13; F4; F9.
-  - [ ] Next: close O15 default HTML escaping, then continue the backlog one focused fix
-    per commit.
+  - [ ] Next: continue the backlog one focused fix per commit, starting with documentation
+    hygiene (O17/O18) and the remaining quality items.
   - Keep unrelated working-tree changes isolated. `main` is ahead of `origin/main`; the
     O10 completion batch is local and push still requires explicit user confirmation.
 - R-048 Higher-detail video analysis and bounded plan input (plan ready; P0a-P0c not started)
