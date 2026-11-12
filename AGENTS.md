@@ -58,6 +58,7 @@ Commit messages: Conventional Commits in English, for example
 - Wrap user/trip context with `_wrap_with_context()`.
 - AI JSON goes through `extract_json()`; validate and retry rather than silently accepting bad data.
 - Fixed-output tasks pass `StructuredOutput` definitions from `clio/ai/structured.py`; refine tasks use JSON object mode and keep tolerant parsing as fallback.
+- Staged planning runs outline → shot selection → review inside the single `vlog_plan` binding; persist only the final validated plan artifact.
 - Provider retry semantics: `retry_attempts` means extra attempts, so total calls are
   `retry_attempts + 1`.
 - Provider objects are cached in `clio.ai.factory`; tests must clear the cache when needed.
@@ -140,6 +141,7 @@ The full contracts moved to
 | Bounded plan input | `4.19` |
 | Generated plan cut snapping | `4.20` |
 | Same-day entity consistency | `4.21` |
+| Staged vlog planning | `4.22` |
 
 ## 8. On-Demand References
 

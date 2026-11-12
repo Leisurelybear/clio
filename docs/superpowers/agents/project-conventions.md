@@ -299,3 +299,20 @@ Provider management is a frontend-only experience - no new backend APIs needed:
   `run_preview.py` and `runner.js` own the dedicated day input and step presentation.
 - Consistency reports are derived artifacts, not user-edited plan/voiceover artifacts. They do not
   require the artifact overwrite confirmation flow.
+
+### 4.22 Staged Vlog Planning (Q11)
+
+- `clio/analyze.py` runs planning as outline → shot selection → review. All stages use the same
+  `vlog_plan` task binding; do not add provider tasks for individual stages.
+- Outline output contains ordered narrative beats, up to three candidate clip indices per beat, and
+  positive target durations. Normalize by dropping invalid indices/durations, deduplicating candidates,
+  and capping both candidates and beats to the configured plan bounds.
+- Shot selection reuses `PLAN_PROMPT` and the existing final plan contract. Inject the normalized outline
+  through `PLAN_OUTLINE_CONTEXT`; transcript and entity-consistency context still apply to this stage.
+- Review accepts either `{issues, corrected_plan}` or a direct final plan. Validate deterministically and
+  allow one issue-driven correction retry. If review fails, keep the validated draft rather than failing
+  the run.
+- Persist only the final validated `plans/<day>_plan.json/.md`; cut snapping, preview, cut, and export keep
+  their existing plan contract.
+- Plan lineage hashes `vlog_plan`, `plan_outline`, `plan_outline_context`, and `plan_review`. Any stage
+  prompt/context change must invalidate cached plans. Keep the stage prompt and retry/fallback tests green.

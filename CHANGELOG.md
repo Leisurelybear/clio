@@ -2,6 +2,18 @@
 
 ## 2026-11-12
 
+Daily planning now uses a staged outline, shot-selection, and review loop while preserving the existing
+plan artifact contract.
+
+- feat(plan): add typed narrative-outline and plan-review schemas plus targeted prompt override names
+- feat(plan): normalize outline beats, candidate indices, and target durations before shot selection
+- feat(plan): select concrete shots and transitions from the outline, then validate and review the final plan
+- fix(plan): allow one issue-driven correction retry and fall back to the validated draft when review fails
+- fix(plan): include outline, review, and outline-context prompts in plan lineage invalidation
+- test(plan): cover normalization, review wrappers, retries, fallback behavior, stage prompts, and lineage changes
+
+Verification: full pytest passes `3098 passed, 12 skipped`; Vitest passes 891 tests across 81 files; Ruff, mypy over 275 source files, and `git diff --check` pass. Feature commits: `c3156ba`, `d47829d`.
+
 Analysis timelines now carry shot-level attributes and use detected scene boundaries as authoritative timing guidance.
 
 - feat(analyze): add shot size, camera direction, first/last frame, energy, and audio fields to the structured timeline schema

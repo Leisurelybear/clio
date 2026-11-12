@@ -146,6 +146,8 @@ Output to `output/<media folder name>/scripts/<index>_<title>_voiceover.{json,md
 
 Feed all `texts/` summaries for a day to the `ai.tasks.vlog_plan` provider, letting it select the most narratively compelling segments and arrange them into an editing order.
 
+Planning runs an internal three-stage loop: narrative outline, shot/transition selection, then review. All three stages use the single `vlog_plan` task binding; only the validated final plan is written to `_plan.json` / `_plan.md`.
+
 ```bash
 python main.py plan --day day1
 python main.py plan --day "Day2_卢瓦尔河谷"
@@ -581,7 +583,7 @@ ai:
 |------|-------------|-------------------|
 | `video_analyze` | Watch video, output timeline | `gemini` |
 | `voiceover` | Generate voiceover script | `gemini` / `openai` / any OpenAI compatible |
-| `vlog_plan` | Recommend editing order | same as above |
+| `vlog_plan` | Outline, select shots/transitions, and review the daily plan | same as above |
 | `refine_text` | Review and fix existing analysis/voiceover (`refine` command) | same as above (text-only) |
 
 > `refine_text` falls back to `video_analyze`'s provider by default. Both texts and scripts
@@ -600,13 +602,16 @@ Supported names are the prompt constant names, with `.md`, `.txt`, or no suffix.
 templates/prompts/ANALYZE_PROMPT.md
 templates/prompts/SCRIPT_PROMPT.md
 templates/prompts/PLAN_PROMPT.md
+templates/prompts/PLAN_OUTLINE_PROMPT.md
+templates/prompts/PLAN_OUTLINE_CONTEXT.md
+templates/prompts/PLAN_REVIEW_PROMPT.md
 templates/prompts/REFINE_TEXT_PROMPT.md
 templates/prompts/REFINE_TEXT_FIX_PROMPT.md
 templates/prompts/REFINE_SCRIPT_PROMPT.md
 templates/prompts/REFINE_SCRIPT_FIX_PROMPT.md
 ```
 
-Keep the same `{placeholder}` names as the built-in prompt when overriding formatted prompts such as script, plan, or refine prompts.
+Keep the same `{placeholder}` names as the built-in prompt when overriding formatted prompts such as script, plan, or refine prompts. `PLAN_OUTLINE_CONTEXT` is the formatted bridge injected into shot selection and uses `{outline_json}`.
 
 Older analysis, voiceover, and plan JSON files may still contain a `_confidence` self-score. It is ignored on load and dropped the next time the file is rewritten.
 

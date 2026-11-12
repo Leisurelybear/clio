@@ -14,7 +14,7 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
 
 Source: [`docs/analysis/2026-11-05-P0-P2-Issues.md`](docs/analysis/2026-11-05-P0-P2-Issues.md)
 
-Snapshot: 83 items; 76 completed locally; 1 partial; 2 awaiting real-environment verification; 4 pending.
+Snapshot: 83 items; 77 completed locally; 1 partial; 2 awaiting real-environment verification; 3 pending.
 O17 and O18 are complete as of this cleanup. The analysis document remains the source of truth for item-level
 status and verification notes.
 
@@ -33,7 +33,11 @@ P1 items:
   - `[x]` generate validated per-day entity and duplicate-scene JSON/Markdown reports
   - `[x]` inject current reports into planning and invalidate stale plan caches
   - `[x]` expose the consistency stage in run preview and the Web UI runner
-- `[ ]` Q11 outline -> shot selection -> review planning loop
+- `[x]` Q11 outline -> shot selection -> review planning loop (`c3156ba`, `d47829d`)
+  - `[x]` add typed outline and review schemas plus prompt override names
+  - `[x]` normalize outlines into bounded narrative beats and candidate shot lists
+  - `[x]` run shot selection from the outline, then validate and review the final plan with one correction retry
+  - `[x]` invalidate plan lineage when any planning-stage prompt or the outline context changes
 - `[x]` Q12 generate voiceover from the planned segments after planning (`89b9315`, `9da2483`)
 - `[~]` F1 create a small scored evaluation set and scoring script
   - `[x]` define a versioned 12-case manifest and reference-label schema
