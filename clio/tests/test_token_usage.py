@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from typing import Any
 from unittest.mock import patch
 
 from clio.ai.base import TokenUsage
@@ -230,7 +231,7 @@ def test_record_persists_provider_prompt_version_and_cost(tmp_path):
 
 def test_read_raw_backfills_cost_for_legacy_files(tmp_path):
     store = FileTokenUsageStore(str(tmp_path))
-    legacy = {
+    legacy: dict[str, Any] = {
         "total": {"prompt_tokens": 5, "completion_tokens": 5, "total_tokens": 10},
         "by_model": {"gemini": {"prompt_tokens": 5, "completion_tokens": 5, "total_tokens": 10, "calls": 1}},
         "by_task": {"video_analyze": {"prompt_tokens": 5, "completion_tokens": 5, "total_tokens": 10, "calls": 1}},

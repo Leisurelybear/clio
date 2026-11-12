@@ -8,7 +8,7 @@ import threading
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from clio.utils import write_json_atomic
 
@@ -29,12 +29,12 @@ class TokenUsageStore(ABC):
         cost_usd: float = 0.0,
     ) -> None: ...
     @abstractmethod
-    def get_stats(self) -> dict: ...
+    def get_stats(self) -> dict[str, Any]: ...
     @abstractmethod
     def close(self) -> None: ...
 
 
-_EMPTY_STATS = {
+_EMPTY_STATS: dict[str, Any] = {
     "total": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "cost_usd": 0.0},
     "by_model": {},
     "by_task": {},
@@ -54,12 +54,12 @@ def estimate_cost_usd(
     return round(cost, 8)
 
 
-def _add_cost(bucket: dict, cost_usd: float) -> None:
+def _add_cost(bucket: dict[str, Any], cost_usd: float) -> None:
     bucket["cost_usd"] = round(float(bucket.get("cost_usd", 0.0)) + cost_usd, 8)
 
 
 def _merge_stats(
-    stats: dict,
+    stats: dict[str, Any],
     task: str,
     model: str,
     pt: int,
@@ -137,14 +137,14 @@ class FileTokenUsageStore(TokenUsageStore):
             )
             write_json_atomic(self._path, raw)
 
-    def get_stats(self) -> dict:
+    def get_stats(self) -> dict[str, Any]:
         with self._lock:
             return self._read_raw()
 
     def close(self) -> None:
         pass
 
-    def _read_raw(self) -> dict:
+    def _read_raw(self) -> dict[str, Any]:
         if not self._path.is_file():
             return copy.deepcopy(_EMPTY_STATS)
         try:
