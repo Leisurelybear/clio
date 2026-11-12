@@ -5,7 +5,6 @@ import {
 import { api, icon } from './api.js';
 import { beginLatest, endLatest, isLatest, isAbortError } from './latest.js';
 import { updateRunFilesBadge } from './runner.js';
-import { summarizeOfflineVideos } from './offline-media.js';
 import {
   buildVideoMenuItems,
   videoMenuItemsToHtml,
@@ -13,8 +12,6 @@ import {
 import {
   buildVideoStageStatuses,
   chipDefsForSource,
-  countChipStats,
-  countStageSummary,
   filterVideos,
   stageLabel,
   STAGE_CELLS,
@@ -24,6 +21,8 @@ import { selectVideosButtonHtml } from './select-btn.js';
 import { bindVideoInfoHover, clearVideoInfoCache } from './video-info.js';
 import { t, onLocaleChange } from './i18n.js';
 import { confirmDialog } from './confirm.js';
+import { renderFilterChips, renderOfflineSummary, renderStageCountBar } from './sidebar-video-overview.js';
+import { bindCoverThumbFallback, videoDisplayName, videoThumbHtml } from './sidebar-video-display.js';
 
 // ── Video relink helper ───────────────────────────────────────
 
@@ -387,45 +386,6 @@ function scrollActiveVideoIntoView() {
   });
 }
 
-/** Cover thumbnail HTML for video list (falls back to video icon). */
-export function videoThumbHtml(v) {
-  const name = String(v?.cover_file || '').replace(/\\/g, '/').split('/').pop();
-  if (!name) {
-    return `<div class="video-thumb">${icon('video')}</div>`;
-  }
-  const params = new URLSearchParams();
-  params.set('file', name);
-  if (state.currentProjectName) params.set('project', state.currentProjectName);
-  if (state.currentProjectDir) params.set('project_dir', state.currentProjectDir);
-  const tok = sessionStorage.getItem('api_token');
-  if (tok) params.set('token', tok);
-  const src = `/api/cover?${params.toString()}`;
-  // Fallback icon under img; onerror on the img swaps to icon via .cover-error.
-  return `<div class="video-thumb has-cover" title="${t('sidebar.ai_cover')}">
-    <img src="${escapeHtml(src)}" alt="" loading="lazy" decoding="async">
-    <span class="video-thumb-fallback">${icon('video')}</span>
-  </div>`;
-}
-
-function bindCoverThumbFallback(root) {
-  const img = root?.querySelector?.('.video-thumb.has-cover img');
-  if (!img) return;
-  img.addEventListener('error', () => {
-    const thumb = img.closest('.video-thumb');
-    if (!thumb) return;
-    thumb.classList.add('cover-error');
-    thumb.classList.remove('has-cover');
-  }, { once: true });
-}
-
-export function videoDisplayName(v) {
-  let display = v.file.replace(/^\d+_/, '');
-  if (v.segment_label) {
-    display = display.replace(/_(?:seg|part|pt|chunk)\d+(?=\.[^.]+$)/i, '') + ` [seg ${v.segment_label}]`;
-  }
-  return v.missing ? t('sidebar.offline_suffix', { name: display }) : display;
-}
-
 function renderVideoItem(v) {
   const li = document.createElement('li');
   let checkboxHtml = '';
@@ -660,8 +620,8 @@ export function renderVideoList() {
     }
     const countEl = $('video-count');
     if (countEl) countEl.textContent = '(0/0)';
-    renderFilterChips();
-    renderStageCountBar();
+    renderFilterChips(renderVideoList);
+    renderStageCountBar(renderVideoList);
     return;
   }
 
@@ -670,8 +630,8 @@ export function renderVideoList() {
   const countEl = $('video-count');
   if (countEl) countEl.textContent = `(${visible.length}/${state.videos.length})`;
 
-  renderFilterChips();
-  renderStageCountBar();
+  renderFilterChips(renderVideoList);
+  renderStageCountBar(renderVideoList);
 
   if (state.selectionMode) {
     const selectable = visible.filter(v => !v.missing);
@@ -766,104 +726,6 @@ export function renderVideoList() {
   updateRunFilesBadge();
 }
 
-function renderOfflineSummary() {
-  const box = $('offline-summary');
-  if (!box) return;
-  // Only meaningful in original view where offline paths are listed
-  const summary = summarizeOfflineVideos(state.videos || []);
-  if (!summary.count || state.source !== 'original') {
-    box.hidden = true;
-    box.innerHTML = '';
-    return;
-  }
-  box.hidden = false;
-  box.innerHTML = `
-    <div class="offline-summary-inner">
-      <span class="offline-summary-text">${t('sidebar.offline_summary', { count: summary.count })}</span>
-      <button type="button" class="sidebar-btn offline-batch-btn" id="btn-batch-relink" title="${t('sidebar.batch_relink_title')}">${t('sidebar.batch_relink')}</button>
-    </div>
-  `;
-  const btn = box.querySelector('#btn-batch-relink');
-  if (btn) {
-    btn.onclick = () => {
-      import('./sidebar-batch-relink.js').then(m => m.openBatchRelinkModal());
-    };
-  }
-}
-
-function renderFilterChips() {
-  const box = $('video-filter-chips');
-  if (!box) return;
-  const all = state.videos.length;
-  const stats = countChipStats(state.videos, state.source);
-  box.innerHTML = '';
-  const isMissingFilter = state.videoFilter.mode !== 'done';
-  const allBtn = document.createElement('button');
-  allBtn.type = 'button';
-  allBtn.className = 'video-filter-chip' + (!state.videoFilter.stage ? ' active' : '');
-  allBtn.textContent = t('sidebar.filter_all', { count: all });
-  allBtn.onclick = () => {
-    state.videoFilter.stage = '';
-    state.videoFilter.mode = 'missing';
-    renderVideoList();
-  };
-  box.appendChild(allBtn);
-  for (const s of stats) {
-    if (s.count === 0) continue;
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'video-filter-chip' + (
-      isMissingFilter && state.videoFilter.stage === s.key ? ' active' : ''
-    );
-    b.textContent = `${s.label} ${s.count}`;
-    b.onclick = () => {
-      state.videoFilter.stage = state.videoFilter.stage === s.key ? '' : s.key;
-      state.videoFilter.mode = 'missing';
-      renderVideoList();
-    };
-    box.appendChild(b);
-  }
-}
-
-function renderStageCountBar() {
-  const box = $('stage-count-bar');
-  if (!box) return;
-  box.innerHTML = '';
-  if (!state.videos.length) {
-    box.hidden = true;
-    return;
-  }
-  box.hidden = false;
-  const summary = countStageSummary(state.videos, state.source);
-  const isDoneFilter = state.videoFilter.mode === 'done';
-  for (const s of summary) {
-    const cell = document.createElement('div');
-    const isActive = isDoneFilter && state.videoFilter.stage === s.key;
-    cell.className = 'stage-count-cell' + (s.done === 0 ? ' empty' : '') + (isActive ? ' active' : '');
-    cell.innerHTML = `<span class="stage-count-num">${s.done}/${s.total}</span>${s.label}`;
-    if (s.done === 0) {
-      cell.title = t('sidebar.stage_none', { label: s.label });
-    } else if (s.done === s.total) {
-      cell.title = isDoneFilter && isActive ? t('sidebar.stage_all_done_active', { label: s.label, count: s.done }) : t('sidebar.stage_all_done', { label: s.label });
-    } else {
-      cell.title = t('sidebar.stage_partial', { label: s.label, done: s.done, missing: s.total - s.done });
-    }
-    cell.onclick = () => {
-      if (s.done === 0) return;
-      const activeNow = state.videoFilter.stage === s.key && state.videoFilter.mode === 'done';
-      if (activeNow) {
-        state.videoFilter.stage = '';
-        state.videoFilter.mode = 'missing';
-      } else {
-        state.videoFilter.stage = s.key;
-        state.videoFilter.mode = 'done';
-      }
-      renderVideoList();
-    };
-    box.appendChild(cell);
-  }
-}
-
 // The sidebar is rendered from JS strings, so re-render it on a language switch
 // instead of leaving stale copy behind.
 onLocaleChange(() => {
@@ -871,3 +733,8 @@ onLocaleChange(() => {
   updateSelectBtnVisibility();
   renderVideoList();
 });
+
+export {
+  videoDisplayName,
+  videoThumbHtml,
+};
