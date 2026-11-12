@@ -28,7 +28,7 @@ class _FakeProcess:
 
     def wait(self, timeout: float | None = None) -> int:
         if self._block and not self.terminated:
-            raise subprocess.TimeoutExpired("ffmpeg", timeout)
+            raise subprocess.TimeoutExpired("ffmpeg", timeout or 0.0)
         return self.returncode
 
     def poll(self) -> int | None:
