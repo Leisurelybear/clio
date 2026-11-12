@@ -2,6 +2,18 @@
 
 ## 2026-11-12
 
+Planned voiceover generation now runs after daily planning, using each plan segment's actual range,
+neighboring context, and aligned transcript instead of isolated pre-plan clip narration.
+
+- feat(plan): add `plan_voiceover` output models, prompt rendering, transcript selection, and artifact validation
+- feat(run): add the planned voiceover pipeline step, preview integration, artifact-overwrite confirmation, and completion navigation
+- fix(plan): support plan lineage, cancellation, missing inputs, user-edited artifact backups, and both JSON/Markdown outputs
+- test(plan): cover segment filtering, timing, schema validation, overwrite gates, task behavior, pipeline order, preview, and UI flow
+
+Verification: full pytest passes `3048 passed, 12 skipped`; Vitest passes 885 tests across 81 files; Ruff, mypy, and `git diff --check` pass. Feature commits: `89b9315`, `9da2483`.
+
+## 2026-11-12
+
 Daily planning now projects detailed analysis into a deterministic, bounded prompt while retaining the
 complete clips for validation and transcript selection.
 
