@@ -12,11 +12,11 @@ import sys as _sys
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import requests as _req
 
-from clio.config import load_config
+from clio.config import AppConfig, load_config
 from clio.i18n import t
 from clio.task_center.manager import TaskAlreadyRunningError, TaskManager, TaskNotCancellableError
 from clio.task_center.models import TaskKind, TaskStatus
@@ -51,6 +51,13 @@ class _DownloadTask:
 
 
 _PROJECT_TASKS: dict[str, _DownloadTask] = {}
+
+
+class _InstallHandler(Protocol):
+    def _resolve_project_dir(self, qs: dict[str, Any]) -> Path: ...
+    def _get_config(self, project_dir: Path) -> AppConfig: ...
+
+
 _INSTALL_REPORTER: contextvars.ContextVar[Any | None] = contextvars.ContextVar(
     "clio_whisper_install_reporter", default=None
 )
@@ -204,7 +211,7 @@ class _ManagedInstallHandler:
         del qs
         return Path(self._context.task.project_path or self._context.input_data["project_dir"])
 
-    def _get_config(self, project_dir: Path):
+    def _get_config(self, project_dir: Path) -> AppConfig:
         config_path = self._context.input_data.get("config_path") or "config.yaml"
         return load_config(config_path, project_dir=project_dir)
 
@@ -310,7 +317,7 @@ def handle_post_whisper_install(handler: HandlerProtocol, qs: dict[str, Any]) ->
         progress_path = _install_progress_path(handler, qs)
         config_path = getattr(handler, "config_path", None)
         try:
-            task = manager.submit(
+            managed_task = manager.submit(
                 TaskKind.WHISPER_INSTALL,
                 t("api.whisper_install_task_title"),
                 project_id=proj_id,
@@ -328,12 +335,17 @@ def handle_post_whisper_install(handler: HandlerProtocol, qs: dict[str, Any]) ->
         except TaskAlreadyRunningError:
             return handler._send_json({"ok": False, "error": "download is already running"}, 409)
         return handler._send_json(
-            {"ok": True, "message": "whisper install started", "task_id": task.id, "task": task.to_dict()}
+            {
+                "ok": True,
+                "message": "whisper install started",
+                "task_id": managed_task.id,
+                "task": managed_task.to_dict(),
+            }
         )
 
     with _INSTALL_LOCK:
-        task = _PROJECT_TASKS.get(proj_id)
-        if task is not None and task.thread.is_alive():
+        download_task = _PROJECT_TASKS.get(proj_id)
+        if download_task is not None and download_task.thread.is_alive():
             handler._send_json({"ok": False, "error": "download is already running"}, 409)
             return
         progress_path = _install_progress_path(handler, qs)
@@ -525,7 +537,7 @@ def _verify_install(cfg: Any, progress_path: Path, model_name: str) -> bool:
 
 
 def _run_install(
-    handler: HandlerProtocol,
+    handler: _InstallHandler,
     qs: dict[str, Any],
     progress_path: Path,
     cancel: threading.Event,
