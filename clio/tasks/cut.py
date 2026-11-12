@@ -537,12 +537,17 @@ def run_cut_all(
             t0 = time.monotonic()
             try:
 
-                def _write_clip(dest: Path) -> None:
+                def _write_clip(
+                    dest: Path,
+                    source: Path = video_path,
+                    clip_start: float = start,
+                    clip_end: float = end,
+                ) -> None:
                     cut_one(
-                        video_path,
+                        source,
                         dest,
-                        start,
-                        end,
+                        clip_start,
+                        clip_end,
                         ffmpeg,
                         reencode=reencode,
                         cancel_event=cancel_event,

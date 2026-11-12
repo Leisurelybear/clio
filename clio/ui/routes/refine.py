@@ -50,10 +50,7 @@ def handle_post_refine(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) 
 
     proj_dir = handler._resolve_project_dir(qs)
     proj_out = handler._get_project_output(proj_dir)
-    if ftype == "texts":
-        p = handler._resolve_texts(fname, proj_out)
-    else:
-        p = handler._resolve_in("scripts", fname, proj_out)
+    p = handler._resolve_texts(fname, proj_out) if ftype == "texts" else handler._resolve_in("scripts", fname, proj_out)
 
     if p is None:
         return handler._send_json({"ok": False, "error": "forbidden or not found"}, 404)

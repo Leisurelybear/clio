@@ -48,11 +48,7 @@ def is_legacy_split_path(compressed_path: Path) -> bool:
 def is_legacy_split_identity(identity: MediaIdentity | None) -> bool:
     if identity is None:
         return False
-    if identity.segment_index is not None:
-        return True
-    if abs(float(identity.segment_offset_sec or 0.0)) > 1e-6:
-        return True
-    return False
+    return identity.segment_index is not None or abs(float(identity.segment_offset_sec or 0.0)) > 1e-6
 
 
 def legacy_segment_offset_sec(identity: MediaIdentity | None) -> float:

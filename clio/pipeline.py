@@ -24,15 +24,15 @@ from clio.tasks._helpers import (
     _write_csv,  # noqa: F401
     _write_text_file,  # noqa: F401
 )
-from clio.tasks.analyze import run_analyze_all  # noqa: F401
-from clio.tasks.compress import run_compress_all  # noqa: F401
+from clio.tasks.analyze import run_analyze_all
+from clio.tasks.compress import run_compress_all
 from clio.tasks.cut import run_cut_all  # noqa: F401
-from clio.tasks.label import run_label_videos  # noqa: F401
+from clio.tasks.label import run_label_videos
 from clio.tasks.plan import run_plan_all_days, run_plan_vlog  # noqa: F401
 from clio.tasks.refine import run_refine_scripts, run_refine_texts  # noqa: F401
-from clio.tasks.reindex import auto_reindex_if_needed  # noqa: F401
-from clio.tasks.scripts import run_generate_scripts  # noqa: F401
-from clio.tasks.transcribe import run_transcribe_all  # noqa: F401
+from clio.tasks.reindex import auto_reindex_if_needed
+from clio.tasks.scripts import run_generate_scripts
+from clio.tasks.transcribe import run_transcribe_all
 
 
 def run_full_pipeline(config: AppConfig, day_label: str = "day1") -> None:

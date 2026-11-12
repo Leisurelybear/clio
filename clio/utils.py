@@ -255,9 +255,7 @@ def _repair_truncated_json(text: str) -> str | None:
             in_str = True
         elif ch in "{[":
             stack.append(ch)
-        elif ch == "}" and stack and stack[-1] == "{":
-            stack.pop()
-        elif ch == "]" and stack and stack[-1] == "[":
+        elif ch == "}" and stack and stack[-1] == "{" or ch == "]" and stack and stack[-1] == "[":
             stack.pop()
 
     if not stack and not in_str:
@@ -566,7 +564,7 @@ def run_probe(
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait()
-            raise TimeoutError(f"probe timed out after {timeout}s: {' '.join(cmd)}")
+            raise TimeoutError(f"probe timed out after {timeout}s: {' '.join(cmd)}") from None
         if len(stdout) > max_output_bytes:
             stdout = stdout[:max_output_bytes]
         result = subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)

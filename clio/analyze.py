@@ -760,7 +760,7 @@ def _build_plan_transcript_info(
             continue
         capped = _cap_transcript_groups([segments for _, segments in groups], limit=limit)
         timeline_entries: list[dict] = []
-        for (item, _), selected_segments in zip(groups, capped):
+        for (item, _), selected_segments in zip(groups, capped, strict=True):
             if not selected_segments:
                 continue
             timeline_entries.append(

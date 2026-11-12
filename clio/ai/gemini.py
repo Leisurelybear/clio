@@ -128,9 +128,7 @@ class GeminiProvider:
                 if code == 429:
                     return True
                 status = getattr(exc, "status", "") or ""
-                if "RATE_LIMIT" in status.upper() or "RESOURCE_EXHAUSTED" in status.upper():
-                    return True
-                return False
+                return "RATE_LIMIT" in status.upper() or "RESOURCE_EXHAUSTED" in status.upper()
         return False
 
     def _retryable_types(self):

@@ -169,7 +169,7 @@ def _extract_audio(
             free_mb = f"{free_bytes / 1e6:.0f}"
             print(t("task.transcribe.extract_no_space", {"need": need_mb, "free": free_mb}))
             return None
-    tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False, dir=str(tmp_dir))
+    tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False, dir=str(tmp_dir))  # noqa: SIM115
     tmp.close()
     tmp_path = Path(tmp.name)
     cmd = [
@@ -356,18 +356,18 @@ def run_transcribe_all(
         )
         audio_dur = _get_video_duration(audio_source, ffprobe)
 
-        def _on_extract_progress(pct: int) -> None:
+        def _on_extract_progress(pct: int, *, name: str = compressed_stem) -> None:
             if tracker:
                 tracker.update(
                     phase="transcribe",
-                    message=t("task.transcribe.extract_progress", {"name": compressed_stem, "pct": pct}),
+                    message=t("task.transcribe.extract_progress", {"name": name, "pct": pct}),
                 )
 
-        def _on_transcribe_progress(pct: int) -> None:
+        def _on_transcribe_progress(pct: int, *, name: str = compressed_stem) -> None:
             if tracker:
                 tracker.update(
                     phase="transcribe",
-                    message=t("task.transcribe.whisper_progress", {"name": compressed_stem, "pct": pct}),
+                    message=t("task.transcribe.whisper_progress", {"name": name, "pct": pct}),
                 )
 
         wav_path = _extract_audio(

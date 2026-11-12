@@ -54,10 +54,7 @@ class PlanSegment:
             data = {}
         extras = {k: v for k, v in data.items() if k not in _SEGMENT_KNOWN}
         raw_idx = data.get("index", "")
-        if raw_idx is None:
-            index = ""
-        else:
-            index = str(raw_idx).strip()
+        index = "" if raw_idx is None else str(raw_idx).strip()
         return cls(
             index=index,
             title=str(data.get("title") or ""),

@@ -561,7 +561,7 @@ def _run_install(
             text=True,
         )
         if r.returncode != 0:
-            raise RuntimeError(t("api.whisper_install_hf_hub_failed", {"detail": r.stderr}))
+            raise RuntimeError(t("api.whisper_install_hf_hub_failed", {"detail": r.stderr})) from None
 
     _write_install_progress(
         progress_path,

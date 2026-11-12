@@ -56,7 +56,7 @@ class _HourlyFileHandler(logging.Handler):
         self._logs_dir.mkdir(parents=True, exist_ok=True)
         log_path = self._logs_dir / f"{hour_key}.log"
         try:
-            self._current_file = open(log_path, "a", encoding="utf-8")
+            self._current_file = open(log_path, "a", encoding="utf-8")  # noqa: SIM115
         except OSError as e:
             self._emergency(t("log.write_failed_disabled", {"detail": e}))
             self._failed = True

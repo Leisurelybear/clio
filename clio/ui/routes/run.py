@@ -126,6 +126,9 @@ def _run_rerun_task(context) -> dict[str, Any]:
         print(f"  [rerun] {message}")
         tracker.log(message)
 
+    def _run_voiceover_step() -> Any:
+        return run_generate_scripts(cfg, tracker=tracker, single_file=texts_json, cancel_event=context.cancel_event)
+
     try:
         _log(f"▶ Starting rerun {task_name} — {video_basename}")
         for step_name, step_fn, step_label in [
@@ -145,9 +148,7 @@ def _run_rerun_task(context) -> dict[str, Any]:
             ),
             (
                 "voiceover",
-                lambda: run_generate_scripts(
-                    cfg, tracker=tracker, single_file=texts_json, cancel_event=context.cancel_event
-                ),
+                _run_voiceover_step,
                 t("task.step.voiceover"),
             ),
         ]:
@@ -581,10 +582,9 @@ def handle_post_rerun(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -
             # Frontend may send compressed-style name in original view, or an
             # external basename only present in videos.json / .vmeta.
             for p in load_selected_videos(proj_dir):
-                if p.name == video_basename or p.stem.lower() == stem.lower():
-                    if p.is_file():
-                        original_video = p.resolve()
-                        break
+                if (p.name == video_basename or p.stem.lower() == stem.lower()) and p.is_file():
+                    original_video = p.resolve()
+                    break
             if original_video is None:
                 original_video = _resolve_found_original(
                     _find_original_for_compressed(stem, proj_dir, cfg.compressed_dir, project_dir=proj_dir),

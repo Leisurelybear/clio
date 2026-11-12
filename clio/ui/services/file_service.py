@@ -53,9 +53,7 @@ def _is_safe_basename(name: str) -> bool:
         return False
     if any(char in name for char in '<>:"|?*'):
         return False
-    if any(ord(c) < 0x20 or ord(c) == 0x7F for c in name):
-        return False
-    return True
+    return not any(ord(c) < 0x20 or ord(c) == 0x7F for c in name)
 
 
 def _find_texts_dirs(output_dir: Path, *, preferred_subdir: str | None = None) -> list[Path]:
@@ -286,7 +284,7 @@ def _inject_provider_defaults(raw: dict) -> None:
     """Inject default provider fields into
     the ai.providers section of a config dict. Only touches provider blocks."""
     providers = raw.get("ai", {}).get("providers", {})
-    for pname, pcfg in providers.items():
+    for _pname, pcfg in providers.items():
         if isinstance(pcfg, dict):
             pcfg.setdefault("requests_per_minute", 0)
             pcfg.setdefault("retry_attempts", 2)

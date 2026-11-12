@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -229,10 +230,16 @@ class TestArtifactVersions:
             started = threading.Event()
             finished = threading.Event()
 
-            def run() -> None:
-                started.set()
-                writer(target)
-                finished.set()
+            def run(
+                *,
+                started_event: threading.Event = started,
+                write: Callable[[Path], object] = writer,
+                path: Path = target,
+                finished_event: threading.Event = finished,
+            ) -> None:
+                started_event.set()
+                write(path)
+                finished_event.set()
 
             with path_write_lock(target):
                 thread = threading.Thread(target=run)

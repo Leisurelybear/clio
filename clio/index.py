@@ -250,10 +250,7 @@ class ArtifactIndex:
                 continue
             stem = p.stem
             # Derive text stem by stripping _voiceover
-            if stem.endswith("_voiceover"):
-                text_stem = stem[: -len("_voiceover")]
-            else:
-                text_stem = stem
+            text_stem = stem[: -len("_voiceover")] if stem.endswith("_voiceover") else stem
             group_key = None
             # Find the group that has a text with this stem
             for key, g in self._by_compressed_stem.items():
@@ -282,9 +279,8 @@ class ArtifactIndex:
             identity = load_identity(data)
             # Transcript filename: {compressed_stem}_transcript.json
             cs = identity.compressed_stem if identity else ""
-            if not cs:
-                if stem.endswith("_transcript"):
-                    cs = stem[: -len("_transcript")]
+            if not cs and stem.endswith("_transcript"):
+                cs = stem[: -len("_transcript")]
             if cs:
                 group = self._get_or_create_group(cs)
                 group.transcript = TranscriptEntry(path=p, stem=stem, identity=identity)
@@ -297,7 +293,7 @@ class ArtifactIndex:
                 continue
             stem = p.stem
             # Cover filename: {text_stem}.jpg — find the text with matching stem
-            for key, g in self._by_compressed_stem.items():
+            for g in self._by_compressed_stem.values():
                 for t in g.texts:
                     if t.stem == stem:
                         g.cover = CoverEntry(path=p, stem=stem)

@@ -17,9 +17,7 @@ def check_whisper() -> bool:
 
     except ImportError:
         return False
-    if not check_cublas():
-        return False
-    return True
+    return check_cublas()
 
 
 def check_cublas() -> bool:

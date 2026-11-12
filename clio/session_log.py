@@ -23,10 +23,7 @@ def write(line: str) -> None:
 def read(offset: int = 0) -> dict[str, Any]:
     with _lock:
         entries = list(_logs)
-    if offset > 0:
-        result = [e for e in entries if e.get("seq", 0) >= offset]
-    else:
-        result = entries
+    result = [e for e in entries if e.get("seq", 0) >= offset] if offset > 0 else entries
     return {"logs": result, "total": _sequence}
 
 

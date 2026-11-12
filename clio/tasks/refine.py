@@ -36,10 +36,7 @@ def _collect_target_files(path: Path | None, default_dir: Path, pattern: str = "
 def _load_analysis_for_script(script_path: Path, texts_dir: Path) -> dict | None:
     """根据口播文件名反查对应的素材分析（001_xxx_voiceover.json → 001_xxx.json）。"""
     stem = script_path.stem
-    if stem.endswith("_voiceover"):
-        analysis_stem = stem[: -len("_voiceover")]
-    else:
-        analysis_stem = stem
+    analysis_stem = stem[: -len("_voiceover")] if stem.endswith("_voiceover") else stem
     candidate = texts_dir / f"{analysis_stem}.json"
     if candidate.is_file():
         return json.loads(candidate.read_text(encoding="utf-8"))

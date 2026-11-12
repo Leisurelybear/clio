@@ -80,7 +80,7 @@ def handle_get_projects(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     # Prune stale _config_cache entries for projects that no longer exist
     cache = handler.__class__._config_cache
     valid_dirs = {str(Path(p["project_dir"]).resolve()) for p in projects}
-    for k in cache.keys():
+    for k in cache.keys():  # noqa: SIM118 - ConfigCache exposes keys() without iteration
         if k not in valid_dirs:
             cache.invalidate_key(k)
     # Resolve project_dir from the project list when registry only stored a name
@@ -130,10 +130,7 @@ def handle_post_project_create(handler: HandlerProtocol, obj: dict) -> None:
             {"ok": False, "error": t("api.project_dir_has_project", {"path": project_dir_raw})},
             409,
         )
-    if output_dir_raw:
-        proj_out = Path(output_dir_raw)
-    else:
-        proj_out = input_path / "output"
+    proj_out = Path(output_dir_raw) if output_dir_raw else input_path / "output"
     now = datetime.datetime.now().isoformat(timespec="seconds")
     proj_data = {
         "name": name,

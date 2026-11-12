@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from itertools import pairwise
 from pathlib import Path
 
 import pytest
@@ -30,7 +31,7 @@ class TestBuildAnalyzeWindows:
         assert ws[0].end_sec == 900
         assert ws[1].start_sec == 900 - 20
         assert ws[-1].end_sec == 2400
-        for a, b in zip(ws, ws[1:]):
+        for a, b in pairwise(ws):
             assert b.start_sec < a.end_sec
 
     def test_excessive_window_count_fails_closed(self):

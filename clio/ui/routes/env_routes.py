@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 import yaml
 
 from clio.ai.factory import _clear_provider_cache
-from clio.config import _load_dotenv  # noqa: F401 — kept for test mocks
+from clio.config import _load_dotenv
 from clio.config.loader import parse_dotenv
 from clio.i18n import t
 from clio.utils import write_secret_atomic

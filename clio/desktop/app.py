@@ -187,9 +187,8 @@ def main(
         return 0
 
     # Web UI (serve) on the default port: let the user choose before launching.
-    if is_web_running():
-        if not _confirm_web_continue():
-            return 0
+    if is_web_running() and not _confirm_web_continue():
+        return 0
 
     _reject_real_webview_under_pytest()
     handle = start_server(

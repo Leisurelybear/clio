@@ -54,7 +54,7 @@ class Router:
             else:
                 m = pattern.match(path)
                 if m:
-                    kwargs = dict(zip(param_names, m.groups()))
+                    kwargs = dict(zip(param_names, m.groups(), strict=True))
                     return self._resolve_handler(route), kwargs, route
         return None, {}, None
 

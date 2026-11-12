@@ -528,10 +528,7 @@ def main(argv: list[str] | None = None) -> int:
                     result = run_refine_texts(config, target_path, fix=fix, context_override=context_override)
                     failed += -result if result < 0 else 0
                 if args.target in ("scripts", "all"):
-                    if args.target == "all" and target_path is not None:
-                        scripts_path = None
-                    else:
-                        scripts_path = target_path
+                    scripts_path = None if args.target == "all" and target_path is not None else target_path
                     result = run_refine_scripts(config, scripts_path, fix=fix, context_override=context_override)
                     failed += -result if result < 0 else 0
                 if failed:

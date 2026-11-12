@@ -95,9 +95,8 @@ def _build_provider(config: AppConfig, provider_name: str) -> TextAIProvider:
     close_after_unlock: TextAIProvider | None = None
     with _provider_cache_lock:
         cached = _provider_cache.get(cache_key)
-        if cached is not None and time.monotonic() - cached.created_at < ttl_sec:
-            if not cached.closing:
-                return cached.provider
+        if cached is not None and time.monotonic() - cached.created_at < ttl_sec and not cached.closing:
+            return cached.provider
         if cached is not None:
             cached.closing = True
             del _provider_cache[cache_key]

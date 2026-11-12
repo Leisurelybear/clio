@@ -25,10 +25,7 @@ class _FakeWinreg:
         self.tree = tree
 
     def OpenKey(self, root, path):
-        if isinstance(root, _FakeKey):
-            data = root.data.get(path)
-        else:
-            data = self.tree.get(path)
+        data = root.data.get(path) if isinstance(root, _FakeKey) else self.tree.get(path)
         if data is None:
             raise OSError(path)
         return _FakeKey(data)

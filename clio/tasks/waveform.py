@@ -346,7 +346,7 @@ def extract_peaks_for_video(
             "no_audio": True,
             "status": "ready",
         }
-    tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+    tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)  # noqa: SIM115
     tmp.close()
     tmp_path = Path(tmp.name)
     try:

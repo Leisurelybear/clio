@@ -14,6 +14,7 @@ import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
 from difflib import SequenceMatcher
+from itertools import pairwise
 from math import ceil
 from pathlib import Path
 from typing import Any
@@ -217,7 +218,7 @@ def merge_window_analyses(
     # Only dedupe inside adjacent-window overlap bands (spec), not globally.
     zones: list[tuple[float, float]] = []
     ordered_ws = [w for w, _ in windows]
-    for a, b in zip(ordered_ws, ordered_ws[1:]):
+    for a, b in pairwise(ordered_ws):
         lo = max(a.start_sec, b.start_sec)
         hi = min(a.end_sec, b.end_sec)
         if hi > lo:

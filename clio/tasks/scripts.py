@@ -122,10 +122,7 @@ def voiceover_artifact_overwrite_required(
     task_prompts: dict[str, str] | None = None,
 ) -> list[Path]:
     """Return existing voiceover artifacts that this run would replace."""
-    if single_file is not None:
-        input_files = [Path(single_file)]
-    else:
-        input_files = sorted(config.texts_dir.glob("*.json"))
+    input_files = [Path(single_file)] if single_file is not None else sorted(config.texts_dir.glob("*.json"))
     if files is not None:
         selected = _selection_from_files(files)
         input_files = [path for path in input_files if _matches_selected_artifact(path, selected)]
@@ -265,10 +262,7 @@ def run_generate_scripts(
     state = ProcessingState(config.paths.output_dir)
     template = _load_script_template(config)
 
-    if single_file:
-        input_files = [single_file]
-    else:
-        input_files = sorted(config.texts_dir.glob("*.json"))
+    input_files = [single_file] if single_file else sorted(config.texts_dir.glob("*.json"))
     if files is not None:
         selected = _selection_from_files(files)
         input_files = [f for f in input_files if _matches_selected_artifact(f, selected)]

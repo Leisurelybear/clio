@@ -85,9 +85,12 @@ def _docstring_ids(tree: ast.AST) -> set[int]:
             if not body:
                 continue
             first = body[0]
-            if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant):
-                if isinstance(first.value.value, str):
-                    ids.add(id(first.value))
+            if (
+                isinstance(first, ast.Expr)
+                and isinstance(first.value, ast.Constant)
+                and isinstance(first.value.value, str)
+            ):
+                ids.add(id(first.value))
     return ids
 
 

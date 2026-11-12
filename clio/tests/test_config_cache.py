@@ -330,9 +330,9 @@ class TestInvalidation:
         mock_load.return_value = MagicMock()
         cache = ConfigCache(None)
         cache.get(None)
-        assert "__global__" in cache.keys()
+        assert "__global__" in cache.keys()  # noqa: SIM118 - ConfigCache exposes keys() without iteration
         cache.invalidate_key("__global__")
-        assert "__global__" not in cache.keys()
+        assert "__global__" not in cache.keys()  # noqa: SIM118 - ConfigCache exposes keys() without iteration
 
     @patch("clio.ui.services.config_cache.load_config")
     def test_invalidate_key_nonexistent(self, mock_load):

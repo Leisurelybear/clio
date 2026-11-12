@@ -754,10 +754,7 @@ def make_handler(
             return self._resolve_project_dir(qs)
 
         def _get_project_output(self, qs_or_proj_dir: dict | Path) -> Path:
-            if isinstance(qs_or_proj_dir, dict):
-                proj_dir = self._resolve_project_dir(qs_or_proj_dir)
-            else:
-                proj_dir = qs_or_proj_dir
+            proj_dir = self._resolve_project_dir(qs_or_proj_dir) if isinstance(qs_or_proj_dir, dict) else qs_or_proj_dir
             return _project_output_dir(proj_dir)
 
         def _send_video_range(self, path: Path) -> None:
@@ -1114,10 +1111,7 @@ def run(
     host = host or "127.0.0.1"
     _is_local = host in ("127.0.0.1", "localhost", "::1")
     if TOKEN is None:
-        if _is_local:
-            TOKEN = ""
-        else:
-            TOKEN = secrets.token_urlsafe(32)
+        TOKEN = "" if _is_local else secrets.token_urlsafe(32)
     if TOKEN:
         print(f"  API Token: {TOKEN}")
         print(f"  Token URL: http://{host}:{port}/?token={TOKEN}")

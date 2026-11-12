@@ -372,19 +372,11 @@ _SPLIT_GLOBAL_KEYS: dict[str, set[str]] = {
 
 
 def _is_global_key(section: str, key: str) -> bool:
-    if section in _GLOBAL_ONLY_SECTIONS:
-        return True
-    if section in _SPLIT_GLOBAL_KEYS and key in _SPLIT_GLOBAL_KEYS[section]:
-        return True
-    return False
+    return section in _GLOBAL_ONLY_SECTIONS or (section in _SPLIT_GLOBAL_KEYS and key in _SPLIT_GLOBAL_KEYS[section])
 
 
 def _is_project_key(section: str, key: str) -> bool:
-    if section in _PROJECT_ONLY_SECTIONS:
-        return True
-    if section in _SPLIT_PROJECT_KEYS and key in _SPLIT_PROJECT_KEYS[section]:
-        return True
-    return False
+    return section in _PROJECT_ONLY_SECTIONS or (section in _SPLIT_PROJECT_KEYS and key in _SPLIT_PROJECT_KEYS[section])
 
 
 def _filter_global_only(raw: dict) -> dict:

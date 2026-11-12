@@ -49,8 +49,15 @@ target-version = "py311"
 line-length = 120
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "W", "UP"]
-ignore = ["E501"]  # line length handled by formatter
+select = ["E", "F", "I", "W", "UP", "B", "SIM", "RUF100"]
+ignore = [
+    "E501",   # line length handled by formatter
+    "SIM105", # broad exception suppression is handled by O10 (BLE001) first
+]
+external = ["A003", "BLE001", "S608"]  # documented noqa markers for future lint phases
+
+[tool.ruff.lint.per-file-ignores]
+"clio/tests/*" = ["SIM117"]  # nested with blocks stay readable in tests
 
 [tool.ruff.format]
 quote-style = "double"

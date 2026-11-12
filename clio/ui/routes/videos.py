@@ -435,9 +435,8 @@ def _build_videos_payload(
                 orig = _find_original_for_compressed(stem, proj_dir, comp_dir, project_dir=proj_dir)
                 # Only filter when selection is non-empty. Empty videos.json still
                 # allows browsing existing compressed artifacts.
-                if selected_set:
-                    if not _compressed_matches_selection(p, stem, selected_set, orig):
-                        continue
+                if selected_set and not _compressed_matches_selection(p, stem, selected_set, orig):
+                    continue
                 match_file = None
                 abs_match = None
                 match_missing = False
@@ -502,7 +501,7 @@ def _build_videos_payload(
                 }
                 offsets: dict[str, float] = {}
                 durations: dict[str, float] = {}
-                for member_idx, seg_num, fname in members:
+                for member_idx, _seg_num, fname in members:
                     for v in videos:
                         if v["file"] == fname:
                             comp_file = comp_dir / v["file"]
