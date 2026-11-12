@@ -228,7 +228,7 @@ def _get_model(config: AppConfig, device_override: str | None = None):
                                 raise
                             print(t("transcribe.warn_compute_type_failed", {"device": device, "ct": ct, "error": e}))
                             continue
-                        except Exception as e:  # noqa: BLE001 - GPU backends expose opaque runtime failures
+                        except Exception as e:  # GPU backends expose opaque runtime failures
                             if device == "cuda":
                                 print(t("transcribe.warn_cuda_exception", {"error": e}))
                                 device = "cpu"

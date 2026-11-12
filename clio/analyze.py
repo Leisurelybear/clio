@@ -1238,7 +1238,7 @@ def summarize_window_analysis(
                 system_message=system,
                 **_usage_meta(config, TaskName.REFINE_TEXT),
             )
-    except Exception as exc:  # noqa: BLE001 - translate provider failures after cancellation
+    except Exception as exc:  # translate provider failures after cancellation
         if cancel_event is not None and cancel_event.is_set():
             raise InterruptedError(t("analyze.cancelled")) from exc
         raise
