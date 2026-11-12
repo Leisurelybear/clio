@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+from typing import cast
 from unittest.mock import MagicMock
 
 from clio.task_center.manager import TaskManager
@@ -14,6 +15,7 @@ from clio.task_center.models import (
 )
 from clio.task_center.state_machine import transition_task
 from clio.task_center.store import TaskStore
+from clio.ui.handler_protocol import HandlerProtocol
 from clio.ui.routes.tasks import (
     handle_get_task,
     handle_get_tasks,
@@ -28,6 +30,7 @@ class _Handler:
         self.manager = manager
         self.responses: list[tuple[dict, int]] = []
         self.wfile = io.BytesIO()
+        self.headers: dict[str, str] = {}
         self.send_response = MagicMock()
         self.send_header = MagicMock()
         self.end_headers = MagicMock()
@@ -37,6 +40,10 @@ class _Handler:
 
     def _send_json(self, data, status=200):
         self.responses.append((data, status))
+
+
+def _as_handler(handler: _Handler) -> HandlerProtocol:
+    return cast(HandlerProtocol, handler)
 
 
 def _manager(tmp_path):
@@ -65,7 +72,7 @@ def test_list_defaults_to_foreground_and_hides_private_fields(tmp_path):
     )
     handler = _Handler(manager)
 
-    handle_get_tasks(handler, {})
+    handle_get_tasks(_as_handler(handler), {})
 
     body, status = handler.responses[-1]
     assert status == 200
@@ -92,7 +99,7 @@ def test_list_filters_status_kind_project_and_visibility(tmp_path):
     handler = _Handler(manager)
 
     handle_get_tasks(
-        handler,
+        _as_handler(handler),
         {
             "project_id": ["p1"],
             "status": ["running,failed"],
@@ -110,7 +117,7 @@ def test_list_filters_status_kind_project_and_visibility(tmp_path):
 def test_list_rejects_invalid_filters(tmp_path):
     handler = _Handler(_manager(tmp_path))
 
-    handle_get_tasks(handler, {"status": ["unknown"]})
+    handle_get_tasks(_as_handler(handler), {"status": ["unknown"]})
 
     body, status = handler.responses[-1]
     assert status == 400
@@ -132,7 +139,7 @@ def test_detail_returns_recent_events_in_ascending_order(tmp_path):
         )
     handler = _Handler(manager)
 
-    handle_get_task(handler, {"event_limit": ["2"]}, task.id)
+    handle_get_task(_as_handler(handler), {"event_limit": ["2"]}, task.id)
 
     body, status = handler.responses[-1]
     assert status == 200
@@ -142,7 +149,7 @@ def test_detail_returns_recent_events_in_ascending_order(tmp_path):
 def test_detail_returns_404_for_unknown_task(tmp_path):
     handler = _Handler(_manager(tmp_path))
 
-    handle_get_task(handler, {}, "missing")
+    handle_get_task(_as_handler(handler), {}, "missing")
 
     assert handler.responses[-1][1] == 404
 
@@ -153,7 +160,7 @@ def test_cancel_endpoint_updates_queued_task(tmp_path):
     manager.store.create(task)
     handler = _Handler(manager)
 
-    handle_post_task_cancel(handler, {}, {}, task.id)
+    handle_post_task_cancel(_as_handler(handler), {}, {}, task.id)
 
     body, status = handler.responses[-1]
     assert status == 200
@@ -167,7 +174,7 @@ def test_retry_endpoint_creates_linked_task(tmp_path):
     assert manager.wait(original.id).status is TaskStatus.SUCCEEDED
     handler = _Handler(manager)
 
-    handle_post_task_retry(handler, {}, {}, original.id)
+    handle_post_task_retry(_as_handler(handler), {}, {}, original.id)
 
     body, status = handler.responses[-1]
     assert status == 201
@@ -193,7 +200,7 @@ def test_stream_sends_cursor_event_and_public_task_snapshot(tmp_path):
     handler = _Handler(manager)
     handler.wfile = _DisconnectOnFlush()
 
-    handle_get_tasks_stream(handler, {"after": ["0"]})
+    handle_get_tasks_stream(_as_handler(handler), {"after": ["0"]})
 
     output = handler.wfile.getvalue().decode("utf-8")
     assert "id: 1" in output
@@ -210,7 +217,7 @@ def test_stream_honors_eventsource_last_event_id_on_reconnect(tmp_path):
     handler.headers = {"Last-Event-ID": "1"}
     handler.wfile = _DisconnectOnFlush()
 
-    handle_get_tasks_stream(handler, {"after": ["0"]})
+    handle_get_tasks_stream(_as_handler(handler), {"after": ["0"]})
 
     output = handler.wfile.getvalue().decode("utf-8")
     assert "id: 1" not in output
@@ -242,7 +249,7 @@ def test_stream_loads_task_snapshots_once_per_event_page(tmp_path, monkeypatch):
     handler = _Handler(manager)
     handler.wfile = _DisconnectOnFlush()
 
-    handle_get_tasks_stream(handler, {"after": ["0"]})
+    handle_get_tasks_stream(_as_handler(handler), {"after": ["0"]})
 
     assert calls == [["task-1", "task-1", "task-1", "task-1"]]
     output = handler.wfile.getvalue().decode("utf-8")
@@ -252,7 +259,7 @@ def test_stream_loads_task_snapshots_once_per_event_page(tmp_path, monkeypatch):
 def test_cancel_unknown_task_returns_404(tmp_path):
     handler = _Handler(_manager(tmp_path))
 
-    handle_post_task_cancel(handler, {}, {}, "missing")
+    handle_post_task_cancel(_as_handler(handler), {}, {}, "missing")
 
     assert handler.responses[-1][1] == 404
 
@@ -260,11 +267,11 @@ def test_cancel_unknown_task_returns_404(tmp_path):
 def test_list_rejects_non_integer_and_out_of_range_filters(tmp_path):
     handler = _Handler(_manager(tmp_path))
 
-    handle_get_tasks(handler, {"limit": ["not-a-number"]})
+    handle_get_tasks(_as_handler(handler), {"limit": ["not-a-number"]})
     assert handler.responses[-1][1] == 400
     assert "limit must be an integer" in handler.responses[-1][0]["error"]
 
-    handle_get_tasks(handler, {"offset": ["-1"]})
+    handle_get_tasks(_as_handler(handler), {"offset": ["-1"]})
     assert handler.responses[-1][1] == 400
     assert "offset must be between" in handler.responses[-1][0]["error"]
 
@@ -274,7 +281,7 @@ def test_list_accepts_scalar_status_and_ignores_blank_entries(tmp_path):
     manager.store.create(create_task(TaskKind.PIPELINE, "一", task_id="first"))
     handler = _Handler(manager)
 
-    handle_get_tasks(handler, {"status": "queued", "kind": ["pipeline,"]})
+    handle_get_tasks(_as_handler(handler), {"status": "queued", "kind": ["pipeline,"]})
 
     body, status = handler.responses[-1]
     assert status == 200
@@ -284,7 +291,7 @@ def test_list_accepts_scalar_status_and_ignores_blank_entries(tmp_path):
 def test_list_rejects_unknown_visibility(tmp_path):
     handler = _Handler(_manager(tmp_path))
 
-    handle_get_tasks(handler, {"visibility": ["hidden"]})
+    handle_get_tasks(_as_handler(handler), {"visibility": ["hidden"]})
 
     body, status = handler.responses[-1]
     assert status == 400
@@ -297,7 +304,7 @@ def test_detail_rejects_invalid_event_limit(tmp_path):
     manager.store.create(task)
     handler = _Handler(manager)
 
-    handle_get_task(handler, {"event_limit": ["0"]}, task.id)
+    handle_get_task(_as_handler(handler), {"event_limit": ["0"]}, task.id)
 
     body, status = handler.responses[-1]
     assert status == 400
@@ -307,7 +314,7 @@ def test_detail_rejects_invalid_event_limit(tmp_path):
 def test_stream_rejects_invalid_cursor(tmp_path):
     handler = _Handler(_manager(tmp_path))
 
-    handle_get_tasks_stream(handler, {"after": ["-5"]})
+    handle_get_tasks_stream(_as_handler(handler), {"after": ["-5"]})
 
     body, status = handler.responses[-1]
     assert status == 400
@@ -321,7 +328,7 @@ def test_stream_ignores_non_integer_last_event_id(tmp_path):
     handler.headers = {"Last-Event-ID": "not-a-number"}
     handler.wfile = _DisconnectOnFlush()
 
-    handle_get_tasks_stream(handler, {"after": ["0"]})
+    handle_get_tasks_stream(_as_handler(handler), {"after": ["0"]})
 
     assert "id: 1" in handler.wfile.getvalue().decode("utf-8")
 
@@ -332,7 +339,7 @@ def test_cancel_non_cancellable_task_returns_409(tmp_path):
     manager.store.create(task)
     handler = _Handler(manager)
 
-    handle_post_task_cancel(handler, {}, {}, task.id)
+    handle_post_task_cancel(_as_handler(handler), {}, {}, task.id)
 
     assert handler.responses[-1][1] == 409
 
@@ -340,6 +347,6 @@ def test_cancel_non_cancellable_task_returns_409(tmp_path):
 def test_retry_unknown_task_returns_404(tmp_path):
     handler = _Handler(_manager(tmp_path))
 
-    handle_post_task_retry(handler, {}, {}, "missing")
+    handle_post_task_retry(_as_handler(handler), {}, {}, "missing")
 
     assert handler.responses[-1][1] == 404
