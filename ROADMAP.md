@@ -14,7 +14,7 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
 
 Source: [`docs/analysis/2026-11-05-P0-P2-Issues.md`](docs/analysis/2026-11-05-P0-P2-Issues.md)
 
-Snapshot: 83 items; 79 completed locally; 2 partial; 2 awaiting real-environment verification; 0 pending.
+Snapshot: 83 items; 80 completed locally; 1 partial; 2 awaiting real-environment verification; 0 pending.
 O17 and O18 are complete as of this cleanup. The analysis document remains the source of truth for item-level
 status and verification notes.
 
@@ -52,7 +52,7 @@ P2 items:
   - `[x]` extract authentication and local-session gates into `clio/ui/handler_security.py`
   - `[x]` extract JSON body parsing into `clio/ui/request_body.py`
   - `[x]` extract handler construction from `make_handler` (`961fdb1`)
-- `[ ]` O14 add frontend type checking and decompose the largest JS modules
+- `[x]` O14 add frontend type checking and decompose the largest JS modules (`e5903ac`)
   - `[x]` add `typescript`, `tsconfig.json`, `npm run typecheck`, and a CI gate for checked utility modules
   - `[x]` decompose `editor-config.js` into focused panes, a form renderer, and a page shell
   - `[x]` extract the plan insert dialog into `editor-plan-insert.js`
@@ -64,8 +64,9 @@ P2 items:
   - `[x]` extract plan subtitle prefill into `editor-plan-subtitle.js`
   - `[x]` extract sidebar offline summary, filter chips, stage counts, and display helpers
   - `[x]` extract sidebar video-row rendering and action-menu behavior into `sidebar-video-row.js`
+  - `[x]` extract runtime warning probes and actions into `runtime-warning-actions.js`
   - `[x]` extract viewer plan-accordion sync, waveform index keys, and subtitle settings
-  - `[ ]` decompose the remaining UI modules that still exceed 30 KB
+  - `[x]` keep every JavaScript module under 30 KB
 - `[x]` O16 raise Vitest coverage around bug fixes and save flows (`5487304`)
 - `[x]` Q13 snap cut points to shot boundaries and sentence endings (`0e1c9bf`)
 - `[x]` F4 calculate AI output quality signals and surface warnings in the UI

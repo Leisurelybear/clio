@@ -2,6 +2,14 @@
 
 ## 2026-11-13
 
+Runtime warning behavior now lives in a focused controller while the application bootstrap keeps only wiring and lifecycle responsibilities.
+
+- refactor(ui): extract dependency probes, FFmpeg help, settings navigation, and cut-backup restoration into `runtime-warning-actions.js`
+- test(ui): cover dependency refresh forwarding, FFmpeg reprobe rendering, and installer entry
+- refactor(ui): complete O14 by bringing every frontend JavaScript module below 30 KB
+
+Verification: full Vitest passes 912 tests across 89 files; `npm run typecheck` and `git diff --check` pass. Refactor commit: `e5903ac`.
+
 Sidebar video-row rendering and menu behavior now live in a focused module while `sidebar-data.js` keeps data loading and list orchestration.
 
 - refactor(ui): extract row HTML, offline relink, selection toggling, and the floating action menu into `sidebar-video-row.js`
