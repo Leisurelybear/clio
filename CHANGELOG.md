@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-11-12
+
+Completed the remaining high-risk frontend XSS cleanup and compacted the roadmap maintenance view.
+`html` tag templates now escape interpolated values by default, while `unsafeHtml` marks only
+code-owned trusted markup.
+
+- feat(ui): add the default-escaping `html` template helper and migrate toast, sidebar rerun/bulk
+  relink, and video-info rendering paths
+- test(ui): cover text and quoted-attribute XSS attempts and safe nested-template composition
+- docs(roadmap): archive completed feature delivery history, keep active/deferred work in
+  `ROADMAP.md`, and add the archive link
+- docs: record the O15 verification result and O18 cleanup in the review tracker
+
+O15 verification: full Vitest passed with 882 tests across 81 files; targeted server/SSE/cover-route
+pytest passed with 186 tests and 1 skipped; Ruff and `git diff --check` passed. O18 is documentation
+only and was verified with `git diff --check`.
+
+
 ## 2026-10-24
 
 HTTP access logs now carry request ids, latency and response size, with configurable noise
