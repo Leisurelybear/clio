@@ -59,8 +59,11 @@ def _cut_info_matches(
         return _clip_is_current(clip_path, plan_mtime)
     if not isinstance(info, dict):
         return False
+    raw_seg_index = info.get("seg_index")
+    if raw_seg_index is None:
+        return False
     try:
-        if int(info.get("seg_index")) != clip_index:
+        if int(raw_seg_index) != clip_index:
             return False
     except (TypeError, ValueError):
         return False

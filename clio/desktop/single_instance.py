@@ -72,7 +72,9 @@ def write_lock(config_dir: Path, port: int, pid: int, token: str | None = None) 
 def owns_lock(config_dir: Path, token: str) -> bool:
     """True when the on-disk lock was created by the launch that owns ``token``."""
     data = read_lock(config_dir)
-    return bool(data) and data.get("token") == token
+    if data is None:
+        return False
+    return data.get("token") == token
 
 
 def remove_lock(config_dir: Path, token: str | None = None) -> bool:

@@ -57,7 +57,7 @@ class ProcessingState:
         self._dirty = False
         self._pending_flushes = 0
         self._last_flush_at = time.monotonic()
-        self._flush_timer: threading.Timer | None = None
+        self._flush_timer: threading.Thread | None = None
         _register_state(self)
 
     def _load(self) -> dict:

@@ -5,6 +5,7 @@ import os
 import platform
 import threading
 from collections.abc import Callable
+from contextlib import AbstractContextManager
 from pathlib import Path
 
 from clio.config import AppConfig
@@ -122,7 +123,7 @@ def _clear_model_cache() -> None:
         _whisper_cache_key = None
 
 
-def model_usage_lock() -> threading.Lock:
+def model_usage_lock() -> AbstractContextManager[bool]:
     """Lock that serializes model load/clear against concurrent cache deletion."""
     return _model_lock
 

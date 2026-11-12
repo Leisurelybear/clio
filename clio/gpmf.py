@@ -56,9 +56,13 @@ def summarize_from_sidecar(path: Path, *, top_peaks: int = 2) -> TelemetrySummar
         for row in speed_raw:
             if not isinstance(row, dict):
                 continue
+            raw_t = row.get("t_sec", row.get("t", 0))
+            raw_v = row.get("value", row.get("v", 0))
+            if raw_t is None or raw_v is None:
+                continue
             try:
-                t = float(row.get("t_sec", row.get("t", 0)))
-                v = float(row.get("value", row.get("v", 0)))
+                t = float(raw_t)
+                v = float(raw_v)
             except (TypeError, ValueError):
                 continue
             speeds.append(
