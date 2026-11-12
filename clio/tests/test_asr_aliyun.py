@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -26,7 +27,7 @@ def test_missing_api_key_raises():
     provider = AliyunASRProvider(MagicMock())
     with patch.dict("os.environ", {"DASHSCOPE_API_KEY": ""}, clear=False):
         with pytest.raises(RuntimeError, match="DASHSCOPE_API_KEY"):
-            provider.transcribe(None, "zh")
+            provider.transcribe(Path("fake.wav"), "zh")
 
 
 def _mock_upload():
@@ -67,7 +68,7 @@ def test_full_transcribe_flow():
     from pathlib import Path
 
     provider = AliyunASRProvider(MagicMock())
-    events = []
+    events: list[int] = []
 
     mock_resp_submit = MagicMock()
     mock_resp_submit.json.return_value = {"output": {"task_id": "task-123"}}
@@ -188,11 +189,11 @@ def test_poll_retries_503(fake_time):
 
 
 def test_poll_cancel_interrupts_interval_wait():
-    class CancelDuringWait:
+    class CancelDuringWait(threading.Event):
         def is_set(self) -> bool:
             return False
 
-        def wait(self, timeout: float) -> bool:
+        def wait(self, timeout: float | None = None) -> bool:
             return True
 
     provider = AliyunASRProvider(MagicMock())
