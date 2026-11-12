@@ -81,7 +81,7 @@ def test_provider_connection(config: AppConfig, *, provider_name: str, model: st
             raise TypeError("AI provider returned an invalid response type")
         if response.blocked:
             raise RuntimeError(t("ai.response_blocked", {"reason": response.block_reason}))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - provider SDKs expose heterogeneous failures
         return {
             "ok": False,
             "provider": display_provider,
