@@ -188,7 +188,8 @@ vlog-video-analysis/
     │           ├── url-params.js / editor-save.js / desktop-pick.js
     │           ├── desktop-notify.js          # Native delivery eligibility and dedupe
     │           ├── editor.js / editor-texts.js / editor-voiceover.js / editor-refine.js
-    │           ├── editor-config.js           # Config form, providers, task binding, logs
+    │           ├── editor-config.js           # Config form, providers, task binding
+    │           ├── editor-logs.js             # Logs pane polling, history, filtering, rendering
     │           ├── editor-plan.js / plan-edit.js / plan-export.js / plan-timeline.js
     │           ├── plan-range-picker.js / plan-preview-media.js / plan-subtitle.js
     │           ├── plan-waveform.js / subtitle-settings.js / waveform.js
