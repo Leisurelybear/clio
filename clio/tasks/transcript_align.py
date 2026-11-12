@@ -12,7 +12,7 @@ from clio.tasks._helpers import _write_text_file
 from clio.utils import write_json_atomic
 
 
-def _parse_time_sec(value: str) -> float | None:
+def _parse_time_sec(value: str | None) -> float | None:
     parts = str(value or "").strip().split(":")
     try:
         if len(parts) == 2:

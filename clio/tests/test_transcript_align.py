@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 
+from clio.config import AppConfig
 from clio.tasks.transcript_align import (
     _load_transcript,
     _overlap_sec,
@@ -17,12 +19,20 @@ from clio.tasks.transcript_align import (
 )
 
 
-def _cfg(transcripts_dir: Path, texts_dir: Path | None = None, remove_audio: bool = False) -> SimpleNamespace:
-    return SimpleNamespace(
-        transcripts_dir=transcripts_dir,
-        texts_dir=texts_dir,
-        compress=SimpleNamespace(remove_audio=remove_audio),
-        whisper=SimpleNamespace(max_segments_per_clip=5),
+def _cfg(
+    transcripts_dir: Path,
+    texts_dir: Path | None = None,
+    remove_audio: bool = False,
+    max_segments_per_clip: int = 5,
+) -> AppConfig:
+    return cast(
+        AppConfig,
+        SimpleNamespace(
+            transcripts_dir=transcripts_dir,
+            texts_dir=texts_dir,
+            compress=SimpleNamespace(remove_audio=remove_audio),
+            whisper=SimpleNamespace(max_segments_per_clip=max_segments_per_clip),
+        ),
     )
 
 
@@ -95,7 +105,7 @@ class TestTranscriptPathForAnalysis:
         assert _transcript_path_for_analysis(cfg, analysis) == transcripts / "001_GL010683_transcript.json"
 
     def test_no_transcripts_dir(self) -> None:
-        cfg = SimpleNamespace(transcripts_dir=None)
+        cfg = cast(AppConfig, SimpleNamespace(transcripts_dir=None))
         assert _transcript_path_for_analysis(cfg, {}) is None
 
     def test_no_match(self, tmp_path: Path) -> None:
@@ -199,8 +209,7 @@ class TestAttachTranscriptData:
         assert analysis["timeline"][0]["transcript"] == "early-audio"
 
     def test_max_segments_caps_kept(self, tmp_path: Path) -> None:
-        cfg = _cfg(tmp_path)
-        cfg.whisper = SimpleNamespace(max_segments_per_clip=2)
+        cfg = _cfg(tmp_path, max_segments_per_clip=2)
         analysis = {
             "timeline": [{"start": "00:00", "end": "00:60", "description": "d"}],
             **_identity("001_GL010683"),
