@@ -71,6 +71,19 @@ class TestHandleGetTranscripts:
         handle_get_transcripts(handler, {"video": ["nonexistent.mp4"]})
         handler._send_json.assert_called_once_with({"ok": False}, 404)
 
+    def test_non_object_root_returns_500(self, tmp_path: Path):
+        handler = _handler_with_config(tmp_path)
+        tdir = tmp_path / "transcripts"
+        tdir.mkdir()
+        (tdir / "clip_transcript.json").write_text("[]", encoding="utf-8")
+
+        handler._send_json = MagicMock()
+        handle_get_transcripts(handler, {"video": ["clip.mp4"]})
+
+        payload, status = handler._send_json.call_args[0]
+        assert payload == {"ok": False, "error": "transcript root must be an object"}
+        assert status == 500
+
 
 class TestResolveStem:
     def test_safe_name_strips_extension(self):

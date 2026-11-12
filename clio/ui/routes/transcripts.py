@@ -37,6 +37,8 @@ def _read_transcript(path: Path) -> tuple[dict[str, Any], int]:
     Whisper files remain writable once.
     """
     data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("transcript root must be an object")
     rev = data.get("_rev", 0)
     if not isinstance(rev, int) or rev < 0:
         rev = 0
@@ -160,7 +162,7 @@ def handle_get_transcripts(handler: HandlerProtocol, qs: dict[str, Any]) -> None
             data = {}
         data.pop("ok", None)
         handler._send_json({"ok": True, "revision": rev, **data})
-    except Exception as e:
+    except (OSError, TypeError, ValueError) as e:
         handler._send_json({"ok": False, "error": str(e)}, 500)
 
 
@@ -206,7 +208,7 @@ def handle_put_transcripts(handler: HandlerProtocol, qs: dict[str, Any], obj: di
         data["_rev"] = rev + 1
         _save_atomic(tp, json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"))
         handler._send_json({"ok": True, "revision": rev + 1})
-    except Exception as e:
+    except (OSError, TypeError, ValueError) as e:
         handler._send_json({"ok": False, "error": str(e)}, 500)
 
 
@@ -309,5 +311,5 @@ def handle_post_transcripts(handler: HandlerProtocol, qs: dict[str, Any], obj: d
 
         _save_atomic(tp, json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"))
         handler._send_json({"ok": True, "segment_index": insert_idx, "revision": rev + 1, "segment": new_seg})
-    except Exception as e:
+    except (OSError, TypeError, ValueError) as e:
         handler._send_json({"ok": False, "error": str(e)}, 500)
