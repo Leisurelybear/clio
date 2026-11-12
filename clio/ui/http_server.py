@@ -152,7 +152,7 @@ class BoundedThreadingHTTPServer(ThreadingHTTPServer):
             self.finish_request(request, client_address)
         except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
             pass
-        except Exception:
+        except Exception:  # noqa: BLE001 - request worker boundary must delegate every failure to handle_error
             self.handle_error(request, client_address)
         finally:
             try:
