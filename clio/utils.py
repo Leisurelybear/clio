@@ -428,7 +428,16 @@ _MEDIA_DEPENDENCIES_BY_STEP: dict[str, tuple[str, ...]] = {
     "label": ("ffmpeg",),
     "transcribe": ("ffmpeg", "ffprobe"),
 }
-_ALL_PIPELINE_STEPS = ("compress", "transcribe", "analyze", "voiceover", "plan", "plan_voiceover", "label")
+_ALL_PIPELINE_STEPS = (
+    "compress",
+    "transcribe",
+    "analyze",
+    "consistency",
+    "voiceover",
+    "plan",
+    "plan_voiceover",
+    "label",
+)
 
 
 def media_dependencies_for_steps(steps: Iterable[str] | None) -> tuple[str, ...]:

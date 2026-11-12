@@ -26,6 +26,7 @@ from clio.tasks._helpers import (
 )
 from clio.tasks.analyze import run_analyze_all
 from clio.tasks.compress import run_compress_all
+from clio.tasks.consistency import run_entity_consistency
 from clio.tasks.cut import run_cut_all  # noqa: F401
 from clio.tasks.label import run_label_videos
 from clio.tasks.plan import run_plan_all_days, run_plan_vlog  # noqa: F401
@@ -49,6 +50,7 @@ _STEP_FUNCS: dict[str, Callable[..., Any]] = {
     "compress": run_compress_all,
     "transcribe": run_transcribe_all,
     "analyze": run_analyze_all,
+    "consistency": run_entity_consistency,
     "voiceover": run_generate_scripts,
     "plan": run_plan_vlog,
     "plan_voiceover": run_generate_plan_voiceovers,
@@ -57,7 +59,7 @@ _STEP_FUNCS: dict[str, Callable[..., Any]] = {
 
 PIPELINE_STEPS = tuple(_STEP_FUNCS)
 
-_STEP_DAY_ARG = {"plan", "plan_voiceover"}
+_STEP_DAY_ARG = {"consistency", "plan", "plan_voiceover"}
 
 
 def run_pipeline_steps(
@@ -75,7 +77,7 @@ def run_pipeline_steps(
 ) -> dict[str, Any]:
     """运行指定步骤列表（可选的进度跟踪）。
 
-    steps 取值: analyze, voiceover, plan, label（默认全部）。
+    steps 取值: analyze, consistency, voiceover, plan, label（默认全部）。
     """
     config.paths.output_dir.mkdir(parents=True, exist_ok=True)
     auto_reindex_if_needed(config)
