@@ -316,3 +316,19 @@ Provider management is a frontend-only experience - no new backend APIs needed:
   their existing plan contract.
 - Plan lineage hashes `vlog_plan`, `plan_outline`, `plan_outline_context`, and `plan_review`. Any stage
   prompt/context change must invalidate cached plans. Keep the stage prompt and retry/fallback tests green.
+
+### 4.23 Visual Transition Review (F9)
+
+- `plan.visual_transition_review` is opt-in and defaults to `false`. When enabled, run it only after
+  the staged planning provider context has exited; it reuses the `video_analyze` Gemini binding.
+- Review at most the first 12 adjacent sequence pairs. The result position is the next segment's
+  1-based sequence position, so the first reviewed transition is position `2`.
+- Build a two-column, 640x360 contact sheet from the previous segment's end frame and the next
+  segment's start frame. Prefer compressed media; fall back to originals with `segment_offset_sec`.
+- Send Gemini only clip indices and timeline metadata, never filesystem paths.
+- Require exactly one strict result for every expected position and allow only the plan transition
+  enum. Apply changes to a deep copy and update only `transition`; never mutate the validated plan.
+- Extraction, provider selection, image analysis, JSON, and validation failures return the validated
+  plan. `InterruptedError` must propagate so task cancellation is not reported as success.
+- Include the toggle, review prompt/version, and effective `video_analyze` provider/model in plan
+  lineage. Keep `clio/tests/test_transition_review.py` and plan lineage tests green.

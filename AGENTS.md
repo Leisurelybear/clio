@@ -143,6 +143,7 @@ The full contracts moved to
 | Generated plan cut snapping | `4.20` |
 | Same-day entity consistency | `4.21` |
 | Staged vlog planning | `4.22` |
+| Visual transition review | `4.23` |
 
 ## 8. On-Demand References
 

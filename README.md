@@ -188,6 +188,8 @@ python main.py serve
 
 全局默认任务绑定写在 `config.yaml` 的 `ai.default_tasks`，新项目无需重复选择 Provider/模型。单个项目可在 `project.yaml` 的 `ai.tasks` 中覆盖任意任务；未覆盖的任务自动继承全局默认值。`refine_text` 默认跟随当前项目生效的 `video_analyze` 绑定，也可显式覆盖。支持 **OpenAI 兼容接口**（通义千问 / Kimi 等）以及本地 **Ollama**（`type: ollama`，无需 API Key，默认 `http://localhost:11434/v1`）。Provider 可通过 `capabilities` 声明 `video` / `text` 能力；视频分析任务会自动过滤并校验必须使用支持 `video` 的 Provider。OpenAI 兼容厂家可设置 `timeout_sec`，用于慢速网关或本地模型。Gemini Provider 可通过 `video_upload_max_mb` 调整单文件上传上限（默认 200 MB，超过会提示先压缩）。
 
+可选视觉转场复核：在项目配置中设置 `plan.visual_transition_review: true` 后，日常规划完成时会使用 `video_analyze` 的 Gemini 绑定，最多复核 12 个相邻转场。该功能默认关闭；开启时只额外增加一次接触表图片请求。复核失败或返回格式不合法时保留已验证的计划，不影响正常生成。
+
 📌 **trip 上下文自动注入**：行程背景、避免误判提示（如 "不要把戴高乐机场 RER 误认为曼谷"）统一写在 `templates/trip_context.md`，每次 AI 调用前自动插入。—
 
 多模型视频分析对比：

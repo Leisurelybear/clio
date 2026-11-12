@@ -2,7 +2,7 @@
 
 > Load on demand when locating ownership boundaries or test coverage. Keep `AGENTS.md` short; put detailed file maps here.
 >
-> Last refreshed: 2026-10-23 (after the R-025 i18n completion batch).
+> Last refreshed: 2026-11-13 (after the F9 visual transition review).
 
 ```
 vlog-video-analysis/
@@ -53,6 +53,7 @@ vlog-video-analysis/
     ├── plan_model.py           # Plan/PlanSegment domain + save validation (R-026)
     ├── plan_preview.py         # Cut-clip mapping for plan preview (R-031b)
     ├── plan_readiness.py       # Export/cut readiness (error/warning tiers)
+    ├── transition_review.py    # Opt-in Gemini contact-sheet review of adjacent plan transitions (F9)
     ├── privacy.py              # Log redaction of tokens and local paths
     ├── ratelimit.py            # Thread-safe provider rate limiter
     ├── progress.py             # `.progress.json` tracker for CLI/UI runs
@@ -225,7 +226,7 @@ Use focused tests first, then full regression:
   `logs-buffer.test.js`, `logs-history.test.js`, `logs-ui.test.js`, `logs-locale.test.js`
 - Media identity: `test_identity.py`, `test_vmeta.py`, `test_routes_videos.py`, `test_file_service.py`,
   `test_index.py`
-- Plan domain: `test_plan.py`, `test_plan_input.py`, `test_plan_model.py`, `test_plan_readiness.py`, `test_plan_preview.py`, `test_cut_snap.py`;
+- Plan domain: `test_plan.py`, `test_plan_input.py`, `test_plan_model.py`, `test_plan_readiness.py`, `test_plan_preview.py`, `test_transition_review.py`, `test_cut_snap.py`;
   frontend `plan-*.test.js`, `viewer-cut-preview.test.js`
 - Entity consistency: `test_tasks_consistency.py`, `test_tasks_plan.py`, `test_pipeline.py`,
   `test_run_preview.py`; frontend `runner.test.js`

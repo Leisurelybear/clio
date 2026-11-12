@@ -8,13 +8,13 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
 - Older archive: [`docs/archive/2026-07-01-roadmap-archive.md`](docs/archive/2026-07-01-roadmap-archive.md)
 - Release notes and completed changes: [`CHANGELOG.md`](CHANGELOG.md)
 
-## Active backlog (2026-11-12)
+## Active backlog (2026-11-13)
 
 ### P0/P1/P2 review remediation
 
 Source: [`docs/analysis/2026-11-05-P0-P2-Issues.md`](docs/analysis/2026-11-05-P0-P2-Issues.md)
 
-Snapshot: 83 items; 77 completed locally; 1 partial; 2 awaiting real-environment verification; 3 pending.
+Snapshot: 83 items; 79 completed locally; 2 partial; 2 awaiting real-environment verification; 0 pending.
 O17 and O18 are complete as of this cleanup. The analysis document remains the source of truth for item-level
 status and verification notes.
 
@@ -65,7 +65,10 @@ P2 items:
   - `[x]` collect analyzed source timelines and detect empty/large-gap/out-of-bounds analysis coverage
   - `[x]` flag plan ranges outside analyzed content, duration drift, and missing voiceover guidance
   - `[x]` surface the new issues through the existing readiness panel and add regression tests
-- `[ ]` F9 review transition candidates with a Gemini contact sheet
+- `[x]` F9 review transition candidates with a Gemini contact sheet (`ad40bf0`)
+  - `[x]` add opt-in `plan.visual_transition_review` (default off) and use the `video_analyze` Gemini binding
+  - `[x]` review at most 12 adjacent transitions from compressed-first frame pairs and update only `transition`
+  - `[x]` preserve the validated plan on extraction/provider/JSON failure and include review settings in lineage
 
 Awaiting real-environment verification:
 

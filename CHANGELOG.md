@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-11-13
+
+Daily plans can now optionally ask Gemini to review whether adjacent visual transitions make sense.
+
+- feat(plan): add opt-in `plan.visual_transition_review` using the effective `video_analyze` Gemini binding
+- feat(plan): build a compressed-first, two-column contact sheet for up to 12 adjacent segment pairs
+- feat(plan): validate one strict transition result per expected position and update only the transition field
+- fix(plan): preserve the validated plan on frame extraction, provider, JSON, or validation failures while propagating cancellation
+- feat(plan): include the review toggle, prompt/version, and video task binding in plan lineage
+
+Verification: full pytest passes `3160 passed, 12 skipped`; Vitest passes 895 tests across 84 files; `npm run typecheck`, Ruff, mypy over 284 source files, and `git diff --check` pass. Feature commit: `ad40bf0`.
+
 ## 2026-11-12
 
 Daily planning now uses a staged outline, shot-selection, and review loop while preserving the existing
