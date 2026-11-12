@@ -98,4 +98,4 @@ def test_provider_connection(config: AppConfig, *, provider_name: str, model: st
     }
 
 
-test_provider_connection.__test__ = False
+test_provider_connection.__dict__["__test__"] = False
