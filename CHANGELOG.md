@@ -2,6 +2,19 @@
 
 ## 2026-11-13
 
+The analysis evaluation suite now contains a reviewed real-footage baseline instead of placeholder
+case slots. Twelve source clips have reviewed references, sanitized predictions, and committed reports.
+
+- feat(evaluation): replace placeholder cases with 12 sanitized real-footage predictions and reviewed references
+- docs(evaluation): commit the first baseline reports and record exact source durations
+- test(evaluation): validate all 12 reviewed cases and the 70-point scoring gate
+
+Verification: 12 cases scored with 0 errors; mean 96.92, minimum 87.51, and gate 70 passed. The three
+longest cases retain genuine timeline coverage gaps of 37.56% to 39.05%. Focused evaluation tests pass
+16 cases; Ruff, format check, and `git diff --check` pass. Commit: `98b4f4d`.
+
+## 2026-11-13
+
 JianYing draft export compatibility is now verified against both a real project export and a real
 JianYing preset sample. Source-derived frame rates and complete draft metadata replace the remaining
 hardcoded/incomplete fields.
@@ -221,7 +234,7 @@ instead of ad hoc prompt comparisons.
 - test(evaluation): cover scoring behavior, malformed inputs, report generation, path safety, locale keys, and CLI dispatch
 - docs(evaluation): add 12 versioned case slots and document the baseline completion workflow
 
-The real-footage baseline remains pending; placeholder labels are intentionally unscorable.
+The first real-footage baseline was completed on 2026-11-13; placeholder labels remain intentionally unscorable.
 
 CI lint now matches the current Ruff behavior for the best-effort native notification fallback.
 

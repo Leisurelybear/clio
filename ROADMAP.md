@@ -14,7 +14,7 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
 
 Source: [`docs/analysis/2026-11-05-P0-P2-Issues.md`](docs/analysis/2026-11-05-P0-P2-Issues.md)
 
-Snapshot: 83 items; 82 completed locally; 1 partial; 0 awaiting real-environment verification; 0 pending.
+Snapshot: 83 items; 83 completed locally; 0 partial; 0 awaiting real-environment verification; 0 pending.
 O17 and O18 are complete as of this cleanup. The analysis document remains the source of truth for item-level
 status and verification notes.
 
@@ -39,11 +39,11 @@ P1 items:
   - `[x]` run shot selection from the outline, then validate and review the final plan with one correction retry
   - `[x]` invalidate plan lineage when any planning-stage prompt or the outline context changes
 - `[x]` Q12 generate voiceover from the planned segments after planning (`89b9315`, `9da2483`)
-- `[~]` F1 create a small scored evaluation set and scoring script
+- `[x]` F1 create a small scored evaluation set and scoring script (`98b4f4d`)
   - `[x]` define a versioned 12-case manifest and reference-label schema
   - `[x]` add deterministic scoring for coverage, density, fact recall, key moments, and structure
   - `[x]` emit JSON and Markdown reports with an optional minimum-score gate
-  - `[ ]` run the harness against real project footage and record the first baseline
+  - `[x]` run the harness against real project footage and record the first baseline (`98b4f4d`; mean 96.92, minimum 87.51, gate 70 passed)
 
 P2 items:
 

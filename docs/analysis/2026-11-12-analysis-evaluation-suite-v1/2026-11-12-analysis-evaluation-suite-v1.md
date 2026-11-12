@@ -1,48 +1,64 @@
 # Analysis Evaluation Suite v1
 
-**Status:** harness and versioned scaffold implemented, 2026-11-12. This directory contains 12
-versioned test slots, not a completed evaluation baseline. No real project footage, prediction JSON,
-reviewed labels, reports, or scores are committed here yet.
+**Status:** completed real-footage baseline, 2026-11-13 (commit `98b4f4d`).
 
-The harness deliberately rejects every reference whose `review_status` is not `reviewed`, so the
-placeholder labels cannot accidentally produce a misleading score. A baseline is valid only after
-the duration, facts, aliases, and key moments have been checked against the selected real videos.
+This suite contains 12 reviewed cases from real project footage. The manifest records each source
+filename and exact duration; every reference was checked against a 12-frame contact sheet and every
+prediction is a sanitized analysis artifact. No absolute paths, media identity, transcript detail, or
+cover path is committed.
+
+## Baseline
+
+| Metric | Result |
+|---|---:|
+| Scored cases | 12 |
+| Case errors | 0 |
+| Mean score | 96.92 |
+| Minimum score | 87.51 |
+| Minimum-score gate | 70.00 passed |
+
+Nine cases scored 100.00. The three lower scores are genuine long-clip coverage gaps: `case-01-urban-walk`
+(269.533s, 37.56% coverage), `case-06-night-scene` (168.867s, 38.49%), and `case-10-action-sports`
+(272.067s, 39.05%). Fact recall, key moments, density, and structure remain 100.00 for those cases.
+The baseline is intentionally retained rather than relabeled to hide the long-timeline weakness.
+
+Generated reports are committed as [`evaluation.json`](evaluation.json) and
+[`evaluation.md`](evaluation.md).
 
 ## Layout
 
 ```text
 2026-11-12-analysis-evaluation-suite-v1/
-??? manifest.json
-??? references/
-?   ??? case-01-urban-walk.json
-?   ??? ... 12 cases total
-??? 2026-11-12-analysis-evaluation-suite-v1.md
+|-- manifest.json
+|-- evaluation.json
+|-- evaluation.md
+|-- predictions/
+|   `-- case-*.json (12)
+|-- references/
+|   `-- case-*.json (12)
+`-- 2026-11-12-analysis-evaluation-suite-v1.md
 ```
 
-Prediction files are expected under `predictions/<case-id>.json`. That directory is intentionally
-absent until real analysis output is selected and reviewed.
+## Reproduce the baseline
 
-## Complete the suite
+```powershell
+python main.py evaluate-analysis `
+  --manifest docs/analysis/2026-11-12-analysis-evaluation-suite-v1/manifest.json `
+  --predictions docs/analysis/2026-11-12-analysis-evaluation-suite-v1/predictions `
+  --out-dir output/analysis-evaluation `
+  --min-score 70
+```
 
-1. Select a short, representative clip for each case and record its real duration.
-2. Generate analysis JSON for each clip and place it under this directory as
-   `predictions/<case-id>.json`.
-3. Review every reference against the footage. Replace each `REPLACE` marker and placeholder alias,
-   set accurate key-moment intervals, then change `review_status` from `pending-real-footage` to
-   `reviewed`.
-4. Run the harness with a temporary output directory while calibrating:
+The command must report 12 scored cases, 0 errors, mean 96.92, minimum 87.51, and a passing gate.
 
-   ```powershell
-   python main.py evaluate-analysis `
-     --manifest docs/analysis/2026-11-12-analysis-evaluation-suite-v1/manifest.json `
-     --predictions docs/analysis/2026-11-12-analysis-evaluation-suite-v1/predictions `
-     --out-dir output/analysis-evaluation `
-     --min-score 70
-   ```
+## Maintenance
 
-5. Commit a first baseline only after all 12 references are reviewed and the source media identity is
-   recorded in the change notes. The committed baseline must include the exact manifest, references,
-   and generated `evaluation.json` / `evaluation.md`; it must not reuse these placeholder scores.
+1. When an analysis prompt, model binding, or long-window strategy changes, regenerate sanitized
+   predictions for the same 12 source clips.
+2. Re-check duration, aliases, and key-moment intervals only when the underlying footage changes.
+3. Keep labels reviewed before scoring; the harness rejects unreviewed references.
+4. Compare the new mean and per-case coverage against this baseline, then commit the regenerated
+   reports without removing genuine coverage failures.
 
 ## Schema v1
 
