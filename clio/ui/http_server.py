@@ -14,9 +14,9 @@ import contextlib
 import json
 import sys
 import threading
-from collections.abc import Mapping
+from collections.abc import Iterable
 from http.server import ThreadingHTTPServer
-from typing import Any
+from typing import Any, Protocol
 
 # Per-connection read deadline for headers + body (seconds).
 REQUEST_TIMEOUT_SEC = 60.0
@@ -44,7 +44,11 @@ BUSY_RESPONSE = (
 )
 
 
-def header_bytes_too_large(raw_requestline: bytes, headers: Mapping[str, str]) -> bool:
+class HeaderSource(Protocol):
+    def items(self) -> Iterable[tuple[str, str]]: ...
+
+
+def header_bytes_too_large(raw_requestline: bytes, headers: HeaderSource) -> bool:
     """True when request-line + header names/values exceed MAX_HEADER_BYTES."""
     total = len(raw_requestline)
     for key, value in headers.items():

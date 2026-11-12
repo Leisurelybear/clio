@@ -404,6 +404,8 @@ def make_handler(
         _access_log_mode: ClassVar[str] = DEFAULT_ACCESS_LOG_MODE
         _access_log_slow_ms: ClassVar[int] = DEFAULT_ACCESS_LOG_SLOW_MS
         _access_log_body_bytes: ClassVar[int] = 0
+        raw_requestline: bytes
+        _sent_header_names: set[str]
         _http_started: float = 0.0
         _http_req_id: str = ""
         _http_response_bytes: int | None = None
@@ -494,17 +496,12 @@ def make_handler(
             super().send_response(code, message)
 
         def send_header(self, keyword: str, value: str) -> None:
-            sent = getattr(self, "_sent_header_names", None)
-            if sent is None:
-                sent = set()
-                self._sent_header_names = sent
-            sent.add(keyword.lower())
+            self._sent_header_names.add(keyword.lower())
             super().send_header(keyword, value)
 
         def end_headers(self) -> None:
-            sent = getattr(self, "_sent_header_names", set())
             for key, value in SECURITY_HEADERS:
-                if key.lower() not in sent:
+                if key.lower() not in self._sent_header_names:
                     self.send_header(key, value)
             super().end_headers()
 
@@ -591,8 +588,12 @@ def make_handler(
                     return True
             url = urlparse(self.path)
             qs = parse_qs(url.query)
-            provided = qs.get("token", [None])[0]
-            if isinstance(provided, str) and len(provided) == len(token) and hmac.compare_digest(provided, token):
+            query_token = qs.get("token", [None])[0]
+            if (
+                isinstance(query_token, str)
+                and len(query_token) == len(token)
+                and hmac.compare_digest(query_token, token)
+            ):
                 return True
             self._send_json({"error": t("api.unauthorized")}, 401)
             return False
@@ -866,6 +867,7 @@ def make_handler(
             if handler_fn is None:
                 return self._send_json({"ok": False, "error": "unknown endpoint"}, 404)
 
+            assert route is not None
             handler_key = route.handler if isinstance(route.handler, str) else ""
             params = _POST_HANDLER_PARAMS.get(handler_key, {"qs", "obj"})
             call_kwargs: dict[str, Any] = {}
@@ -1041,7 +1043,7 @@ def make_handler(
     return Handler
 
 
-def shutdown_task_manager(handler_class: type[BaseHTTPRequestHandler], *, timeout: float = 5.0) -> None:
+def shutdown_task_manager(handler_class: Any, *, timeout: float = 5.0) -> None:
     manager = getattr(handler_class, "_task_manager", None)
     if manager is None:
         return
