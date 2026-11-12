@@ -2,6 +2,16 @@
 
 ## 2026-11-12
 
+Editor save flows now have direct regression coverage for routing, refresh behavior, no-op states,
+and failure handling.
+
+- test(ui): cover global and project config save routes, language refresh, clean/no-target states, server errors, and unexpected artifact failures
+- test(ui): raise the Vitest line coverage baseline from 58.74% to 59.00%
+- test(ui): keep failed saves dirty so the editor does not discard unsaved work
+
+Verification: full Vitest passes 891 tests across 81 files; coverage is 56.42% statements, 50.89% branches, 60.30% functions, and 59.00% lines. Test commit: `5487304`.
+
+
 Generated daily plans now align cut points with nearby visual and speech boundaries before they are
 saved, so preview, cutting, and export all use the same snapped ranges.
 

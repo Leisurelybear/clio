@@ -14,7 +14,7 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
 
 Source: [`docs/analysis/2026-11-05-P0-P2-Issues.md`](docs/analysis/2026-11-05-P0-P2-Issues.md)
 
-Snapshot: 83 items; 73 completed locally; 1 partial; 2 awaiting real-environment verification; 7 pending.
+Snapshot: 83 items; 74 completed locally; 1 partial; 2 awaiting real-environment verification; 6 pending.
 O17 and O18 are complete as of this cleanup. The analysis document remains the source of truth for item-level
 status and verification notes.
 
@@ -42,7 +42,7 @@ P2 items:
 
 - `[ ]` O8 split `ui/server.py` handler construction, auth, body parsing, and routes
 - `[ ]` O14 add frontend type checking and decompose the largest JS modules
-- `[ ]` O16 raise Vitest coverage around bug fixes and save flows
+- `[x]` O16 raise Vitest coverage around bug fixes and save flows (`5487304`)
 - `[x]` Q13 snap cut points to shot boundaries and sentence endings (`0e1c9bf`)
 - `[x]` F4 calculate AI output quality signals and surface warnings in the UI
   - `[x]` collect analyzed source timelines and detect empty/large-gap/out-of-bounds analysis coverage
