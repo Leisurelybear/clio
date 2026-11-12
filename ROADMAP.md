@@ -8,17 +8,15 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
 ## Active backlog (2026-11-12)
 
 - 2026-11 P0/P1/P2 review remediation from `docs/analysis/2026-11-05-P0-P2-Issues.md`:
-  - Snapshot: 83 items; 62 completed; 2 partial, 2 awaiting real-environment
+  - Snapshot: 83 items; 63 completed; 1 partial (O15), 2 awaiting real-environment
     verification, and 17 pending. O7 is pushed in `b6c9cd2`; B10 `33a2233`,
-    O11 `cb8613d`, O15 security headers `a97bf4d`, O4 `6974751`, F2
-    `e3061f8`, F5 `de704a5`, O13 `ea32a69`, O10 config loading `e9ee689`,
-    O10 log stream handling `ae6e237`, O10 shutdown cleanup `f8897b0`, O10 utility
-    cleanup `eaa224f`, O10 config annotation cleanup `d490b3b`, O10 sidecar cleanup
-    `4c5691f`, O10 prompt fallback cleanup `c7ebd73`, O10 identity path cleanup
-    `ac4a0e6`, O10 AI cleanup boundaries `d508b06`, and O10 AI suppress refactor `1912487`, O10 config backup suppress refactor `db68cca`, O10 log suppress refactor
-    `3874778`, O10 task cleanup suppress refactor `ab152de`, O10 UI/cache cleanup suppress refactor `9459898`, O10 reindex probe narrowing
-    `5fcb9ba`, O10 desktop event suppression `ffb1508`, and O10 FFmpeg progress
-    suppression `0ccd995` are local.
+    O11 `cb8613d`, O15 security headers `a97bf4d`, O4 `6974751`, F2 `e3061f8`,
+    F5 `de704a5`, O13 `ea32a69`, and O10 `e9ee689` / `ae6e237` / `f8897b0` /
+    `eaa224f` / `d490b3b` / `4c5691f` / `c7ebd73` / `ac4a0e6` / `d508b06` /
+    `1912487` / `db68cca` / `3874778` / `ab152de` / `9459898` / `5fcb9ba` /
+    `ffb1508` / `0ccd995` / `c367228` ... `823cd2a` are local. O10 is complete;
+    `52fab55` enables `BLE001` / `SIM105` and removes the remaining external
+    exception marker.
   - Verification: targeted C2 pytest (270 passed), C15 pytest (58 passed), full pytest
     (2837 passed, 12 skipped, 13 deselected with symlink tests excluded), full Vitest
     (857 passed), O7 targeted pytest (153 passed), full pytest after O7 (2846 passed,
@@ -60,7 +58,9 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
     full pytest (2916 tests, 12 skipped), Ruff over 263 files, mypy over 39 files, and
     `git diff --check`. O10 desktop event suppression passed targeted pytest (31 passed);
     O10 FFmpeg progress suppression passed targeted pytest (59 passed); both passed Ruff and
-    `git diff --check`, and cleared all `SIM105` findings.
+    `git diff --check`, and cleared all `SIM105` findings. O10 final exception sweep passed
+    full pytest (2938 passed, 12 skipped), Ruff over 263 files, `ruff format --check`, mypy
+    over 39 files, and `git diff --check`; `BLE001` and `SIM105` are both zero.
     CI run 42820037572 (head `262abde`) and CI run 42840852167 (head `958bc57`) passed
     all Python 3.11/3.12 platform jobs plus quality, package, and Vitest jobs.
   - [x] P0 completed (14): B1 `a01b156`; B2 `a436315`; C1 `14b873b`; C2 `91e4699`;
@@ -71,29 +71,23 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
     C8 `b6f76da`; D4 `459eada`; D5 `90a92de`; D6 `5a8fb85`; D7 `e1fe20f`;
     D8 `5ec84b5`; D9 `a79cfbc`; O2 `80d3e3f`; F2 `e3061f8`.
   - [ ] P1 pending (9): O1; O17; Q4; Q5; Q6; Q7; Q11; Q12; F1.
-  - [x] P2 completed (30): C15 `7681cff` / `3171639` / `958bc57`; B8 `9be0401` / `a45f1e5` / `56d6c87`; B10 `33a2233`; C9 `cc2d1c5`;
+  - [x] P2 completed (31): C15 `7681cff` / `3171639` / `958bc57`; B8 `9be0401` / `a45f1e5` / `56d6c87`; B10 `33a2233`; C9 `cc2d1c5`;
     C11 `8636449` / `e40fb24`; C13 `35bbc3f`; C14 `d702223`; D10 `9374720`;
     D11 `2c00587`; D13 `fab38aa`; D15 `8aa6740`; D17 `f209b48`;
     D18 `e073076`; D19 `2c14970` / `787deb1`; B7 `443e900`; B9 `87792ba`;
     C12 `2821c43`; D14 `f18d4cd`; D16 `70c4a66`; O3 `47f3fe1` / `4ca2c77`;
     O4 `6974751`; O5 `77698a0`; O6 `52aa7ff` / `ebdd738`; O7 `a436315` / `9be0401` / `701bac7`; O11 `cb8613d`; O12 `b6f76da`; F5 `de704a5`; F8 `7b8bfa0` / `7515acb` / `8cd66b3`;
     C16 `c75c067` / `8aca38e` / `f593d28` / `eb3e0f6` / `46daa41` / `2c359c6` /
-    `fdcdd7d` / `4b300a3` / `1ac279c` / `74f70c4`; O13 `ea32a69`.
-  - [~] P2 partial (2): O15 `a97bf4d` (default HTML escaping remains);
-    O10 `e9ee689` / `ae6e237` / `f8897b0` / `eaa224f` / `d490b3b` / `4c5691f` /
-    `c7ebd73` / `ac4a0e6` / `d508b06` / `1912487` / `db68cca` / `3874778` / `ab152de` /
-    `9459898` / `5fcb9ba` / `ffb1508` / `0ccd995` (config loading, log streams, shutdown,
-    utility, annotation, sidecar, prompt fallback, identity path, AI cleanup boundaries,
-    config backup, log, task, UI/cache and optional callback suppress refactors, and reindex
-    probe narrowing audited; 94 `BLE001` findings remain and `SIM105` is clear).
+    `fdcdd7d` / `4b300a3` / `1ac279c` / `74f70c4`; O13 `ea32a69`;
+    O10 `e9ee689` ... `823cd2a` plus lint gate `52fab55`.
+  - [~] P2 partial (1): O15 `a97bf4d` (default HTML escaping remains).
   - [ ] P2 awaiting real-environment verification (2): C10; D12 (`082cc7e` completes
     the code-side fixes: timeline clamping, draft_meta_info.json, platform/fps probing).
   - [ ] P2 pending (8): O8; O9; O14; O16; O18; Q13; F4; F9.
-  - [ ] Next: close the remaining partial items, then continue the backlog one focused
-    fix per commit.
-  - Keep unrelated working-tree changes isolated. The last validated remote head is
-    `b6c9cd2`; B10 (`33a2233`) is the next local batch. Push each completed batch after
-    explicit user confirmation.
+  - [ ] Next: close O15 default HTML escaping, then continue the backlog one focused fix
+    per commit.
+  - Keep unrelated working-tree changes isolated. `main` is ahead of `origin/main`; the
+    O10 completion batch is local and push still requires explicit user confirmation.
 - R-048 Higher-detail video analysis and bounded plan input (plan ready; P0a-P0c not started)
 - R-047-FU Optional Baidu ASR provider (deferred; Aliyun cloud transcription is complete)
 - R-043 Frontend module decomposition and remaining legacy mypy debt
