@@ -188,7 +188,8 @@ vlog-video-analysis/
     │           ├── url-params.js / editor-save.js / desktop-pick.js
     │           ├── desktop-notify.js          # Native delivery eligibility and dedupe
     │           ├── editor.js / editor-texts.js / editor-voiceover.js / editor-refine.js
-    │           ├── editor-config.js           # Config page shell and form rendering
+    │           ├── editor-config.js           # Config page shell, env editor, and render orchestration
+    │           ├── editor-config-form.js      # Config schema, field rendering, section cards, form handlers
     │           ├── editor-logs.js             # Logs pane polling, history, filtering, rendering
     │           ├── editor-models.js           # Local Whisper model management
     │           ├── editor-prompts.js          # Prompt override listing, editing, save, restore

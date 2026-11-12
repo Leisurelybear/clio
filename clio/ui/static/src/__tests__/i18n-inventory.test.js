@@ -20,8 +20,8 @@ const CJK_RUN = /[\u4e00-\u9fff]+/g;
 
 // file (repo-relative) -> sorted unique Chinese runs that are allowed to stay
 const ALLOWED = {
-  // ui/static/src/editor-config.js
-  'clio/ui/static/src/editor-config.js': [
+  // ui/static/src/editor-config-form.js
+  'clio/ui/static/src/editor-config-form.js': [
     '不限',
     '不限制',
     '像素',
