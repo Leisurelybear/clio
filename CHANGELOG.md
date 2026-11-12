@@ -2,6 +2,13 @@
 
 ## 2026-11-13
 
+Sidebar video-row rendering and menu behavior now live in a focused module while `sidebar-data.js` keeps data loading and list orchestration.
+
+- refactor(ui): extract row HTML, offline relink, selection toggling, and the floating action menu into `sidebar-video-row.js`
+- test(ui): cover offline relink and shared selection-state updates
+
+Verification: focused Vitest passes 29 tests across 4 files; `npm run typecheck` and `git diff --check` pass. Refactor commit: `7af0edc`.
+
 Runner skipped-step diagnostics and processing-state rendering now live in a focused module while `runner.js` keeps the same run-pane behavior.
 
 - refactor(ui): extract step labels, skipped diagnostics, and processing-state rendering into `runner-diagnostics.js`
