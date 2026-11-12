@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import MagicMock
 
 from clio.ai.base import AIResponse
 from clio.config import AppConfig, GlobalAIConfig, GlobalConfig, ProviderConfig, TaskConfig
 
 
-def _config(*, models: list[str] | None = None) -> SimpleNamespace:
+def _config(*, models: list[str] | None = None) -> AppConfig:
     provider = ProviderConfig(
         name="deepseek",
         type="openai",
@@ -16,12 +17,15 @@ def _config(*, models: list[str] | None = None) -> SimpleNamespace:
         base_url="https://api.deepseek.com/v1",
         models=["deepseek-chat"] if models is None else models,
     )
-    return SimpleNamespace(
-        ai=SimpleNamespace(
-            providers={"deepseek": provider},
-            tasks={"voiceover": TaskConfig(provider="deepseek", model="deepseek-chat")},
+    return cast(
+        AppConfig,
+        SimpleNamespace(
+            ai=SimpleNamespace(
+                providers={"deepseek": provider},
+                tasks={"voiceover": TaskConfig(provider="deepseek", model="deepseek-chat")},
+            ),
+            proxy=SimpleNamespace(url="", enabled=False),
         ),
-        proxy=SimpleNamespace(url="", enabled=False),
     )
 
 
@@ -213,4 +217,4 @@ def test_known_provider_failure_masks_key_like_model(monkeypatch) -> None:
 def test_public_service_function_is_not_pytest_test() -> None:
     from clio.ui.services.ai_test_service import test_provider_connection
 
-    assert test_provider_connection.__test__ is False
+    assert vars(test_provider_connection).get("__test__") is False
