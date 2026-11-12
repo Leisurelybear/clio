@@ -11,7 +11,7 @@ import time
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from clio._constants import VIDEO_EXTS
 from clio.ai.token_usage import FileTokenUsageStore
@@ -64,6 +64,12 @@ from clio.utils import get_duration_sec, resolve_binary, run_probe, write_json_a
 from clio.vmeta import VideoIndex
 
 _CAPTURE_DATE_RE = re.compile(r"(?<!\d)(20\d{2})[-_]?([01]\d)[-_]?([0-3]\d)")
+
+
+class _WindowCacheKey(TypedDict):
+    lineage: str
+    source_size: int
+    source_mtime_ns: int
 
 
 def _capture_date_key(value: str) -> str:
@@ -344,6 +350,7 @@ def _analyze_with_optional_windows(
     dest = config.paths.output_dir / ".analyze_windows" / compressed.stem
     dest.mkdir(parents=True, exist_ok=True)
     cache_dir = window_cache_dir(config.paths.output_dir, compressed.stem)
+    cache_key: _WindowCacheKey | None
     try:
         source_stat = compressed.stat()
         cache_key = {
