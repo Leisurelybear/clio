@@ -803,3 +803,36 @@ describe('renderConfig global tab', () => {
     expect(state.configGlobal.ui).toEqual({ language: 'en', desktop_notifications: true });
   });
 });
+
+describe('task binding provider navigation', () => {
+  afterEach(() => {
+    document.body.replaceChildren();
+    state.currentEntity = null;
+  });
+
+  it('opens the provider editor from a task binding edit link', async () => {
+    document.body.innerHTML = '<div id="tab-config"></div><span id="status"></span>';
+    state.configRaw = { _config_source: 'split', paths: { output_dir: 'out' } };
+    state.configGlobal = {
+      ai: { providers: { custom: { type: 'openai', models: [] } }, default_tasks: {} },
+    };
+    state.configProject = {
+      ai: { tasks: { video_analyze: { provider: 'custom', model: '' } } },
+    };
+    state.configTab = 'project';
+    state.dirty = false;
+    state._needsConfigInit = false;
+    state.currentEntity = 'config';
+    api.mockResolvedValue({ ok: false });
+
+    renderConfig();
+    const link = document.querySelector('.edit-provider-link');
+    expect(link).not.toBeNull();
+
+    link.click();
+    await new Promise(resolve => setTimeout(resolve, 150));
+
+    expect(state.configTab).toBe('global');
+    expect(document.querySelector('.modal')).not.toBeNull();
+  });
+});

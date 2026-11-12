@@ -4,6 +4,7 @@ import { api, icon } from './api.js';
 import { setBrowseButtonsVisible } from './desktop-pick.js';
 import {
   DEFAULT_MODELS,
+  DEFAULT_PROVIDERS,
   attachProviderListHandlers,
   providerCapabilities,
   providerEnvName,
@@ -685,6 +686,10 @@ export function _renderTaskBinding(tasks, providersObj, descs, opts = {}) {
 
   html += '</fieldset>';
   return html;
+}
+
+function _escapeCssAttributeValue(value) {
+  return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\A ');
 }
 
 function _attachTaskBindingHandlers(pane, cfg, opts = {}) {

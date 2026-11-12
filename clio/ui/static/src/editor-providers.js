@@ -7,7 +7,7 @@ import { t } from './i18n.js';
 import { state } from './state.js';
 import { escapeHtml, markDirty, setStatus } from './utils.js';
 
-const DEFAULT_PROVIDERS = ['gemini', 'openai', 'deepseek'];
+export const DEFAULT_PROVIDERS = ['gemini', 'openai', 'deepseek'];
 
 export function providerTypeLabel(type, long = false) {
   if (type === 'ollama') {
@@ -280,14 +280,14 @@ function _showProviderModal(providersObj, name, onSave) {
   } else {
     modelsList = [];
   }
-  _renderTagInput(modelsContainer, modelsList, () => {});
+  renderTagInput(modelsContainer, modelsList, () => {});
   const capabilitiesContainer = backdrop.querySelector('#modal-provider-capabilities');
   let capabilitiesList = existing
     ? [...providerCapabilities(existing)]
     : [...providerCapabilities({ type: backdrop.querySelector('#modal-provider-type').value })];
   function renderCapabilitiesInput() {
     capabilitiesContainer.innerHTML = '';
-    _renderTagInput(capabilitiesContainer, capabilitiesList, () => {});
+    renderTagInput(capabilitiesContainer, capabilitiesList, () => {});
   }
   renderCapabilitiesInput();
 
@@ -419,10 +419,6 @@ function _showProviderModal(providersObj, name, onSave) {
 
   backdrop.querySelector('#modal-cancel').onclick = () => backdrop.remove();
   backdrop.querySelector('.modal-backdrop').onclick = () => backdrop.remove();
-}
-
-function _escapeCssAttributeValue(value) {
-  return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\A ');
 }
 
 function _chooseProviderTestModel(provider) {
