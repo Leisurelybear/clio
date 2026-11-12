@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import threading
 import time
 from collections.abc import Iterator
@@ -35,10 +36,8 @@ _provider_cache_lock = threading.Lock()
 
 
 def _close_provider(provider: TextAIProvider) -> None:
-    try:
+    with contextlib.suppress(Exception):  # provider implementations own their cleanup exceptions
         provider.close()
-    except Exception:  # noqa: BLE001 - provider implementations own their cleanup exceptions
-        pass
 
 
 def _find_entry(provider: TextAIProvider) -> _CachedEntry | None:

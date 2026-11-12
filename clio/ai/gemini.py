@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import mimetypes
 import threading
 import time
@@ -244,10 +245,8 @@ class GeminiProvider:
 
     def close(self) -> None:
         if self._client is not None:
-            try:
+            with contextlib.suppress(Exception):  # SDK client cleanup is best effort
                 self._client.close()
-            except Exception:  # noqa: BLE001 - SDK client cleanup is best effort
-                pass
 
     def generate_text(
         self,
@@ -350,7 +349,5 @@ class GeminiProvider:
             return self._call_with_retry(_do, t("ai.retry_what_video", {"model": model}), model, cancel_event)
         finally:
             if uploaded is not None and uploaded.name is not None:
-                try:
+                with contextlib.suppress(Exception):  # remote cleanup must not mask the analysis result
                     self._client.files.delete(name=uploaded.name)
-                except Exception:  # noqa: BLE001 - remote file cleanup must not mask the analysis result
-                    pass
