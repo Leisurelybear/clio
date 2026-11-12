@@ -17,7 +17,7 @@ _FALSE_STRINGS = frozenset({"false", "0", "no", "off", ""})
 def _field_types(dc: type) -> dict[str, Any]:
     try:
         return get_type_hints(dc)
-    except Exception:
+    except (NameError, TypeError):
         return {name: Any for name in getattr(dc, "__dataclass_fields__", {})}
 
 

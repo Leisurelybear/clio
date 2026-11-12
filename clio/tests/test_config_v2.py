@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -690,6 +692,18 @@ class TestProhibitedFields:
     def test_unknown_section_allowed(self):
         err = _validate_no_foreign_fields({"custom_section": {"key": "val"}}, "global")
         assert err is None
+
+
+def test_field_types_falls_back_when_annotation_cannot_be_resolved(monkeypatch):
+    from clio.config import validators
+
+    @dataclass
+    class BrokenConfig:
+        value: int
+
+    monkeypatch.setattr(validators, "get_type_hints", lambda _dc: (_ for _ in ()).throw(NameError("missing")))
+
+    assert validators._field_types(BrokenConfig) == {"value": Any}
 
 
 class TestApplyRunPaths:
