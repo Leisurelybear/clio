@@ -9,6 +9,7 @@ import subprocess
 import threading
 import time
 from collections.abc import Callable, Iterable
+from contextlib import suppress
 from datetime import timezone
 from email.utils import parsedate_to_datetime
 from math import isfinite
@@ -122,7 +123,7 @@ def retry_after_seconds(exc: BaseException) -> float | None:
         return None
     try:
         raw = headers.get("Retry-After")
-    except Exception:
+    except (AttributeError, TypeError, ValueError):
         return None
     return parse_retry_after(raw)
 
@@ -193,7 +194,7 @@ def with_retry(
             if delay_for is not None:
                 try:
                     delay = delay_for(e)
-                except Exception:
+                except Exception:  # noqa: BLE001 - optional delay hook is best-effort
                     delay = None
             if delay is None:
                 delay = base_delay * (2**i)
@@ -651,17 +652,13 @@ def _write_bytes_atomic_unlocked(path: Path, data: bytes) -> None:
             f.flush()
             os.fsync(f.fileno())
         if existing_mode is not None:
-            try:
+            with suppress(OSError):
                 os.chmod(tmp, existing_mode)
-            except OSError:
-                pass
         os.replace(tmp, path)
         _fsync_dir(path.parent)
     except BaseException:
-        try:
+        with suppress(OSError):
             os.close(fd)
-        except OSError:
-            pass
         tmp.unlink(missing_ok=True)
         raise
 
@@ -690,10 +687,8 @@ def _cleanup_stale_atomic_tmps(path: Path, *, max_age_sec: float = _STALE_TMP_MA
             continue
         if age < max_age_sec:
             continue
-        try:
+        with suppress(OSError):
             p.unlink(missing_ok=True)
-        except OSError:
-            pass
 
 
 def _fsync_dir(dir_path: Path) -> None:
@@ -703,14 +698,11 @@ def _fsync_dir(dir_path: Path) -> None:
     except OSError:
         return
     try:
-        os.fsync(fd)
-    except OSError:
-        pass
+        with suppress(OSError):
+            os.fsync(fd)
     finally:
-        try:
+        with suppress(OSError):
             os.close(fd)
-        except OSError:
-            pass
 
 
 def _secret_has_insecure_perms(path: Path) -> bool:
@@ -731,22 +723,18 @@ def _secret_has_insecure_perms(path: Path) -> bool:
 def _restrict_secret_to_owner(path: Path) -> None:
     """Best-effort: make *path* readable/writable only by the current user."""
     if os.name != "nt":
-        try:
+        with suppress(OSError):
             os.chmod(path, 0o600)
-        except OSError:
-            pass
         return
     user = os.environ.get("USERNAME") or os.environ.get("USER")
     if not user:
         return
-    try:
+    with suppress(OSError, subprocess.SubprocessError):
         run_subprocess(
             ["icacls", str(path), "/inheritance:r", "/grant:r", f"{user}:F"],
             capture_output=True,
             timeout=15,
         )
-    except Exception:
-        pass
 
 
 def write_secret_atomic(path: Path, text: str) -> None:
@@ -767,10 +755,8 @@ def write_secret_atomic(path: Path, text: str) -> None:
             os.fsync(f.fileno())
         os.replace(tmp, path)
     except BaseException:
-        try:
+        with suppress(OSError):
             os.close(fd)
-        except OSError:
-            pass
         tmp.unlink(missing_ok=True)
         raise
     _restrict_secret_to_owner(path)

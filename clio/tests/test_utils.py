@@ -487,6 +487,14 @@ class TestParseRetryAfter:
         assert retry_after_seconds(ValueError("no response")) is None
         assert retry_after_seconds(SimpleNamespace(response=None)) is None
 
+    def test_retry_after_seconds_ignores_broken_header_mapping(self):
+        class BrokenHeaders:
+            def get(self, key):
+                raise TypeError("broken headers")
+
+        exc = SimpleNamespace(response=SimpleNamespace(headers=BrokenHeaders()))
+        assert retry_after_seconds(exc) is None
+
 
 # ── discover_ffmpeg_bin / resolve_binary ────────────────────────
 
