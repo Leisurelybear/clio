@@ -331,15 +331,17 @@ class TestTranscribeAudio:
             raise RuntimeError("Library cublas64_12.dll or its variants are not present on machine")
             yield  # pragma: no cover - makes _boom a lazy generator
 
+        calls = 0
+
         def _transcribe(*args, **kwargs):
-            calls = _transcribe.calls
-            _transcribe.calls = calls + 1
+            nonlocal calls
+            current_call = calls
+            calls += 1
             info = MagicMock(language="en", language_probability=0.9, duration=10.0)
-            if calls == 0:
+            if current_call == 0:
                 return (_boom(), info)
             return ([seg], info)
 
-        _transcribe.calls = 0
         mock_model = MagicMock()
         mock_model.transcribe.side_effect = _transcribe
         mock_get_model.return_value = mock_model
@@ -351,7 +353,7 @@ class TestTranscribeAudio:
         )
         assert result == [{"start": 0.0, "end": 1.0, "text": "ok", "avg_logprob": -0.1}]
         assert mock_get_model.call_count >= 2
-        assert _transcribe.calls == 2
+        assert calls == 2
         assert config.whisper.device == "auto"
         assert mock_get_model.call_args_list[:2] == [
             ((config,), {"device_override": None}),
