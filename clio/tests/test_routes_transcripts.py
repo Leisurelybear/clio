@@ -227,12 +227,11 @@ class TestHandlePutTranscripts:
         tf.write_text(json.dumps(transcript), encoding="utf-8")
 
         handler._send_json = MagicMock()
-        result = handle_put_transcripts(
+        handle_put_transcripts(
             handler,
             {"video": ["001_GL010683.mp4"]},
             {"segment_index": 0, "text": "new text", "revision": 4},
         )
-        assert result is None
         payload, status = handler._send_json.call_args[0]
         assert status == 409
         assert payload["ok"] is False
@@ -279,7 +278,7 @@ class TestHandlePostTranscripts:
 
         handler = _handler_with_config(tmp_path)
         (tmp_path / "transcripts").mkdir()
-        transcript = {"segments": []}
+        transcript: dict[str, object] = {"segments": []}
         tf = tmp_path / "transcripts" / "001_GL010683_transcript.json"
         tf.write_text(json.dumps(transcript), encoding="utf-8")
 
@@ -678,7 +677,7 @@ class TestHandlePostWhisperInstall:
         assert "already running" in args[0][0]["error"]
 
 
-_DISK_USAGE = collections.namedtuple("Usage", "total used free")
+_DISK_USAGE = collections.namedtuple("_DISK_USAGE", "total used free")
 
 
 def _write_complete_whisper_snapshot(snapshots: Path) -> None:
