@@ -2,6 +2,19 @@
 
 ## 2026-11-13
 
+The analyze-window regression test now compares timeline gaps as individual coordinate pairs,
+avoiding the nested `pytest.approx()` form that fails on current pytest releases. The fix keeps
+the same numeric tolerance while restoring the Python test matrix.
+
+- test(analyze): avoid nested pytest approximations for timeline gaps
+- docs(analyze): record the green CI verification for the assertion fix
+
+Verification: focused `test_analyze_windows.py` passes 34 tests; full pytest passes 3198 tests
+with 12 skipped; Ruff, format check, mypy over 284 source files, and `git diff --check` pass.
+CI run 43289225651 (head `b6c6549`) is green across all required jobs. Test fix: `b6c6549`.
+
+## 2026-11-13
+
 Analysis compression now surfaces non-mutating width and fps recommendations based on the requested
 analysis resolution. High-resolution analysis warns when width is below 1280, and non-low analysis
 warns when fps is below 2; each warning is emitted once through console output and Task Center logs
