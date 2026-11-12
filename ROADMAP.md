@@ -16,8 +16,9 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
     cleanup `eaa224f`, O10 config annotation cleanup `d490b3b`, O10 sidecar cleanup
     `4c5691f`, O10 prompt fallback cleanup `c7ebd73`, O10 identity path cleanup
     `ac4a0e6`, O10 AI cleanup boundaries `d508b06`, and O10 AI suppress refactor `1912487`, O10 config backup suppress refactor `db68cca`, O10 log suppress refactor
-    `3874778`, O10 task cleanup suppress refactor `ab152de`, O10 UI/cache cleanup suppress refactor `9459898`, and O10 reindex probe narrowing
-    `5fcb9ba` are local.
+    `3874778`, O10 task cleanup suppress refactor `ab152de`, O10 UI/cache cleanup suppress refactor `9459898`, O10 reindex probe narrowing
+    `5fcb9ba`, O10 desktop event suppression `ffb1508`, and O10 FFmpeg progress
+    suppression `0ccd995` are local.
   - Verification: targeted C2 pytest (270 passed), C15 pytest (58 passed), full pytest
     (2837 passed, 12 skipped, 13 deselected with symlink tests excluded), full Vitest
     (857 passed), O7 targeted pytest (153 passed), full pytest after O7 (2846 passed,
@@ -57,7 +58,9 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
     full pytest (2912 tests, 12 skipped), Ruff over 263 files, mypy over 39 files, and
     `git diff --check`. O10 reindex probe narrowing passed targeted pytest (26 passed),
     full pytest (2916 tests, 12 skipped), Ruff over 263 files, mypy over 39 files, and
-    `git diff --check`.
+    `git diff --check`. O10 desktop event suppression passed targeted pytest (31 passed);
+    O10 FFmpeg progress suppression passed targeted pytest (59 passed); both passed Ruff and
+    `git diff --check`, and cleared all `SIM105` findings.
     CI run 42820037572 (head `262abde`) and CI run 42840852167 (head `958bc57`) passed
     all Python 3.11/3.12 platform jobs plus quality, package, and Vitest jobs.
   - [x] P0 completed (14): B1 `a01b156`; B2 `a436315`; C1 `14b873b`; C2 `91e4699`;
@@ -79,10 +82,10 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
   - [~] P2 partial (2): O15 `a97bf4d` (default HTML escaping remains);
     O10 `e9ee689` / `ae6e237` / `f8897b0` / `eaa224f` / `d490b3b` / `4c5691f` /
     `c7ebd73` / `ac4a0e6` / `d508b06` / `1912487` / `db68cca` / `3874778` / `ab152de` /
-    `9459898` / `5fcb9ba` (config loading, log streams, shutdown, utility, annotation,
-    sidecar, prompt fallback, identity path, AI cleanup boundaries, config backup, log, task,
-    UI/cache cleanup suppress refactors, and reindex probe narrowing audited; 96 `BLE001`
-    and 3 `SIM105` findings remain).
+    `9459898` / `5fcb9ba` / `ffb1508` / `0ccd995` (config loading, log streams, shutdown,
+    utility, annotation, sidecar, prompt fallback, identity path, AI cleanup boundaries,
+    config backup, log, task, UI/cache and optional callback suppress refactors, and reindex
+    probe narrowing audited; 94 `BLE001` findings remain and `SIM105` is clear).
   - [ ] P2 awaiting real-environment verification (2): C10; D12 (`082cc7e` completes
     the code-side fixes: timeline clamping, draft_meta_info.json, platform/fps probing).
   - [ ] P2 pending (8): O8; O9; O14; O16; O18; Q13; F4; F9.
