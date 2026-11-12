@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import cast
 
 import pytest
 import yaml
@@ -242,7 +243,7 @@ class TestValidateConfig:
                 ),
             ),
         )
-        assert _validate_config(cfg) is None
+        _validate_config(cfg)
 
     def test_proxy_enabled_no_url_raises(self):
         cfg = AppConfig(
@@ -272,7 +273,7 @@ class TestValidateConfig:
     def test_subdir_tilde_accepted_only_as_relative(self):
         cfg = AppConfig(
             global_cfg=GlobalConfig(),
-            project_cfg=ProjectConfig(whisper=WhisperConfig(transcripts_subdir="~/home")),
+            project_cfg=ProjectConfig(whisper=ProjectWhisperConfig(transcripts_subdir="~/home")),
         )
         with pytest.raises(ValueError, match="transcripts_subdir"):
             _validate_config(cfg)
@@ -282,7 +283,7 @@ class TestValidateConfig:
             global_cfg=GlobalConfig(),
             project_cfg=ProjectConfig(script=ScriptConfig(scripts_subdir="nested/deep")),
         )
-        assert _validate_config(cfg) is None
+        _validate_config(cfg)
 
     def test_output_subdir_symlink_rejected_at_join(self, tmp_path: Path):
         """GAP-P1-03: join-time containment must reject a planted subdir symlink."""
@@ -493,7 +494,7 @@ class TestValidateConfig:
 
     def test_non_numeric_value_raises_value_error(self):
         """A quoted number must not leak a TypeError comparison message."""
-        project = ProjectConfig(compress=ProjectCompressConfig(max_width="1280"))
+        project = ProjectConfig(compress=ProjectCompressConfig(max_width=cast(int, "1280")))
         cfg = AppConfig(global_cfg=GlobalConfig(), project_cfg=project)
 
         with pytest.raises(ValueError, match=r"compress\.max_width must be a number"):
@@ -908,7 +909,7 @@ def test_validate_preview_subtitles_pos_range():
             preview=PreviewConfig(subtitles=PreviewSubtitlesConfig(pos_x=50, pos_y=8)),
         ),
     )
-    assert _validate_config(ok) is None
+    _validate_config(ok)
 
 
 def test_ui_config_defaults_and_roundtrip(tmp_path: Path):
