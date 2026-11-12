@@ -393,6 +393,8 @@
   "export.skipped_summary": "  [export] {count} segments were skipped due to missing materials or invalid time formats",
   "gpmf.duration": "- Telemetry covers about {duration}",
   "gpmf.elevation": "- Elevation change about {value} m",
+  "gpmf.capture_time": "- Capture time: {value}",
+  "gpmf.gps": "- GPS: {latitude}, {longitude}",
   "gpmf.header": "### Motion telemetry summary (GoPro GPMF)",
   "gpmf.highlight_hint": "Prefer the action or scenery near these moments as highlights.",
   "gpmf.peak_value": "{timecode} ({value}{unit})",

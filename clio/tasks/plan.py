@@ -19,6 +19,7 @@ from clio.artifact_guard import (
     clear_user_edited,
 )
 from clio.config import AppConfig
+from clio.gpmf import load_telemetry_summary
 from clio.i18n import t
 from clio.identity import SEGMENT_SUFFIX_RE, legacy_segment_offset_sec, load_identity
 from clio.log import timed
@@ -132,7 +133,13 @@ def _clip_duration_sec(config: AppConfig, data: dict[str, Any], identity: Any) -
     return round(duration, 3) if duration is not None else None
 
 
-def _capture_time(data: dict[str, Any], source_stem: str, source_path: str = "", ffprobe: str = "") -> str:
+def _capture_time(
+    data: dict[str, Any],
+    source_stem: str,
+    source_path: str = "",
+    ffprobe: str = "",
+    gpmf_capture_time: str | None = None,
+) -> str:
     raw_metadata = data.get("metadata")
     metadata: dict[str, Any] = raw_metadata if isinstance(raw_metadata, dict) else {}
     for key in _CAPTURE_TIME_KEYS:
@@ -140,6 +147,9 @@ def _capture_time(data: dict[str, Any], source_stem: str, source_path: str = "",
             value = values.get(key)
             if isinstance(value, str) and value.strip():
                 return value.strip()
+
+    if gpmf_capture_time and gpmf_capture_time.strip():
+        return gpmf_capture_time.strip()
 
     if source_path and ffprobe and Path(source_path).is_file():
         probed = _probe_creation_time_text(Path(source_path), ffprobe)
@@ -266,6 +276,7 @@ def _plan_lineage_fingerprint(
                     "location": c.get("location", ""),
                     "duration_sec": c.get("duration_sec"),
                     "capture_time": c.get("capture_time", ""),
+                    "gps": c.get("gps"),
                     "mood": c.get("mood", ""),
                     "voiceover": c.get("voiceover", ""),
                     "timeline": c.get("timeline", []),
@@ -356,29 +367,37 @@ def _collect_plan_clips(
             source_stem = Path(data.get("source_file", "")).stem or json_file.stem
             match_stem = source_stem
             segment_offset = 0.0
-        capture_source = str(getattr(identity, "original_path", "") or "")
+        capture_source = str(getattr(identity, "original_path", "") or data.get("source_file", "") or "")
         ffprobe = ""
         if capture_source and Path(capture_source).is_file():
             with contextlib.suppress(OSError):
                 ffprobe = resolve_binary(config.paths.ffprobe, "ffprobe")
-        clips.append(
-            {
-                "index": format_index(idx, config.naming.index_width),
-                "title": data.get("title", ""),
-                "summary": data.get("summary", ""),
-                "location": data.get("location", ""),
-                "duration_sec": _clip_duration_sec(config, data, identity),
-                "capture_time": _capture_time(data, source_stem, capture_source, ffprobe),
-                "mood": data.get("mood", ""),
-                "voiceover": _read_voiceover(config, json_file),
-                "timeline": data.get("timeline", []),
-                "highlights": data.get("highlights", []),
-                "suggested_use": data.get("suggested_use", ""),
-                "source_stem": source_stem,
-                "match_stem": match_stem,
-                "segment_offset_sec": segment_offset,
-            }
-        )
+        telemetry = load_telemetry_summary(Path(capture_source)) if capture_source else None
+        clip: dict[str, Any] = {
+            "index": format_index(idx, config.naming.index_width),
+            "title": data.get("title", ""),
+            "summary": data.get("summary", ""),
+            "location": data.get("location", ""),
+            "duration_sec": _clip_duration_sec(config, data, identity),
+            "capture_time": _capture_time(
+                data,
+                source_stem,
+                capture_source,
+                ffprobe,
+                telemetry.capture_time if telemetry is not None else None,
+            ),
+            "mood": data.get("mood", ""),
+            "voiceover": _read_voiceover(config, json_file),
+            "timeline": data.get("timeline", []),
+            "highlights": data.get("highlights", []),
+            "suggested_use": data.get("suggested_use", ""),
+            "source_stem": source_stem,
+            "match_stem": match_stem,
+            "segment_offset_sec": segment_offset,
+        }
+        if telemetry is not None and telemetry.latitude is not None and telemetry.longitude is not None:
+            clip["gps"] = {"latitude": telemetry.latitude, "longitude": telemetry.longitude}
+        clips.append(clip)
     return clips, skipped_inputs, False
 
 

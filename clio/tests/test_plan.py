@@ -34,6 +34,8 @@ def test_plan_prompt_includes_transcripts():
             "highlights": [],
             "suggested_use": "开场",
             "source_stem": "GL010683",
+            "capture_time": "2026-11-08T09:30:00Z",
+            "gps": {"latitude": 48.8566, "longitude": 2.3522},
         }
     ]
     transcripts_map = {
@@ -65,6 +67,8 @@ def test_plan_prompt_includes_transcripts():
         assert result["day_title"] == "test"
         args, _ = mock_wrap.call_args
         assert "今天天气真好" in args[0]
+        assert "2026-11-08T09:30:00Z" in args[0]
+        assert "48.8566" in args[0]
 
 
 def test_plan_no_transcript_fallback():
@@ -204,6 +208,7 @@ class TestPlanLineageFingerprint:
         [
             ("duration_sec", 42.5),
             ("capture_time", "2026-11-08T09:30:00Z"),
+            ("gps", {"latitude": 48.8566, "longitude": 2.3522}),
             ("mood", "calm"),
             ("voiceover", "A quiet morning by the sea."),
         ],
@@ -347,8 +352,81 @@ class TestRunPlanVlog:
         clip = mock.call_args.args[0][0]
         assert clip["duration_sec"] == 42.5
         assert clip["capture_time"] == "2026-11-08T09:30:00Z"
+        assert "gps" not in clip
         assert clip["mood"] == "calm"
         assert clip["voiceover"] == "A quiet morning by the sea."
+
+    def test_planning_inputs_use_gpmf_capture_time_and_gps_by_default(
+        self, loaded_config: AppConfig, tmp_path: Path
+    ) -> None:
+        source = tmp_path / "original.mp4"
+        source.write_bytes(b"video")
+        (tmp_path / "original.gpmf.json").write_text(
+            json.dumps(
+                {
+                    "recorded_at": "2026-11-08T09:30:00Z",
+                    "gps": [{"t_sec": 0.0, "latitude": 48.8566, "longitude": 2.3522}],
+                }
+            ),
+            encoding="utf-8",
+        )
+        analysis = _analysis(
+            "001",
+            media_identity={
+                "original_stem": "GL010683",
+                "original_path": str(source),
+                "compressed_stem": "001_GL010683",
+                "compressed_path": "001_GL010683.mp4",
+                "index": "001",
+                "segment_index": None,
+                "segment_offset_sec": 0.0,
+            },
+        )
+        _write_analysis(loaded_config, analysis)
+        probe_result = type(
+            "ProbeResult", (), {"stdout": '{"format":{"tags":{"creation_time":"2026-11-09T10:00:00Z"}}}'}
+        )()
+
+        with (
+            patch("clio.tasks.plan.resolve_binary", return_value="ffprobe-test"),
+            patch("clio.tasks._helpers.run_probe", return_value=probe_result),
+            patch("clio.tasks.plan.plan_daily_vlog", return_value={"day_title": "day1", "sequence": []}) as mock,
+        ):
+            result = run_plan_vlog(loaded_config, "day1", overwrite=True)
+
+        assert result is not None
+        clip = mock.call_args.args[0][0]
+        assert clip["capture_time"] == "2026-11-08T09:30:00Z"
+        assert clip["gps"] == {"latitude": pytest.approx(48.8566), "longitude": pytest.approx(2.3522)}
+
+    def test_corrupt_gpmf_sidecar_is_silent_noop(self, loaded_config: AppConfig, tmp_path: Path) -> None:
+        source = tmp_path / "original.mp4"
+        source.write_bytes(b"video")
+        (tmp_path / "original.gpmf.json").write_text("{bad", encoding="utf-8")
+        analysis = _analysis(
+            "001",
+            media_identity={
+                "original_stem": "GL010683",
+                "original_path": str(source),
+                "compressed_stem": "001_GL010683",
+                "compressed_path": "001_GL010683.mp4",
+                "index": "001",
+                "segment_index": None,
+                "segment_offset_sec": 0.0,
+            },
+        )
+        _write_analysis(loaded_config, analysis)
+
+        with (
+            patch("clio.tasks.plan.resolve_binary", side_effect=OSError("missing")),
+            patch("clio.tasks.plan.plan_daily_vlog", return_value={"day_title": "day1", "sequence": []}) as mock,
+        ):
+            result = run_plan_vlog(loaded_config, "day1", overwrite=True)
+
+        assert result is not None
+        clip = mock.call_args.args[0][0]
+        assert clip["capture_time"] == ""
+        assert "gps" not in clip
 
     def test_missing_or_invalid_voiceover_is_empty(self, loaded_config: AppConfig) -> None:
         _write_analysis(loaded_config, _analysis("001"))

@@ -14,7 +14,9 @@ See ``docs/superpowers/specs/2026-07-16-gpmf-telemetry-design.md``.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +31,89 @@ class TelemetrySummary:
     sample_count: int = 0
     speed_peaks: list[dict[str, Any]] = field(default_factory=list)
     elev_delta_m: float | None = None
+    capture_time: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
     notes: list[str] = field(default_factory=list)
+
+
+_CAPTURE_TIME_KEYS = (
+    "capture_time",
+    "captureTime",
+    "recorded_at",
+    "recordedAt",
+    "creation_time",
+    "creationTime",
+    "created_at",
+    "createdAt",
+    "date_time",
+    "dateTime",
+    "timestamp",
+    "GPSDateTime",
+    "GPSDateTimeUTC",
+    "DateTimeOriginal",
+)
+_GPS_CONTAINER_KEYS = ("gps", "GPS", "gps_samples", "position", "location", "coordinates", "coordinate")
+_LATITUDE_KEYS = ("latitude", "lat", "Latitude", "Lat", "GPSLatitude")
+_LONGITUDE_KEYS = ("longitude", "lon", "lng", "Longitude", "Lon", "Lng", "GPSLongitude")
+
+
+def _normalize_capture_time(value: Any) -> str | None:
+    if isinstance(value, str):
+        return value.strip() or None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    if not math.isfinite(number) or number < 0:
+        return None
+    seconds = number / 1000 if number >= 100_000_000_000 else number
+    try:
+        value = datetime.fromtimestamp(seconds, tz=UTC).isoformat(timespec="seconds")
+        return value.replace("+00:00", "Z")
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def _capture_time_from_mapping(data: dict[str, Any]) -> str | None:
+    for key in _CAPTURE_TIME_KEYS:
+        capture_time = _normalize_capture_time(data.get(key))
+        if capture_time:
+            return capture_time
+    return None
+
+
+def _gps_mappings(data: dict[str, Any]) -> list[dict[str, Any]]:
+    mappings = [data]
+    for key in _GPS_CONTAINER_KEYS:
+        value = data.get(key)
+        if isinstance(value, dict):
+            mappings.append(value)
+        elif isinstance(value, list):
+            mappings.extend(row for row in value if isinstance(row, dict))
+    return mappings
+
+
+def _coordinate(mapping: dict[str, Any], keys: tuple[str, ...], *, limit: float) -> float | None:
+    for key in keys:
+        value = mapping.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+            continue
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(number) and -limit <= number <= limit:
+            return number
+    return None
+
+
+def _extract_gps(data: dict[str, Any]) -> tuple[float | None, float | None]:
+    for mapping in _gps_mappings(data):
+        latitude = _coordinate(mapping, _LATITUDE_KEYS, limit=90)
+        longitude = _coordinate(mapping, _LONGITUDE_KEYS, limit=180)
+        if latitude is not None and longitude is not None:
+            return latitude, longitude
+    return None, None
 
 
 def _fmt_tc(sec: float) -> str:
@@ -90,7 +174,12 @@ def summarize_from_sidecar(path: Path, *, top_peaks: int = 2) -> TelemetrySummar
     except (TypeError, ValueError):
         duration_f = None
 
-    has = bool(peaks or elev_delta is not None or data.get("has_gpmf"))
+    capture_time = _capture_time_from_mapping(data)
+    metadata = data.get("metadata")
+    if capture_time is None and isinstance(metadata, dict):
+        capture_time = _capture_time_from_mapping(metadata)
+    latitude, longitude = _extract_gps(data)
+    has = bool(peaks or elev_delta is not None or capture_time or latitude is not None or data.get("has_gpmf"))
     return TelemetrySummary(
         has_gpmf=has or bool(speeds),
         source="sidecar",
@@ -98,6 +187,9 @@ def summarize_from_sidecar(path: Path, *, top_peaks: int = 2) -> TelemetrySummar
         sample_count=len(speeds),
         speed_peaks=peaks,
         elev_delta_m=elev_delta,
+        capture_time=capture_time,
+        latitude=latitude,
+        longitude=longitude,
         notes=[],
     )
 
@@ -123,8 +215,6 @@ def load_telemetry_summary(video_path: Path | None) -> TelemetrySummary:
     if video_path is None:
         return TelemetrySummary(has_gpmf=False, source="none")
     p = Path(video_path)
-    if not p.is_file():
-        return TelemetrySummary(has_gpmf=False, source="none")
 
     sidecar = p.with_suffix(".gpmf.json")
     # also accept stem.gpmf.json when video is .MP4
@@ -135,6 +225,8 @@ def load_telemetry_summary(video_path: Path | None) -> TelemetrySummary:
     if sidecar.is_file():
         return summarize_from_sidecar(sidecar)
 
+    if not p.is_file():
+        return TelemetrySummary(has_gpmf=False, source="none")
     if probe_gpmf_marker(p):
         return TelemetrySummary(
             has_gpmf=True,
@@ -156,6 +248,15 @@ def format_telemetry_for_prompt(summary: TelemetrySummary | None) -> str:
             lines.append(f"- {n}")
         return "\n".join(lines) + "\n"
 
+    if summary.capture_time:
+        lines.append(t("gpmf.capture_time", {"value": summary.capture_time}))
+    if summary.latitude is not None and summary.longitude is not None:
+        lines.append(
+            t(
+                "gpmf.gps",
+                {"latitude": f"{summary.latitude:.6f}", "longitude": f"{summary.longitude:.6f}"},
+            )
+        )
     if summary.speed_peaks:
         parts = []
         for peak in summary.speed_peaks:

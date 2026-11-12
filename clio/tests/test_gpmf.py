@@ -42,6 +42,37 @@ class TestSummarizeFromSidecar:
         assert summary.speed_peaks[0]["t_sec"] == 63.0
         assert summary.elev_delta_m == pytest.approx(120.0)
 
+    def test_parses_capture_time_and_gps(self, tmp_path: Path):
+        sidecar = tmp_path / "GL010695.gpmf.json"
+        sidecar.write_text(
+            json.dumps(
+                {
+                    "recorded_at": "2026-11-08T09:30:00Z",
+                    "gps": [
+                        {"t_sec": 0.0, "lat": 48.8566, "lon": 2.3522},
+                        {"t_sec": 10.0, "lat": 48.8570, "lon": 2.3530},
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        summary = summarize_from_sidecar(sidecar)
+        assert summary.has_gpmf is True
+        assert summary.capture_time == "2026-11-08T09:30:00Z"
+        assert summary.latitude == pytest.approx(48.8566)
+        assert summary.longitude == pytest.approx(2.3522)
+
+    def test_invalid_gps_values_are_ignored(self, tmp_path: Path):
+        sidecar = tmp_path / "bad-gps.gpmf.json"
+        sidecar.write_text(
+            json.dumps({"gps": {"latitude": 91, "longitude": 2.3522}}),
+            encoding="utf-8",
+        )
+        summary = summarize_from_sidecar(sidecar)
+        assert summary.latitude is None
+        assert summary.longitude is None
+        assert summary.has_gpmf is False
+
     def test_missing_sidecar_returns_empty(self, tmp_path: Path):
         summary = summarize_from_sidecar(tmp_path / "nope.gpmf.json")
         assert summary.has_gpmf is False
@@ -86,6 +117,19 @@ class TestLoadTelemetrySummary:
         assert s.source == "probe"
         assert s.notes  # explain limited detail
 
+    def test_sidecar_still_loads_when_original_video_is_offline(self, tmp_path: Path):
+        video = tmp_path / "offline.mp4"
+        (tmp_path / "offline.gpmf.json").write_text(
+            json.dumps(
+                {"GPSDateTime": "2026-11-08T09:30:00Z", "GPS": {"GPSLatitude": 48.8566, "GPSLongitude": 2.3522}}
+            ),
+            encoding="utf-8",
+        )
+        summary = load_telemetry_summary(video)
+        assert summary.capture_time == "2026-11-08T09:30:00Z"
+        assert summary.latitude == pytest.approx(48.8566)
+        assert summary.longitude == pytest.approx(2.3522)
+
     def test_no_gps_phone_clip_is_silent_empty(self, tmp_path: Path):
         """Most non-GoPro / no-GPS clips: no marker, no sidecar → empty, no error."""
         phone = tmp_path / "IMG_1234.MOV"
@@ -119,10 +163,16 @@ class TestFormatTelemetryForPrompt:
                 {"t_sec": 63.0, "value": 52.1, "unit": "km/h"},
             ],
             elev_delta_m=120.0,
+            capture_time="2026-11-08T09:30:00Z",
+            latitude=48.8566,
+            longitude=2.3522,
             notes=[],
         )
         text = format_telemetry_for_prompt(s)
         assert "运动遥测" in text or "GPMF" in text
+        assert "2026-11-08T09:30:00Z" in text
+        assert "48.856600" in text
+        assert "2.352200" in text
         assert "00:12" in text
         assert "01:03" in text
         assert "120" in text

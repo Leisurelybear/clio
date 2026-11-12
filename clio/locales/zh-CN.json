@@ -393,6 +393,8 @@
   "export.skipped_summary": "  [导出] {count} 个片段因素材缺失或时间格式错误被跳过",
   "gpmf.duration": "- 遥测覆盖时长约 {duration}",
   "gpmf.elevation": "- 海拔变化约 {value} m",
+  "gpmf.capture_time": "- 拍摄时间：{value}",
+  "gpmf.gps": "- GPS：{latitude}, {longitude}",
   "gpmf.header": "### 运动遥测摘要（GoPro GPMF）",
   "gpmf.highlight_hint": "请优先考虑这些时刻附近的动作/风景作为 highlight。",
   "gpmf.peak_value": "{timecode}（{value}{unit}）",
