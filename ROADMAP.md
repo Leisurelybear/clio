@@ -49,7 +49,7 @@ P2 items:
 
 - `[ ]` O8 split `ui/server.py` handler construction, auth, body parsing, and routes
   - `[x]` extract the declarative route table into `clio/ui/route_table.py`
-  - `[ ]` extract authentication and local-session gates
+  - `[x]` extract authentication and local-session gates into `clio/ui/handler_security.py`
   - `[ ]` extract JSON body parsing and handler construction
 - `[ ]` O14 add frontend type checking and decompose the largest JS modules
 - `[x]` O16 raise Vitest coverage around bug fixes and save flows (`5487304`)

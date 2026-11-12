@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import contextlib
 import errno
-import hmac
 import json
 import mimetypes
 import secrets
@@ -49,6 +48,7 @@ from clio.shutdown import before_stop, install_hooks
 from clio.task_center.manager import TaskManager
 from clio.task_center.store import TaskStore
 from clio.tasks.reindex import auto_reindex_if_needed
+from clio.ui.handler_security import has_valid_api_token, validate_local_session
 from clio.ui.http_server import (
     BUSY_ERROR,
     REQUEST_TIMEOUT_SEC,
@@ -573,61 +573,21 @@ def make_handler(
             print(f"  {line} STREAM")
 
         def _require_auth(self) -> bool:
-            """Check Authorization header or ?token= query param against configured token.
-
-            Returns True if authorized, sends 401 and returns False otherwise.
-            If token is empty string, auth is disabled.
-            """
-            token = self.__class__._api_token
-            if not token:
-                return True
-            auth = self.headers.get("Authorization", "")
-            if auth.startswith("Bearer "):
-                provided = auth[7:]
-                if isinstance(provided, str) and len(provided) == len(token) and hmac.compare_digest(provided, token):
-                    return True
-            url = urlparse(self.path)
-            qs = parse_qs(url.query)
-            query_token = qs.get("token", [None])[0]
-            if (
-                isinstance(query_token, str)
-                and len(query_token) == len(token)
-                and hmac.compare_digest(query_token, token)
-            ):
+            """Reject requests without the configured bearer or query token."""
+            if has_valid_api_token(self.headers, self.path, self.__class__._api_token):
                 return True
             self._send_json({"error": t("api.unauthorized")}, 401)
             return False
 
         def _require_local_session(self) -> bool:
-            """Enforce a real local bound for the desktop/local-OI server.
-
-            Desktop runs with a fresh per-launch token and the frontend auto-carries
-            it on API calls (already enforced on /api routes by ``_require_auth``).
-            This gate additionally rejects requests whose Host header or Origin /
-            Referer belong to a non-loopback source (CSRF / DNS-rebinding guard).
-            """
+            """Reject non-loopback Host, Origin, and Referer values."""
             if not self.__class__._enforce_local_session:
                 return True
-            expected = self.__class__._allowed_hosts
-            hostname = _hostname_no_port(self.headers.get("Host", ""))
-            if hostname and hostname not in expected and hostname != "localhost":
-                self._send_json({"error": t("api.invalid_host")}, 403)
-                return False
-            origin_header = self.headers.get("Origin")
-            if isinstance(origin_header, str) and origin_header.strip().lower() == "null":
-                self._send_json({"error": t("api.invalid_origin")}, 403)
-                return False
-            origin = origin_header or self.headers.get("Referer", "")
-            if origin:
-                try:
-                    o = urlparse(origin)
-                except ValueError:
-                    o = urlparse("")
-                oh = (o.hostname or "").lower()
-                if oh and oh not in expected and oh != "localhost":
-                    self._send_json({"error": t("api.invalid_origin")}, 403)
-                    return False
-            return True
+            error = validate_local_session(self.headers, self.__class__._allowed_hosts)
+            if error is None:
+                return True
+            self._send_json({"error": t(error)}, 403)
+            return False
 
         def _read_json_body(self) -> tuple[dict | None, int | None]:
             """Parse JSON object body. Returns (obj, None) or (None, http_status).
@@ -959,16 +919,6 @@ def _loopback_hosts(host: str, port: int) -> tuple[str, ...]:
         if h and h not in base:
             base.add(h)
     return tuple(sorted(base))
-
-
-def _hostname_no_port(h: str) -> str:
-    """Normalize a Host/Origin hostname, stripping brackets and port."""
-    h = h.strip().lower()
-    if h.startswith("["):
-        return h[1:].split("]", 1)[0]
-    if h.count(":") == 1:
-        return h.split(":", 1)[0]
-    return h
 
 
 def _startup_ms(t0: float) -> str:
