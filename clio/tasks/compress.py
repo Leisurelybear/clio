@@ -310,7 +310,7 @@ def run_compress_all(
             # (only in skip mode; overwrite mode always forces a re-compress).
             if not overwrite:
                 use_idx, use_out, use_meta, reject_reason = _find_reusable(source, existing_map, config, ffprobe)
-                if use_out is not None:
+                if use_idx is not None and use_out is not None:
                     if tracker:
                         tracker.update(
                             phase="compress",
