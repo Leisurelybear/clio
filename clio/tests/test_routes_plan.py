@@ -404,6 +404,39 @@ class TestHandlePostPlanReadiness:
         assert payload["ok"] is False
         assert payload["errors"]
 
+    def test_readiness_includes_project_analysis_timeline_warnings(self, tmp_path: Path, monkeypatch):
+        handler = MagicMock()
+        handler._resolve_project_dir.return_value = tmp_path
+        cfg = MagicMock()
+        cfg.plans_dir = tmp_path / "plans"
+        handler._get_config.return_value = cfg
+        handler._send_json = MagicMock()
+        plan = {
+            "day_title": "d",
+            "total_estimated_sec": 10,
+            "sequence": [
+                {
+                    "index": "001",
+                    "title": "t",
+                    "reason": "r",
+                    "use_timeline": "00:00-00:10",
+                    "voiceover_hint": "v",
+                }
+            ],
+        }
+        monkeypatch.setattr("clio.ui.routes.plan.collect_project_indices", lambda _cfg: ({"001"}, set()))
+        monkeypatch.setattr("clio.ui.routes.plan.collect_project_media_durations", lambda _cfg: {"001": 20.0})
+        monkeypatch.setattr(
+            "clio.ui.routes.plan.collect_project_analysis_timelines",
+            lambda _cfg: {"1": []},
+        )
+
+        handle_post_plan_readiness(handler, {}, {"day": "day1", "plan": plan})
+
+        payload = handler._send_json.call_args[0][0]
+        assert payload["ok"] is True
+        assert any(issue["code"] == "analysis_timeline_empty" for issue in payload["warnings"])
+
 
 class TestHandlePostCut:
     def test_invalid_source(self):

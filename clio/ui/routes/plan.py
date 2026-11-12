@@ -15,6 +15,7 @@ from clio.plan_model import Plan
 from clio.plan_preview import build_preview_media
 from clio.plan_readiness import (
     check_plan_export_readiness,
+    collect_project_analysis_timelines,
     collect_project_indices,
     collect_project_media_durations,
     readiness_block_payload,
@@ -294,6 +295,7 @@ def handle_post_plan_readiness(handler: HandlerProtocol, qs: dict[str, Any], obj
         known_indices=known,
         offline_indices=offline,
         media_durations=collect_project_media_durations(cfg),
+        analysis_timelines=collect_project_analysis_timelines(cfg),
         source=source,
     )
     handler._send_json(result.to_dict())
@@ -342,6 +344,7 @@ def handle_post_cut(handler: HandlerProtocol, qs: dict[str, list[str]], obj: dic
         known_indices=known,
         offline_indices=offline,
         media_durations=collect_project_media_durations(cfg),
+        analysis_timelines=collect_project_analysis_timelines(cfg),
         source=str(source),
     )
     blocked = readiness_block_payload(result, force=force)

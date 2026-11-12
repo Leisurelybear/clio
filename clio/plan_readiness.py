@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -104,12 +104,124 @@ def _normalized_media_key(index: str) -> str:
     return str(int(value)) if value.isdigit() else value
 
 
+def _timestamp_seconds(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        seconds = float(value)
+        return seconds if math.isfinite(seconds) and seconds >= 0 else None
+
+    text = str(value or "").strip()
+    if not text:
+        return None
+    parts = text.split(":")
+    if not 1 <= len(parts) <= 3:
+        return None
+    try:
+        values = [float(part) for part in parts]
+    except ValueError:
+        return None
+    if any(not math.isfinite(part) or part < 0 for part in values):
+        return None
+    if len(values) == 3:
+        hours, minutes, seconds = values
+        if minutes >= 60 or seconds >= 60:
+            return None
+        return hours * 3600 + minutes * 60 + seconds
+    if len(values) == 2:
+        minutes, seconds = values
+        if seconds >= 60:
+            return None
+        return minutes * 60 + seconds
+    return values[0]
+
+
+def _merge_timeline_intervals(intervals: Iterable[tuple[float, float]]) -> list[tuple[float, float]]:
+    ordered = sorted((start, end) for start, end in intervals if end > start)
+    merged: list[tuple[float, float]] = []
+    for start, end in ordered:
+        if not merged or start > merged[-1][1] + 0.05:
+            merged.append((start, end))
+            continue
+        previous_start, previous_end = merged[-1]
+        merged[-1] = (previous_start, max(previous_end, end))
+    return merged
+
+
+def _range_covered(intervals: list[tuple[float, float]], start: float, end: float) -> bool:
+    cursor = start
+    for interval_start, interval_end in intervals:
+        if interval_end <= cursor + 0.05:
+            continue
+        if interval_start > cursor + 0.05:
+            return False
+        cursor = max(cursor, interval_end)
+        if cursor >= end - 0.05:
+            return True
+    return False
+
+
+def _largest_timeline_gap(intervals: list[tuple[float, float]]) -> float:
+    return max(
+        (start - previous_end for (_, previous_end), (start, _) in zip(intervals, intervals[1:], strict=False)),
+        default=0.0,
+    )
+
+
+def collect_project_analysis_timelines(cfg: Any) -> dict[str, list[tuple[float, float]]]:
+    """Return analyzed timeline coverage keyed by normalized media index."""
+    texts = getattr(cfg, "texts_dir", None)
+    if not isinstance(texts, Path) or not texts.is_dir():
+        return {}
+
+    selection = _project_selection_stems(cfg)
+    collected: dict[str, list[tuple[float, float]]] = {}
+    try:
+        candidates = sorted(texts.glob("*.json"))
+    except OSError:
+        return {}
+
+    for path in candidates:
+        if selection is not None and not _matches_selected_artifact(path, selection):
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        raw_index = data.get("index")
+        if raw_index is None:
+            identity = load_identity(data)
+            raw_index = identity.index if identity is not None else None
+        if raw_index is None or not str(raw_index).strip():
+            continue
+
+        key = _normalized_media_key(str(raw_index))
+        parsed: list[tuple[float, float]] = []
+        timeline = data.get("timeline")
+        if isinstance(timeline, list):
+            for entry in timeline:
+                if not isinstance(entry, dict):
+                    continue
+                start = _timestamp_seconds(entry.get("start"))
+                end = _timestamp_seconds(entry.get("end"))
+                if start is not None and end is not None and end > start:
+                    parsed.append((start, end))
+                elif start is not None:
+                    parsed.append((start, start))
+        collected.setdefault(key, []).extend(parsed)
+
+    return {key: _merge_timeline_intervals(intervals) for key, intervals in collected.items()}
+
+
 def check_plan_export_readiness(
     plan: Plan,
     *,
     known_indices: set[str] | None = None,
     offline_indices: set[str] | None = None,
     media_durations: Mapping[str, float] | None = None,
+    analysis_timelines: Mapping[str, list[tuple[float, float]]] | None = None,
     source: str = "compressed",
     index_width: int = 3,
 ) -> ReadinessResult:
@@ -155,6 +267,23 @@ def check_plan_export_readiness(
             offline.update(expand_index_keys(x, index_width=index_width))
 
     ranges: dict[str, list[tuple[int, float, float]]] = {}
+    selected_seconds = 0.0
+    valid_selected_ranges = 0
+    quality_checks = analysis_timelines is not None
+    analysis_by_key = (
+        {_normalized_media_key(key): intervals for key, intervals in analysis_timelines.items()}
+        if analysis_timelines is not None
+        else {}
+    )
+    reported_source_warnings: set[tuple[str, str]] = set()
+
+    def append_source_warning(issue_code: str, media_key: str, issue: PlanIssue) -> None:
+        marker = (issue_code, media_key)
+        if marker in reported_source_warnings:
+            return
+        reported_source_warnings.add(marker)
+        result.warnings.append(issue)
+
     for i, seg in enumerate(plan.sequence):
         idx = (seg.index or "").strip()
         if not idx:
@@ -211,6 +340,8 @@ def check_plan_export_readiness(
                     )
                 )
             else:
+                selected_seconds += max(0.0, end - start)
+                valid_selected_ranges += 1
                 duration = _duration_for_index(media_durations, idx, index_width=index_width)
                 if duration is not None and end > duration + 0.05:
                     result.errors.append(
@@ -226,6 +357,85 @@ def check_plan_export_readiness(
                     )
 
                 media_key = _normalized_media_key(idx)
+                if quality_checks and media_key:
+                    intervals = analysis_by_key.get(media_key)
+                    if intervals is None:
+                        append_source_warning(
+                            "analysis_timeline_missing",
+                            media_key,
+                            PlanIssue(
+                                level="warning",
+                                code="analysis_timeline_missing",
+                                message=t(
+                                    "plan.readiness.analysis_timeline_missing",
+                                    {"index": i + 1, "media": idx},
+                                ),
+                                segment_index=i,
+                            ),
+                        )
+                    elif not intervals:
+                        append_source_warning(
+                            "analysis_timeline_empty",
+                            media_key,
+                            PlanIssue(
+                                level="warning",
+                                code="analysis_timeline_empty",
+                                message=t(
+                                    "plan.readiness.analysis_timeline_empty",
+                                    {"index": i + 1, "media": idx},
+                                ),
+                                segment_index=i,
+                            ),
+                        )
+                    else:
+                        analysis_end = max(interval_end for _, interval_end in intervals)
+                        if duration is not None and analysis_end > duration + 0.05:
+                            append_source_warning(
+                                "analysis_timeline_out_of_bounds",
+                                media_key,
+                                PlanIssue(
+                                    level="warning",
+                                    code="analysis_timeline_out_of_bounds",
+                                    message=t(
+                                        "plan.readiness.analysis_timeline_out_of_bounds",
+                                        {"media": idx, "end": round(analysis_end, 2), "duration": duration},
+                                    ),
+                                    segment_index=i,
+                                ),
+                            )
+                        gap = _largest_timeline_gap(intervals)
+                        if gap > 60:
+                            append_source_warning(
+                                "analysis_timeline_gap",
+                                media_key,
+                                PlanIssue(
+                                    level="warning",
+                                    code="analysis_timeline_gap",
+                                    message=t(
+                                        "plan.readiness.analysis_timeline_gap",
+                                        {"media": idx, "gap": round(gap, 2)},
+                                    ),
+                                    segment_index=i,
+                                ),
+                            )
+                        if not _range_covered(intervals, start, end):
+                            result.warnings.append(
+                                PlanIssue(
+                                    level="warning",
+                                    code="timeline_outside_analysis",
+                                    message=t(
+                                        "plan.readiness.timeline_outside_analysis",
+                                        {
+                                            "index": i + 1,
+                                            "media": idx,
+                                            "start": round(start, 2),
+                                            "end": round(end, 2),
+                                        },
+                                    ),
+                                    segment_index=i,
+                                )
+                            )
+
                 for previous_position, previous_start, previous_end in ranges.get(media_key, []):
                     if start < previous_end - 0.05 and end > previous_start + 0.05:
                         result.warnings.append(
@@ -257,6 +467,30 @@ def check_plan_export_readiness(
                     code="reason_empty",
                     message=t("plan.readiness.reason_empty", {"index": i + 1}),
                     segment_index=i,
+                )
+            )
+        if quality_checks and not (seg.voiceover_hint or "").strip():
+            result.warnings.append(
+                PlanIssue(
+                    level="warning",
+                    code="voiceover_hint_empty",
+                    message=t("plan.readiness.voiceover_hint_empty", {"index": i + 1}),
+                    segment_index=i,
+                )
+            )
+
+    if quality_checks and valid_selected_ranges:
+        difference = abs(tes - selected_seconds)
+        allowed_difference = max(10.0, selected_seconds * 0.25)
+        if difference > allowed_difference:
+            result.warnings.append(
+                PlanIssue(
+                    level="warning",
+                    code="duration_mismatch",
+                    message=t(
+                        "plan.readiness.duration_mismatch",
+                        {"estimated": tes, "selected": round(selected_seconds, 2)},
+                    ),
                 )
             )
 

@@ -353,3 +353,190 @@ def test_collect_project_indices_ignores_same_named_unselected_original(tmp_path
     assert "001" in known
     assert "002" not in known
     assert offline == set()
+
+
+def test_quality_warning_when_plan_range_outside_analysis():
+    plan = _plan(
+        [
+            {
+                "index": "001",
+                "use_timeline": "00:04-00:10",
+                "title": "t",
+                "reason": "r",
+                "voiceover_hint": "v",
+            }
+        ],
+        total_estimated_sec=6,
+    )
+
+    result = check_plan_export_readiness(
+        plan,
+        known_indices={"001"},
+        media_durations={"001": 20},
+        analysis_timelines={"1": [(0.0, 5.0)]},
+    )
+
+    assert any(issue.code == "timeline_outside_analysis" for issue in result.warnings)
+
+
+def test_quality_warning_for_large_analysis_gap():
+    plan = _plan(
+        [
+            {
+                "index": "001",
+                "use_timeline": "00:00-00:10",
+                "title": "t",
+                "reason": "r",
+                "voiceover_hint": "v",
+            }
+        ],
+        total_estimated_sec=10,
+    )
+
+    result = check_plan_export_readiness(
+        plan,
+        known_indices={"001"},
+        media_durations={"001": 90},
+        analysis_timelines={"001": [(0.0, 10.0), (80.0, 90.0)]},
+    )
+
+    assert any(issue.code == "analysis_timeline_gap" for issue in result.warnings)
+
+
+def test_quality_warning_for_duration_mismatch_and_empty_voiceover():
+    plan = _plan(
+        [
+            {
+                "index": "001",
+                "use_timeline": "00:00-00:10",
+                "title": "t",
+                "reason": "r",
+                "voiceover_hint": "",
+            }
+        ],
+        total_estimated_sec=180,
+    )
+
+    result = check_plan_export_readiness(
+        plan,
+        known_indices={"001"},
+        media_durations={"001": 20},
+        analysis_timelines={"1": [(0.0, 20.0)]},
+    )
+
+    assert any(issue.code == "duration_mismatch" for issue in result.warnings)
+    assert any(issue.code == "voiceover_hint_empty" for issue in result.warnings)
+
+
+def test_quality_missing_and_empty_analysis_timelines():
+    plan = _plan(
+        [
+            {
+                "index": "001",
+                "use_timeline": "00:00-00:10",
+                "title": "t",
+                "reason": "r",
+                "voiceover_hint": "v",
+            },
+            {
+                "index": "002",
+                "use_timeline": "00:00-00:10",
+                "title": "t",
+                "reason": "r",
+                "voiceover_hint": "v",
+            },
+        ],
+        total_estimated_sec=20,
+    )
+
+    result = check_plan_export_readiness(
+        plan,
+        known_indices={"001", "002"},
+        analysis_timelines={"2": []},
+    )
+
+    assert any(issue.code == "analysis_timeline_missing" for issue in result.warnings)
+    assert any(issue.code == "analysis_timeline_empty" for issue in result.warnings)
+
+
+def test_quality_analysis_timeline_out_of_bounds():
+    plan = _plan(
+        [
+            {
+                "index": "001",
+                "use_timeline": "00:00-00:10",
+                "title": "t",
+                "reason": "r",
+                "voiceover_hint": "v",
+            }
+        ],
+        total_estimated_sec=10,
+    )
+
+    result = check_plan_export_readiness(
+        plan,
+        known_indices={"001"},
+        media_durations={"001": 20},
+        analysis_timelines={"1": [(0.0, 30.0)]},
+    )
+
+    assert any(issue.code == "analysis_timeline_out_of_bounds" for issue in result.warnings)
+
+
+def test_fully_grounded_plan_has_no_quality_warnings():
+    plan = _plan(
+        [
+            {
+                "index": "001",
+                "use_timeline": "00:00-01:40",
+                "title": "t",
+                "reason": "r",
+                "voiceover_hint": "v",
+            }
+        ],
+        total_estimated_sec=100,
+    )
+
+    result = check_plan_export_readiness(
+        plan,
+        known_indices={"001"},
+        media_durations={"001": 120},
+        analysis_timelines={"1": [(0.0, 120.0)]},
+    )
+
+    assert result.warnings == []
+
+
+def test_collect_project_analysis_timelines_merges_and_preserves_empty(tmp_path):
+    import json
+    from types import SimpleNamespace
+
+    from clio.plan_readiness import collect_project_analysis_timelines
+
+    texts = tmp_path / "texts"
+    texts.mkdir()
+    (texts / "001_a.json").write_text(
+        json.dumps(
+            {
+                "index": "001",
+                "timeline": [
+                    {"start": "00:00", "end": "00:05"},
+                    {"start": 5, "end": 10},
+                    {"start": "00:15", "end": "00:20"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (texts / "001_b.json").write_text(
+        json.dumps({"index": 1, "timeline": [{"start": 20, "end": 30}]}),
+        encoding="utf-8",
+    )
+    (texts / "002_empty.json").write_text(json.dumps({"index": 2, "timeline": []}), encoding="utf-8")
+
+    cfg = SimpleNamespace(texts_dir=texts, project_dir=None, naming=SimpleNamespace(index_width=3))
+
+    assert collect_project_analysis_timelines(cfg) == {
+        "1": [(0.0, 10.0), (15.0, 30.0)],
+        "2": [],
+    }

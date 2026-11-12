@@ -13,7 +13,9 @@ from clio.i18n import t
 from clio.plan_model import Plan
 from clio.plan_readiness import (
     check_plan_export_readiness,
+    collect_project_analysis_timelines,
     collect_project_indices,
+    collect_project_media_durations,
     readiness_block_payload,
 )
 from clio.task_center.executor import project_artifact_key
@@ -165,7 +167,14 @@ def handle_post_export(
         return
 
     known, offline = collect_project_indices(cfg)
-    result = check_plan_export_readiness(plan, known_indices=known, offline_indices=offline, source="original")
+    result = check_plan_export_readiness(
+        plan,
+        known_indices=known,
+        offline_indices=offline,
+        media_durations=collect_project_media_durations(cfg),
+        analysis_timelines=collect_project_analysis_timelines(cfg),
+        source="original",
+    )
     blocked = readiness_block_payload(result, force=force)
     if blocked is not None:
         handler._send_json(blocked, 400)

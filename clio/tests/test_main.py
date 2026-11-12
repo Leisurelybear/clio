@@ -184,8 +184,9 @@ def test_custom_config_uses_sibling_project(cli_runner, tmp_path, capsys):
 
 
 @patch("clio.plan_readiness.collect_project_indices", return_value=({"001"}, set()))
+@patch("clio.plan_readiness.collect_project_analysis_timelines", return_value={"1": [(0.0, 35.0)]})
 @patch("clio.export.export_plan")
-def test_export_resolves_ffprobe(mock_export, _mock_indices, cli_runner, config_path, tmp_path):
+def test_export_resolves_ffprobe(mock_export, _mock_timelines, _mock_indices, cli_runner, config_path, tmp_path):
     project = tmp_path / "project"
     project.mkdir()
     project.joinpath("project.yaml").write_text("paths:\n  output_dir: out\n", encoding="utf-8")
@@ -195,13 +196,14 @@ def test_export_resolves_ffprobe(mock_export, _mock_indices, cli_runner, config_
     plan_dir.joinpath("day1_plan.json").write_text(
         json.dumps(
             {
-                "total_estimated_sec": 180,
+                "total_estimated_sec": 35,
                 "sequence": [
                     {
                         "index": "001",
                         "title": "开场",
                         "reason": "建立场景",
-                        "use_timeline": "00:00-00:02",
+                        "use_timeline": "00:00-00:35",
+                        "voiceover_hint": "开场",
                     }
                 ],
             }

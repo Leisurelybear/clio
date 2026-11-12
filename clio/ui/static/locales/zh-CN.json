@@ -386,7 +386,7 @@
   "plan.readiness_checking": "检查规划就绪状态…",
   "plan.readiness_failed": "就绪检查失败: {detail}",
   "plan.readiness_ok": "规划检查通过，可以裁剪/导出。",
-  "plan.readiness_title": "导出/裁剪检查",
+  "plan.readiness_title": "规划质量与导出检查",
   "plan.save_before_action": "有未保存的规划修改，请先保存后再裁剪/导出。",
   "plan.save_conflict": "文件已被后台任务更新，当前编辑已保留；请重新加载后再保存。",
   "plan.save_conflict_title": "保存冲突",

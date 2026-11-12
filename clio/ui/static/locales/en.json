@@ -386,7 +386,7 @@
   "plan.readiness_checking": "Checking plan readiness…",
   "plan.readiness_failed": "Readiness check failed: {detail}",
   "plan.readiness_ok": "Plan checks passed; you can cut or export.",
-  "plan.readiness_title": "Export / cut checks",
+  "plan.readiness_title": "Plan quality and export checks",
   "plan.save_before_action": "You have unsaved plan edits; save before cutting or exporting.",
   "plan.save_conflict": "The file was updated by a background task. Your edits were kept; reload before saving again.",
   "plan.save_conflict_title": "Save conflict",

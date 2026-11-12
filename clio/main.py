@@ -542,6 +542,7 @@ def main(argv: list[str] | None = None) -> int:
             from clio.plan_model import Plan
             from clio.plan_readiness import (
                 check_plan_export_readiness,
+                collect_project_analysis_timelines,
                 collect_project_indices,
                 collect_project_media_durations,
                 readiness_block_payload,
@@ -560,6 +561,7 @@ def main(argv: list[str] | None = None) -> int:
                 known_indices=known,
                 offline_indices=offline,
                 media_durations=collect_project_media_durations(config),
+                analysis_timelines=collect_project_analysis_timelines(config),
                 source=args.source,
             )
             blocked = readiness_block_payload(ready, force=bool(getattr(args, "force", False)))
@@ -618,6 +620,7 @@ def main(argv: list[str] | None = None) -> int:
             from clio.plan_model import Plan
             from clio.plan_readiness import (
                 check_plan_export_readiness,
+                collect_project_analysis_timelines,
                 collect_project_indices,
                 collect_project_media_durations,
                 readiness_block_payload,
@@ -634,6 +637,7 @@ def main(argv: list[str] | None = None) -> int:
                 known_indices=known,
                 offline_indices=offline,
                 media_durations=collect_project_media_durations(config),
+                analysis_timelines=collect_project_analysis_timelines(config),
                 source="original",
             )
             blocked = readiness_block_payload(ready, force=bool(getattr(args, "force", False)))
