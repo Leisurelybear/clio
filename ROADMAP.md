@@ -55,6 +55,7 @@ P2 items:
 - `[ ]` O14 add frontend type checking and decompose the largest JS modules
   - `[x]` add `typescript`, `tsconfig.json`, `npm run typecheck`, and a CI gate for checked utility modules
   - `[x]` decompose `editor-config.js` into focused panes, a form renderer, and a page shell
+  - `[x]` extract the plan insert dialog into `editor-plan-insert.js`
   - `[ ]` decompose the remaining largest JS modules
 - `[x]` O16 raise Vitest coverage around bug fixes and save flows (`5487304`)
 - `[x]` Q13 snap cut points to shot boundaries and sentence endings (`0e1c9bf`)
