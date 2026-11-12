@@ -310,7 +310,7 @@ def _handle_post_logs_clear(handler, qs, obj):
 
         cfg = handler._get_config()
         cleared_disk = clear_disk_logs(Path(cfg.paths.logs_dir))
-    except Exception:
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError):
         cleared_disk = 0
     return handler._send_json({"ok": True, "cleared_disk_files": cleared_disk})
 
