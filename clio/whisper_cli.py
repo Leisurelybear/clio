@@ -19,7 +19,6 @@ from clio.transcribe import (
 from clio.utils import run_subprocess
 from clio.whisper_cache import is_model_cache_complete, largest_model_file_size
 
-_snapshot_download: Any
 try:
     from huggingface_hub import snapshot_download as _snapshot_download
 except ImportError:
