@@ -34,7 +34,7 @@ ai:
 
 compress:
   target_size_mb: 5
-  max_width: 640
+  max_width: 640                # high analysis recommends 960-1280 after re-compress
 
 analyze:
   compressed_subdir: compressed

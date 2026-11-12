@@ -9,7 +9,7 @@ from typing import Any, cast
 
 import pytest
 
-from clio.compress import compress_video
+from clio.compress import analysis_compress_advice, compress_video
 from clio.config import AppConfig
 
 
@@ -42,6 +42,26 @@ def _mock_ffmpeg(ffmpeg_calls: list[list[str]]) -> Callable[..., None]:
             out_path.write_bytes(b"\x00" * 50_000)
 
     return _run
+
+
+class TestAnalysisCompressAdvice:
+    @pytest.mark.parametrize(
+        ("resolution", "width", "fps", "expected"),
+        [
+            ("high", 640, 15, ["max_width"]),
+            ("high", 1279, 15, ["max_width"]),
+            ("high", 1280, 15, []),
+            ("medium", 640, 15, []),
+            ("medium", 640, 1, ["fps"]),
+            ("medium", 640, 2, []),
+            ("low", 640, 1, []),
+            ("high", 640, 1, ["max_width", "fps"]),
+        ],
+    )
+    def test_recommendations_are_deterministic(self, resolution: str, width: int, fps: float, expected: list[str]):
+        advice = analysis_compress_advice(media_resolution=resolution, max_width=width, fps=fps)
+
+        assert [item.field for item in advice] == expected
 
 
 class TestCompressVideo:

@@ -30,6 +30,7 @@ from clio.analyze_windows import (
     shift_analysis_times,
     window_cache_dir,
 )
+from clio.compress import analysis_compress_advice
 from clio.config import AppConfig
 from clio.i18n import t
 from clio.identity import (
@@ -787,9 +788,25 @@ def run_analyze_all(
         print(t("task.analyze.compressed_dir_empty", {"path": config.compressed_dir}))
         return []
 
-    compress_fps = getattr(config.compress, "fps", None)
-    if compress_fps is not None and compress_fps < 2:
-        warning = t("task.analyze.low_compress_fps", {"fps": compress_fps})
+    compress_fps = getattr(config.compress, "fps", 0)
+    compress_width = getattr(config.compress, "max_width", 0)
+    media_resolution = str(getattr(config.analyze, "media_resolution", "medium") or "medium")
+    for advice in analysis_compress_advice(
+        media_resolution=media_resolution,
+        max_width=compress_width,
+        fps=compress_fps,
+    ):
+        if advice.field == "max_width":
+            warning = t(
+                "task.analyze.high_resolution_low_compress_width",
+                {
+                    "width": advice.current,
+                    "recommended_min": advice.recommended_min,
+                    "recommended_max": advice.recommended_max,
+                },
+            )
+        else:
+            warning = t("task.analyze.low_compress_fps", {"fps": advice.current})
         print(warning)
         if tracker:
             tracker.log(warning)

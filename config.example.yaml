@@ -152,7 +152,7 @@ paths:
 
 compress:
   # codec: libx264 | libx265
-  fps: 15
+  fps: 15                              # timeline analysis recommends 2-5
   codec: libx264
   crf: 32
   remove_audio: false

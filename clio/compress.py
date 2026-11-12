@@ -4,7 +4,9 @@ import os
 import tempfile
 import threading
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from clio.config import AppConfig
 from clio.i18n import t
@@ -14,6 +16,34 @@ from clio.utils import get_duration_sec, resolve_binary, run_ffmpeg
 ProgressCB = Callable[[float, float], None]  # (current_sec, total_sec)
 MIN_VIDEO_BITRATE = 800_000
 AUDIO_BITRATE = 64_000
+ANALYSIS_WIDTH_MIN = 960
+ANALYSIS_WIDTH_MAX = 1280
+ANALYSIS_FPS_MIN = 2
+ANALYSIS_FPS_MAX = 5
+
+
+@dataclass(frozen=True)
+class AnalysisCompressAdvice:
+    field: Literal["max_width", "fps"]
+    current: int | float
+    recommended_min: int
+    recommended_max: int
+
+
+def analysis_compress_advice(
+    *,
+    media_resolution: str,
+    max_width: int,
+    fps: float,
+) -> tuple[AnalysisCompressAdvice, ...]:
+    """Return non-mutating compression advice for the requested analysis detail."""
+    resolution = media_resolution.strip().lower()
+    advice: list[AnalysisCompressAdvice] = []
+    if resolution == "high" and max_width < ANALYSIS_WIDTH_MAX:
+        advice.append(AnalysisCompressAdvice("max_width", max_width, ANALYSIS_WIDTH_MIN, ANALYSIS_WIDTH_MAX))
+    if resolution != "low" and fps < ANALYSIS_FPS_MIN:
+        advice.append(AnalysisCompressAdvice("fps", fps, ANALYSIS_FPS_MIN, ANALYSIS_FPS_MAX))
+    return tuple(advice)
 
 
 def compress_video(

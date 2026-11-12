@@ -47,8 +47,8 @@ CONFIG_DESCRIPTIONS: dict[str, str] = {
     "ai.provider_ttl_min": "已缓存的 AI 提供商过期间隔（分钟），超时后自动关闭重建。0 为永不过期",
     # compress
     "compress.target_size_mb": "压缩后目标文件大小（MB）",
-    "compress.max_width": "压缩后视频最大宽度（像素），高度按比例缩放",
-    "compress.fps": "压缩后视频帧率",
+    "compress.max_width": "压缩后视频最大宽度（像素），高度按比例缩放；high 分析建议 960-1280",
+    "compress.fps": "压缩后视频帧率；时间线分析建议 2-5",
     "compress.codec": "视频编码器，默认 libx264",
     "compress.crf": "CRF 压缩质量（0-51，越小质量越高，文件越大）",
     "compress.remove_audio": "是否移除音频（默认保留单声道 AAC 音频，64 kbps）",

@@ -36,7 +36,7 @@ def _cfg(tmp_path: Path) -> AppConfig:
             max_workers=1,
         ),
         ai=SimpleNamespace(context=""),
-        compress=SimpleNamespace(fps=3),
+        compress=SimpleNamespace(fps=3, max_width=640),
         plan=SimpleNamespace(max_clips_per_day=10, target_duration_sec=300),
         script=SimpleNamespace(target_words=150),
         project_dir=tmp_path / "project",
@@ -301,6 +301,7 @@ class TestRunAnalyzeAll:
 
         cfg = _cfg(tmp_path)
         cast(Any, cfg.compress).fps = 1
+        cast(Any, cfg.analyze).media_resolution = "medium"
         for name in ("GL010695.mp4", "GL010696.mp4"):
             _add_original(cfg, name)
         (cfg.compressed_dir / "001_GL010695.mp4").write_bytes(b"video")
@@ -321,6 +322,59 @@ class TestRunAnalyzeAll:
         assert capsys.readouterr().out.count(warning) == 1
         progress = json.loads((tmp_path / "tracker" / ".progress.json").read_text(encoding="utf-8"))
         assert progress["logs"].count(warning) == 1
+
+    def test_high_resolution_low_width_warns_once_per_batch(self, monkeypatch, tmp_path: Path, capsys):
+        from clio.i18n import t
+        from clio.progress import ProgressTracker
+
+        cfg = _cfg(tmp_path)
+        cast(Any, cfg.analyze).media_resolution = "high"
+        cast(Any, cfg.compress).max_width = 640
+        for name in ("GL010695.mp4", "GL010696.mp4"):
+            _add_original(cfg, name)
+        (cfg.compressed_dir / "001_GL010695.mp4").write_bytes(b"video")
+        (cfg.compressed_dir / "002_GL010696.mp4").write_bytes(b"video")
+
+        _common_mocks(monkeypatch)
+        monkeypatch.setattr("clio.tasks.analyze.get_duration_sec", lambda *a: 60.0)
+        monkeypatch.setattr(
+            "clio.tasks.analyze.analyze_video",
+            lambda *a, **kw: {"title": "Test Clip", "summary": "A test", "location": "Paris"},
+        )
+        tracker = ProgressTracker(tmp_path / "tracker")
+
+        records = run_analyze_all(cfg, tracker=tracker)
+
+        warning = t(
+            "task.analyze.high_resolution_low_compress_width",
+            {"width": 640, "recommended_min": 960, "recommended_max": 1280},
+        )
+        assert len(records) == 2
+        assert capsys.readouterr().out.count(warning) == 1
+        progress = json.loads((tmp_path / "tracker" / ".progress.json").read_text(encoding="utf-8"))
+        assert progress["logs"].count(warning) == 1
+
+    def test_low_compress_fps_is_silent_for_low_media_resolution(self, monkeypatch, tmp_path: Path, capsys):
+        from clio.i18n import t
+
+        cfg = _cfg(tmp_path)
+        cast(Any, cfg.analyze).media_resolution = "low"
+        cast(Any, cfg.compress).fps = 1
+        _add_original(cfg, "GL010695.mp4")
+        (cfg.compressed_dir / "001_GL010695.mp4").write_bytes(b"video")
+
+        _common_mocks(monkeypatch)
+        monkeypatch.setattr("clio.tasks.analyze.get_duration_sec", lambda *a: 60.0)
+        monkeypatch.setattr(
+            "clio.tasks.analyze.analyze_video",
+            lambda *a, **kw: {"title": "Test Clip", "summary": "A test", "location": "Paris"},
+        )
+
+        records = run_analyze_all(cfg)
+
+        warning = t("task.analyze.low_compress_fps", {"fps": 1})
+        assert len(records) == 1
+        assert warning not in capsys.readouterr().out
 
     def test_skip_existing(self, monkeypatch, tmp_path: Path):
         cfg = _cfg(tmp_path)
