@@ -74,6 +74,7 @@ ignore_missing_imports = true
 files = [
     "clio/config/",
     "clio/progress.py",
+    "clio/doctor.py",
     "clio/export/__init__.py",
     "clio/log.py",
     "clio/log_history.py",

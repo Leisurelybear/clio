@@ -235,8 +235,8 @@ def collect_doctor_checks(
         items.append(DoctorItem("Node.js", "WARN", t("doctor.node.missing")))
     else:
         ok = node_version_supported(node_text)
-        status: DoctorStatus = "OK" if ok else "WARN"
-        items.append(DoctorItem("Node.js", status, t("doctor.node.version", {"version": node_text})))
+        node_status: DoctorStatus = "OK" if ok else "WARN"
+        items.append(DoctorItem("Node.js", node_status, t("doctor.node.version", {"version": node_text})))
 
     return items
 
