@@ -20,6 +20,7 @@ import {
 } from './logs-history.js';
 import { transcriptionModelManagementNotice } from './transcription-status.js';
 import { hasKey, onLocaleChange, t } from './i18n.js';
+import { confirmDialog } from './confirm.js';
 import { ensureGlobalUiDefaults } from './language-switcher.js';
 // Dynamic import avoids static cycle: editor.js → editor-config.js → editor.js (A-006)
 
@@ -617,7 +618,7 @@ function _attachPromptManagementHandlers(container) {
   if (restoreBtn && selected) {
     restoreBtn.onclick = async () => {
       if (!selected.has_override) return;
-      if (!confirm(t('settings.prompt.restore_confirm', { name: selected.name }))) return;
+      if (!(await confirmDialog(t('settings.prompt.restore_confirm', { name: selected.name })))) return;
       restoreBtn.disabled = true;
       try {
         await api('DELETE', `/api/prompts/${encodeURIComponent(selected.name)}`);
@@ -1225,9 +1226,9 @@ export function _attachProviderListHandlers(pane, providersObj) {
           .map(([k]) => t('settings.provider.ref_global', { name: k })),
       ];
       if (refs.length > 0) {
-        if (!confirm(t('settings.provider.delete_in_use', { name, refs: refs.join(t('common.list_separator')) }))) return;
+        if (!(await confirmDialog(t('settings.provider.delete_in_use', { name, refs: refs.join(t('common.list_separator')) }), { danger: true }))) return;
       } else {
-        if (!confirm(t('settings.provider.delete_confirm', { name }))) return;
+        if (!(await confirmDialog(t('settings.provider.delete_confirm', { name }), { danger: true }))) return;
       }
       delete providersObj[name];
       markDirty();
@@ -1336,9 +1337,9 @@ function _attachTaskBindingHandlers(pane, cfg, opts = {}) {
 
   const gotoBtn = pane.querySelector('#goto-global-providers');
   if (gotoBtn) {
-    gotoBtn.onclick = (e) => {
+    gotoBtn.onclick = async (e) => {
       e.preventDefault();
-      if (state.dirty && !confirm(t('settings.dirty_switch_confirm'))) return;
+      if (state.dirty && !(await confirmDialog(t('settings.dirty_switch_confirm')))) return;
       state.configTab = 'global';
       clearDirty();
       renderConfig();
@@ -1346,9 +1347,9 @@ function _attachTaskBindingHandlers(pane, cfg, opts = {}) {
   }
 
   pane.querySelectorAll('.edit-provider-link').forEach(link => {
-    link.onclick = (e) => {
+    link.onclick = async (e) => {
       e.preventDefault();
-      if (state.dirty && !confirm(t('settings.dirty_switch_confirm'))) return;
+      if (state.dirty && !(await confirmDialog(t('settings.dirty_switch_confirm')))) return;
       const pName = link.dataset.provider;
       state.configTab = 'global';
       clearDirty();
@@ -1610,9 +1611,9 @@ export function renderConfig() {
 
   // Tab switching
   pane.querySelectorAll('.config-tab-btn').forEach(btn => {
-    btn.onclick = () => {
+    btn.onclick = async () => {
       if (btn.dataset.configTab === state.configTab) return;
-      if (state.dirty && !confirm(t('settings.dirty_switch_confirm'))) return;
+      if (state.dirty && !(await confirmDialog(t('settings.dirty_switch_confirm')))) return;
       state.configTab = btn.dataset.configTab;
       clearDirty();
       renderConfig();
@@ -2355,7 +2356,7 @@ async function _loadModelMgmt() {
     container.querySelectorAll('.btn-delete-model').forEach(btn => {
       btn.onclick = async () => {
         const modelName = btn.dataset.model;
-        if (!confirm(t('whisper_mgmt.delete_confirm', { name: modelName }))) return;
+        if (!(await confirmDialog(t('whisper_mgmt.delete_confirm', { name: modelName }), { danger: true }))) return;
         try {
           const r = await api('POST', '/api/whisper/models/delete', { name: modelName });
           if (r.ok) {
