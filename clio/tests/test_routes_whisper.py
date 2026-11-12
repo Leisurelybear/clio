@@ -8,12 +8,15 @@ import types
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 import yaml
 
 from clio.ui.routes.whisper_download import (
+    _get_remote_file_size,
     _install_progress_path,
     _pip_install_streaming,
     _run_install,
+    _sanitize_url,
     _write_install_progress,
     handle_get_whisper_install_status,
     handle_post_whisper_install,
@@ -25,6 +28,32 @@ from clio.ui.routes.whisper_routes import (
     handle_get_whisper_models,
     handle_put_whisper_model,
 )
+
+
+class TestWhisperDownloadHelpers:
+    def test_remote_size_degrades_on_request_error(self) -> None:
+        import clio.ui.routes.whisper_download as download
+
+        fake_hub = types.SimpleNamespace(hf_hub_url=lambda repo_id, filename: f"https://example.test/{filename}")
+        with (
+            patch.dict("sys.modules", {"huggingface_hub": fake_hub}),
+            patch.object(download._req, "head", side_effect=download._req.RequestException("network down")),
+        ):
+            assert _get_remote_file_size("repo", "model.bin", MagicMock(proxy=MagicMock(enabled=False, url=""))) == 0
+
+    def test_remote_size_unexpected_error_propagates(self) -> None:
+        import clio.ui.routes.whisper_download as download
+
+        fake_hub = types.SimpleNamespace(hf_hub_url=lambda repo_id, filename: f"https://example.test/{filename}")
+        with (
+            patch.dict("sys.modules", {"huggingface_hub": fake_hub}),
+            patch.object(download._req, "head", side_effect=RuntimeError("boom")),
+            pytest.raises(RuntimeError, match="boom"),
+        ):
+            _get_remote_file_size("repo", "model.bin", MagicMock(proxy=MagicMock(enabled=False, url="")))
+
+    def test_sanitize_url_removes_credentials(self) -> None:
+        assert _sanitize_url("https://user:secret@example.test/path?q=1") == "https://example.test/path?q=1"
 
 
 class TestFrozenInstallGuard:

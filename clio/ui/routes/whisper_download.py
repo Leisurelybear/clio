@@ -342,7 +342,7 @@ def handle_post_whisper_install(handler: HandlerProtocol, qs: dict[str, Any]) ->
         def _worker() -> None:
             try:
                 _run_install(handler, qs, progress_path, cancel)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - daemon worker must persist any failure to progress
                 _write_install_progress(
                     progress_path,
                     {
@@ -414,7 +414,7 @@ def _get_remote_file_size(repo_id: str, filename: str, cfg: Any) -> int:
         size = int(r.headers.get("Content-Length", 0))
         if size:
             return size
-    except Exception:
+    except (OSError, TypeError, ValueError, _req.RequestException):
         pass
     return 0
 
@@ -444,7 +444,7 @@ def _sanitize_url(url: str | None) -> str:
             if parsed.port:
                 netloc += f":{parsed.port}"
             return urlunparse((parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment))
-    except Exception:
+    except (AttributeError, TypeError, ValueError):
         pass
     return url
 
@@ -501,7 +501,7 @@ def _verify_install(cfg: Any, progress_path: Path, model_name: str) -> bool:
         return False
     try:
         _get_model(cfg)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - model loader failures are provider-specific
         _write_install_progress(
             progress_path,
             {
