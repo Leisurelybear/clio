@@ -6,7 +6,9 @@ import json
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 
+from clio.config import AppConfig
 from clio.tasks._helpers import (
     ClipRecord,
     MediaSelection,
@@ -30,10 +32,13 @@ from clio.tasks._helpers import (
 from clio.vmeta import SegmentEntry, VideoIndex, VideoMeta
 
 
-def _fake_config(index_width: int = 3) -> SimpleNamespace:
-    return SimpleNamespace(
-        naming=SimpleNamespace(index_width=index_width),
-        paths=SimpleNamespace(ffprobe=""),
+def _fake_config(index_width: int = 3) -> AppConfig:
+    return cast(
+        AppConfig,
+        SimpleNamespace(
+            naming=SimpleNamespace(index_width=index_width),
+            paths=SimpleNamespace(ffprobe=""),
+        ),
     )
 
 
@@ -268,6 +273,8 @@ class TestMergeSummaryRecords:
         ]
         merged = _merge_summary_records(existing, new)
         assert [r.index for r in merged] == [1, 2]
+        assert merged[0].analysis is not None
+        assert merged[1].analysis is not None
         assert merged[0].analysis["title"] == "keep"
         assert merged[1].analysis["title"] == "new"
 
