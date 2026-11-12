@@ -2,7 +2,7 @@
 
 > Load on demand when locating ownership boundaries or test coverage. Keep `AGENTS.md` short; put detailed file maps here.
 >
-> Last refreshed: 2026-11-13 (after the O14 sidebar helper extraction).
+> Last refreshed: 2026-11-13 (after the O14 viewer preview support extraction).
 
 ```
 vlog-video-analysis/
@@ -185,6 +185,7 @@ vlog-video-analysis/
     │           ├── runner.js                  # Run pane, step progress, rerun
     │           ├── runner-preview.js          # Preview HTML, overwrite checks, start errors
     │           ├── viewer.js                  # Player, preview bar, subtitle settings
+    │           ├── viewer-preview-support.js # Plan accordion sync, waveform keys, subtitle settings
     │           ├── video-menu.js / video-selection.js / video-fade.js / video-url.js
     │           ├── video-drag-select.js      # Sidebar rubber-band selection (rect math + pointer)
     │           ├── file-browser.js / select-btn.js / latest.js / empty-states.js

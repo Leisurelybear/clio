@@ -2,6 +2,13 @@
 
 ## 2026-11-13
 
+Viewer plan-preview support now lives in a focused module while `viewer.js` keeps its public preview behavior.
+
+- refactor(ui): extract plan-accordion synchronization, waveform index keys, and subtitle settings into `viewer-preview-support.js`
+- test(ui): cover deterministic waveform index keys and compressed-source fallback
+
+Verification: focused Vitest passes 10 tests across 3 files; `npm run typecheck` and `git diff --check` pass. Refactor commit: `24a086c`.
+
 Sidebar list-summary rendering and media display helpers now live in focused modules while `sidebar-data.js` keeps its compatibility exports.
 
 - refactor(ui): extract offline summary, filter chips, and stage counts into `sidebar-video-overview.js`
