@@ -72,6 +72,7 @@ def test_missing_default_template_falls_back_to_bundled(cfg: AppConfig, tmp_path
 
     bundled = tmp_path / "bundled_vlog_template.md"
     bundled.write_text("Bundled template", encoding="utf-8")
+    assert cfg.project_cfg is not None
     cfg.project_cfg.script.template_file = tmp_path / "templates" / "vlog_template.md"
     monkeypatch.setattr("clio.tasks.scripts.find_resource", lambda _name: bundled)
 

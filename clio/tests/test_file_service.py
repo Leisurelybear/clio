@@ -707,6 +707,7 @@ class TestCreateProjectYaml:
         proj_dir = tmp_path / "project"
         proj_dir.mkdir()
         result = _create_project_yaml(proj_dir, config, tmp_path / "output")
+        assert result is not None
         data = yaml.safe_load(result.read_text(encoding="utf-8"))
         assert data.get("ai", {}).get("context") == ""
 
@@ -736,6 +737,7 @@ class TestCreateProjectYaml:
         proj_dir = tmp_path / "project2"
         proj_dir.mkdir()
         result = _create_project_yaml(proj_dir, config, tmp_path / "output")
+        assert result is not None
         data = yaml.safe_load(result.read_text(encoding="utf-8"))
         # Project fields should survive; input_dir is no longer written
         assert "input_dir" not in data.get("paths", {})

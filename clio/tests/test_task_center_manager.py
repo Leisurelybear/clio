@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -503,7 +504,8 @@ def test_cleanup_runs_after_task_completion_when_interval_elapsed(tmp_path):
         recover_on_start=False,
         cleanup_interval_sec=0,
     )
-    manager.store.cleanup = MagicMock(wraps=manager.store.cleanup)
+    cleanup = MagicMock(wraps=manager.store.cleanup)
+    cast(Any, manager.store).cleanup = cleanup
     manager.register(TaskKind.PIPELINE, lambda context: {})
 
     task = manager.submit(TaskKind.PIPELINE, "处理素材")
@@ -513,7 +515,7 @@ def test_cleanup_runs_after_task_completion_when_interval_elapsed(tmp_path):
     while task.id in manager.runtime_task_ids() and time.monotonic() < deadline:
         time.sleep(0.01)
 
-    manager.store.cleanup.assert_called()
+    cleanup.assert_called()
 
 
 def test_completed_task_releases_its_lock_after_worker_exits(tmp_path):

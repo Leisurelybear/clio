@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -199,7 +200,7 @@ class TestResolveVideo:
 
 class TestBuildMaterials:
     def test_empty_sequence(self, tmp_path: Path) -> None:
-        plan_data = {"sequence": []}
+        plan_data: dict[str, Any] = {"sequence": []}
         materials, idx_map, text_ids = _build_materials(plan_data, [], "ffprobe", {})
         assert len(materials["videos"]) == 0
         assert len(materials["texts"]) == 0

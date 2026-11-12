@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -627,7 +628,7 @@ class TestCollectAllowedProjectPaths:
         assert str(tmp_path.resolve()) in allowed
 
     def test_non_path_config_returns_default_only(self, tmp_path):
-        allowed = collect_allowed_project_paths(tmp_path, "not-a-path")
+        allowed = collect_allowed_project_paths(tmp_path, cast(Any, "not-a-path"))
         assert len(allowed) == 1
 
     def test_missing_registry_returns_default_only(self, tmp_path):

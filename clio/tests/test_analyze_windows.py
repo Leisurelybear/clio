@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from itertools import pairwise
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -41,7 +42,7 @@ class TestBuildAnalyzeWindows:
 
 class TestShiftAndMerge:
     def test_shift_timeline_numeric(self):
-        raw = {"title": "t", "summary": "s", "timeline": [{"start": 10, "end": 20, "text": "a"}]}
+        raw: dict[str, Any] = {"title": "t", "summary": "s", "timeline": [{"start": 10, "end": 20, "text": "a"}]}
         out = shift_analysis_times(raw, 100)
         assert out["timeline"][0]["start"] == 110
         assert out["timeline"][0]["end"] == 120

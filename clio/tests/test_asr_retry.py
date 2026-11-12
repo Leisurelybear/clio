@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 from datetime import datetime, timezone
+from typing import cast
 
 import httpx
 import pytest
@@ -166,7 +167,7 @@ def test_cancel_interrupts_retry_backoff():
             lambda: _response(503),
             label="测试请求",
             sleep=lambda _: pytest.fail("sleep should not run when cancellation is supported"),
-            cancel_event=CancelDuringWait(),
+            cancel_event=cast(threading.Event, CancelDuringWait()),
         )
 
 

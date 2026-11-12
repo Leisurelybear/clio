@@ -93,6 +93,7 @@ class TestAutoReindexIfNeeded:
 
 class TestRunReindex:
     def test_missing_dir(self, config: AppConfig, capsys: pytest.CaptureFixture[str]) -> None:
+        assert config.project_cfg is not None
         config.project_cfg.paths.output_dir = Path("/nonexistent_path_xyz")
         with patch("clio.tasks.reindex.resolve_binary", return_value="ffprobe"):
             result = run_reindex(config)

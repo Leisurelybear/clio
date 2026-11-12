@@ -48,7 +48,9 @@ class TestManagedWaveform:
 
         assert task.status is TaskStatus.SUCCEEDED
         assert task.visibility is TaskVisibility.BACKGROUND
-        assert wf.read_peaks(tmp_path, pending["key"])["peaks"] == [0.1, 0.2]
+        peaks = wf.read_peaks(tmp_path, pending["key"])
+        assert peaks is not None
+        assert peaks["peaks"] == [0.1, 0.2]
         assert not wf.lock_path(tmp_path, pending["key"]).exists()
 
 

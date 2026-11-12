@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from clio.utils import (
+    JsonValue,
     discover_ffmpeg_bin,
     get_duration_sec,
     plan_day_stem,
@@ -147,7 +148,7 @@ class TestGetDurationSec:
 
 class TestWriteJsonAtomic:
     def test_writes_and_reads_back(self, tmp_path):
-        data = {"key": "value"}
+        data: JsonValue = {"key": "value"}
         f = tmp_path / "test.json"
         write_json_atomic(f, data)
         assert f.exists()
@@ -155,7 +156,7 @@ class TestWriteJsonAtomic:
 
     def test_creates_parent_dirs(self, tmp_path):
         f = tmp_path / "sub" / "nested" / "test.json"
-        data = {"a": 1}
+        data: JsonValue = {"a": 1}
         write_json_atomic(f, data)
         assert f.exists()
 

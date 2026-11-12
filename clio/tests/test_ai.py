@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
 
 from clio.ai.base import TaskName
@@ -96,7 +98,7 @@ def test_close_provider_ignores_cleanup_failure():
         def close(self):
             raise RuntimeError("cleanup failed")
 
-    factory._close_provider(BrokenProvider())
+    factory._close_provider(cast(Any, BrokenProvider()))
 
 
 class TestGetTaskProvider:

@@ -99,6 +99,7 @@ class TestConfigForModel:
         assert result.project_cfg is not None
 
     def test_does_not_mutate_original(self, loaded_config: AppConfig) -> None:
+        assert loaded_config.project_cfg is not None
         original_task = loaded_config.project_cfg.ai.tasks[TaskName.VIDEO_ANALYZE.value]
         _config_for_model(loaded_config, ModelSpec(provider="deepseek", model="deepseek-chat"))
         assert loaded_config.project_cfg.ai.tasks[TaskName.VIDEO_ANALYZE.value] == original_task

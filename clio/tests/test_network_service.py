@@ -3,6 +3,7 @@ from __future__ import annotations
 import ctypes
 import sys
 from types import SimpleNamespace
+from typing import Any
 
 from clio.ui.services import network_service
 
@@ -120,7 +121,7 @@ class TestListNetworkShares:
 def _fake_mpr(open_result=0, enum_results=None):
     """Build a fake mpr.dll that fills the caller's _NETRESOURCEW buffer."""
     enum_results = list(enum_results or [])
-    state = {"closed": [], "opened": []}
+    state: dict[str, list[Any]] = {"closed": [], "opened": []}
 
     def open_enum(scope, resource_type, usage, resource_ptr, handle_ptr):
         state["opened"].append((scope, resource_type, usage))

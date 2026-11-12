@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from clio.config.descriptions import CONFIG_DESCRIPTIONS
 from clio.config.models import (
@@ -29,7 +30,7 @@ _KEY_PATTERN = re.compile(r"\{name\}")
 _EXTRA_DESCRIPTION_KEYS = {"paths.project_dir", "whisper.engine"}
 
 # Map of config field name → dataclass type (hardcoded to avoid annotation resolution issues)
-_CONFIG_DC_MAP: list[tuple[str, type]] = [
+_CONFIG_DC_MAP: list[tuple[str, type[Any]]] = [
     ("paths", PathsConfig),
     ("proxy", ProxyConfig),
     ("server", ServerConfig),

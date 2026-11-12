@@ -67,7 +67,7 @@ def test_engine_dispatches_to_registered_provider():
 
 def test_progress_callbacks_fire():
     cfg = _make_config()
-    events = []
+    events: list[int] = []
     from clio.transcribe import transcribe_audio
 
     with patch("clio.asr.factory._PROVIDERS", {"mock": MockProvider}):
