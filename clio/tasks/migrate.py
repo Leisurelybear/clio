@@ -13,6 +13,11 @@ from clio.i18n import SUPPORTED_LOCALES, t
 from clio.tasks._video_loader import load_selected_videos, save_selected_videos
 from clio.utils import find_videos
 
+_REGISTRY_READ_ERRORS = (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError)
+_YAML_READ_ERRORS = (OSError, UnicodeDecodeError, yaml.YAMLError, TypeError, ValueError)
+_VERIFY_ERRORS = (OSError, UnicodeDecodeError, json.JSONDecodeError, yaml.YAMLError, TypeError, ValueError)
+_PATH_RESOLVE_ERRORS = (OSError, RuntimeError, TypeError, ValueError)
+
 
 def is_already_new_structure(message: str) -> bool:
     """True when a migrate error means the project already uses the new layout.
@@ -36,6 +41,8 @@ def run_migrate(config_path: Path, from_path: Path | None = None) -> tuple[int, 
     if registry_file.is_file():
         try:
             reg = json.loads(registry_file.read_text(encoding="utf-8"))
+            if not isinstance(reg, dict):
+                raise ValueError("projects.json root must be an object")
             for entry in reg.get("projects", []):
                 if isinstance(entry, dict):
                     p_str = entry.get("project_dir") or entry.get("input_dir") or ""
@@ -43,10 +50,10 @@ def run_migrate(config_path: Path, from_path: Path | None = None) -> tuple[int, 
                     p_str = str(entry)
                 if not p_str:
                     continue
-                p = Path(p_str)
+                p = Path(str(p_str))
                 if p.is_dir() and (p / "project.yaml").is_file():
                     projects_to_migrate.append(p.resolve())
-        except Exception as e:
+        except _REGISTRY_READ_ERRORS as e:
             errors.append(t("task.migrate.registry_read_failed", {"detail": e}))
 
     # 2. From --from flag
@@ -85,7 +92,7 @@ def run_migrate(config_path: Path, from_path: Path | None = None) -> tuple[int, 
                 print(msg)
             else:
                 errors.append(msg)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - one bad project must not stop the batch
             errors.append(t("task.migrate.migrate_error", {"dir": old_dir, "detail": e}))
 
     return updated, errors
@@ -108,7 +115,7 @@ def _resolve_output_dir(old_dir: Path, paths_raw: dict[str, Any], project_json: 
                 if not out_path.is_absolute():
                     out_path = (old_dir / out_path).resolve()
                 return out_path
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError):
             pass
     return (old_dir / "output").resolve()
 
@@ -122,11 +129,18 @@ def _migrate_one(old_dir: Path, config_path: Path, registry_file: Path) -> tuple
     videos_json = old_dir / "videos.json"
     try:
         with old_yaml.open(encoding="utf-8") as f:
-            old_raw: dict[str, Any] = yaml.safe_load(f) or {}
-    except Exception as e:
+            loaded = yaml.safe_load(f)
+        if loaded is None:
+            loaded = {}
+        if not isinstance(loaded, dict):
+            raise ValueError("project.yaml root must be an object")
+        paths_value = loaded.get("paths") or {}
+        if not isinstance(paths_value, dict):
+            raise ValueError("project.yaml paths must be an object")
+        old_raw: dict[str, Any] = loaded
+        paths_raw = dict(paths_value)
+    except _YAML_READ_ERRORS as e:
         return False, t("task.migrate.read_yaml_failed", {"dir": old_dir, "detail": e})
-
-    paths_raw = dict(old_raw.get("paths") or {})
     has_input = bool(paths_raw.get("input_dir"))
     if videos_json.is_file() and not has_input:
         return False, f"{old_dir}: " + t("task.migrate.already_new_suffix")
@@ -184,7 +198,7 @@ def _migrate_one(old_dir: Path, config_path: Path, registry_file: Path) -> tuple
             encoding="utf-8",
         )
         tmp_yaml.replace(new_yaml)
-    except Exception as e:
+    except (OSError, yaml.YAMLError) as e:
         tmp_yaml.unlink(missing_ok=True)
         return False, t("task.migrate.write_yaml_failed", {"dir": old_dir, "detail": e})
 
@@ -193,8 +207,9 @@ def _migrate_one(old_dir: Path, config_path: Path, registry_file: Path) -> tuple
     data: dict[str, Any] = {}
     if old_json.is_file():
         try:
-            data = json.loads(old_json.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
+            loaded_data = json.loads(old_json.read_text(encoding="utf-8"))
+            data = loaded_data if isinstance(loaded_data, dict) else {}
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError):
             data = {}
     data["version"] = 2
     data.setdefault("name", name)
@@ -214,12 +229,12 @@ def _migrate_one(old_dir: Path, config_path: Path, registry_file: Path) -> tuple
         return False, t("task.migrate.write_verify_failed", {"dir": old_dir})
     try:
         verify_raw = yaml.safe_load(new_yaml.read_text(encoding="utf-8"))
-        if not verify_raw or "paths" not in verify_raw:
+        if not isinstance(verify_raw, dict) or "paths" not in verify_raw:
             return False, t("task.migrate.yaml_verify_failed", {"dir": old_dir})
         verify_data = json.loads(new_json.read_text(encoding="utf-8"))
-        if verify_data.get("version") != 2:
+        if not isinstance(verify_data, dict) or verify_data.get("version") != 2:
             return False, t("task.migrate.json_version_verify_failed", {"dir": old_dir})
-    except Exception as e:
+    except _VERIFY_ERRORS as e:
         return False, t("task.migrate.write_verify_error", {"dir": old_dir, "detail": e})
 
     # 4. videos.json — preserve curated list if the file already exists
@@ -267,8 +282,9 @@ def _update_registry(registry_file: Path, old_dir: Path, new_dir: Path, name: st
     reg: dict[str, Any] = {"projects": []}
     if registry_file.is_file():
         try:
-            reg = json.loads(registry_file.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
+            loaded = json.loads(registry_file.read_text(encoding="utf-8"))
+            reg = loaded if isinstance(loaded, dict) else {"projects": []}
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError):
             reg = {"projects": []}
 
     old_s = str(old_dir.resolve())
@@ -283,7 +299,7 @@ def _update_registry(registry_file: Path, old_dir: Path, new_dir: Path, name: st
             return ""
         try:
             return str(Path(p).resolve())
-        except Exception:
+        except _PATH_RESOLVE_ERRORS:
             return p
 
     projects: list[str] = []
@@ -308,7 +324,7 @@ def _update_registry(registry_file: Path, old_dir: Path, new_dir: Path, name: st
             try:
                 if str(Path(last_dir).resolve()) == old_s:
                     should_update_last = True
-            except Exception:
+            except _PATH_RESOLVE_ERRORS:
                 pass
         if last.get("name") == name:
             should_update_last = True
@@ -319,7 +335,7 @@ def _update_registry(registry_file: Path, old_dir: Path, new_dir: Path, name: st
             try:
                 if str(Path(last).resolve()) == old_s:
                     should_update_last = True
-            except Exception:
+            except _PATH_RESOLVE_ERRORS:
                 pass
 
     if should_update_last or last is None:

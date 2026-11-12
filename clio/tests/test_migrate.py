@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 import yaml
 
-from clio.tasks.migrate import run_migrate
+from clio.tasks.migrate import _migrate_one, run_migrate
 
 
 def _write_legacy_project(root: Path, name: str = "trip1") -> Path:
@@ -131,3 +132,41 @@ def test_migrate_external_input_keeps_absolute_output(tmp_path: Path) -> None:
     assert Path(raw["paths"]["output_dir"]).resolve() == out.resolve()
     videos = json.loads((project / "videos.json").read_text(encoding="utf-8"))
     assert any(Path(v).name == "A.mp4" for v in videos)
+
+
+def test_migrate_reports_non_object_registry(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("paths: {}\n", encoding="utf-8")
+    (tmp_path / "projects.json").write_text("[]", encoding="utf-8")
+
+    updated, errors = run_migrate(config_path)
+
+    assert updated == 0
+    assert errors
+
+
+def test_migrate_reports_non_object_project_yaml(tmp_path: Path) -> None:
+    project = tmp_path / "bad-project"
+    project.mkdir()
+    (project / "project.yaml").write_text("- not-an-object\n", encoding="utf-8")
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("paths: {}\n", encoding="utf-8")
+
+    updated, errors = run_migrate(config_path, from_path=project)
+
+    assert updated == 0
+    assert errors
+
+
+def test_migrate_propagates_unexpected_yaml_parser_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    project = _write_legacy_project(tmp_path / "trip1")
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("paths: {}\n", encoding="utf-8")
+
+    def fail_parse(_stream: object) -> None:
+        raise RuntimeError("unexpected parser failure")
+
+    monkeypatch.setattr("clio.tasks.migrate.yaml.safe_load", fail_parse)
+
+    with pytest.raises(RuntimeError, match="unexpected parser failure"):
+        _migrate_one(project, config_path, tmp_path / "projects.json")
