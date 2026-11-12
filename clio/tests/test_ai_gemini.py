@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 
 from clio.config import ProviderConfig, ProxyConfig
@@ -91,6 +92,16 @@ class TestIsRetryable:
 
     def test_oserror_is_retryable(self):
         assert self._prov._is_retryable(OSError("connection reset"))
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            httpx.ConnectError("connection refused"),
+            httpx.ReadTimeout("read timed out"),
+        ],
+    )
+    def test_httpx_transport_error_is_retryable(self, error):
+        assert self._prov._is_retryable(error)
 
     def test_client_error_429_is_retryable(self):
         from google.genai import errors as genai_errors
@@ -869,9 +880,10 @@ class TestRetryableTypes:
             self._prov = GeminiProvider(_make_cfg(), ProxyConfig(enabled=False, url=""))
             yield
 
-    def test_includes_oserror(self):
+    def test_includes_oserror_and_httpx_transport_error(self):
         types = self._prov._retryable_types()
         assert OSError in types
+        assert httpx.TransportError in types
 
     def test_includes_client_and_server_errors(self):
         from google.genai import errors as genai_errors
@@ -889,4 +901,4 @@ class TestRetryableTypes:
 
             prov = GeminiProvider(_make_cfg(), ProxyConfig(enabled=False, url=""))
             types = prov._retryable_types()
-            assert types == (OSError,)
+            assert types == (OSError, httpx.TransportError)

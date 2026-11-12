@@ -144,7 +144,7 @@ class GeminiProvider:
 
     def _is_retryable(self, exc: BaseException) -> bool:
         """判断异常是否应该重试。"""
-        if isinstance(exc, OSError):
+        if isinstance(exc, (OSError, httpx.TransportError)):
             return True
         if _HAS_GENAI_ERRORS:
             if isinstance(exc, _genai_errors.ServerError):
@@ -159,7 +159,7 @@ class GeminiProvider:
 
     def _retryable_types(self):
         """返回 with_retry 需要的异常类型元组。"""
-        types_list: list[type[Exception]] = [OSError]
+        types_list: list[type[Exception]] = [OSError, httpx.TransportError]
         if _HAS_GENAI_ERRORS:
             types_list.append(_genai_errors.ClientError)
             types_list.append(_genai_errors.ServerError)
