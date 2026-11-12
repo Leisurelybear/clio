@@ -1,4 +1,4 @@
-import { $, escapeHtml, setStatus } from './utils.js';
+import { $, html, setStatus } from './utils.js';
 import { api } from './api.js';
 import { addToast } from './toast.js';
 import { matchBatchRelink } from './offline-media.js';
@@ -57,7 +57,7 @@ async function _scanAndMatch() {
     scanBtn.disabled = true;
     scanBtn.textContent = t('sidebar.scanning');
   }
-  result.innerHTML = `<p class="muted">${t('sidebar.batch_scanning')}</p>`;
+  result.innerHTML = html`<p class="muted">${t('sidebar.batch_scanning')}</p>`;
   try {
     const videosRes = await api('GET', `/api/fs/videos?path=${encodeURIComponent(path)}`);
     const candidates = (videosRes.files || []).map(f => ({
@@ -74,25 +74,24 @@ async function _scanAndMatch() {
     _pendingMatches = match.matched;
     if (apply) apply.disabled = match.matched.length === 0;
 
-    let html = `<p><strong>${t('sidebar.batch_matched', { count: match.matched.length })}</strong> · ${t('sidebar.batch_unmatched', { count: match.unmatched.length })}`;
-    if (match.ambiguous.length) html += ` · ${t('sidebar.batch_ambiguous', { count: match.ambiguous.length })}`;
-    html += ` · ${t('sidebar.batch_candidates', { count: candidates.length })}</p>`;
+    let content = html`<p><strong>${t('sidebar.batch_matched', { count: match.matched.length })}</strong> · ${t('sidebar.batch_unmatched', { count: match.unmatched.length })}`;
+    if (match.ambiguous.length) content = html`${content} · ${t('sidebar.batch_ambiguous', { count: match.ambiguous.length })}`;
+    content = html`${content} · ${t('sidebar.batch_candidates', { count: candidates.length })}</p>`;
     if (match.matched.length) {
-      html += '<ul class="br-match-list">' + match.matched.map(m =>
-        `<li><code>${escapeHtml(m.file)}</code><br><span class="muted">${escapeHtml(m.old_path)} → ${escapeHtml(m.new_path)}</span></li>`
-      ).join('') + '</ul>';
+      content = html`${content}<ul class="br-match-list">${match.matched.map(m =>
+        html`<li><code>${m.file}</code><br><span class="muted">${m.old_path} → ${m.new_path}</span></li>`
+      )}</ul>`;
     }
     if (match.ambiguous.length) {
-      html += `<p class="warn">${t('sidebar.batch_ambiguous_note')}` +
-        match.ambiguous.map(a => escapeHtml(a.basename)).join(', ') + '</p>';
+      content = html`${content}<p class="warn">${t('sidebar.batch_ambiguous_note')}${match.ambiguous.map(a => a.basename).join(', ')}</p>`;
     }
     if (!match.matched.length) {
-      html += `<p class="muted">${t('sidebar.batch_no_match')}</p>`;
+      content = html`${content}<p class="muted">${t('sidebar.batch_no_match')}</p>`;
     }
-    result.innerHTML = html;
+    result.innerHTML = content;
   } catch (e) {
     const message = t('sidebar.batch_scan_failed', { detail: e.message });
-    result.innerHTML = `<p class="err">${escapeHtml(message)}</p>`;
+    result.innerHTML = html`<p class="err">${message}</p>`;
     setStatus(message, 'err');
     _pendingMatches = [];
     if (apply) apply.disabled = true;

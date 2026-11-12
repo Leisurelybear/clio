@@ -324,6 +324,16 @@ Provider management is a frontend-only experience - no new backend APIs needed:
 - `clio/ui/static/src/runner.js` owns the second confirmation dialog and must refresh the preview
   for both `plan` and `voiceover` steps.
 
+### 4.18 Safe HTML Rendering
+
+- `clio/ui/static/src/utils.js::html` is the default tagged template for dynamic markup.
+  Every interpolation is escaped; nested `html` fragments and arrays are composed safely.
+- Use `unsafeHtml()` only for trusted, code-owned markup such as local icons. Never pass
+  user, API, filename, log, or AI-generated content through it.
+- Keep `escapeHtml()` for values interpolated into legacy non-tagged template strings.
+  Prefer `html` for new or touched `innerHTML` / `insertAdjacentHTML` code.
+- Security tests must cover values inside both text and quoted attributes.
+
 ## 5. User Preferences
 
 - Language: Chinese for conversation, English for commits/docs/AGENTS.md

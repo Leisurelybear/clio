@@ -15,6 +15,35 @@ function escapeHtml(s) {
   }[c]));
 }
 
+class SafeHtml {
+  constructor(value) {
+    this.value = String(value);
+  }
+
+  toString() {
+    return this.value;
+  }
+}
+
+function unsafeHtml(value) {
+  return new SafeHtml(value ?? '');
+}
+
+function _htmlValue(value) {
+  if (value instanceof SafeHtml) return value.value;
+  if (Array.isArray(value)) return value.map(_htmlValue).join('');
+  return escapeHtml(value);
+}
+
+/** Tagged template for HTML: every interpolation is escaped unless safe. */
+function html(strings, ...values) {
+  let out = strings[0];
+  for (let i = 0; i < values.length; i++) {
+    out += _htmlValue(values[i]) + strings[i + 1];
+  }
+  return new SafeHtml(out);
+}
+
 function fmtTime(sec) {
   if (!Number.isFinite(sec)) return '00:00';
   const m = Math.floor(sec / 60).toString().padStart(2, '0');
@@ -180,6 +209,8 @@ function updateEntityUI() {
 export {
   $, $$,
   escapeHtml,
+  html,
+  unsafeHtml,
   fmtTime,
   parseTimecode,
   getDeep,

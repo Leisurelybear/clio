@@ -2,7 +2,7 @@
  * Video metadata card: hover tooltip on sidebar rows + a pinned modal.
  * Probe work is lazy (first hover/click) and cached per row on the client.
  */
-import { $, escapeHtml } from './utils.js';
+import { $, html } from './utils.js';
 import { api } from './api.js';
 import { t } from './i18n.js';
 
@@ -137,21 +137,13 @@ export function buildInfoSections(info) {
 }
 
 export function infoSectionsToHtml(sections) {
-  return sections
-    .map(
-      (section) => `<div class="video-info-section">
-      <div class="video-info-section-title">${escapeHtml(section.title)}</div>
-      ${section.rows
-        .map(
-          (row) => `<div class="video-info-row${row.wrap ? ' wrap' : ''}">
-        <span class="video-info-label">${escapeHtml(row.label)}</span>
-        <span class="video-info-value">${escapeHtml(row.value)}</span>
-      </div>`
-        )
-        .join('')}
-    </div>`
-    )
-    .join('');
+  return String(html`${sections.map((section) => html`<div class="video-info-section">
+      <div class="video-info-section-title">${section.title}</div>
+      ${section.rows.map((row) => html`<div class="video-info-row${row.wrap ? ' wrap' : ''}">
+        <span class="video-info-label">${row.label}</span>
+        <span class="video-info-value">${row.value}</span>
+      </div>`)}
+    </div>`)}`);
 }
 
 export async function fetchVideoInfo(video, source) {
@@ -178,7 +170,7 @@ async function _loadInfo(video, source) {
 function _infoHtml(info) {
   if (!info || info.ok === false) {
     const detail = info?.error ? ` (${info.error})` : '';
-    return `<div class="video-info-error">${escapeHtml(t('video_info.failed') + detail)}</div>`;
+    return String(html`<div class="video-info-error">${t('video_info.failed') + detail}</div>`);
   }
   return infoSectionsToHtml(buildInfoSections(info));
 }
@@ -252,7 +244,7 @@ function _bindDismiss() {
 async function _showTip(li, video, source) {
   _cancelHide();
   const tip = _ensureTip();
-  tip.innerHTML = `<div class="video-info-loading">${escapeHtml(t('video_info.loading'))}</div>`;
+  tip.innerHTML = html`<div class="video-info-loading">${t('video_info.loading')}</div>`;
   tip.classList.add('open');
   _positionTip(li, tip);
   const info = await _loadInfo(video, source);
@@ -297,7 +289,7 @@ export async function openVideoInfoModal(video, source) {
   const token = ++_modalToken;
   const nameEl = $('video-info-name');
   if (nameEl) nameEl.textContent = String(video?.file || '').replace(/^\d+_/, '');
-  body.innerHTML = `<div class="video-info-loading">${escapeHtml(t('video_info.loading'))}</div>`;
+  body.innerHTML = html`<div class="video-info-loading">${t('video_info.loading')}</div>`;
   modal.style.display = 'flex';
   const info = await _loadInfo(video, source);
   if (token !== _modalToken || modal.style.display === 'none') return;

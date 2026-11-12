@@ -1,4 +1,4 @@
-import { escapeHtml } from './utils.js';
+import { html } from './utils.js';
 import { registerNotification } from './notification-center.js';
 import { t } from './i18n.js';
 
@@ -56,10 +56,10 @@ function addToast(message, type = 'info', duration, options = {}) {
 
   const icons = { success: '✓', error: '!', warning: '◌', info: 'i' };
 
-  toast.innerHTML = `
+  toast.innerHTML = html`
     <span class="toast-icon">${icons[type] || 'i'}</span>
-    <span class="toast-message">${escapeHtml(message)}</span>
-    <button class="toast-close" type="button" aria-label="${escapeHtml(t('common.close'))}">&times;</button>
+    <span class="toast-message">${message}</span>
+    <button class="toast-close" type="button" aria-label="${t('common.close')}">&times;</button>
   `;
 
   toast.querySelector('.toast-close').onclick = () => removeToast(toast);

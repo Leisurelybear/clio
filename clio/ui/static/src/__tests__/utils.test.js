@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { state } from '../state.js';
 import {
   escapeHtml,
+  html,
+  unsafeHtml,
   fmtTime,
   parseTimecode,
   getDeep,
@@ -26,6 +28,34 @@ describe('escapeHtml', () => {
 
   it('coerces numbers to strings', () => {
     expect(escapeHtml(42)).toBe('42');
+  });
+});
+
+describe('html', () => {
+  it('escapes interpolated values by default', () => {
+    const result = String(html`<p title="${'x" onclick="alert(1)'}">${'<script>alert(1)</script>'}</p>`);
+    expect(result).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+    expect(result).toContain('x&quot; onclick=&quot;alert(1)');
+    expect(result).not.toContain('<script>');
+  });
+
+  it('preserves nested safe templates and arrays', () => {
+    const items = ['<one>', '<two>'].map((item) => html`<li>${item}</li>`);
+    const result = String(html`<ul>${items}</ul>`);
+    expect(result).toBe('<ul><li>&lt;one&gt;</li><li>&lt;two&gt;</li></ul>');
+  });
+
+  it('requires an explicit unsafe fragment for trusted markup', () => {
+    const icon = unsafeHtml('<svg aria-hidden="true"></svg>');
+    const result = String(html`<button>${icon} save</button>`);
+    expect(result).toBe('<button><svg aria-hidden="true"></svg> save</button>');
+  });
+
+  it('renders escaped text rather than executable markup in the DOM', () => {
+    const el = document.createElement('div');
+    el.innerHTML = html`<span>${'<img src=x onerror=alert(1)>'}</span>`;
+    expect(el.querySelector('img')).toBeNull();
+    expect(el.textContent).toBe('<img src=x onerror=alert(1)>');
   });
 });
 

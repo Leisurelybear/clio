@@ -1,5 +1,5 @@
 import { state, setArtifactVersion } from './state.js';
-import { $, escapeHtml, setStatus, updateEntityUI } from './utils.js';
+import { $, html, setStatus, updateEntityUI } from './utils.js';
 import { apiWithMeta } from './api.js';
 import { addToast } from './toast.js';
 import { loadVideos, renderVideoList } from './sidebar-data.js';
@@ -28,7 +28,7 @@ export function showRerunProgress(task, file, taskId) {
   overlay.querySelector('.rerun-file').textContent = file;
   overlay.querySelector('.rerun-status').textContent = t('sidebar.rerun_starting');
   overlay.querySelector('.rerun-progress-fill').style.width = '0%';
-  overlay.querySelector('.rerun-logs').innerHTML = `<div class="rerun-log-line">${t('sidebar.rerun_connecting')}</div>`;
+  overlay.querySelector('.rerun-logs').innerHTML = html`<div class="rerun-log-line">${t('sidebar.rerun_connecting')}</div>`;
 
   if (_rerunTaskUnsubscribe) { _rerunTaskUnsubscribe(); _rerunTaskUnsubscribe = null; }
   _rerunTaskUnsubscribe = subscribeTaskEvents(payload => {
@@ -61,7 +61,7 @@ function _applyTaskEvent(task, file, current, event) {
   if (fill && Number.isFinite(current.progress_pct)) fill.style.width = `${Math.min(100, Math.max(0, current.progress_pct))}%`;
   if (statusEl) statusEl.textContent = event?.message || current.message || current.phase || t('sidebar.rerun_running');
   if (logsEl && event?.type === 'log' && event.message) {
-    logsEl.insertAdjacentHTML('beforeend', `<div class="rerun-log-line">${escapeHtml(event.message)}</div>`);
+    logsEl.insertAdjacentHTML('beforeend', html`<div class="rerun-log-line">${event.message}</div>`);
     logsEl.scrollTop = logsEl.scrollHeight;
   }
   if (current.status === 'succeeded') {
@@ -79,7 +79,7 @@ function _rerunTerminal(task, file, label, message, toastKind, statusKind) {
   overlay.dataset.active = 'false';
   if (_rerunTaskUnsubscribe) { _rerunTaskUnsubscribe(); _rerunTaskUnsubscribe = null; }
   const statusEl = overlay.querySelector('.rerun-status');
-  if (statusEl) statusEl.innerHTML = `<span class="${statusKind === 'success' ? 'ok' : statusKind === 'warning' ? 'warn' : 'err'}">${escapeHtml(label)}</span>`;
+  if (statusEl) statusEl.innerHTML = html`<span class="${statusKind === 'success' ? 'ok' : statusKind === 'warning' ? 'warn' : 'err'}">${label}</span>`;
   const persisted = statusKind !== 'success';
   setStatus(message, statusKind === 'success' ? 'ok' : statusKind === 'warning' ? 'warn' : 'err', { persist: persisted });
   addToast(message, toastKind, statusKind === 'error' ? 6000 : undefined, { persist: persisted, title: t('sidebar.rerun_toast_title') });
