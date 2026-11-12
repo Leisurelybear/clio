@@ -15,8 +15,8 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
     O10 log stream handling `ae6e237`, O10 shutdown cleanup `f8897b0`, O10 utility
     cleanup `eaa224f`, O10 config annotation cleanup `d490b3b`, O10 sidecar cleanup
     `4c5691f`, O10 prompt fallback cleanup `c7ebd73`, O10 identity path cleanup
-    `ac4a0e6`, O10 AI cleanup boundaries `d508b06`, and O10 AI suppress refactor `1912487`, O10 config backup suppress refactor `db68cca`, and O10 log suppress refactor
-    `3874778` are local.
+    `ac4a0e6`, O10 AI cleanup boundaries `d508b06`, and O10 AI suppress refactor `1912487`, O10 config backup suppress refactor `db68cca`, O10 log suppress refactor
+    `3874778`, and O10 task cleanup suppress refactor `ab152de` are local.
   - Verification: targeted C2 pytest (270 passed), C15 pytest (58 passed), full pytest
     (2837 passed, 12 skipped, 13 deselected with symlink tests excluded), full Vitest
     (857 passed), O7 targeted pytest (153 passed), full pytest after O7 (2846 passed,
@@ -50,6 +50,8 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
     (2912 tests, 12 skipped), Ruff over 263 files, mypy over 39 files, and `git diff --check`.
     O10 log suppress refactor passed targeted pytest (48 passed, 1 skipped), full pytest
     (2912 tests, 12 skipped), Ruff over 263 files, mypy over 39 files, and `git diff --check`.
+    O10 task cleanup suppress refactor passed targeted pytest (133 passed), full pytest
+    (2912 tests, 12 skipped), Ruff over 263 files, mypy over 39 files, and `git diff --check`.
     CI run 42820037572 (head `262abde`) and CI run 42840852167 (head `958bc57`) passed
     all Python 3.11/3.12 platform jobs plus quality, package, and Vitest jobs.
   - [x] P0 completed (14): B1 `a01b156`; B2 `a436315`; C1 `14b873b`; C2 `91e4699`;
@@ -70,10 +72,10 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
     `fdcdd7d` / `4b300a3` / `1ac279c` / `74f70c4`; O13 `ea32a69`.
   - [~] P2 partial (2): O15 `a97bf4d` (default HTML escaping remains);
     O10 `e9ee689` / `ae6e237` / `f8897b0` / `eaa224f` / `d490b3b` / `4c5691f` /
-    `c7ebd73` / `ac4a0e6` / `d508b06` / `1912487` / `db68cca` / `3874778` (config loading,
-    log streams, shutdown, utility, annotation, sidecar, prompt fallback, identity path,
-    AI cleanup boundaries, config backup cleanup, and log cleanup suppress refactors
-    audited; 98 `BLE001` and 20 `SIM105` findings remain).
+    `c7ebd73` / `ac4a0e6` / `d508b06` / `1912487` / `db68cca` / `3874778` / `ab152de`
+    (config loading, log streams, shutdown, utility, annotation, sidecar, prompt fallback,
+    identity path, AI cleanup boundaries, config backup cleanup, log cleanup, and task
+    cleanup suppress refactors audited; 98 `BLE001` and 13 `SIM105` findings remain).
   - [ ] P2 awaiting real-environment verification (2): C10; D12 (`082cc7e` completes
     the code-side fixes: timeline clamping, draft_meta_info.json, platform/fps probing).
   - [ ] P2 pending (8): O8; O9; O14; O16; O18; Q13; F4; F9.
