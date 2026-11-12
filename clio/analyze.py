@@ -7,7 +7,7 @@ import math
 import threading
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from clio.ai.base import AIResponse, TaskName
 from clio.ai.factory import get_task_config, get_task_provider, get_video_provider, provider_use
@@ -188,6 +188,10 @@ def _coerce_number(value: Any, default: float) -> tuple[float, bool]:
         return default, False
 
 
+def _as_float(value: object) -> float:
+    return float(cast(str | int | float, value))
+
+
 def _coerce_list(value: Any) -> tuple[list[Any], bool]:
     if isinstance(value, list):
         return value, True
@@ -225,7 +229,7 @@ def _validate_analysis(data: dict, source: str, *, issues: list[str] | None = No
         ("suggested_use", ""),
         ("cover_timestamp", ""),
     ):
-        value, ok = _coerce_str(data[key], default)
+        text_value, ok = _coerce_str(data[key], default)
         if not ok:
             _record_validation_issue(
                 issues,
@@ -234,9 +238,9 @@ def _validate_analysis(data: dict, source: str, *, issues: list[str] | None = No
                     {"source": source, "key": key, "type_name": type(data[key]).__name__},
                 ),
             )
-        data[key] = value
+        data[key] = text_value
     for key in ("timeline", "highlights"):
-        value, ok = _coerce_list(data[key])
+        list_value, ok = _coerce_list(data[key])
         if not ok:
             _record_validation_issue(
                 issues,
@@ -245,7 +249,7 @@ def _validate_analysis(data: dict, source: str, *, issues: list[str] | None = No
                     {"source": source, "key": key, "type_name": type(data[key]).__name__},
                 ),
             )
-        data[key] = value
+        data[key] = list_value
     # Downstream prompt construction expects mapping-shaped timeline entries.
     # Keep valid entries and discard malformed model output before it can crash.
     malformed_timeline = sum(not isinstance(item, dict) for item in data["timeline"])
@@ -285,14 +289,14 @@ def _validate_voiceover(data: dict, source: str, *, issues: list[str] | None = N
     data.pop("_confidence", None)
 
     for key, default in (("title", Path(source).stem), ("voiceover", ""), ("edit_tip", "")):
-        value, ok = _coerce_str(data[key], default)
+        text_value, ok = _coerce_str(data[key], default)
         if not ok:
             _record_validation_issue(issues, t("analyze.warn_invalid_field", {"source": source, "key": key}))
-        data[key] = value
-    value, ok = _coerce_number(data["duration_hint_sec"], 20)
+        data[key] = text_value
+    number_value, ok = _coerce_number(data["duration_hint_sec"], 20)
     if not ok:
         _record_validation_issue(issues, t("analyze.warn_duration_hint_invalid", {"source": source}))
-    data["duration_hint_sec"] = max(0.0, value)
+    data["duration_hint_sec"] = max(0.0, number_value)
     return data
 
 
@@ -312,18 +316,18 @@ def _validate_plan(data: dict, source: str) -> dict:
     data.pop("_confidence", None)
 
     for key, default in (("day_title", source), ("theme", ""), ("opening_tip", ""), ("ending_tip", "")):
-        value, ok = _coerce_str(data[key], default)
+        text_value, ok = _coerce_str(data[key], default)
         if not ok:
             print(t("analyze.warn_invalid_field", {"source": source, "key": key}))
-        data[key] = value
+        data[key] = text_value
     sequence, ok = _coerce_list(data["sequence"])
     if not ok:
         print(t("analyze.warn_sequence_invalid", {"source": source}))
     data["sequence"] = [s for s in sequence if isinstance(s, dict)]
-    value, ok = _coerce_number(data["total_estimated_sec"], 180)
+    number_value, ok = _coerce_number(data["total_estimated_sec"], 180)
     if not ok:
         print(t("analyze.warn_total_estimated_invalid", {"source": source}))
-    data["total_estimated_sec"] = max(0.0, value)
+    data["total_estimated_sec"] = max(0.0, number_value)
     return data
 
 
@@ -615,8 +619,8 @@ def _select_transcript_segments(
         if not isinstance(segment, dict):
             continue
         try:
-            start = float(segment.get("start"))
-            end = float(segment.get("end"))
+            start = _as_float(segment.get("start"))
+            end = _as_float(segment.get("end"))
         except (TypeError, ValueError):
             continue
         duration = end - start
@@ -650,13 +654,13 @@ def _clean_transcript_segment(segment: dict) -> dict | None:
     cleaned: dict[str, Any] = {"text": text}
     for field in ("start", "end"):
         try:
-            value = float(segment.get(field))
+            value = _as_float(segment.get(field))
         except (TypeError, ValueError):
             continue
         if math.isfinite(value):
             cleaned[field] = value
     try:
-        avg_logprob = float(segment.get("avg_logprob"))
+        avg_logprob = _as_float(segment.get("avg_logprob"))
     except (TypeError, ValueError):
         pass
     else:
