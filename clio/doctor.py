@@ -249,7 +249,7 @@ def run_doctor(config_path: Path, project_dir: Path | None = None) -> int:
             config = load_config(config_path, project_dir=project_dir)
         set_active_locale(config.ui.language)
         items.append(DoctorItem(t("doctor.item.config_file"), "OK", str(config_path)))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - doctor must report any config-loading failure
         items.append(DoctorItem(t("doctor.item.config_file"), "FAIL", str(exc)))
         _print_doctor_items(items)
         return doctor_exit_code(items)
