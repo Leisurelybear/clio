@@ -85,7 +85,7 @@ Design: `docs/superpowers/specs/2026-10-24-analysis-detail-and-plan-input-budget
   lineage fingerprint so cached coarse results are invalidated (`304acd3`)
 - [x] P0a: config schema/descriptions/UI select, example files, `low` fallback guidance, and en/zh
   locale keys (`304acd3`)
-- [ ] P0a: emit a one-time analyze warning when `compress.fps < 2`
+- [x] P0a: emit a one-time analyze warning when `compress.fps < 2`
 - [ ] P0b `feat(analyze)`: replace the fixed 60-row cap with a duration-based density contract
   (<=5 min 25-40 rows, 5-10 min 50-80, 10-15 min 75-120; 8-12 s per row, one sentence <=40 chars)
 - [ ] P0b: add optional `score` (1-5), `camera`, `quality`, `tags` per timeline row and top-level

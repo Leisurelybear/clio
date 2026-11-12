@@ -708,6 +708,13 @@ def run_analyze_all(
         print(t("task.analyze.compressed_dir_empty", {"path": config.compressed_dir}))
         return []
 
+    compress_fps = getattr(config.compress, "fps", None)
+    if compress_fps is not None and compress_fps < 2:
+        warning = t("task.analyze.low_compress_fps", {"fps": compress_fps})
+        print(warning)
+        if tracker:
+            tracker.log(warning)
+
     day_labels = _build_day_labels(config, all_items)
 
     total = len(items)

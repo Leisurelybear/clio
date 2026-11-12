@@ -13,6 +13,14 @@ instead of ad hoc prompt comparisons.
 
 The real-footage baseline remains pending; placeholder labels are intentionally unscorable.
 
+Analysis runs now surface when compression samples are too sparse for detailed timeline generation.
+
+- feat(analyze): warn once per analyze batch when `compress.fps < 2`, through both console output and Task Center logs
+- test(analyze): cover the warning across a multi-video batch and keep higher frame-rate runs quiet
+- docs(analyze): mark the R-048 P0a warning complete in the roadmap and design status
+
+Verification: `test_tasks_analyze.py` and i18n inventory pass (`39 passed`); Ruff passes.
+
 Gemini video analysis now uses `VideoMetadata` for logical long-clip windows and exposes per-project
 media resolution, removing the temporary-slice analyze path.
 
