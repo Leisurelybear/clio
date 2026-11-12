@@ -48,6 +48,7 @@ vlog-video-analysis/
     ├── index.py                # Unified artifact index (compressed/texts/scripts/transcripts)
     ├── identity.py             # Canonical media identity helpers
     ├── instance_probe.py       # Web-port probe: clio / other / unreachable
+    ├── plan_input.py           # Bounded detailed-analysis projection for plan prompts (R-048)
     ├── plan_model.py           # Plan/PlanSegment domain + save validation (R-026)
     ├── plan_preview.py         # Cut-clip mapping for plan preview (R-031b)
     ├── plan_readiness.py       # Export/cut readiness (error/warning tiers)
@@ -208,7 +209,7 @@ Use focused tests first, then full regression:
   `logs-buffer.test.js`, `logs-history.test.js`, `logs-ui.test.js`, `logs-locale.test.js`
 - Media identity: `test_identity.py`, `test_vmeta.py`, `test_routes_videos.py`, `test_file_service.py`,
   `test_index.py`
-- Plan domain: `test_plan.py`, `test_plan_model.py`, `test_plan_readiness.py`, `test_plan_preview.py`;
+- Plan domain: `test_plan.py`, `test_plan_input.py`, `test_plan_model.py`, `test_plan_readiness.py`, `test_plan_preview.py`;
   frontend `plan-*.test.js`, `viewer-cut-preview.test.js`
 - ASR: `test_asr*.py`, `test_transcribe.py`, `test_transcribe_engine_switch.py`, `test_tasks_transcribe.py`,
   `test_transcript_align.py`, `test_whisper_cli.py`

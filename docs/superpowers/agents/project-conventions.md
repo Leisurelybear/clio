@@ -256,3 +256,16 @@ Provider management is a frontend-only experience - no new backend APIs needed:
 - Keep `escapeHtml()` for values interpolated into legacy non-tagged template strings.
   Prefer `html` for new or touched `innerHTML` / `insertAdjacentHTML` code.
 - Security tests must cover values inside both text and quoted attributes.
+
+### 4.19 Bounded Plan Input (R-048 P0c)
+
+- `clio/plan_input.py::build_plan_clips()` is the only supported projection from detailed analysis
+  clips into the daily-plan prompt. Do not selectively copy timeline fields in `tasks/plan.py`.
+- The projection keeps representative timeline rows, `highlights`, `key_moments`, media identity,
+  duration, capture time, GPS, and summary fields. It always removes top-level and per-row
+  transcript fields; transcripts enter planning only through the existing transcript context.
+- `plan.max_timeline_rows_per_clip` and `plan.max_key_moments_per_clip` default to 8 and 6.
+  `0` disables the corresponding cap. Timeline output stays time-sorted, ends with an endpoint when
+  possible, and prefers key-moment overlap, score, then usable quality.
+- Prompt serialization and plan lineage use the projection. Range validation, transcript selection,
+  source provenance, and stored state use the full clips passed as `full_clips`.

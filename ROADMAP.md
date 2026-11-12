@@ -57,7 +57,7 @@ Awaiting real-environment verification:
 
 ### R-048 Higher-detail video analysis and bounded plan input
 
-**Status:** In progress (design ready 2026-10-24). Media resolution, structured significance fields, the prompt density contract, and coverage observation are complete. Bounded plan input remains.
+**Status:** Complete through P0c (2026-11-12). Media resolution, structured significance fields, the prompt density contract, coverage observation, and bounded plan-input projection are implemented. Optional P1/P2 improvements remain separate backlog candidates.
 
 **Goal:** Raise per-clip analysis density from summary level (~48 s per timeline row) to 8-12 s per
 row, keep the extra detail in `texts/*.json` for voiceover/cut/preview, and stop that detail from
@@ -93,10 +93,10 @@ Design: `docs/superpowers/specs/2026-10-24-analysis-detail-and-plan-input-budget
   JSON compatible
 - [x] P0b: log `[analyze] <name>: rows=N coverage=xx% max_gap=Ns` after each clip (observation only,
   no retry in P0)
-- [ ] P0c `feat(plan)`: add `clio/plan_input.py::build_plan_clips()` (top-K timeline + key_moments,
+- [x] P0c `feat(plan)`: add `clio/plan_input.py::build_plan_clips()` (top-K timeline + key_moments,
   no inline transcripts) with `plan.max_timeline_rows_per_clip` (8) and
   `plan.max_key_moments_per_clip` (6)
-- [ ] P0c: validate `use_timeline` and transcript selection against full clips while serializing
+- [x] P0c: validate `use_timeline` and transcript selection against full clips while serializing
   only the projection; include the new plan bounds in the plan lineage
 - [ ] P1 (optional) two-stage candidate shortlist: `plan.max_candidate_clips` (60),
   `PLAN_SHORTLIST_PROMPT`, deterministic local fallback

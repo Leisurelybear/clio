@@ -2,6 +2,19 @@
 
 ## 2026-11-12
 
+Daily planning now projects detailed analysis into a deterministic, bounded prompt while retaining the
+complete clips for validation and transcript selection.
+
+- feat(plan): add `clio/plan_input.py` to cap timeline rows and key moments, remove inline transcripts, and preserve representative rows
+- feat(plan): add `plan.max_timeline_rows_per_clip` (8) and `plan.max_key_moments_per_clip` (6), with zero disabling each cap
+- fix(plan): validate plan ranges and select transcripts against full analysis clips while serializing only the projection
+- feat(plan): include projection bounds and projected content in the plan lineage, and log projected clips, rows, and JSON size
+- test(plan): cover projection priority, endpoints, deterministic ordering, invalid data, full-vs-projected validation, and lineage stability
+
+Verification: full pytest passes `3030 passed, 12 skipped`; Vitest passes 882 tests across 81 files; Ruff, mypy, and `git diff --check` pass.
+
+## 2026-11-12
+
 Analysis runs now report timeline coverage quality after each successful clip.
 
 - feat(analyze): log row count, covered percentage, and largest uncovered gap for every fresh analysis

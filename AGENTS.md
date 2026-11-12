@@ -20,7 +20,7 @@ analysis -> DeepSeek text planning/voiceover -> JianYing (CapCut) manual editing
 | CLI / pipeline | `main.py`, `clio/pipeline.py`, `clio/tasks/` |
 | AI / ASR | `clio/ai/`, `clio/asr/`, `clio/analyze.py`, `clio/prompts.py` |
 | Media | `clio/compress.py`, `clio/cut.py`, `clio/ffmpeg_install.py` |
-| Planning / export | `clio/plan_model.py`, `clio/plan_readiness.py`, `clio/export/` |
+| Planning / export | `clio/plan_input.py`, `clio/plan_model.py`, `clio/plan_readiness.py`, `clio/export/` |
 | Task runtime | `clio/task_center/`, `clio/progress.py`, `clio/shutdown.py` |
 | Web backend | `clio/ui/server.py`, `clio/ui/routes/`, `clio/ui/services/` |
 | Web frontend | `clio/ui/static/src/`, `clio/ui/static/locales/` |
@@ -136,6 +136,7 @@ The full contracts moved to
 | Sidebar video metadata | `4.16` |
 | Artifact overwrite protection | `4.17` |
 | Safe HTML rendering | `4.18` |
+| Bounded plan input | `4.19` |
 
 ## 8. On-Demand References
 

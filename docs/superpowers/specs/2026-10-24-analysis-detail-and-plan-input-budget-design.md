@@ -1,7 +1,7 @@
 # 分析细节与 Plan 输入预算设计
 
 > 日期: 2026-10-24
-> 状态: P0b 已完成（媒体分辨率、显著性字段、窗口合并、prompt 密度契约和覆盖率日志已完成）；P0c plan 输入投影待实施
+> 状态: P0c 已完成（2026-11-12；媒体分辨率、显著性字段、窗口合并、prompt 密度契约、覆盖率日志和 plan 输入投影均已实施）；P1/P2 为可选后续项
 > 范围: `clio/ai/gemini.py`、`clio/analyze.py`、`clio/analyze_windows.py`、`clio/tasks/plan.py`、`clio/prompts.py`、配置模型与示例
 > 目标: 提高视频分析的画面细节，同时让 plan 输入量不随细节线性膨胀
 
@@ -219,7 +219,7 @@ def build_plan_clips(clips: list[dict], config: AppConfig) -> list[dict]: ...
 - `timeline`：最多 `plan.max_timeline_rows_per_clip` 条，且**删除 `transcript` / `transcript_segments`**
 - 既有定位字段：`source_stem`、`match_stem`、`segment_offset_sec`
 
-`duration_sec` 取值顺序：最后一个 `analyze_windows.end_sec` → timeline 最大 `end` → `0`。该字段让模型能在选片时感知素材长度。
+`duration_sec` 取值顺序：采集阶段已有 `duration_sec` → 最后一个 `analyze_windows.end_sec` → timeline 最大 `end` → `0`。该字段让模型能在选片时感知素材长度。
 
 转录只通过现有 `TRANSCRIPT_CONTEXT` 进入 plan，并且受 `plan.use_transcripts` 控制。这样内联转录不再重复计入 107k 字符。
 
@@ -285,7 +285,7 @@ def plan_daily_vlog(
 - `plan.max_timeline_rows_per_clip`：默认 8，`0` 表示不截断（仅调试）。
 - `plan.max_key_moments_per_clip`：默认 6，`0` 表示不限制。
 - `plan.max_candidate_clips`：默认 60，`0` 关闭两阶段。
-- 规划前日志输出：`[plan] clips=N rows=M chars=C`，便于对照 token 统计。
+- 规划前日志输出 `[plan] projecting N clips, M timeline rows, C JSON chars into the prompt`，便于对照 token 统计。
 - 验收目标（France 项目）：
   - P0 投影后 plan prompt < 60k tokens；
   - 开启两阶段后 < 30k tokens；
