@@ -4,15 +4,20 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import patch
 
+from clio.config import AppConfig
 from clio.tasks.cover import _normalize_timestamp, extract_cover_frame
 
 ANALYSIS = {"cover_timestamp": "00:08"}
 
 
-def _cfg(tmp_path: Path) -> SimpleNamespace:
-    return SimpleNamespace(paths=SimpleNamespace(output_dir=tmp_path / "output", ffmpeg="ffmpeg"))
+def _cfg(tmp_path: Path) -> AppConfig:
+    return cast(
+        AppConfig,
+        SimpleNamespace(paths=SimpleNamespace(output_dir=tmp_path / "output", ffmpeg="ffmpeg")),
+    )
 
 
 def _video(tmp_path: Path, name: str = "clip.mp4") -> Path:
@@ -64,6 +69,7 @@ class TestExtractCoverFrame:
         ):
             result = extract_cover_frame(cfg, video, ANALYSIS, "001_clip")
 
+        assert result is not None
         assert result == cfg.paths.output_dir / "covers" / "001_clip.jpg"
         assert result.read_bytes() == b"jpeg-bytes"
 
