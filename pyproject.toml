@@ -67,10 +67,8 @@ line-ending = "auto"
 python_version = "3.11"
 strict = false
 ignore_missing_imports = true
-# Production-wide type gate. Keep tests outside until their remaining
-# fixture-heavy annotations are hardened and can be enabled separately.
+# Production and test type gate.
 files = ["clio", "main.py"]
-exclude = ["^clio/tests/"]
 
 [tool.coverage.run]
 branch = true
