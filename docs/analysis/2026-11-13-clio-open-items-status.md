@@ -10,7 +10,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 
 | Priority | Total | Fixed | Satisfied | Confirmed | Environment verification | Duplicate | Not applicable | Pending audit |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| P0 | 9 | 2 | 0 | 7 | 0 | 0 | 0 | 0 |
+| P0 | 9 | 4 | 0 | 5 | 0 | 0 | 0 | 0 |
 | P1 | 35 | 0 | 8 | 4 | 0 | 0 | 0 | 23 |
 | P2 | 59 | 0 | 12 | 0 | 0 | 0 | 0 | 47 |
 | P3 | 14 | 0 | 0 | 0 | 0 | 0 | 0 | 14 |
@@ -21,12 +21,12 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | ---: | --- | --- | --- | --- | --- |
 | 001 | P0 | R001 | LAN 模式不会自动生成 token: 示例配置的 api_token: "" 是空串而不是 None, if TOKEN is None 不成立 | Fixed | Blank tokens now normalize to `None`, so LAN binds generate and pass an auth token while loopback stays tokenless. Focused: 5 pytest cases passed. |
 | 002 | P0 | R004 | --force, analyze.skip_existing:false, 单视频重跑 (compress / all) 都只把 skip_existing 置为 False 而不传 overwrite, 于是不建 existing_map, 每次都分配新编号 | Fixed | Force/rerun mode now scans existing artifacts, re-compresses, and reuses the original numeric slot. Focused: 23 compress tests passed. |
-| 003 | P0 | E1 | "全部重跑"把 ClipRecord.text_path (.txt) 当作分析 JSON 传给口播步骤 | Confirmed | Confirmed against current code and tests; remediation pending. |
+| 003 | P0 | E1 | "全部重跑"把 ClipRecord.text_path (.txt) 当作分析 JSON 传给口播步骤 | Fixed | Rerun-all now derives the analysis JSON path from the recorded `.txt` path. Covered by a real `ClipRecord.text_path=.txt` behavioral test. Focused: 72 run-route tests passed. |
 | 004 | P0 | R005 | 网络层错误从不重试: google-genai 抛出的是 httpx.ConnectError/ReadTimeout, 它们不是 OSError, 被包装成"不可重试错误" | Confirmed | Confirmed against current code and tests; remediation pending. |
 | 005 | P0 | E2 | 结构校验重试把"上次模型输出"当作 prompt 前缀, 原始任务说明、上下文、转录全部丢失 | Confirmed | Confirmed against current code and tests; remediation pending. |
 | 006 | P0 | E3 | 总时长偏离目标超过 25% 时重试一次后直接失败 | Confirmed | Confirmed against current code and tests; remediation pending. |
 | 007 | P0 | E6 | 默认值变更没有迁移: 旧配置保留 remove_audio: true; 升级后全部分析、口播静默重跑 | Confirmed | Confirmed against current code and tests; remediation pending. |
-| 008 | P0 | R032 | rerun all 的单测把 ClipRecord.text_path mock 成 .json 路径; 真实对象里它是 .txt | Confirmed | Confirmed against current code and tests; remediation pending. |
+| 008 | P0 | R032 | rerun all 的单测把 ClipRecord.text_path mock 成 .json 路径; 真实对象里它是 .txt | Fixed | The regression test now uses a `.txt` `ClipRecord.text_path` and verifies the derived `.json` artifact is passed to voiceover generation. Fixed together with E1. Focused: 72 run-route tests passed. |
 | 009 | P0 | R033 | 结构重试的单测只断言调用次数和"含上次 JSON", 不断言重试 prompt 保留原始任务; 另有用例把"时长偏差两次后失败"写成期望行为 | Confirmed | Confirmed against current code and tests; remediation pending. |
 | 010 | P1 | R024 | 没有"真实 ffmpeg + 假 Provider"的端到端冒烟测试 | Confirmed | Confirmed against current code and tests; remediation pending. |
 | 011 | P1 | OPT-031 | CI 没有真实 ffmpeg 的任务; pip-audit 不拦截; 桌面打包任务按条件跳过 | Confirmed | Confirmed against current code and tests; remediation pending. |

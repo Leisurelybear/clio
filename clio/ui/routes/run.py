@@ -164,7 +164,7 @@ def _run_rerun_task(context) -> dict[str, Any]:
             if task_name == "all" and step_name == "analyze":
                 texts_json = next(
                     (
-                        Path(record.text_path)
+                        Path(record.text_path).with_suffix(".json")
                         for record in (step_result or [])
                         if getattr(record, "text_path", None) is not None
                     ),

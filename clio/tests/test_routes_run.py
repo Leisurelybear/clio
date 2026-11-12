@@ -1024,7 +1024,8 @@ class TestRunRerunTask:
         from clio.tasks._helpers import ClipRecord
 
         context, cfg = self._make_context(tmp_path, task="all")
-        new_texts_json = tmp_path / "new_title.json"
+        new_texts_txt = tmp_path / "new_title.txt"
+        new_texts_json = new_texts_txt.with_suffix(".json")
         new_texts_json.write_text("{}", encoding="utf-8")
         captured = {}
         monkeypatch.setattr("clio.ui.routes.run.load_config", lambda *a, **k: copy.deepcopy(cfg))
@@ -1036,7 +1037,7 @@ class TestRunRerunTask:
                     index=1,
                     stem="001_new_title",
                     source_path=Path("source"),
-                    text_path=new_texts_json,
+                    text_path=new_texts_txt,
                 )
             ],
         )
