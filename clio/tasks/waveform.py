@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import struct
+import subprocess
 import tempfile
 import threading
 import time
@@ -29,6 +30,10 @@ STALE_SEC = 900
 ERROR_COOLDOWN_SEC = 60
 MAX_CONCURRENT_JOBS = 2
 _MIN_BINS, _MAX_BINS = 400, 2000
+_BINARY_ERRORS = (OSError, TypeError, ValueError)
+_PROBE_ERRORS = (OSError, subprocess.SubprocessError, TypeError, ValueError)
+_FFMPEG_ERRORS = (OSError, RuntimeError, subprocess.SubprocessError, TypeError, ValueError)
+_LOCK_READ_ERRORS = (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError)
 
 _jobs_lock = threading.Lock()
 # BoundedSemaphore now owns concurrency accounting: waiting threads block
@@ -284,7 +289,7 @@ def has_audio_stream(video_path: Path, ffprobe: str) -> bool:
 
     try:
         ffprobe_bin = resolve_binary(ffprobe or "", "ffprobe")
-    except Exception:
+    except _BINARY_ERRORS:
         # No usable ffprobe → cannot verify; let the work proceed normally.
         return True
     try:
@@ -304,7 +309,7 @@ def has_audio_stream(video_path: Path, ffprobe: str) -> bool:
             capture_output=True,
             text=True,
         )
-    except Exception:
+    except _PROBE_ERRORS:
         return True
     return bool((result.stdout or "").strip())
 
@@ -328,7 +333,7 @@ def extract_peaks_for_video(
         try:
             probe = resolve_binary(ffprobe or "", "ffprobe")
             dur = get_duration_sec(video_path, probe)
-        except Exception:
+        except _BINARY_ERRORS + _PROBE_ERRORS:
             dur = 0.0
     bins = bin_count_for_duration(dur if dur and dur > 0 else 60.0)
     # No audio stream (e.g. compressed files stripped with -an): a waveform is
@@ -366,7 +371,7 @@ def extract_peaks_for_video(
                 ],
                 ffmpeg_bin,
             )
-        except Exception as e:
+        except _FFMPEG_ERRORS as e:
             return {
                 "version": WAVEFORM_VERSION,
                 "source_path": str(video_path.resolve()),
@@ -433,8 +438,10 @@ def ensure_waveform(
         if st == "pending":
             try:
                 data = json.loads(lock_path(project_output, key).read_text(encoding="utf-8"))
+                if not isinstance(data, dict):
+                    raise ValueError("waveform lock root must be an object")
                 started = float(data.get("started_at") or time.time())
-            except Exception:
+            except _LOCK_READ_ERRORS:
                 started = time.time()
             return {"status": "pending", "started_at": started, "key": key}
 
@@ -484,7 +491,7 @@ def ensure_waveform(
                 )
                 write_peaks_atomic(project_output, key, payload)
                 clear_error(project_output, key)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - daemon jobs must persist every failure
                 with contextlib.suppress(OSError):
                     error_path(project_output, key).write_text(str(e)[:500], encoding="utf-8")
             finally:

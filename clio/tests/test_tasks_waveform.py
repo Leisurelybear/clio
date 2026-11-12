@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import struct
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -465,6 +466,48 @@ class TestNoAudioStream:
         src.write_bytes(b"v")
         with patch("clio.utils.resolve_binary", side_effect=FileNotFoundError("ffprobe")):
             assert wf.has_audio_stream(src, ffprobe="") is True
+
+    def test_has_audio_stream_true_on_probe_timeout(self, tmp_path: Path):
+        src = tmp_path / "v.mp4"
+        src.write_bytes(b"v")
+        timeout = subprocess.TimeoutExpired(["ffprobe"], 1)
+        with (
+            patch("clio.utils.resolve_binary", return_value="C:/fake/ffprobe.exe"),
+            patch("clio.utils.run_subprocess", side_effect=timeout),
+        ):
+            assert wf.has_audio_stream(src, ffprobe="") is True
+
+    def test_has_audio_stream_propagates_unexpected_probe_error(self, tmp_path: Path):
+        src = tmp_path / "v.mp4"
+        src.write_bytes(b"v")
+        with (
+            patch("clio.utils.resolve_binary", return_value="C:/fake/ffprobe.exe"),
+            patch("clio.utils.run_subprocess", side_effect=RuntimeError("unexpected probe failure")),
+        ):
+            with pytest.raises(RuntimeError, match="unexpected probe failure"):
+                wf.has_audio_stream(src, ffprobe="")
+
+    def test_extract_propagates_unexpected_duration_error(self, tmp_path: Path):
+        src = tmp_path / "v.mp4"
+        src.write_bytes(b"v")
+        with (
+            patch("clio.utils.resolve_binary", return_value="C:/fake/ffprobe.exe"),
+            patch("clio.utils.get_duration_sec", side_effect=RuntimeError("unexpected duration failure")),
+        ):
+            with pytest.raises(RuntimeError, match="unexpected duration failure"):
+                wf.extract_peaks_for_video(src, ffmpeg="", ffprobe="")
+
+    def test_extract_ffmpeg_failure_returns_probe_error(self, tmp_path: Path):
+        src = tmp_path / "v.mp4"
+        src.write_bytes(b"v")
+        with (
+            patch("clio.utils.resolve_binary", return_value="C:/fake/ffmpeg.exe"),
+            patch("clio.tasks.waveform.has_audio_stream", return_value=True),
+            patch("clio.utils.run_ffmpeg", side_effect=RuntimeError("ffmpeg failed")),
+        ):
+            out = wf.extract_peaks_for_video(src, ffmpeg="", duration_sec=1.0, ffprobe="")
+        assert out["probe_error"] is True
+        assert out["probe_error_msg"] == "ffmpeg failed"
 
     def test_extract_no_audio_returns_ready_without_ffmpeg(self, tmp_path: Path):
         src = tmp_path / "v.mp4"
