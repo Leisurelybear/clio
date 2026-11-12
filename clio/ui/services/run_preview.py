@@ -178,7 +178,8 @@ def _starts_from_compressed(steps: list[str]) -> bool:
 
 
 def _source_input_info(config: AppConfig) -> tuple[dict[str, Any], list[Path]]:
-    project_input = Path(config.input) if getattr(config, "input", None) else None
+    raw_project_input = getattr(config, "input", None)
+    project_input = Path(raw_project_input) if raw_project_input else None
     if project_input and project_input.is_file():
         videos = [project_input] if _is_video(project_input) else []
         return {"mode": "file", "path": str(project_input), "count": len(videos)}, videos

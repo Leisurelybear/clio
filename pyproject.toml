@@ -102,6 +102,7 @@ files = [
     "clio/tasks/transcript_align.py",
     "clio/task_center/",
     "clio/ui/routes/videos.py",
+    "clio/ui/services/run_preview.py",
 ]
 
 [tool.coverage.run]
