@@ -6,6 +6,7 @@ import http.client
 import http.server
 import threading
 import urllib.error
+from email.message import Message
 
 import pytest
 
@@ -23,8 +24,8 @@ class _FakeResponse:
     def __enter__(self) -> _FakeResponse:
         return self
 
-    def __exit__(self, *_exc: object) -> bool:
-        return False
+    def __exit__(self, *_exc: object) -> None:
+        return None
 
 
 def _patch_open(monkeypatch, response=None, error=None):
@@ -55,7 +56,7 @@ def test_probe_reports_other_for_non_200(monkeypatch):
 
 
 def test_probe_reports_other_for_http_error(monkeypatch):
-    error = urllib.error.HTTPError("http://127.0.0.1:8800/", 403, "Forbidden", {}, None)
+    error = urllib.error.HTTPError("http://127.0.0.1:8800/", 403, "Forbidden", Message(), None)
     _patch_open(monkeypatch, error=error)
 
     assert probe_web_ui("127.0.0.1", 8800) == "other"

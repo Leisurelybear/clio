@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import urllib.error
+from email.message import Message
 
 from clio.desktop.single_instance import (
     WEB_PORT,
@@ -41,6 +42,7 @@ def test_write_lock_generates_owner_token(tmp_path):
     assert token
     assert owns_lock(tmp_path, token) is True
     data = read_lock(tmp_path)
+    assert data is not None
     assert data["token"] == token
 
 
@@ -103,7 +105,9 @@ def test_remove_lock_keeps_foreign_lock(tmp_path):
     write_lock(tmp_path, port=4321, pid=1, token="owner")
     assert remove_lock(tmp_path, token="other") is False
     assert (tmp_path / "clio.lock").is_file()
-    assert read_lock(tmp_path)["token"] == "owner"
+    data = read_lock(tmp_path)
+    assert data is not None
+    assert data["token"] == "owner"
 
 
 def test_remove_lock_missing_is_silent(tmp_path):
@@ -128,7 +132,7 @@ def test_focus_first_instance_http_error_means_alive(monkeypatch):
     first instance is alive; the second instance must exit instead of taking over."""
 
     def _raise_http(*args, **kwargs):
-        raise urllib.error.HTTPError("url", 500, "not ready", None, None)
+        raise urllib.error.HTTPError("url", 500, "not ready", Message(), None)
 
     monkeypatch.setattr("urllib.request.urlopen", _raise_http)
     assert focus_first_instance("127.0.0.1", 9) is True

@@ -60,7 +60,11 @@ class _EndpointServer:
         self.server = BoundedThreadingHTTPServer(
             ("127.0.0.1", 0), handler, max_workers=max_workers, max_streams=max_streams
         )
-        self.host, self.port = self.server.server_address[:2]
+        host, port = self.server.server_address[:2]
+        if not isinstance(host, str) or not isinstance(port, int):
+            raise TypeError("test server must expose a string host and integer port")
+        self.host = host
+        self.port = port
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
 
