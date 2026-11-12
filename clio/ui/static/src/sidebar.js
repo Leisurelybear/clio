@@ -15,6 +15,7 @@ import {
 import { selectVideosButtonHtml } from './select-btn.js';
 import { loadPlanPreviewMedia } from './plan-preview-media.js';
 import { t } from './i18n.js';
+import { confirmDialog } from './confirm.js';
 
 let _selectVideoRequestId = 0;
 
@@ -22,7 +23,7 @@ let _selectVideoRequestId = 0;
 
 async function selectVideo(file, options = {}) {
   if (state.dirty) {
-    if (!confirm(t('sidebar.dirty.video'))) return;
+    if (!(await confirmDialog(t('sidebar.dirty.video')))) return;
   }
   if (state.previewActive) stopPreview();
   $('player-pane').classList.remove('plan-mode');
@@ -102,7 +103,7 @@ async function selectVideo(file, options = {}) {
 
 async function selectPlan(dayOverride) {
   if (state.dirty) {
-    if (!confirm(t('sidebar.dirty.plan'))) return;
+    if (!(await confirmDialog(t('sidebar.dirty.plan')))) return;
   }
   if (state.previewActive) stopPreview();
   $('player-pane').classList.add('plan-mode');
@@ -135,7 +136,7 @@ async function selectPlan(dayOverride) {
 
 async function selectRun() {
   if (state.dirty) {
-    if (!confirm(t('sidebar.dirty.run'))) return;
+    if (!(await confirmDialog(t('sidebar.dirty.run')))) return;
   }
   if (state.previewActive) stopPreview();
   $('player-pane').classList.remove('plan-mode');
@@ -149,7 +150,7 @@ async function selectRun() {
 
 async function selectConfig() {
   if (state.dirty) {
-    if (!confirm(t('sidebar.dirty.config'))) return;
+    if (!(await confirmDialog(t('sidebar.dirty.config')))) return;
   }
   if (state.previewActive) stopPreview();
   $('player-pane').classList.remove('plan-mode');
@@ -187,7 +188,7 @@ async function selectConfig() {
 
 async function selectLogs() {
   if (state.dirty) {
-    if (!confirm(t('sidebar.dirty.logs'))) return;
+    if (!(await confirmDialog(t('sidebar.dirty.logs')))) return;
   }
   if (state.previewActive) stopPreview();
   $('player-pane').classList.remove('plan-mode');
@@ -201,7 +202,7 @@ async function selectLogs() {
 
 async function selectTokens() {
   if (state.dirty) {
-    if (!confirm(t('sidebar.dirty.tokens'))) return;
+    if (!(await confirmDialog(t('sidebar.dirty.tokens')))) return;
   }
   if (state.previewActive) stopPreview();
   $('player-pane').classList.remove('plan-mode');
@@ -239,7 +240,7 @@ function sameVideoIndex(a, b) {
 
 async function selectTasks() {
   if (state.dirty) {
-    if (!confirm(t('sidebar.dirty.tasks'))) return;
+    if (!(await confirmDialog(t('sidebar.dirty.tasks')))) return;
   }
   if (state.previewActive) stopPreview();
   $('player-pane').classList.remove('plan-mode');
@@ -279,7 +280,7 @@ function _sourceSwitchResumePoint(
 async function setSource(source, options = {}) {
   if (source === state.source) return;
   if (state.dirty) {
-    if (!confirm(t('sidebar.dirty.source'))) return;
+    if (!(await confirmDialog(t('sidebar.dirty.source')))) return;
   }
   const player = $('player');
   const currentTime = Number.isFinite(player?.currentTime) ? player.currentTime : 0;
@@ -400,10 +401,10 @@ async function switchToOriginalThenCompress() {
   await setSource('original');
 }
 
-function goToRunTab() {
+async function goToRunTab() {
   // Same dirty guard as selectRun — empty CTAs should not discard edits silently
   if (state.dirty) {
-    if (!confirm(t('sidebar.dirty.run'))) return;
+    if (!(await confirmDialog(t('sidebar.dirty.run')))) return;
   }
   if (state.previewActive) stopPreview();
   $('player-pane').classList.remove('plan-mode');
