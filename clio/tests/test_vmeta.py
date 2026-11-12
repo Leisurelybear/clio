@@ -51,6 +51,16 @@ class TestVideoMeta:
         meta_path.write_text("{invalid json", encoding="utf-8")
         assert VideoMeta.read(bad) is None
 
+    def test_vmeta_read_non_object_returns_none(self, tmp_path: Path):
+        bad = tmp_path / "bad.mp4"
+        bad.with_suffix(VMETA_EXT).write_text("[]", encoding="utf-8")
+        assert VideoMeta.read(bad) is None
+
+    def test_vmeta_read_missing_required_field_returns_none(self, tmp_path: Path):
+        bad = tmp_path / "bad.mp4"
+        bad.with_suffix(VMETA_EXT).write_text('{"data": {}}', encoding="utf-8")
+        assert VideoMeta.read(bad) is None
+
     def test_vmeta_is_stale_mtime_change(self, tmp_path: Path):
         src = tmp_path / "source.mp4"
         src.write_bytes(b"\x00" * 1000)
@@ -193,6 +203,18 @@ class TestVideoIndex:
 
     def test_vindex_read_missing_returns_none(self, tmp_path: Path):
         assert VideoIndex.read("nonexistent", tmp_path) is None
+
+    def test_vindex_read_non_object_returns_none(self, tmp_path: Path):
+        (tmp_path / f"bad{VINDEX_EXT}").write_text("[]", encoding="utf-8")
+        assert VideoIndex.read("bad", tmp_path) is None
+
+    def test_vindex_read_invalid_segment_returns_none(self, tmp_path: Path):
+        (tmp_path / f"bad{VINDEX_EXT}").write_text(
+            '{"source_stem": "bad", "source_path": "bad.mp4", "source_size": 1,'
+            ' "source_modifyTime": 1, "segments": [{}]}',
+            encoding="utf-8",
+        )
+        assert VideoIndex.read("bad", tmp_path) is None
 
     def test_vindex_compressed_paths_filters_missing(self, tmp_path: Path):
         src = tmp_path / "src.mp4"

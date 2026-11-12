@@ -99,7 +99,7 @@ class VideoMeta:
                 verify=raw.get("verify", ""),
                 version=raw.get("version", VMETA_VERSION),
             )
-        except Exception:
+        except (AttributeError, KeyError, OSError, TypeError, ValueError):
             return None
 
     def source_path_obj(self) -> Path:
@@ -190,7 +190,7 @@ class VideoIndex:
                 segments=segs,
                 version=raw.get("version", VMETA_VERSION),
             )
-        except Exception:
+        except (AttributeError, KeyError, OSError, TypeError, ValueError):
             return None
 
     def compressed_paths(self, compressed_dir: Path) -> list[Path]:
