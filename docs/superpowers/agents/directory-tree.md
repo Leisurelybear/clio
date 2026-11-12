@@ -38,6 +38,7 @@ vlog-video-analysis/
     ├── prompts.py              # Prompt constants and output contracts (never translated)
     ├── compress.py             # Single-file ffmpeg compression
     ├── cut.py                  # Segment cutting wrapper
+    ├── cut_snap.py             # Snap generated plan ranges to shot/sentence boundaries (Q13)
     ├── ffmpeg_install.py       # Verified cross-platform ffmpeg downloader (R-028b/c)
     ├── transcribe.py           # Whisper ASR core
     ├── whisper_cli.py          # Whisper CLI install/check entry
@@ -209,7 +210,7 @@ Use focused tests first, then full regression:
   `logs-buffer.test.js`, `logs-history.test.js`, `logs-ui.test.js`, `logs-locale.test.js`
 - Media identity: `test_identity.py`, `test_vmeta.py`, `test_routes_videos.py`, `test_file_service.py`,
   `test_index.py`
-- Plan domain: `test_plan.py`, `test_plan_input.py`, `test_plan_model.py`, `test_plan_readiness.py`, `test_plan_preview.py`;
+- Plan domain: `test_plan.py`, `test_plan_input.py`, `test_plan_model.py`, `test_plan_readiness.py`, `test_plan_preview.py`, `test_cut_snap.py`;
   frontend `plan-*.test.js`, `viewer-cut-preview.test.js`
 - ASR: `test_asr*.py`, `test_transcribe.py`, `test_transcribe_engine_switch.py`, `test_tasks_transcribe.py`,
   `test_transcript_align.py`, `test_whisper_cli.py`

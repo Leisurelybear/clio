@@ -137,6 +137,7 @@ The full contracts moved to
 | Artifact overwrite protection | `4.17` |
 | Safe HTML rendering | `4.18` |
 | Bounded plan input | `4.19` |
+| Generated plan cut snapping | `4.20` |
 
 ## 8. On-Demand References
 

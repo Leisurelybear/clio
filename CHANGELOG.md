@@ -2,6 +2,17 @@
 
 ## 2026-11-12
 
+Generated daily plans now align cut points with nearby visual and speech boundaries before they are
+saved, so preview, cutting, and export all use the same snapped ranges.
+
+- feat(plan): snap generated `use_timeline` endpoints to analysis shot boundaries and transcript sentence endings
+- fix(plan): prefer shot boundaries for starts and sentence endings for ends, cap movement at 1.5 seconds, and fall back when snapping would create a clip shorter than 0.5 seconds
+- test(plan): cover boundary preference, distance/duration guards, transcript offsets, invalid timelines, and planner integration
+
+Verification: full pytest passes `3055 passed, 12 skipped`; Vitest passes 885 tests across 81 files; Ruff, mypy, and `git diff --check` pass. Feature commit: `0e1c9bf`.
+
+## 2026-11-12
+
 Planned voiceover generation now runs after daily planning, using each plan segment's actual range,
 neighboring context, and aligned transcript instead of isolated pre-plan clip narration.
 

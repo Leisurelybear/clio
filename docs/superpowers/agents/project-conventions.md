@@ -269,3 +269,16 @@ Provider management is a frontend-only experience - no new backend APIs needed:
   possible, and prefers key-moment overlap, score, then usable quality.
 - Prompt serialization and plan lineage use the projection. Range validation, transcript selection,
   source provenance, and stored state use the full clips passed as `full_clips`.
+
+### 4.20 Generated Plan Cut Snapping (Q13)
+
+- `clio/cut_snap.py::snap_plan_ranges()` is the only supported cut-point snapping path. It runs on
+  AI-generated plan dictionaries after local validation and before `Plan.from_dict()` and artifact save.
+- Analysis timeline `start`/`end` values are local shot boundaries. Transcript segment `end` values
+  become sentence boundaries after subtracting `segment_offset_sec` for legacy split clips.
+- Starts prefer the nearest shot boundary; ends prefer the nearest sentence end. Either endpoint may
+  use the other boundary type, but movement is capped at 1.5 seconds.
+- Never apply snapping when it would make a range shorter than 0.5 seconds. Leave invalid or missing
+  timelines unchanged. Do not apply this pass to user-edited plans loaded from disk.
+- When a plan changes, recalculate `total_estimated_sec` so preview, cut, export, and the saved plan
+  share one range contract. Keep `clio/tests/test_cut_snap.py` and planner integration coverage green.
