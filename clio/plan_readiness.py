@@ -357,7 +357,7 @@ def collect_project_indices(cfg: Any) -> tuple[set[str], set[str]]:
                     if mapped:
                         offline.update(mapped)
                         break
-        except Exception:
+        except OSError:
             pass
 
     return known, offline

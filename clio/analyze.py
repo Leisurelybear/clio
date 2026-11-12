@@ -37,7 +37,7 @@ def _task_temperature(config: AppConfig, task: TaskName) -> float | None:
     """Return the configured sampling temperature, tolerating unconfigured tasks."""
     try:
         return get_task_config(config, task).temperature
-    except Exception:
+    except (AttributeError, KeyError, ValueError):
         return None
 
 
@@ -46,7 +46,7 @@ def _usage_meta(config: AppConfig, task: TaskName) -> dict[str, Any]:
     try:
         task_cfg = get_task_config(config, task)
         provider_cfg = config.ai.providers.get(task_cfg.provider)
-    except Exception:
+    except (AttributeError, KeyError, ValueError):
         return {
             "provider_name": "",
             "prompt_price_per_1m_usd": 0.0,
@@ -1238,7 +1238,7 @@ def summarize_window_analysis(
                 system_message=system,
                 **_usage_meta(config, TaskName.REFINE_TEXT),
             )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - translate provider failures after cancellation
         if cancel_event is not None and cancel_event.is_set():
             raise InterruptedError(t("analyze.cancelled")) from exc
         raise

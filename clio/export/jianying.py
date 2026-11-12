@@ -94,7 +94,7 @@ def _resolve_video_by_prefix(
         if v.stem.split("_", 1)[0] in index_keys:
             try:
                 duration = get_duration_sec(v, ffprobe)
-            except Exception:
+            except (OSError, RuntimeError, ValueError):
                 return None
             return v.resolve(), _to_microseconds(duration)
     return None
@@ -190,7 +190,7 @@ def _resolve_video(
         if v.stem.lower() == target_lower:
             try:
                 duration = get_duration_sec(v, ffprobe)
-            except Exception:
+            except (OSError, RuntimeError, ValueError):
                 return None
             return v.resolve(), _to_microseconds(duration)
     return None
@@ -432,7 +432,7 @@ def _draft_fps(materials: dict, ffprobe: str | None) -> int:
         return 30
     try:
         details = probe_media_details(Path(materials["videos"][0]["path"]), ffprobe)
-    except Exception:
+    except (OSError, RuntimeError, ValueError):
         return 30
     fps = details.get("fps")
     if not isinstance(fps, (int, float)) or fps <= 0:

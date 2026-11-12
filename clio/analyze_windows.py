@@ -389,7 +389,7 @@ def slice_window_video(
             return True
         try:
             actual_duration = get_duration_sec(out, ffprobe)
-        except Exception:
+        except (OSError, RuntimeError, ValueError):
             return False
         return abs(actual_duration - dur) <= 0.5
 
@@ -415,7 +415,7 @@ def slice_window_video(
         # User cancel must not fall through to re-encode (C1).
         out.unlink(missing_ok=True)
         raise
-    except Exception:
+    except (OSError, RuntimeError, ValueError):
         out.unlink(missing_ok=True)
 
     reencode_args = [
