@@ -11,8 +11,8 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
   - Snapshot: 83 items; 62 completed; 2 partial, 2 awaiting real-environment
     verification, and 17 pending. O7 is pushed in `b6c9cd2`; B10 `33a2233`,
     O11 `cb8613d`, O15 security headers `a97bf4d`, O4 `6974751`, F2
-    `e3061f8`, F5 `de704a5`, O13 `ea32a69`, O10 config loading `e9ee689`, and
-    O10 log stream handling `ae6e237` are local.
+    `e3061f8`, F5 `de704a5`, O13 `ea32a69`, O10 config loading `e9ee689`,
+    O10 log stream handling `ae6e237`, and O10 shutdown cleanup `f8897b0` are local.
   - Verification: targeted C2 pytest (270 passed), C15 pytest (58 passed), full pytest
     (2837 passed, 12 skipped, 13 deselected with symlink tests excluded), full Vitest
     (857 passed), O7 targeted pytest (153 passed), full pytest after O7 (2846 passed,
@@ -32,7 +32,9 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
     `git diff --check`. O10 config loading passed full pytest (2899 tests, 12 skipped),
     Ruff over 263 files, mypy over 39 files, and `git diff --check`. O10 log stream
     handling passed full pytest (2901 tests, 12 skipped), Ruff over 263 files, mypy over
-    39 files, and `git diff --check`.
+    39 files, and `git diff --check`. O10 shutdown cleanup passed targeted pytest (21
+    passed), the same full pytest baseline, Ruff over 263 files, mypy over 39 files, and
+    `git diff --check`.
     CI run 42820037572 (head `262abde`) and CI run 42840852167 (head `958bc57`) passed
     all Python 3.11/3.12 platform jobs plus quality, package, and Vitest jobs.
   - [x] P0 completed (14): B1 `a01b156`; B2 `a436315`; C1 `14b873b`; C2 `91e4699`;
@@ -52,8 +54,8 @@ Design discussions / decision history in `AGENTS.md`, implementation details in 
     C16 `c75c067` / `8aca38e` / `f593d28` / `eb3e0f6` / `46daa41` / `2c359c6` /
     `fdcdd7d` / `4b300a3` / `1ac279c` / `74f70c4`; O13 `ea32a69`.
   - [~] P2 partial (2): O15 `a97bf4d` (default HTML escaping remains);
-    O10 `e9ee689` / `ae6e237` (config loading and log streams narrowed; 117 `BLE001`
-    and 42 `SIM105` findings remain).
+    O10 `e9ee689` / `ae6e237` / `f8897b0` (config loading, log streams, and shutdown
+    cleanup narrowed; 109 `BLE001` and 38 `SIM105` findings remain).
   - [ ] P2 awaiting real-environment verification (2): C10; D12 (`082cc7e` completes
     the code-side fixes: timeline clamping, draft_meta_info.json, platform/fps probing).
   - [ ] P2 pending (8): O8; O9; O14; O16; O18; Q13; F4; F9.
