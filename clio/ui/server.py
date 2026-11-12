@@ -733,7 +733,7 @@ def make_handler(
                 return self._send_json({"ok": False, "error": str(e)}, e.status)
             except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                 return None
-            except Exception:
+            except Exception:  # noqa: BLE001 - HTTP request boundary must return 500 instead of crashing the worker
                 print(
                     f"  [http-error] req={self._http_req_id} "
                     f"{getattr(self, 'command', None) or '-'} "
