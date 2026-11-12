@@ -869,6 +869,72 @@ def test_validate_plan_ranges_preserves_opening_and_ending_when_capped():
     assert [segment["index"] for segment in validated["sequence"]] == ["1", "4"]
 
 
+def test_plan_projection_uses_full_clips_for_transcripts_and_range_validation(monkeypatch):
+    from clio.plan_input import build_plan_clips
+
+    cfg = _fake_config()
+    cfg.plan.max_clips_per_day = 10
+    cfg.plan.target_duration_sec = 10
+    cfg.plan.max_timeline_rows_per_clip = 1
+    cfg.plan.max_key_moments_per_clip = 6
+    object.__setattr__(cfg, "whisper", SimpleNamespace(enabled=True, max_segments_per_clip=5))
+    full_clip = {
+        "index": "001",
+        "source_stem": "A",
+        "match_stem": "A",
+        "title": "A",
+        "summary": "",
+        "timeline": [
+            {
+                "start": "00:00",
+                "end": "00:10",
+                "description": "visible",
+                "score": 5,
+                "transcript_segments": [{"start": 0, "end": 1, "text": "INLINE_SECRET"}],
+            },
+            {"start": "00:20", "end": "00:30", "description": "omitted", "score": 1},
+        ],
+        "transcript": "INLINE_SECRET",
+    }
+    projected = build_plan_clips([full_clip], cfg)
+    prompts: list[str] = []
+
+    def capture_prompt(prompt: str, *args: Any, **kwargs: Any) -> str:
+        prompts.append(prompt)
+        return prompt
+
+    monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (MagicMock(), "model"))
+    monkeypatch.setattr("clio.analyze._wrap_with_context", capture_prompt)
+    monkeypatch.setattr(
+        "clio.analyze._call_ai",
+        lambda *a, **kw: json.dumps(
+            {
+                "day_title": "day1",
+                "theme": "",
+                "total_estimated_sec": 10,
+                "sequence": [{"index": "001", "use_timeline": "00:20-00:30"}],
+            }
+        ),
+    )
+    transcripts = {"a": {"segments": [{"start": 22, "end": 23, "text": "from full timeline"}]}}
+
+    result = plan_daily_vlog(
+        projected,
+        cfg,
+        "day1",
+        transcripts_map=transcripts,
+        use_transcripts=True,
+        full_clips=[full_clip],
+    )
+
+    assert result["sequence"][0]["use_timeline"] == "00:20-00:30"
+    clips_prompt = prompts[0].split("<transcript>", 1)[0]
+    assert "visible" in clips_prompt
+    assert "omitted" not in clips_prompt
+    assert "INLINE_SECRET" not in clips_prompt
+    assert "from full timeline" in prompts[0]
+
+
 def test_select_transcripts_accepts_boundary_overlap_and_restores_time_order():
     transcript = {
         "segments": [

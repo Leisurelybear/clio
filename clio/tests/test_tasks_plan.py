@@ -92,6 +92,51 @@ def test_plan_lineage_changes_with_analysis_timeline(cfg: AppConfig):
     assert _plan_lineage_fingerprint(cfg, first) != _plan_lineage_fingerprint(cfg, second)
 
 
+def test_planner_uses_projection_while_validation_keeps_full_clips(cfg: AppConfig, capsys) -> None:
+    from clio.tasks.plan import run_plan_vlog
+
+    timeline = [
+        {"start": f"00:{minute:02d}", "end": f"00:{minute + 1:02d}", "description": str(minute)} for minute in range(5)
+    ]
+    analysis_path = _write_text(cfg, "001_A.json", "A", 1)
+    analysis = json.loads(analysis_path.read_text(encoding="utf-8"))
+    analysis.update(
+        {
+            "timeline": timeline,
+            "transcript": "INLINE_SECRET",
+            "key_moments": [
+                {"start": "00:00", "end": "00:05", "title": "opening", "score": 5},
+            ],
+        }
+    )
+    analysis["timeline"][0]["transcript_segments"] = [{"start": 0, "end": 1, "text": "SECRET"}]
+    analysis_path.write_text(json.dumps(analysis), encoding="utf-8")
+    cfg.plan.max_timeline_rows_per_clip = 2
+
+    captured: dict[str, object] = {}
+
+    def _fake(clips, config, day_label="day1", **kwargs):
+        captured["clips"] = list(clips)
+        captured["full_clips"] = list(kwargs["full_clips"])
+        return _fake_plan_payload(clips)
+
+    with patch("clio.tasks.plan.plan_daily_vlog", side_effect=_fake):
+        result = run_plan_vlog(cfg, day_label="day1", overwrite=True)
+
+    projected = captured["clips"]
+    full = captured["full_clips"]
+    assert isinstance(projected, list)
+    assert isinstance(full, list)
+    assert len(projected[0]["timeline"]) == 2
+    assert len(full[0]["timeline"]) == 5
+    assert projected[0]["key_moments"][0]["title"] == "opening"
+    assert "transcript" not in projected[0]
+    assert "transcript_segments" not in projected[0]["timeline"][0]
+    assert result is not None
+    assert result["source_inputs"] == [{"index": "001", "source_stem": "A"}]
+    assert "注入规划" in capsys.readouterr().out
+
+
 def test_plan_failure_does_not_write_artifacts(cfg: AppConfig):
     from clio.tasks.plan import run_plan_vlog
 

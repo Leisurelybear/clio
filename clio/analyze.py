@@ -1126,7 +1126,9 @@ def plan_daily_vlog(
     token_store=None,
     context_override: str | None = None,
     task_prompts: dict[str, str] | None = None,
+    full_clips: list[dict] | None = None,
 ) -> dict:
+    validation_clips = full_clips if full_clips is not None else clips
     provider, model = get_task_provider(config, TaskName.VLOG_PLAN)
 
     plan_template = resolve_prompt_template("vlog_plan", PLAN_PROMPT, config, task_prompts=task_prompts)
@@ -1145,7 +1147,7 @@ def plan_daily_vlog(
     whisper_cfg = getattr(config, "whisper", None)
     if use_transcripts and bool(getattr(whisper_cfg, "enabled", False)):
         limit = int(getattr(whisper_cfg, "max_segments_per_clip", 5) or 5)
-        transcript_info = _build_plan_transcript_info(clips, transcripts_map, limit=limit)
+        transcript_info = _build_plan_transcript_info(validation_clips, transcripts_map, limit=limit)
         if transcript_info:
             transcript_json = json.dumps(transcript_info, ensure_ascii=False, indent=None)
             transcript_template = resolve_prompt_template(
@@ -1188,7 +1190,7 @@ def plan_daily_vlog(
             result = _validate_plan(extract_json(text), day_label)
             raw_sequence_count = len(result.get("sequence", []))
 
-            valid_indices = {_plan_index_key(clip.get("index")) for clip in clips}
+            valid_indices = {_plan_index_key(clip.get("index")) for clip in validation_clips}
             original_count = len(result["sequence"])
             result["sequence"] = [
                 segment for segment in result["sequence"] if _plan_index_key(segment.get("index")) in valid_indices
@@ -1196,10 +1198,10 @@ def plan_daily_vlog(
             if len(result["sequence"]) < original_count:
                 print(t("analyze.plan_dropped_invalid_index", {"count": original_count - len(result["sequence"])}))
 
-            issues = _plan_validation_issues(result, clips, target_duration_sec, check_duration=False)
+            issues = _plan_validation_issues(result, validation_clips, target_duration_sec, check_duration=False)
             if not issues:
-                result = _validate_plan_ranges(result, clips, max_clips, target_duration_sec)
-                issues = _plan_validation_issues(result, clips, target_duration_sec)
+                result = _validate_plan_ranges(result, validation_clips, max_clips, target_duration_sec)
+                issues = _plan_validation_issues(result, validation_clips, target_duration_sec)
             if not issues:
                 return result
 

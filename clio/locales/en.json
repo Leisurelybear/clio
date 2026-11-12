@@ -606,6 +606,7 @@
   "task.pipeline_title": "Run media processing pipeline",
   "task.plan.all_days_cancelled": "[cancel] all-days plan terminated by the user",
   "task.plan.cancelled": "[cancel] plan step terminated by the user",
+  "task.plan.budget_projection": "[plan] projecting {clips} clips, {rows} timeline rows, {chars} JSON chars into the prompt",
   "task.plan.filter_selected": "[plan] filtering media by the selection ({count} stems)",
   "task.plan.index_invalid_reason": "invalid index",
   "task.plan.invalid_index": "  [skip] invalid index '{index}' in {name}",

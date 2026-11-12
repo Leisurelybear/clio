@@ -83,6 +83,8 @@ class PlanConfig:
     max_clips_per_day: int = 12
     target_duration_sec: int = 180
     use_transcripts: bool = True
+    max_timeline_rows_per_clip: int = 8
+    max_key_moments_per_clip: int = 6
 
 
 @dataclass

@@ -220,6 +220,8 @@ def _validate_config(config: AppConfig) -> None:
     _require_min("script.target_words", config.script.target_words, 1)
     _require_min("plan.max_clips_per_day", config.plan.max_clips_per_day, 1)
     _require_min("plan.target_duration_sec", config.plan.target_duration_sec, 1)
+    _require_min("plan.max_timeline_rows_per_clip", config.plan.max_timeline_rows_per_clip, 0)
+    _require_min("plan.max_key_moments_per_clip", config.plan.max_key_moments_per_clip, 0)
     _require_min("naming.index_width", config.naming.index_width, 1)
     _require_min("ai.provider_ttl_min", config.ai.provider_ttl_min, 0)
     if config.export.canvas_ratio not in CANVAS_PRESETS:

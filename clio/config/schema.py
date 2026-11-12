@@ -44,6 +44,8 @@ _FIELD_OVERRIDES: dict[str, dict[str, Any]] = {
     "script.template_file": {"ui": "file"},
     "plan.use_transcripts": {},
     "plan.max_clips_per_day": {},
+    "plan.max_timeline_rows_per_clip": {},
+    "plan.max_key_moments_per_clip": {},
     "whisper.model_size": {"ui": "select", "choices": ["small", "medium", "large-v3"]},
     "whisper.device": {"ui": "select", "choices": ["auto", "cpu", "cuda"]},
     "whisper.engine": {"group": BASIC, "ui": "select"},

@@ -237,7 +237,12 @@ class TestPlanLineageFingerprint:
 
     @pytest.mark.parametrize(
         ("field", "value"),
-        [("max_clips_per_day", 8), ("target_duration_sec", 240)],
+        [
+            ("max_clips_per_day", 8),
+            ("target_duration_sec", 240),
+            ("max_timeline_rows_per_clip", 3),
+            ("max_key_moments_per_clip", 3),
+        ],
     )
     def test_changes_on_plan_constraints(self, loaded_config: AppConfig, field: str, value: int) -> None:
         clips = [{"index": "001", "source_stem": "GL010683", "title": "t"}]
@@ -245,6 +250,21 @@ class TestPlanLineageFingerprint:
         setattr(loaded_config.plan, field, value)
 
         assert _plan_lineage_fingerprint(loaded_config, clips) != base
+
+    def test_ignores_timeline_rows_outside_projection(self, loaded_config: AppConfig) -> None:
+        loaded_config.plan.max_timeline_rows_per_clip = 2
+        rows = [
+            {"start": "00:00", "end": "00:10", "description": "first"},
+            {"start": "00:10", "end": "00:20", "description": "omitted"},
+            {"start": "00:20", "end": "00:30", "description": "also omitted"},
+            {"start": "00:30", "end": "00:40", "description": "last"},
+        ]
+        first = [{"index": "001", "source_stem": "A", "title": "A", "timeline": rows}]
+        changed_rows = [dict(row) for row in rows]
+        changed_rows[1]["description"] = "changed but omitted"
+        second = [{**first[0], "timeline": changed_rows}]
+
+        assert _plan_lineage_fingerprint(loaded_config, first) == _plan_lineage_fingerprint(loaded_config, second)
 
     def test_changes_on_transcript_selection_limit(self, loaded_config: AppConfig) -> None:
         clips = [{"index": "001", "source_stem": "GL010683", "title": "t"}]

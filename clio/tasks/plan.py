@@ -23,6 +23,7 @@ from clio.gpmf import load_telemetry_summary
 from clio.i18n import t
 from clio.identity import SEGMENT_SUFFIX_RE, legacy_segment_offset_sec, load_identity
 from clio.log import timed
+from clio.plan_input import build_plan_clips
 from clio.processing_state import ProcessingState
 from clio.progress import ProgressReporter
 from clio.prompt_overrides import resolve_prompt_template
@@ -258,33 +259,15 @@ def _plan_lineage_fingerprint(
             "use_transcripts": transcripts_enabled,
             "max_clips_per_day": getattr(config.plan, "max_clips_per_day", 12),
             "target_duration_sec": getattr(config.plan, "target_duration_sec", 180),
+            "max_timeline_rows_per_clip": getattr(config.plan, "max_timeline_rows_per_clip", 8),
+            "max_key_moments_per_clip": getattr(config.plan, "max_key_moments_per_clip", 6),
             "max_transcript_segments_per_clip": (
                 getattr(config.whisper, "max_segments_per_clip", 5) if transcripts_enabled else None
             ),
             "transcript_prompt": transcript_prompt,
-            # Planning depends on the complete analysis, not only its title.
-            # Include the content-bearing fields so an improved analysis
-            # invalidates a cached plan.
-            "clips": [
-                {
-                    "index": c.get("index", ""),
-                    "source_stem": c.get("source_stem", ""),
-                    "match_stem": c.get("match_stem", ""),
-                    "segment_offset_sec": c.get("segment_offset_sec", 0.0),
-                    "title": c.get("title", ""),
-                    "summary": c.get("summary", ""),
-                    "location": c.get("location", ""),
-                    "duration_sec": c.get("duration_sec"),
-                    "capture_time": c.get("capture_time", ""),
-                    "gps": c.get("gps"),
-                    "mood": c.get("mood", ""),
-                    "voiceover": c.get("voiceover", ""),
-                    "timeline": c.get("timeline", []),
-                    "highlights": c.get("highlights", []),
-                    "suggested_use": c.get("suggested_use", ""),
-                }
-                for c in clips
-            ],
+            # Only projected fields affect the prompt. Detailed timeline rows
+            # omitted by the budget must not invalidate an otherwise valid plan.
+            "clips": build_plan_clips(clips, config),
             "transcripts": transcript_lineage,
             "context": _prompt_context_parts(config, context_override),
         },
@@ -390,6 +373,7 @@ def _collect_plan_clips(
             "voiceover": _read_voiceover(config, json_file),
             "timeline": data.get("timeline", []),
             "highlights": data.get("highlights", []),
+            "key_moments": data.get("key_moments", []),
             "suggested_use": data.get("suggested_use", ""),
             "source_stem": source_stem,
             "match_stem": match_stem,
@@ -499,12 +483,26 @@ def run_plan_vlog(
         print(t("task.plan.transcripts_missing"))
         print(t("task.plan.transcripts_missing_hint"))
 
+    plan_clips = build_plan_clips(clips, config)
+    timeline_rows = sum(len(clip.get("timeline", [])) for clip in plan_clips)
+    projected_chars = len(json.dumps(plan_clips, ensure_ascii=False, separators=(",", ":")))
+
     if tracker:
         tracker.update(phase="plan", total=1, current=0, message=t("task.plan.progress_message", {"day": day_label}))
     with timed(t("task.plan.timed_label", {"day": day_label, "count": len(clips)})):
         print(t("task.plan.material_count", {"day": day_label, "count": len(clips)}))
+        print(
+            t(
+                "task.plan.budget_projection",
+                {
+                    "clips": len(plan_clips),
+                    "rows": timeline_rows,
+                    "chars": projected_chars,
+                },
+            )
+        )
         plan = plan_daily_vlog(
-            clips,
+            plan_clips,
             config,
             day_label,
             transcripts_map=transcripts_map,
@@ -512,6 +510,7 @@ def run_plan_vlog(
             token_store=token_store,
             context_override=context_override,
             task_prompts=task_prompts,
+            full_clips=clips,
         )
     from clio.plan_model import Plan
 

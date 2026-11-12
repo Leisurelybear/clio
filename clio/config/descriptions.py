@@ -76,6 +76,8 @@ CONFIG_DESCRIPTIONS: dict[str, str] = {
     "plan.max_clips_per_day": "每日 vlog 最大片段数",
     "plan.target_duration_sec": "每日 vlog 目标时长（秒）",
     "plan.use_transcripts": "规划时是否注入语音转录内容作为参考",
+    "plan.max_timeline_rows_per_clip": "每个素材注入规划的最多时间轴行数（0=不限制）",
+    "plan.max_key_moments_per_clip": "每个素材注入规划的最多关键瞬间数（0=不限制）",
     # whisper
     "whisper.enabled": "是否启用语音转录（需安装 faster-whisper）",
     "whisper.model_size": "Whisper 模型大小。small（快速）、medium（平衡）、large-v3（高精度）",

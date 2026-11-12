@@ -606,6 +606,7 @@
   "task.pipeline_title": "运行素材处理流水线",
   "task.plan.all_days_cancelled": "[取消] all-days plan 被用户终止",
   "task.plan.cancelled": "[取消] plan 步骤被用户终止",
+  "task.plan.budget_projection": "[规划] 注入规划 {clips} 条素材、{rows} 行时间轴，JSON {chars} 字符",
   "task.plan.filter_selected": "[规划] 按选片过滤素材（{count} 个 stem）",
   "task.plan.index_invalid_reason": "index 无效",
   "task.plan.invalid_index": "  [跳过] 无效 index '{index}' 在 {name}",
