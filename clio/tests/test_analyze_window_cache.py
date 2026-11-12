@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
@@ -7,6 +8,7 @@ from typing import cast
 import pytest
 
 from clio.analyze_windows import (
+    WINDOW_CACHE_VERSION,
     AnalyzeWindow,
     load_window_cache,
     save_window_cache,
@@ -34,6 +36,7 @@ def _cfg(tmp_path: Path) -> AppConfig:
                 max_analyze_duration_min=0,
                 window_max_min=15,
                 window_overlap_sec=20,
+                media_resolution="medium",
                 max_workers=1,
             ),
             ai=SimpleNamespace(context="", tasks={}, providers={}),
@@ -97,6 +100,25 @@ def test_window_cache_roundtrip(tmp_path: Path) -> None:
     )
 
 
+def test_window_cache_version_is_current(tmp_path: Path) -> None:
+    assert WINDOW_CACHE_VERSION == 2
+    cache = window_cache_dir(tmp_path, "001_GL010695")
+    window = AnalyzeWindow(0, 0.0, 900.0)
+    path = save_window_cache(
+        cache,
+        window=window,
+        lineage="abc",
+        source_size=123,
+        source_mtime_ns=456,
+        analysis={"title": "W1"},
+    )
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["version"] = WINDOW_CACHE_VERSION - 1
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert load_window_cache(cache, window=window, lineage="abc", source_size=123, source_mtime_ns=456) is None
+
+
 def test_window_cache_rejects_lineage_and_source_changes(tmp_path: Path) -> None:
     cache = window_cache_dir(tmp_path, "001_GL010695")
     window = AnalyzeWindow(0, 0.0, 900.0)
@@ -158,17 +180,6 @@ def test_failed_window_run_resumes_from_cache(monkeypatch, tmp_path: Path) -> No
     _common_mocks(monkeypatch)
     monkeypatch.setattr("clio.tasks.analyze.get_duration_sec", lambda *a: 2400.0)
 
-    slice_calls: list[int] = []
-
-    def fake_slice(*, source, window, dest_dir, ffmpeg, ffprobe=None, run_ffmpeg=None, cancel_event=None):
-        slice_calls.append(window.index)
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        out = dest_dir / f"{source.stem}_w{window.index:02d}.mp4"
-        out.write_bytes(b"x")
-        return out
-
-    monkeypatch.setattr("clio.tasks.analyze.slice_window_video", fake_slice)
-
     summarize_calls: list[dict] = []
 
     def fake_summary(analysis, *args, **kwargs):
@@ -177,10 +188,18 @@ def test_failed_window_run_resumes_from_cache(monkeypatch, tmp_path: Path) -> No
 
     monkeypatch.setattr("clio.tasks.analyze.summarize_window_analysis", fake_summary)
 
-    analyze_calls: list[int] = []
+    analyze_calls: list[tuple[str, float | None, float | None, float | None, str | None]] = []
 
-    def fail_second(*args, **kwargs):
-        analyze_calls.append(len(analyze_calls))
+    def fail_second(path, *args, **kwargs):
+        analyze_calls.append(
+            (
+                str(path),
+                kwargs["video_start_sec"],
+                kwargs["video_end_sec"],
+                kwargs["video_fps"],
+                kwargs["media_resolution"],
+            )
+        )
         if len(analyze_calls) >= 2:
             raise RuntimeError("boom")
         return {"title": "W1", "summary": "s1", "timeline": [{"start": 5, "end": 10, "text": "e1"}], "location": "X"}
@@ -193,10 +212,17 @@ def test_failed_window_run_resumes_from_cache(monkeypatch, tmp_path: Path) -> No
     assert len(list(cache.glob("*.json"))) == 1
 
     analyze_calls.clear()
-    slice_calls.clear()
 
-    def succeed(*args, **kwargs):
-        analyze_calls.append(len(analyze_calls))
+    def succeed(path, *args, **kwargs):
+        analyze_calls.append(
+            (
+                str(path),
+                kwargs["video_start_sec"],
+                kwargs["video_end_sec"],
+                kwargs["video_fps"],
+                kwargs["media_resolution"],
+            )
+        )
         return {
             "title": f"W{len(analyze_calls)}",
             "summary": "s",
@@ -209,8 +235,10 @@ def test_failed_window_run_resumes_from_cache(monkeypatch, tmp_path: Path) -> No
     records = run_analyze_all(cfg)
 
     assert len(records) == 1
-    assert len(analyze_calls) == 2
-    assert slice_calls == [1, 2]
+    assert analyze_calls == [
+        (str(compressed), 880.0, 1780.0, 3.0, "medium"),
+        (str(compressed), 1760.0, 2400.0, 3.0, "medium"),
+    ]
     assert len(summarize_calls) == 1
     assert not list(cache.glob("*.json"))
     assert len(list(cfg.texts_dir.glob("*.json"))) == 1
@@ -233,12 +261,6 @@ def test_successful_run_clears_stale_window_cache(monkeypatch, tmp_path: Path) -
 
     _common_mocks(monkeypatch)
     monkeypatch.setattr("clio.tasks.analyze.get_duration_sec", lambda *a: 2400.0)
-    monkeypatch.setattr(
-        "clio.tasks.analyze.slice_window_video",
-        lambda *, source, window, dest_dir, **kwargs: (dest_dir.mkdir(parents=True, exist_ok=True), dest_dir / "w.mp4")[
-            1
-        ],
-    )
     monkeypatch.setattr(
         "clio.tasks.analyze.analyze_video",
         lambda *a, **kw: {"title": "W", "summary": "s", "timeline": [], "location": "X"},

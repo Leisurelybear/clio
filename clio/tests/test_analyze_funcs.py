@@ -442,6 +442,31 @@ def test_analyze_video_forwards_structured_output_schema(monkeypatch):
     assert provider.analyze_video.call_args.kwargs["structured_output"] is VIDEO_ANALYSIS_OUTPUT
 
 
+def test_analyze_video_forwards_video_metadata(monkeypatch):
+    from clio.analyze import analyze_video
+
+    cfg = _fake_config()
+    provider = MagicMock(provider_id="mock")
+    provider.analyze_video.return_value = AIResponse('{"title":"x","summary":"y","timeline":[]}')
+
+    monkeypatch.setattr("clio.analyze.get_video_provider", lambda *a: (provider, "model"))
+
+    analyze_video(
+        "clip.mp4",
+        cfg,
+        video_start_sec=10.0,
+        video_end_sec=20.0,
+        video_fps=3,
+        media_resolution="low",
+    )
+
+    kwargs = provider.analyze_video.call_args.kwargs
+    assert kwargs["video_start_sec"] == 10.0
+    assert kwargs["video_end_sec"] == 20.0
+    assert kwargs["video_fps"] == 3
+    assert kwargs["media_resolution"] == "low"
+
+
 def test_generate_voiceover_includes_aligned_transcript(monkeypatch):
     from clio.analyze import generate_voiceover
 

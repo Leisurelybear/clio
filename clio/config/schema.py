@@ -37,6 +37,7 @@ _FIELD_OVERRIDES: dict[str, dict[str, Any]] = {
     "analyze.max_analyze_duration_min": {},
     "analyze.window_max_min": {},
     "analyze.window_overlap_sec": {},
+    "analyze.media_resolution": {"ui": "select", "choices": ["low", "medium", "high"]},
     "analyze.max_workers": {},
     "analyze.use_gpmf": {},
     "script.target_words": {},

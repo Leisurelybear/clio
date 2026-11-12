@@ -58,6 +58,7 @@ class AnalyzeConfig:
     max_analyze_duration_min: int = 0
     window_max_min: int = 15
     window_overlap_sec: int = 20
+    media_resolution: str = "medium"
     max_workers: int = 1
     # Opt-in: inject GoPro GPMF/sidecar summary into analyze context (R-024b).
     # Default false — most clips have no GPS; missing telemetry is always a no-op.

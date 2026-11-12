@@ -912,6 +912,10 @@ def analyze_video(
     context_override: str | None = None,
     task_prompts: dict[str, str] | None = None,
     transcript_context: str = "",
+    video_start_sec: float | None = None,
+    video_end_sec: float | None = None,
+    video_fps: float | None = None,
+    media_resolution: str | None = None,
 ) -> dict:
     provider, model = get_video_provider(config, TaskName.VIDEO_ANALYZE)
     base = resolve_prompt_template("video_analyze", ANALYZE_PROMPT, config, task_prompts=task_prompts)
@@ -938,6 +942,10 @@ def analyze_video(
                 temperature=_task_temperature(config, TaskName.VIDEO_ANALYZE),
                 system=system,
                 structured_output=VIDEO_ANALYSIS_OUTPUT,
+                video_start_sec=video_start_sec,
+                video_end_sec=video_end_sec,
+                video_fps=video_fps,
+                media_resolution=media_resolution,
             ),
             debug_print=config.ai.debug_print_prompt,
             token_store=token_store,

@@ -18,13 +18,11 @@ from clio.ai.token_usage import FileTokenUsageStore
 from clio.analyze import _prompt_context_parts, analyze_video, summarize_window_analysis
 from clio.analyze_windows import (
     build_analyze_windows,
-    cleanup_analyze_windows_dir,
     cleanup_window_cache_dir,
     load_window_cache,
     merge_window_analyses,
     save_window_cache,
     shift_analysis_times,
-    slice_window_video,
     window_cache_dir,
 )
 from clio.config import AppConfig
@@ -172,6 +170,9 @@ def _analysis_lineage_fingerprint(
         "max_analyze_duration_min": getattr(config.analyze, "max_analyze_duration_min", 0),
         "window_max_min": int(getattr(config.analyze, "window_max_min", 15) or 15),
         "window_overlap_sec": int(getattr(config.analyze, "window_overlap_sec", 20) or 0),
+        "media_resolution": getattr(config.analyze, "media_resolution", "medium"),
+        "analysis_engine_version": 2,
+        "video_fps": 3,
         "compress": {
             "codec": getattr(config.compress, "codec", ""),
             "fps": getattr(config.compress, "fps", 0),
@@ -316,7 +317,13 @@ def _analyze_with_optional_windows(
 ) -> dict:
     """Run Gemini analyze: legacy split files stay single-call; else use windows."""
 
-    def _one_call(video_path: str) -> dict:
+    def _one_call(
+        video_path: str,
+        *,
+        start_sec: float | None = None,
+        end_sec: float | None = None,
+        fps: float | None = None,
+    ) -> dict:
         try:
             return analyze_video(
                 video_path,
@@ -327,6 +334,10 @@ def _analyze_with_optional_windows(
                 context_override=effective_context,
                 task_prompts=task_prompts,
                 transcript_context=transcript_context,
+                video_start_sec=start_sec,
+                video_end_sec=end_sec,
+                video_fps=fps,
+                media_resolution=getattr(config.analyze, "media_resolution", "medium"),
             )
         except Exception as exc:
             if cancel_event is not None and cancel_event.is_set():
@@ -341,14 +352,9 @@ def _analyze_with_optional_windows(
     windows = build_analyze_windows(duration_sec, w_max, overlap)
 
     if len(windows) <= 1:
-        analysis = _one_call(str(compressed))
+        analysis = _one_call(str(compressed), start_sec=0.0, end_sec=duration_sec, fps=3)
         return merge_window_analyses([(windows[0], analysis)], overlap) if windows else analysis
 
-    ffmpeg = resolve_binary(config.paths.ffmpeg, "ffmpeg")
-    ffprobe = resolve_binary(config.paths.ffprobe, "ffprobe")
-    # Per-clip temp dir so concurrent max_workers cannot wipe sibling slices.
-    dest = config.paths.output_dir / ".analyze_windows" / compressed.stem
-    dest.mkdir(parents=True, exist_ok=True)
     cache_dir = window_cache_dir(config.paths.output_dir, compressed.stem)
     cache_key: _WindowCacheKey | None
     try:
@@ -361,34 +367,19 @@ def _analyze_with_optional_windows(
     except OSError:
         cache_key = None
     partials: list = []
-    try:
-        for w in windows:
-            if cancel_event is not None and cancel_event.is_set():
-                raise InterruptedError(t("task.analyze.cancelled"))
-            part = load_window_cache(cache_dir, window=w, **cache_key) if cache_key is not None and lineage else None
-            if part is not None:
-                print(t("task.analyze.window_cache_hit", {"name": compressed.name, "index": w.index}))
-                partials.append((w, part))
-                continue
-            slice_path = slice_window_video(
-                source=compressed,
-                window=w,
-                dest_dir=dest,
-                ffmpeg=ffmpeg,
-                ffprobe=ffprobe,
-                cancel_event=cancel_event,
-            )
-            try:
-                part = _one_call(str(slice_path))
-                part = shift_analysis_times(part, w.start_sec)
-                if cache_key is not None and lineage:
-                    save_window_cache(cache_dir, window=w, analysis=part, **cache_key)
-                partials.append((w, part))
-            finally:
-                slice_path.unlink(missing_ok=True)
-    except Exception:
-        cleanup_analyze_windows_dir(dest)
-        raise
+    for w in windows:
+        if cancel_event is not None and cancel_event.is_set():
+            raise InterruptedError(t("task.analyze.cancelled"))
+        part = load_window_cache(cache_dir, window=w, **cache_key) if cache_key is not None and lineage else None
+        if part is not None:
+            print(t("task.analyze.window_cache_hit", {"name": compressed.name, "index": w.index}))
+            partials.append((w, part))
+            continue
+        part = _one_call(str(compressed), start_sec=w.start_sec, end_sec=w.end_sec, fps=3)
+        part = shift_analysis_times(part, w.start_sec)
+        if cache_key is not None and lineage:
+            save_window_cache(cache_dir, window=w, analysis=part, **cache_key)
+        partials.append((w, part))
 
     merged = merge_window_analyses(partials, overlap)
     if cancel_event is not None and cancel_event.is_set():

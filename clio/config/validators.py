@@ -201,6 +201,7 @@ def _validate_config(config: AppConfig) -> None:
     _require_min("analyze.max_analyze_duration_min", config.analyze.max_analyze_duration_min, 0)
     _require_min("analyze.window_max_min", config.analyze.window_max_min, 1)
     _require_min("analyze.window_overlap_sec", config.analyze.window_overlap_sec, 0)
+    _require_choice("analyze.media_resolution", config.analyze.media_resolution, ("low", "medium", "high"))
     if config.analyze.window_overlap_sec >= config.analyze.window_max_min * 60:
         raise ValueError(
             t(

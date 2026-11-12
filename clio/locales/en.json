@@ -6,6 +6,7 @@
   "ai.gemini_non_retryable": "Gemini API non-retryable error: {error}",
   "ai.gemini_retry_status": "  [retry] Gemini file status query failed ({error_type}: {detail}); retrying in {delay}s ({attempt}/{total})",
   "ai.openai_missing_key": "Provider '{provider}' is missing an API Key.\n  Option 1: set the environment variable {env}=your_key in .env\n  Option 2: put the key directly in the providers.{provider}.api_key field of config.yaml\n  (if the key was put in api_key_env by mistake, restore the variable name)",
+  "ai.media_resolution_invalid": "Unsupported video media resolution '{value}'; available: {available}",
   "ai.openai_no_video": "Provider '{provider}' does not support video analysis; set ai.tasks.video_analyze to a gemini-type provider",
   "ai.progress_analyzing": "Analyzing with AI...",
   "ai.progress_uploading": "Uploading video to Gemini...",

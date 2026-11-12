@@ -63,6 +63,13 @@ class TestConfigSchema:
         fields = _all_fields("project")
         assert fields["analyze.window_max_min"]["group"] == ADVANCED
 
+    def test_analyze_media_resolution_is_advanced_select(self):
+        fields = _all_fields("project")
+        field = fields["analyze.media_resolution"]
+        assert field["group"] == ADVANCED
+        assert field["ui"] == "select"
+        assert field["choices"] == ["low", "medium", "high"]
+
     def test_preview_subtitles_hidden(self):
         fields = _all_fields("project")
         assert fields["preview.subtitles.enabled"]["group"] == HIDDEN

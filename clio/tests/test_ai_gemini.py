@@ -524,6 +524,32 @@ class TestGenerateText:
             assert config.response_mime_type == "application/json"
             assert config.response_json_schema is None
 
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            ("low", "MEDIA_RESOLUTION_LOW"),
+            ("medium", "MEDIA_RESOLUTION_MEDIUM"),
+            ("high", "MEDIA_RESOLUTION_HIGH"),
+        ],
+    )
+    def test_media_resolution_mapping(self, value, expected):
+        from google.genai import types
+
+        config = self._prov._config_for(None, media_resolution=value)
+
+        assert config.media_resolution == getattr(types.MediaResolution, expected)
+
+    def test_media_resolution_rejects_unknown_value(self):
+        with pytest.raises(ValueError, match="ultra"):
+            self._prov._config_for(None, media_resolution="ultra")
+
+    def test_text_request_does_not_include_media_resolution(self):
+        self._client_mock.models.generate_content.return_value = MagicMock(text="ok", usage_metadata=None)
+
+        self._prov.generate_text("hi", "gemini-2.5-flash")
+
+        assert "config" not in self._client_mock.models.generate_content.call_args.kwargs
+
 
 class TestAnalyzeVideo:
     @pytest.fixture(autouse=True)
@@ -562,6 +588,39 @@ class TestAnalyzeVideo:
         assert result.text == "analysis result"
         assert result.finish_reason == "STOP"
         self._client_mock.files.delete.assert_called_once_with(name="files/test123")
+
+    def test_video_metadata_and_media_resolution_are_sent(self):
+        from google.genai import types
+
+        uploaded = MagicMock(spec=types.File)
+        uploaded.name = "files/test123"
+        uploaded.uri = "https://example.test/files/test123"
+        uploaded.state = types.FileState.ACTIVE
+        self._client_mock.files.upload.return_value = uploaded
+        self._client_mock.files.get.return_value = uploaded
+        self._client_mock.models.generate_content.return_value = MagicMock(text="ok", usage_metadata=None)
+
+        self._prov.analyze_video(
+            str(self._video),
+            "describe",
+            "gemini-2.5-flash",
+            video_start_sec=12.5,
+            video_end_sec=30.0,
+            video_fps=3,
+            media_resolution="high",
+        )
+
+        call = self._client_mock.models.generate_content.call_args
+        part = call.kwargs["contents"][0]
+        assert isinstance(part, types.Part)
+        assert part.file_data is not None
+        assert part.video_metadata is not None
+        assert part.file_data.file_uri == uploaded.uri
+        assert part.file_data.mime_type == "video/mp4"
+        assert part.video_metadata.start_offset == "12.5s"
+        assert part.video_metadata.end_offset == "30.0s"
+        assert part.video_metadata.fps == 3
+        assert call.kwargs["config"].media_resolution == types.MediaResolution.MEDIA_RESOLUTION_HIGH
 
     def test_temperature_is_sent_in_video_config(self, tmp_path):
         from google.genai import types

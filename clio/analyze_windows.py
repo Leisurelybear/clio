@@ -1,4 +1,4 @@
-"""Logical analyze windows: geometry, time shift, merge, temp slices.
+"""Logical analyze windows: geometry, time shift, merge, and legacy slice helpers.
 
 Physical video split is deprecated. Long clips are analyzed as sliding
 windows inside analyze only; see
@@ -273,7 +273,7 @@ def merge_window_analyses(
     return base
 
 
-WINDOW_CACHE_VERSION = 1
+WINDOW_CACHE_VERSION = 2
 
 
 def window_cache_dir(output_dir: Path, stem: str) -> Path:

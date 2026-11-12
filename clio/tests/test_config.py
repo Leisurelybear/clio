@@ -492,6 +492,15 @@ class TestValidateConfig:
         with pytest.raises(ValueError, match=field_name.replace(".", r"\.")):
             _validate_config(cfg)
 
+    def test_rejects_unknown_analyze_media_resolution(self):
+        cfg = AppConfig(
+            global_cfg=GlobalConfig(),
+            project_cfg=ProjectConfig(analyze=AnalyzeConfig(media_resolution="ultra")),
+        )
+
+        with pytest.raises(ValueError, match=r"analyze\.media_resolution must be one of low, medium, high"):
+            _validate_config(cfg)
+
     def test_non_numeric_value_raises_value_error(self):
         """A quoted number must not leak a TypeError comparison message."""
         project = ProjectConfig(compress=ProjectCompressConfig(max_width=cast(int, "1280")))
@@ -508,6 +517,7 @@ class TestLoadConfig:
         assert cfg.compress.fps == 15
         assert cfg.compress.target_size_mb == 5
         assert cfg.compress.remove_audio is False
+        assert cfg.analyze.media_resolution == "medium"
         assert cfg.proxy.enabled is False
 
     def test_missing_file_raises(self, tmp_path):
@@ -556,7 +566,12 @@ class TestLoadConfig:
     def test_quoted_scalars_are_coerced_on_load(self, tmp_config):
         raw = yaml.safe_load((tmp_config / "project.yaml").read_text(encoding="utf-8"))
         raw["compress"] = {"target_size_mb": "7", "max_width": "1280"}
-        raw["analyze"] = {"max_workers": "2", "skip_existing": "false", "use_gpmf": "true"}
+        raw["analyze"] = {
+            "max_workers": "2",
+            "skip_existing": "false",
+            "use_gpmf": "true",
+            "media_resolution": "high",
+        }
         raw["script"] = {"target_words": "100"}
         raw["plan"] = {"max_clips_per_day": "6", "use_transcripts": "false"}
         raw["whisper"] = {"enabled": "false", "max_segments_per_clip": "3"}
@@ -571,6 +586,7 @@ class TestLoadConfig:
         assert cfg.analyze.max_workers == 2
         assert cfg.analyze.skip_existing is False
         assert cfg.analyze.use_gpmf is True
+        assert cfg.analyze.media_resolution == "high"
         assert cfg.script.target_words == 100
         assert cfg.plan.max_clips_per_day == 6
         assert cfg.plan.use_transcripts is False

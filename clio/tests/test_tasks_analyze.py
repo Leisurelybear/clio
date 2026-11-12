@@ -31,6 +31,7 @@ def _cfg(tmp_path: Path) -> AppConfig:
             max_analyze_duration_min=30,
             window_max_min=15,
             window_overlap_sec=20,
+            media_resolution="medium",
             max_workers=1,
         ),
         ai=SimpleNamespace(context=""),
@@ -91,6 +92,7 @@ def test_effective_context_falls_back_when_gpmf_enrichment_fails(monkeypatch, tm
     [
         ("analyze", "window_max_min", 16),
         ("analyze", "window_overlap_sec", 25),
+        ("analyze", "media_resolution", "high"),
         ("compress", "codec", "libx265"),
         ("compress", "fps", 30),
         ("compress", "remove_audio", True),
@@ -656,15 +658,7 @@ class TestRunAnalyzeAll:
         monkeypatch.setattr("clio.tasks.analyze.get_duration_sec", lambda *a: 2400.0)
         monkeypatch.setattr("clio.tasks.analyze.is_legacy_split_path", lambda p: False)
 
-        def fake_slice(*, source, window, dest_dir, ffmpeg, ffprobe=None, run_ffmpeg=None, cancel_event=None):
-            dest_dir.mkdir(parents=True, exist_ok=True)
-            out = dest_dir / f"{source.stem}_w{window.index:02d}.mp4"
-            out.write_bytes(b"x")
-            return out
-
-        monkeypatch.setattr("clio.tasks.analyze.slice_window_video", fake_slice)
-
-        call_paths: list[str] = []
+        call_args: list[tuple[str, dict]] = []
         summary_calls: list[dict] = []
 
         def _summarize(analysis, *args, **kwargs):
@@ -682,11 +676,11 @@ class TestRunAnalyzeAll:
         monkeypatch.setattr("clio.tasks.analyze.summarize_window_analysis", _summarize)
 
         def _analyze(path, *a, **kw):
-            call_paths.append(str(path))
+            call_args.append((str(path), kw))
             return {
-                "title": f"W{len(call_paths)}",
-                "summary": f"sum{len(call_paths)}",
-                "timeline": [{"start": 5, "end": 10, "text": f"e{len(call_paths)}"}],
+                "title": f"W{len(call_args)}",
+                "summary": f"sum{len(call_args)}",
+                "timeline": [{"start": 5, "end": 10, "text": f"e{len(call_args)}"}],
                 "location": "X",
             }
 
@@ -694,7 +688,15 @@ class TestRunAnalyzeAll:
 
         records = run_analyze_all(cfg)
         assert len(records) == 1
-        assert len(call_paths) >= 3
+        assert len(call_args) >= 3
+        assert {path for path, _kwargs in call_args} == {str(comp)}
+        assert [(kwargs["video_start_sec"], kwargs["video_end_sec"]) for _path, kwargs in call_args[:3]] == [
+            (0.0, 900.0),
+            (880.0, 1780.0),
+            (1760.0, 2400.0),
+        ]
+        assert all(kwargs["video_fps"] == 3 for _path, kwargs in call_args)
+        assert all(kwargs["media_resolution"] == "medium" for _path, kwargs in call_args)
         assert len(summary_calls) == 1
         assert records[0].analysis is not None
         assert records[0].analysis["title"] == "Whole trip"
@@ -718,15 +720,23 @@ class TestRunAnalyzeAll:
 
         _common_mocks(monkeypatch)
         monkeypatch.setattr("clio.tasks.analyze.get_duration_sec", lambda *args: 60.0)
-        monkeypatch.setattr(
-            "clio.tasks.analyze.analyze_video",
-            lambda *args, **kwargs: {"title": "Short", "summary": "One window", "timeline": []},
-        )
+        calls: list[dict] = []
+
+        def fake_analyze(path, *args, **kwargs):
+            calls.append(kwargs)
+            return {"title": "Short", "summary": "One window", "timeline": []}
+
+        monkeypatch.setattr("clio.tasks.analyze.analyze_video", fake_analyze)
         monkeypatch.setattr("clio.tasks.analyze.summarize_window_analysis", lambda *a, **kw: pytest.fail("unexpected"))
 
         records = run_analyze_all(cfg)
 
         assert len(records) == 1
+        assert len(calls) == 1
+        assert calls[0]["video_start_sec"] == 0.0
+        assert calls[0]["video_end_sec"] == 60.0
+        assert calls[0]["video_fps"] == 3
+        assert calls[0]["media_resolution"] == "medium"
 
     def test_window_failure_writes_nothing(self, monkeypatch, tmp_path: Path):
         cfg = _cfg(tmp_path)
@@ -740,14 +750,6 @@ class TestRunAnalyzeAll:
         _common_mocks(monkeypatch)
         monkeypatch.setattr("clio.tasks.analyze.get_duration_sec", lambda *a: 2400.0)
         monkeypatch.setattr("clio.tasks.analyze.is_legacy_split_path", lambda p: False)
-
-        def fake_slice(*, source, window, dest_dir, ffmpeg, ffprobe=None, run_ffmpeg=None, cancel_event=None):
-            dest_dir.mkdir(parents=True, exist_ok=True)
-            out = dest_dir / f"{source.stem}_w{window.index:02d}.mp4"
-            out.write_bytes(b"x")
-            return out
-
-        monkeypatch.setattr("clio.tasks.analyze.slice_window_video", fake_slice)
 
         n = 0
 
@@ -779,13 +781,6 @@ class TestRunAnalyzeAll:
         monkeypatch.setattr("clio.tasks.analyze.get_duration_sec", lambda *a: 2400.0)
         monkeypatch.setattr("clio.tasks.analyze.is_legacy_split_path", lambda p: False)
 
-        def fake_slice(*, source, window, dest_dir, ffmpeg, ffprobe=None, run_ffmpeg=None, cancel_event=None):
-            dest_dir.mkdir(parents=True, exist_ok=True)
-            out = dest_dir / f"{source.stem}_w{window.index:02d}.mp4"
-            out.write_bytes(b"x")
-            return out
-
-        monkeypatch.setattr("clio.tasks.analyze.slice_window_video", fake_slice)
         monkeypatch.setattr(
             "clio.tasks.analyze.analyze_video",
             lambda *a, **kw: {"title": "partial", "summary": "partial", "timeline": []},
@@ -839,12 +834,6 @@ class TestRunAnalyzeAll:
         _common_mocks(monkeypatch)
         monkeypatch.setattr("clio.tasks.analyze.get_duration_sec", lambda *args: 2400.0)
 
-        def fake_slice(*, source, window, dest_dir, ffmpeg, ffprobe=None, run_ffmpeg=None, cancel_event=None):
-            dest_dir.mkdir(parents=True, exist_ok=True)
-            out = dest_dir / f"{source.stem}_w{window.index:02d}.mp4"
-            out.write_bytes(b"window")
-            return out
-
         calls = 0
 
         def fake_analyze(*args, **kwargs):
@@ -853,7 +842,6 @@ class TestRunAnalyzeAll:
             cancel_event.set()
             return {"title": "W", "summary": "s", "timeline": [], "location": "X"}
 
-        monkeypatch.setattr("clio.tasks.analyze.slice_window_video", fake_slice)
         monkeypatch.setattr("clio.tasks.analyze.analyze_video", fake_analyze)
 
         records = run_analyze_all(cfg, cancel_event=cancel_event)

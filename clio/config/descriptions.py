@@ -57,8 +57,9 @@ CONFIG_DESCRIPTIONS: dict[str, str] = {
     "analyze.texts_subdir": "AI 分析结果（文案）存放的子目录名",
     "analyze.skip_existing": "全局跳过开关：跳过已处理的文件（影响所有步骤）",
     "analyze.max_analyze_duration_min": "整片硬顶（分钟），超过则跳过分析。0 不限制。长片主要由 window_max_min 控制",
-    "analyze.window_max_min": "AI 分析单窗最长分钟数；超过则临时切片多窗分析后合并",
+    "analyze.window_max_min": "AI 分析单窗最长分钟数；长片通过 Gemini 时间窗分析后合并",
     "analyze.window_overlap_sec": "相邻分析窗重叠秒数，用于边界去重",
+    "analyze.media_resolution": "Gemini 视频分析分辨率：low / medium / high；默认 medium，长片建议配合 5 分钟窗口",
     "analyze.max_workers": "AI 分析并发数（ThreadPoolExecutor），1=串行",
     "analyze.use_gpmf": "可选：将原片旁 .gpmf.json / GPMF 探测摘要注入 AI 分析上下文（默认关闭；无 GPS 时静默跳过）",
     # naming

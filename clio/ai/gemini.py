@@ -25,6 +25,13 @@ except ImportError:
     _HAS_GENAI_ERRORS = False
 
 
+_MEDIA_RESOLUTION_MAP = {
+    "low": types.MediaResolution.MEDIA_RESOLUTION_LOW,
+    "medium": types.MediaResolution.MEDIA_RESOLUTION_MEDIUM,
+    "high": types.MediaResolution.MEDIA_RESOLUTION_HIGH,
+}
+
+
 def _normalize_gemini_reason(reason: object) -> str | None:
     candidate = getattr(reason, "name", None) or getattr(reason, "value", None)
     if candidate is None and isinstance(reason, str):
@@ -105,13 +112,14 @@ class GeminiProvider:
         temperature: float | None,
         system: str | None = None,
         structured_output: StructuredOutput | None = None,
+        media_resolution: str | None = None,
     ):
         """Build a per-call config when per-call options are requested.
 
         The cached `_generation_config` is shared across concurrent calls, so it
         must never be mutated in place.
         """
-        if temperature is None and not system and structured_output is None:
+        if temperature is None and not system and structured_output is None and media_resolution is None:
             return self._generation_config
         kwargs: dict = {}
         if temperature is not None:
@@ -124,6 +132,14 @@ class GeminiProvider:
             kwargs["response_mime_type"] = "application/json"
             if structured_output.schema is not None:
                 kwargs["response_json_schema"] = structured_output.schema
+        if media_resolution is not None:
+            try:
+                kwargs["media_resolution"] = _MEDIA_RESOLUTION_MAP[media_resolution]
+            except KeyError as exc:
+                available = ", ".join(_MEDIA_RESOLUTION_MAP)
+                raise ValueError(
+                    t("ai.media_resolution_invalid", {"value": media_resolution, "available": available})
+                ) from exc
         return types.GenerateContentConfig(**kwargs)
 
     def _is_retryable(self, exc: BaseException) -> bool:
@@ -293,7 +309,17 @@ class GeminiProvider:
         temperature: float | None = None,
         system: str | None = None,
         structured_output: StructuredOutput | None = None,
+        video_start_sec: float | None = None,
+        video_end_sec: float | None = None,
+        video_fps: float | None = None,
+        media_resolution: str | None = None,
     ) -> AIResponse:
+        if (video_start_sec is None) != (video_end_sec is None):
+            raise ValueError("video_start_sec and video_end_sec must be provided together")
+        if video_fps is not None and video_start_sec is None:
+            raise ValueError("video_fps requires video_start_sec and video_end_sec")
+        if video_start_sec is not None and video_end_sec is not None and video_end_sec < video_start_sec:
+            raise ValueError("video_end_sec must be greater than or equal to video_start_sec")
         uploaded = None
         try:
             if progress_callback:
@@ -344,15 +370,37 @@ class GeminiProvider:
             if progress_callback:
                 progress_callback(t("ai.progress_analyzing"))
 
+            contents: list = [uploaded, prompt]
+            if video_start_sec is not None and video_end_sec is not None:
+                contents = [
+                    types.Part(
+                        file_data=types.FileData(
+                            file_uri=uploaded.uri,
+                            mime_type=mime_type or "video/mp4",
+                        ),
+                        video_metadata=types.VideoMetadata(
+                            start_offset=f"{video_start_sec}s",
+                            end_offset=f"{video_end_sec}s",
+                            fps=video_fps,
+                        ),
+                    ),
+                    prompt,
+                ]
+
             def _do() -> AIResponse:
                 wait_for_rate_limit(self._rl, cancel_event, what=self.provider_id)
-                config = self._config_for(temperature, system, structured_output)
+                config = self._config_for(
+                    temperature,
+                    system,
+                    structured_output,
+                    media_resolution=media_resolution,
+                )
                 if config is None:
-                    response = self._client.models.generate_content(model=model, contents=[uploaded, prompt])
+                    response = self._client.models.generate_content(model=model, contents=contents)
                 else:
                     response = self._client.models.generate_content(
                         model=model,
-                        contents=[uploaded, prompt],
+                        contents=contents,
                         config=config,
                     )
                 return _response_from(response)

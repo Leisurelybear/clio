@@ -122,6 +122,10 @@ class VideoAIProvider(TextAIProvider, Protocol):
         temperature: float | None = None,
         system: str | None = None,
         structured_output: StructuredOutput | None = None,
+        video_start_sec: float | None = None,
+        video_end_sec: float | None = None,
+        video_fps: float | None = None,
+        media_resolution: str | None = None,
     ) -> AIResponse: ...
 
 
