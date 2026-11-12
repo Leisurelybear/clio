@@ -133,7 +133,8 @@ def _clip_duration_sec(config: AppConfig, data: dict[str, Any], identity: Any) -
 
 
 def _capture_time(data: dict[str, Any], source_stem: str, source_path: str = "", ffprobe: str = "") -> str:
-    metadata = data.get("metadata") if isinstance(data.get("metadata"), dict) else {}
+    raw_metadata = data.get("metadata")
+    metadata: dict[str, Any] = raw_metadata if isinstance(raw_metadata, dict) else {}
     for key in _CAPTURE_TIME_KEYS:
         for values in (data, metadata):
             value = values.get(key)
@@ -185,7 +186,7 @@ def _unusable_inputs_error(skipped: list[tuple[str, str]]) -> RuntimeError:
     return RuntimeError(t("task.plan.unusable_inputs", {"names": names, "suffix": suffix}))
 
 
-def _analysis_day_label(data: dict) -> str:
+def _analysis_day_label(data: dict[str, Any]) -> str:
     raw = data.get("day_label") or data.get("day") or data.get("dayLabel") or "day1"
     label = str(raw).strip()
     return label or "day1"
@@ -297,6 +298,9 @@ def _discover_day_labels_with_errors(config: AppConfig) -> tuple[list[str], list
         if error is not None:
             skipped.append((json_file.name, error))
             continue
+        if data is None:
+            skipped.append((json_file.name, t("task.plan.json_not_object")))
+            continue
         labels.add(_analysis_day_label(data))
     return sorted(labels), skipped
 
@@ -327,6 +331,9 @@ def _collect_plan_clips(
         data, error = _read_json_object(json_file)
         if error is not None:
             skipped_inputs.append((json_file.name, error))
+            continue
+        if data is None:
+            skipped_inputs.append((json_file.name, t("task.plan.json_not_object")))
             continue
         if filter_by_day and _analysis_day_label(data) != day_label:
             continue
@@ -406,7 +413,7 @@ def run_plan_vlog(
     )
     if cancelled:
         print(t("task.plan.cancelled"))
-        return
+        return None
 
     _report_skipped_inputs(skipped_inputs)
     if not clips:
