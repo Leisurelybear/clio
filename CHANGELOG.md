@@ -14,12 +14,13 @@ The remaining mypy debt is isolated to test annotations.
 - test(desktop): cover Tk confirmation behavior, headless fallback, invalid lock ports, and a
   `create_window()` result of `None`
 - test(types): narrow optional fixtures, mock seams, and JSON literals
+- test(types): type notification route, analyze task/function, compression task, and desktop app fixtures
 - refactor(types): type token usage stats and compression/cover/installer test fixtures
 - docs: record O9 as partial because test-only mypy debt remains
 
-Verification: explicit test-file mypy reports 313 errors across 127 files (26 files affected)
+Verification: explicit test-file mypy reports 142 errors across 127 files (21 files affected)
 (`production=0`); the configured `mypy` gate passes across 136 production source files.
-Desktop-focused pytest passes 48 tests; Ruff, format, and `git diff --check` pass.
+Focused pytest for the five updated test files passes 173 tests; Ruff, format, and `git diff --check` pass.
 
 Completed the remaining high-risk frontend XSS cleanup and compacted the roadmap maintenance view.
 `html` tag templates now escape interpolated values by default, while `unsafeHtml` marks only
