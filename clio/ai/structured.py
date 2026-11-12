@@ -71,6 +71,22 @@ class PlanSegment(_StrictModel):
     transition: str
 
 
+class PlanOutlineBeat(_StrictModel):
+    position: int
+    narrative_beat: str
+    purpose: str
+    target_duration_sec: float
+    candidate_indices: list[str]
+
+
+class VlogPlanOutline(_StrictModel):
+    day_title: str
+    theme: str
+    beats: list[PlanOutlineBeat]
+    opening_tip: str
+    ending_tip: str
+
+
 class DailyVlogPlan(_StrictModel):
     day_title: str
     theme: str
@@ -78,6 +94,17 @@ class DailyVlogPlan(_StrictModel):
     sequence: list[PlanSegment]
     opening_tip: str
     ending_tip: str
+
+
+class PlanReviewIssue(_StrictModel):
+    code: str
+    message: str
+    segment_positions: list[int]
+
+
+class VlogPlanReview(_StrictModel):
+    issues: list[PlanReviewIssue]
+    corrected_plan: DailyVlogPlan
 
 
 class PlanVoiceoverSegment(_StrictModel):
@@ -130,6 +157,8 @@ VIDEO_ANALYSIS_OUTPUT = _output("video_analysis", VideoAnalysis)
 VOICEOVER_OUTPUT = _output("voiceover", Voiceover)
 PLAN_VOICEOVER_OUTPUT = _output("plan_voiceover", PlanVoiceover)
 VLOG_PLAN_OUTPUT = _output("vlog_plan", DailyVlogPlan)
+VLOG_PLAN_OUTLINE_OUTPUT = _output("vlog_plan_outline", VlogPlanOutline)
+VLOG_PLAN_REVIEW_OUTPUT = _output("vlog_plan_review", VlogPlanReview)
 WINDOW_SUMMARY_OUTPUT = _output("window_summary", WindowSummary)
 ENTITY_CONSISTENCY_OUTPUT = _output("entity_consistency", EntityConsistency)
 JSON_OBJECT_OUTPUT = StructuredOutput(name="json_object")

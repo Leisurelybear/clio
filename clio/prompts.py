@@ -382,6 +382,92 @@ capture_time（拍摄时间）和 gps（经纬度）：
 """
 
 
+PLAN_OUTLINE_PROMPT = """你是旅行 vlog 剪辑策划。先不要直接排定最终时间轴，只生成当天 vlog 的叙事大纲。
+
+当天素材摘要（JSON 数组）：
+{clips_json}
+
+目标：把素材组织成一条有起承转合的日度 vlog，最终最多选择 {max_clips} 个片段，
+总时长约 {target_duration_sec} 秒。
+
+## 大纲要求
+- beats 必须按播放顺序排列，数量不超过 {max_clips}；通常为 4-8 个，片段上限较小时按上限收敛
+- 每个 beat 明确 narrative_beat、叙事作用、目标时长，以及 1-3 个 candidate_indices
+- candidate_indices 必须原样引用素材 JSON 中存在的 index，不得编造
+- 优先从 timeline[].score 为 4-5、quality 为 ok、key_moments 附近的区间选候选
+- 避免连续使用同一场景或同一角度；重复场景只保留叙事上必要的一次
+- 开场先设计 3-5 秒钩子，结尾必须形成收束；候选不足时减少 beat，不要补造内容
+- 此处只规划叙事结构，不填写具体 use_timeline 和最终转场
+
+只输出 JSON，不要 markdown 代码块，不要添加解释。输出结构必须是：
+{{
+  "day_title": "这一天 vlog 的标题",
+  "theme": "主题一句话",
+  "beats": [
+    {{
+      "position": 1,
+      "narrative_beat": "hook",
+      "purpose": "这一段承担的叙事作用",
+      "target_duration_sec": 5,
+      "candidate_indices": ["001", "005"]
+    }}
+  ],
+  "opening_tip": "开场建议",
+  "ending_tip": "结尾建议"
+}}
+"""
+
+
+PLAN_REVIEW_PROMPT = """你是旅行 vlog 的剪辑规划复审员。请检查初稿，并输出修正后的完整最终计划。
+
+## 当天素材
+{clips_json}
+
+## 规划约束
+- 最多 {max_clips} 个片段，总时长尽量接近 {target_duration_sec} 秒
+- 每个 index 必须来自素材列表；每个 use_timeline 必须落在该素材真实 timeline 内
+- 同一素材的多个 use_timeline 不得重叠
+- 检查叙事是否完整、开场是否有钩子、结尾是否收束、节奏是否合理
+- 检查相邻片段是否重复场景或重复信息，转场方式是否与前后画面和声音匹配
+- 只修正确有依据的问题；不要为了改写而重写无问题的标题、理由或口播方向
+
+## 一致性校验问题
+{validation_issues}
+
+## 待复审初稿
+{draft_json}
+
+只输出 JSON，不要 markdown 代码块，不要添加解释。输出结构必须是：
+{{
+  "issues": [
+    {{
+      "code": "short_snake_case",
+      "message": "发现并修正的问题",
+      "segment_positions": [1]
+    }}
+  ],
+  "corrected_plan": {{
+    "day_title": "这一天 vlog 的标题",
+    "theme": "主题一句话",
+    "total_estimated_sec": 180,
+    "sequence": [
+      {{
+        "index": "001",
+        "title": "...",
+        "reason": "叙事作用 + 画面依据",
+        "use_timeline": "00:10-00:45",
+        "voiceover_hint": "结合画面内容的口播方向",
+        "narrative_beat": "develop",
+        "transition": "hard_cut"
+      }}
+    ],
+    "opening_tip": "开场建议",
+    "ending_tip": "结尾建议"
+  }}
+}}
+"""
+
+
 REFINE_TEXT_PROMPT = """请审阅下面这段 vlog 素材的 AI 分析结果。
 **严格依据开头的「背景与规范」修正其中的错误**，保持保守原则。
 
@@ -510,6 +596,8 @@ PROMPT_DEFAULTS = {
     "SCRIPT_PROMPT": SCRIPT_PROMPT,
     "PLAN_VOICEOVER_PROMPT": PLAN_VOICEOVER_PROMPT,
     "PLAN_PROMPT": PLAN_PROMPT,
+    "PLAN_OUTLINE_PROMPT": PLAN_OUTLINE_PROMPT,
+    "PLAN_REVIEW_PROMPT": PLAN_REVIEW_PROMPT,
     "ENTITY_CONSISTENCY_PROMPT": ENTITY_CONSISTENCY_PROMPT,
     "REFINE_TEXT_PROMPT": REFINE_TEXT_PROMPT,
     "REFINE_TEXT_FIX_PROMPT": REFINE_TEXT_FIX_PROMPT,

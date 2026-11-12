@@ -230,6 +230,8 @@ def test_builtin_prompts_match_placeholder_contract():
     mapping = {
         "SCRIPT_PROMPT": "voiceover",
         "PLAN_PROMPT": "vlog_plan",
+        "PLAN_OUTLINE_PROMPT": "plan_outline",
+        "PLAN_REVIEW_PROMPT": "plan_review",
         "REFINE_TEXT_PROMPT": "refine_text",
         "REFINE_TEXT_FIX_PROMPT": "refine_text_fix",
         "REFINE_SCRIPT_PROMPT": "refine_script",
@@ -248,6 +250,8 @@ def test_placeholder_contract_lists_all_formatted_prompts():
     formatted_tasks = {
         "voiceover",
         "vlog_plan",
+        "plan_outline",
+        "plan_review",
         "refine_text",
         "refine_text_fix",
         "refine_script",
@@ -264,3 +268,21 @@ def test_analyze_prompt_is_not_format_template():
     assert PROMPT_PLACEHOLDERS["video_analyze"] == set()
     assert '"title"' in PROMPT_DEFAULTS["ANALYZE_PROMPT"]
     assert "{{" not in PROMPT_DEFAULTS["ANALYZE_PROMPT"]
+
+
+def test_plan_outline_prompt_separates_structure_from_timeline_selection():
+    from clio.prompts import PLAN_OUTLINE_PROMPT
+
+    assert "candidate_indices" in PLAN_OUTLINE_PROMPT
+    assert "use_timeline" in PLAN_OUTLINE_PROMPT
+    assert "必须原样引用" in PLAN_OUTLINE_PROMPT
+    assert "只规划叙事结构" in PLAN_OUTLINE_PROMPT
+
+
+def test_plan_review_prompt_checks_transitions_and_preserves_valid_fields():
+    from clio.prompts import PLAN_REVIEW_PROMPT
+
+    assert "corrected_plan" in PLAN_REVIEW_PROMPT
+    assert "转场方式" in PLAN_REVIEW_PROMPT
+    assert "use_timeline" in PLAN_REVIEW_PROMPT
+    assert "不要为了改写而重写" in PLAN_REVIEW_PROMPT
