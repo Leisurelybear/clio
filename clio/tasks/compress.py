@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import threading
 import time
 from datetime import datetime
@@ -26,11 +27,13 @@ from clio.tasks._helpers import (
 from clio.utils import format_index, get_duration_sec, resolve_binary
 from clio.vmeta import VMETA_EXT, SegmentEntry, VideoIndex, VideoMeta
 
+_PROBE_FAILURES = (OSError, subprocess.SubprocessError, TypeError, ValueError)
+
 
 def _safe_duration(path: Path, ffprobe: str) -> float:
     try:
         return get_duration_sec(path, ffprobe)
-    except Exception:
+    except _PROBE_FAILURES:
         return 0.0
 
 
@@ -109,7 +112,7 @@ def _find_reusable(
                 try:
                     if get_duration_sec(use_out, ffprobe) <= 0:
                         reason = t("task.compress.reject_duration_unreadable", {"name": use_out.name})
-                except Exception:
+                except _PROBE_FAILURES:
                     reason = t("task.compress.reject_duration_unreadable", {"name": use_out.name})
             if reason is None:
                 return use_idx, use_out, meta, None
@@ -278,7 +281,7 @@ def run_compress_all(
                 dur = get_duration_sec(f, ffprobe)
                 if dur <= 0:
                     raise ValueError("zero duration")
-            except Exception:
+            except _PROBE_FAILURES:
                 meta = VideoMeta.read(f)
                 if meta and meta.source_path:
                     unverifiable.setdefault(str(Path(meta.source_path).resolve()), []).append(f)

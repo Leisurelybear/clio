@@ -535,7 +535,7 @@ class TestRunCompressAll:
 
         def _probe(path, *a, **kw):
             if Path(path).name == old.name:
-                raise RuntimeError("ffprobe 超时")
+                raise TimeoutError("ffprobe 超时")
             return 10.0
 
         monkeypatch.setattr("clio.tasks.compress.get_duration_sec", _probe)
@@ -547,6 +547,27 @@ class TestRunCompressAll:
         assert not old.exists(), "unverifiable old file pruned after fresh commit"
         assert not old.with_suffix(".vmeta").exists()
         assert any(r.compressed_path == fresh for r in records)
+
+    def test_scan_unexpected_probe_error_propagates(self, monkeypatch, tmp_path: Path):
+        from clio.vmeta import VideoMeta
+
+        cfg = _cfg(tmp_path)
+        src = _add_video(cfg, "clip.mp4")
+        cfg.analyze.skip_existing = True
+
+        old = cfg.compressed_dir / "001_clip.mp4"
+        old.write_bytes(b"\x00" * 60_000)
+        VideoMeta.build(src, old, 10.0, 10.0).write(old)
+
+        monkeypatch.setattr("clio.tasks.compress.resolve_binary", lambda *a: "ffprobe")
+
+        def _probe(*args, **kwargs):
+            raise RuntimeError("unexpected probe bug")
+
+        monkeypatch.setattr("clio.tasks.compress.get_duration_sec", _probe)
+
+        with pytest.raises(RuntimeError, match="unexpected probe bug"):
+            run_compress_all(cfg)
 
     def test_scan_probe_failure_keeps_file_when_recompress_fails(self, monkeypatch, tmp_path: Path):
         """If the replacement encode fails, the unverifiable old file must remain
@@ -569,7 +590,7 @@ class TestRunCompressAll:
         monkeypatch.setattr("clio.tasks.compress.compress_video", _boom)
 
         def _probe(path, *a, **kw):
-            raise RuntimeError("ffprobe 超时")
+            raise TimeoutError("ffprobe 超时")
 
         monkeypatch.setattr("clio.tasks.compress.get_duration_sec", _probe)
 
