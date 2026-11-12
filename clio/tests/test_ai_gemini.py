@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -10,7 +11,7 @@ from clio.config import ProviderConfig, ProxyConfig
 
 
 def _make_cfg(**kwargs) -> ProviderConfig:
-    defaults = dict(
+    defaults: dict[str, Any] = dict(
         name="gemini",
         type="gemini",
         api_key="test-key",
