@@ -89,6 +89,30 @@ class PlanVoiceover(_StrictModel):
     segments: list[PlanVoiceoverSegment]
 
 
+class EntityConsistencyEntity(_StrictModel):
+    canonical_name: str
+    kind: str
+    aliases: list[str]
+    clips: list[str]
+
+
+class DuplicateSceneClip(_StrictModel):
+    index: str
+    start: str
+    end: str
+
+
+class DuplicateSceneGroup(_StrictModel):
+    canonical_name: str
+    clips: list[DuplicateSceneClip]
+    reason: str
+
+
+class EntityConsistency(_StrictModel):
+    entities: list[EntityConsistencyEntity]
+    duplicate_scenes: list[DuplicateSceneGroup]
+
+
 class WindowSummary(_StrictModel):
     title: str
     summary: str
@@ -107,4 +131,5 @@ VOICEOVER_OUTPUT = _output("voiceover", Voiceover)
 PLAN_VOICEOVER_OUTPUT = _output("plan_voiceover", PlanVoiceover)
 VLOG_PLAN_OUTPUT = _output("vlog_plan", DailyVlogPlan)
 WINDOW_SUMMARY_OUTPUT = _output("window_summary", WindowSummary)
+ENTITY_CONSISTENCY_OUTPUT = _output("entity_consistency", EntityConsistency)
 JSON_OBJECT_OUTPUT = StructuredOutput(name="json_object")
