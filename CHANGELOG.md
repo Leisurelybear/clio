@@ -2,6 +2,13 @@
 
 ## 2026-11-13
 
+Runner skipped-step diagnostics and processing-state rendering now live in a focused module while `runner.js` keeps the same run-pane behavior.
+
+- refactor(ui): extract step labels, skipped diagnostics, and processing-state rendering into `runner-diagnostics.js`
+- test(ui): preserve runner, preview, and locale behavior after the extraction
+
+Verification: focused Vitest passes 41 tests across 3 files; `npm run typecheck` and `git diff --check` pass. Refactor commit: `ca093a9`.
+
 Viewer plan-preview support now lives in a focused module while `viewer.js` keeps its public preview behavior.
 
 - refactor(ui): extract plan-accordion synchronization, waveform index keys, and subtitle settings into `viewer-preview-support.js`

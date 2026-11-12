@@ -58,6 +58,7 @@ P2 items:
   - `[x]` extract the plan insert dialog into `editor-plan-insert.js`
   - `[x]` extract the plan readiness panel into `editor-plan-readiness.js`
   - `[x]` extract run preview rendering and overwrite checks into `runner-preview.js`
+  - `[x]` extract skipped diagnostics and processing-state rendering into `runner-diagnostics.js`
   - `[x]` extract plan deletion and save/config helpers into `editor-plan-persistence.js`
   - `[x]` extract plan undo/redo state wiring into `editor-plan-history.js`
   - `[x]` extract plan subtitle prefill into `editor-plan-subtitle.js`
