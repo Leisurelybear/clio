@@ -427,6 +427,21 @@ def test_analyze_video_includes_transcript_context(monkeypatch):
     assert "你好" in prompt
 
 
+def test_analyze_video_forwards_structured_output_schema(monkeypatch):
+    from clio.ai.structured import VIDEO_ANALYSIS_OUTPUT
+    from clio.analyze import analyze_video
+
+    cfg = _fake_config()
+    provider = MagicMock(provider_id="mock")
+    provider.analyze_video.return_value = AIResponse('{"title":"x","summary":"y","timeline":[]}')
+
+    monkeypatch.setattr("clio.analyze.get_video_provider", lambda *a: (provider, "model"))
+
+    analyze_video("clip.mp4", cfg)
+
+    assert provider.analyze_video.call_args.kwargs["structured_output"] is VIDEO_ANALYSIS_OUTPUT
+
+
 def test_generate_voiceover_includes_aligned_transcript(monkeypatch):
     from clio.analyze import generate_voiceover
 
@@ -866,6 +881,60 @@ def test_plan_range_validation_accepts_numeric_source_timestamps():
     assert validated["total_estimated_sec"] == 4.0
 
 
+def test_refine_text_uses_native_json_mode(monkeypatch):
+    from clio.ai.structured import JSON_OBJECT_OUTPUT
+    from clio.analyze import refine_text
+
+    cfg = _fake_config()
+    provider = MagicMock(provider_id="mock")
+    seen: dict = {}
+
+    def fake_generate(*args, **kwargs):
+        seen.update(kwargs)
+        return AIResponse('{"title":"fixed","timeline":[]}')
+
+    provider.generate_text.side_effect = fake_generate
+
+    def fake_call(label, provider_id, model, prompt, fn, **kwargs):
+        fn()
+        return '{"title":"fixed","timeline":[]}'
+
+    monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (provider, "model"))
+    monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, cfg, **kw: prompt)
+    monkeypatch.setattr("clio.analyze._call_ai", fake_call)
+
+    refine_text({"title": "draft", "timeline": []}, cfg)
+
+    assert seen["structured_output"] is JSON_OBJECT_OUTPUT
+
+
+def test_refine_script_uses_native_json_mode(monkeypatch):
+    from clio.ai.structured import JSON_OBJECT_OUTPUT
+    from clio.analyze import refine_script
+
+    cfg = _fake_config()
+    provider = MagicMock(provider_id="mock")
+    seen: dict = {}
+
+    def fake_generate(*args, **kwargs):
+        seen.update(kwargs)
+        return AIResponse('{"voiceover":"fixed"}')
+
+    provider.generate_text.side_effect = fake_generate
+
+    def fake_call(label, provider_id, model, prompt, fn, **kwargs):
+        fn()
+        return '{"voiceover":"fixed"}'
+
+    monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (provider, "model"))
+    monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, cfg, **kw: prompt)
+    monkeypatch.setattr("clio.analyze._call_ai", fake_call)
+
+    refine_script({"voiceover": "draft"}, None, cfg)
+
+    assert seen["structured_output"] is JSON_OBJECT_OUTPUT
+
+
 class TestPlanDailyVlog:
     def test_filter_valid_indices(self, monkeypatch):
         """Valid indices should be kept, invalid ones filtered."""
@@ -898,6 +967,52 @@ class TestPlanDailyVlog:
         assert len(result["sequence"]) == 2
         assert result["sequence"][0]["index"] == "001"
         assert result["sequence"][1]["index"] == "003"
+
+    def test_plan_forwards_structured_output_schema(self, monkeypatch):
+        from clio.ai.structured import VLOG_PLAN_OUTPUT
+
+        cfg = _fake_config()
+        cfg.plan.target_duration_sec = 10
+        provider = MagicMock(provider_id="mock")
+        seen: dict = {}
+
+        def fake_generate(*args, **kwargs):
+            seen.update(kwargs)
+            return AIResponse(
+                json.dumps(
+                    {
+                        "day_title": "day1",
+                        "theme": "walk",
+                        "total_estimated_sec": 10,
+                        "sequence": [{"index": "001", "use_timeline": "00:00-00:10"}],
+                        "opening_tip": "",
+                        "ending_tip": "",
+                    }
+                )
+            )
+
+        provider.generate_text.side_effect = fake_generate
+
+        def fake_call(label, provider_id, model, prompt, fn, **kwargs):
+            fn()
+            return json.dumps(
+                {
+                    "day_title": "day1",
+                    "theme": "walk",
+                    "total_estimated_sec": 10,
+                    "sequence": [{"index": "001", "use_timeline": "00:00-00:10"}],
+                    "opening_tip": "",
+                    "ending_tip": "",
+                }
+            )
+
+        monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (provider, "model"))
+        monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, cfg, **kw: prompt)
+        monkeypatch.setattr("clio.analyze._call_ai", fake_call)
+
+        plan_daily_vlog([{"index": "001", "timeline": [{"start": "00:00", "end": "00:10"}]}], cfg)
+
+        assert seen["structured_output"] is VLOG_PLAN_OUTPUT
 
     def test_filter_int_indices_compatibility(self, monkeypatch):
         """Integer indices should be handled too (001 == 1)."""
@@ -1135,6 +1250,9 @@ def test_generate_voiceover_forwards_task_temperature(monkeypatch):
     generate_voiceover({"title": "t", "timeline": []}, "template", cfg)
 
     assert seen["temperature"] == 0.7
+    from clio.ai.structured import VOICEOVER_OUTPUT
+
+    assert seen["structured_output"] is VOICEOVER_OUTPUT
 
 
 def test_generate_voiceover_omits_temperature_when_unconfigured(monkeypatch):

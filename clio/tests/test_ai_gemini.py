@@ -483,6 +483,47 @@ class TestGenerateText:
             assert config.temperature == 0.2
             assert config.max_output_tokens == 2048
 
+    def test_sends_json_schema_in_config(self, proxy_disabled):
+        from clio.ai.base import StructuredOutput
+        from clio.ai.gemini import GeminiProvider
+
+        with patch("clio.ai.gemini.genai.Client") as mock_cls:
+            client = MagicMock()
+            mock_cls.return_value = client
+            client.models.generate_content.return_value = MagicMock(text='{"answer":"ok"}', usage_metadata=None)
+            provider = GeminiProvider(_make_cfg(), proxy_disabled)
+            schema = {"type": "object", "properties": {"answer": {"type": "string"}}, "required": ["answer"]}
+
+            provider.generate_text(
+                "hi",
+                "gemini-2.5-flash",
+                structured_output=StructuredOutput("answer", schema),
+            )
+
+            config = client.models.generate_content.call_args.kwargs["config"]
+            assert config.response_mime_type == "application/json"
+            assert config.response_json_schema == schema
+
+    def test_json_mode_without_schema_uses_mime_type_only(self, proxy_disabled):
+        from clio.ai.base import StructuredOutput
+        from clio.ai.gemini import GeminiProvider
+
+        with patch("clio.ai.gemini.genai.Client") as mock_cls:
+            client = MagicMock()
+            mock_cls.return_value = client
+            client.models.generate_content.return_value = MagicMock(text="{}", usage_metadata=None)
+            provider = GeminiProvider(_make_cfg(), proxy_disabled)
+
+            provider.generate_text(
+                "hi",
+                "gemini-2.5-flash",
+                structured_output=StructuredOutput("json_object"),
+            )
+
+            config = client.models.generate_content.call_args.kwargs["config"]
+            assert config.response_mime_type == "application/json"
+            assert config.response_json_schema is None
+
 
 class TestAnalyzeVideo:
     @pytest.fixture(autouse=True)
@@ -536,6 +577,30 @@ class TestAnalyzeVideo:
 
         config = self._client_mock.models.generate_content.call_args.kwargs["config"]
         assert config.temperature == 0.4
+
+    def test_structured_output_is_sent_in_video_config(self):
+        from google.genai import types
+
+        from clio.ai.base import StructuredOutput
+
+        uploaded = MagicMock(spec=types.File)
+        uploaded.name = "files/test123"
+        uploaded.state = types.FileState.ACTIVE
+        self._client_mock.files.upload.return_value = uploaded
+        self._client_mock.files.get.return_value = uploaded
+        self._client_mock.models.generate_content.return_value = MagicMock(text="{}", usage_metadata=None)
+        schema = {"type": "object", "properties": {"title": {"type": "string"}}, "required": ["title"]}
+
+        self._prov.analyze_video(
+            str(self._video),
+            "desc",
+            "gemini-2.5-flash",
+            structured_output=StructuredOutput("analysis", schema),
+        )
+
+        config = self._client_mock.models.generate_content.call_args.kwargs["config"]
+        assert config.response_mime_type == "application/json"
+        assert config.response_json_schema == schema
 
     def test_file_too_large_reports_configured_limit(self, tmp_path):
         from clio.ai.gemini import GeminiProvider

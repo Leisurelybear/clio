@@ -4,7 +4,7 @@ Clio (this project) is distributed under the MIT License — see `LICENSE`.
 This file lists the third-party software shipped in the desktop build and its
 license attribution, reviewed from upstream package metadata and repositories.
 
-Last reviewed: 2026-08-14.
+Last reviewed: 2026-11-12.
 Keep this table in sync with the declared dependencies in `pyproject.toml` /
 `requirements*.txt`; `clio/tests/test_licenses.py` enforces coverage in CI.
 
@@ -19,6 +19,7 @@ Keep this table in sync with the declared dependencies in `pyproject.toml` /
 | httpcore | BSD-3-Clause |
 | httpx | BSD-3-Clause |
 | idna | BSD-3-Clause |
+| pydantic | MIT |
 | PyYAML | MIT |
 | pywebview | BSD-3-Clause |
 | sniffio | MIT OR Apache-2.0 |

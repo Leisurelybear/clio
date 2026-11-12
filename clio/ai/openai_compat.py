@@ -4,7 +4,7 @@ import threading
 
 import httpx
 
-from clio.ai.base import AIResponse, TokenUsage, normalize_response_reason
+from clio.ai.base import AIResponse, StructuredOutput, TokenUsage, normalize_response_reason
 from clio.config import ProviderConfig, ProxyConfig
 from clio.i18n import t
 from clio.ratelimit import make_rate_limiter, wait_for_rate_limit
@@ -39,9 +39,33 @@ class OpenAICompatProvider:
         self._rl = make_rate_limiter(cfg.requests_per_minute)
         self._retry_attempts = max(1, cfg.retry_attempts + 1)
         self._max_tokens = cfg.max_tokens
+        self._structured_output_disabled = False
 
     def close(self) -> None:
         self._client.close()
+
+    @staticmethod
+    def _response_format(structured_output: StructuredOutput) -> dict:
+        if structured_output.schema is None:
+            return {"type": "json_object"}
+        return {
+            "type": "json_schema",
+            "json_schema": {
+                "name": structured_output.name,
+                "strict": True,
+                "schema": structured_output.schema,
+            },
+        }
+
+    @staticmethod
+    def _structured_output_unsupported(response: httpx.Response) -> bool:
+        if response.status_code not in {400, 422}:
+            return False
+        body = response.text.lower()
+        return any(
+            marker in body
+            for marker in ("response_format", "response format", "json_schema", "json schema", "structured output")
+        )
 
     def generate_text(
         self,
@@ -51,6 +75,7 @@ class OpenAICompatProvider:
         *,
         temperature: float | None = None,
         system: str | None = None,
+        structured_output: StructuredOutput | None = None,
     ) -> AIResponse:
         def _do() -> AIResponse:
             wait_for_rate_limit(self._rl, cancel_event, what=self.provider_id)
@@ -67,6 +92,10 @@ class OpenAICompatProvider:
             # 0 / negative → omit max_tokens (provider default / unlimited)
             if self._max_tokens and self._max_tokens > 0:
                 payload["max_tokens"] = int(self._max_tokens)
+            response_format = None
+            if structured_output is not None and not self._structured_output_disabled:
+                response_format = self._response_format(structured_output)
+                payload["response_format"] = response_format
             headers = {"Content-Type": "application/json"}
             if self._api_key:
                 headers["Authorization"] = f"Bearer {self._api_key}"
@@ -75,6 +104,14 @@ class OpenAICompatProvider:
                 headers=headers,
                 json=payload,
             )
+            if response_format is not None and self._structured_output_unsupported(response):
+                self._structured_output_disabled = True
+                retry_payload = {key: value for key, value in payload.items() if key != "response_format"}
+                response = self._client.post(
+                    f"{self._base_url}/chat/completions",
+                    headers=headers,
+                    json=retry_payload,
+                )
             sc = response.status_code
             if sc == 429 or sc >= 500:
                 raise httpx.HTTPStatusError(f"status {sc}", request=response.request, response=response)

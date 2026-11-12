@@ -11,7 +11,7 @@ import httpx
 from google import genai
 from google.genai import types
 
-from clio.ai.base import AIResponse, TokenUsage, normalize_response_reason
+from clio.ai.base import AIResponse, StructuredOutput, TokenUsage, normalize_response_reason
 from clio.config import ProviderConfig, ProxyConfig
 from clio.i18n import t
 from clio.ratelimit import make_rate_limiter, wait_for_rate_limit
@@ -100,13 +100,18 @@ class GeminiProvider:
             types.GenerateContentConfig(max_output_tokens=self._max_tokens) if self._max_tokens > 0 else None
         )
 
-    def _config_for(self, temperature: float | None, system: str | None = None):
+    def _config_for(
+        self,
+        temperature: float | None,
+        system: str | None = None,
+        structured_output: StructuredOutput | None = None,
+    ):
         """Build a per-call config when per-call options are requested.
 
         The cached `_generation_config` is shared across concurrent calls, so it
         must never be mutated in place.
         """
-        if temperature is None and not system:
+        if temperature is None and not system and structured_output is None:
             return self._generation_config
         kwargs: dict = {}
         if temperature is not None:
@@ -115,6 +120,10 @@ class GeminiProvider:
             kwargs["max_output_tokens"] = self._max_tokens
         if system:
             kwargs["system_instruction"] = system
+        if structured_output is not None:
+            kwargs["response_mime_type"] = "application/json"
+            if structured_output.schema is not None:
+                kwargs["response_json_schema"] = structured_output.schema
         return types.GenerateContentConfig(**kwargs)
 
     def _is_retryable(self, exc: BaseException) -> bool:
@@ -256,10 +265,11 @@ class GeminiProvider:
         *,
         temperature: float | None = None,
         system: str | None = None,
+        structured_output: StructuredOutput | None = None,
     ) -> AIResponse:
         def _do() -> AIResponse:
             wait_for_rate_limit(self._rl, cancel_event, what=self.provider_id)
-            config = self._config_for(temperature, system)
+            config = self._config_for(temperature, system, structured_output)
             if config is None:
                 response = self._client.models.generate_content(model=model, contents=prompt)
             else:
@@ -282,6 +292,7 @@ class GeminiProvider:
         *,
         temperature: float | None = None,
         system: str | None = None,
+        structured_output: StructuredOutput | None = None,
     ) -> AIResponse:
         uploaded = None
         try:
@@ -335,7 +346,7 @@ class GeminiProvider:
 
             def _do() -> AIResponse:
                 wait_for_rate_limit(self._rl, cancel_event, what=self.provider_id)
-                config = self._config_for(temperature, system)
+                config = self._config_for(temperature, system, structured_output)
                 if config is None:
                     response = self._client.models.generate_content(model=model, contents=[uploaded, prompt])
                 else:

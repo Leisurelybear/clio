@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from clio._str_enum import StrEnum
 
@@ -18,6 +18,20 @@ class TaskName(StrEnum):
 class ProviderCapability(StrEnum):
     TEXT = "text"
     VIDEO = "video"
+
+
+@dataclass(frozen=True)
+class StructuredOutput:
+    """Provider-neutral request for a native JSON response."""
+
+    name: str
+    schema: dict[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        if not self.name or any(not (char.isalnum() or char in "_-") for char in self.name):
+            raise ValueError("StructuredOutput.name must contain only letters, digits, '_' or '-'")
+        if self.schema is not None:
+            object.__setattr__(self, "schema", dict(self.schema))
 
 
 @dataclass(frozen=True)
@@ -87,6 +101,7 @@ class TextAIProvider(Protocol):
         *,
         temperature: float | None = None,
         system: str | None = None,
+        structured_output: StructuredOutput | None = None,
     ) -> AIResponse: ...
 
     def close(self) -> None: ...
@@ -106,6 +121,7 @@ class VideoAIProvider(TextAIProvider, Protocol):
         *,
         temperature: float | None = None,
         system: str | None = None,
+        structured_output: StructuredOutput | None = None,
     ) -> AIResponse: ...
 
 

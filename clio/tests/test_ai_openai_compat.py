@@ -234,6 +234,69 @@ class TestGenerateText:
             prov.generate_text("hello", "deepseek-chat")
             assert mock_client.post.call_args.kwargs["json"]["max_tokens"] == 2048
 
+    def test_sends_json_schema_response_format(self):
+        from clio.ai.base import StructuredOutput
+
+        resp = self._mock_response()
+        self._mock_client.post.return_value = resp
+        schema = {"type": "object", "properties": {"voiceover": {"type": "string"}}, "required": ["voiceover"]}
+
+        self._prov.generate_text(
+            "hello",
+            "deepseek-chat",
+            structured_output=StructuredOutput("voiceover", schema),
+        )
+
+        response_format = self._mock_client.post.call_args.kwargs["json"]["response_format"]
+        assert response_format == {
+            "type": "json_schema",
+            "json_schema": {"name": "voiceover", "strict": True, "schema": schema},
+        }
+
+    def test_sends_json_object_response_format_without_schema(self):
+        from clio.ai.base import StructuredOutput
+
+        resp = self._mock_response()
+        self._mock_client.post.return_value = resp
+
+        self._prov.generate_text(
+            "hello",
+            "deepseek-chat",
+            structured_output=StructuredOutput("json_object"),
+        )
+
+        assert self._mock_client.post.call_args.kwargs["json"]["response_format"] == {"type": "json_object"}
+
+    def test_falls_back_when_response_format_is_unsupported(self):
+        from clio.ai.base import StructuredOutput
+
+        unsupported = self._mock_response(
+            status_code=400,
+            text='{"error":"response_format is not supported"}',
+        )
+        self._mock_client.post.side_effect = [unsupported, self._mock_response()]
+
+        result = self._prov.generate_text(
+            "hello",
+            "compatible-model",
+            structured_output=StructuredOutput("json_object"),
+        )
+
+        assert result.text == "ok"
+        assert self._mock_client.post.call_count == 2
+        assert "response_format" in self._mock_client.post.call_args_list[0].kwargs["json"]
+        assert "response_format" not in self._mock_client.post.call_args_list[1].kwargs["json"]
+        assert self._prov._structured_output_disabled is True
+
+    def test_does_not_hide_unrelated_bad_request(self):
+        unsupported = self._mock_response(status_code=400, text='{"error":"model not found"}')
+        self._mock_client.post.return_value = unsupported
+
+        with pytest.raises(ValueError, match="400"):
+            self._prov.generate_text("hello", "missing-model")
+
+        assert self._mock_client.post.call_count == 1
+
     def test_429_raises_http_status_error(self):
         resp = self._mock_response(status_code=429)
         self._mock_client.post.return_value = resp

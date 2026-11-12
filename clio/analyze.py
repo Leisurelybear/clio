@@ -11,6 +11,13 @@ from typing import Any, cast
 
 from clio.ai.base import AIResponse, TaskName
 from clio.ai.factory import get_task_config, get_task_provider, get_video_provider, provider_use
+from clio.ai.structured import (
+    JSON_OBJECT_OUTPUT,
+    VIDEO_ANALYSIS_OUTPUT,
+    VLOG_PLAN_OUTPUT,
+    VOICEOVER_OUTPUT,
+    WINDOW_SUMMARY_OUTPUT,
+)
 from clio.ai.token_usage import estimate_cost_usd
 from clio.config import AppConfig
 from clio.cut import parse_time_range
@@ -930,6 +937,7 @@ def analyze_video(
                 cancel_event=cancel_event,
                 temperature=_task_temperature(config, TaskName.VIDEO_ANALYZE),
                 system=system,
+                structured_output=VIDEO_ANALYSIS_OUTPUT,
             ),
             debug_print=config.ai.debug_print_prompt,
             token_store=token_store,
@@ -1016,6 +1024,7 @@ def generate_voiceover(
                 cancel_event=cancel_event,
                 temperature=_task_temperature(config, TaskName.VOICEOVER),
                 system=system,
+                structured_output=VOICEOVER_OUTPUT,
             ),
             debug_print=config.ai.debug_print_prompt,
             token_store=token_store,
@@ -1092,6 +1101,7 @@ def plan_daily_vlog(
                 model,
                 temperature=_task_temperature(config, TaskName.VLOG_PLAN),
                 system=system,
+                structured_output=VLOG_PLAN_OUTPUT,
             ),
             debug_print=config.ai.debug_print_prompt,
             token_store=token_store,
@@ -1185,6 +1195,7 @@ def refine_text(
                 model,
                 temperature=_task_temperature(config, TaskName.REFINE_TEXT),
                 system=system,
+                structured_output=JSON_OBJECT_OUTPUT,
             ),
             debug_print=config.ai.debug_print_prompt,
             token_store=token_store,
@@ -1234,6 +1245,7 @@ def summarize_window_analysis(
                     cancel_event=cancel_event,
                     temperature=_task_temperature(config, TaskName.REFINE_TEXT),
                     system=system,
+                    structured_output=WINDOW_SUMMARY_OUTPUT,
                 ),
                 debug_print=config.ai.debug_print_prompt,
                 token_store=token_store,
@@ -1316,6 +1328,7 @@ def refine_script(
                 model,
                 temperature=_task_temperature(config, TaskName.REFINE_TEXT),
                 system=system,
+                structured_output=JSON_OBJECT_OUTPUT,
             ),
             debug_print=config.ai.debug_print_prompt,
             token_store=token_store,
