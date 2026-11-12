@@ -105,6 +105,37 @@ def test_whisper_check_subcommand(cli_runner, config_path):
     assert result == 0
 
 
+@patch("clio.evaluation.run_evaluation", return_value=0)
+def test_evaluate_analysis_dispatches_before_config_load(mock_run_evaluation, cli_runner, tmp_path):
+    manifest = tmp_path / "manifest.json"
+    predictions = tmp_path / "predictions"
+    out_dir = tmp_path / "reports"
+
+    result = cli_runner(
+        [
+            "--config",
+            str(tmp_path / "missing-config.yaml"),
+            "evaluate-analysis",
+            "--manifest",
+            str(manifest),
+            "--predictions",
+            str(predictions),
+            "--out-dir",
+            str(out_dir),
+            "--min-score",
+            "70",
+        ]
+    )
+
+    assert result == 0
+    mock_run_evaluation.assert_called_once_with(
+        manifest,
+        predictions_dir=predictions,
+        out_dir=out_dir,
+        min_score=70.0,
+    )
+
+
 def test_tokens_uses_project_output(cli_runner, config_path, tmp_path, capsys):
     project = tmp_path / "project"
     project.mkdir()

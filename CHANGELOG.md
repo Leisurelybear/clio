@@ -2,6 +2,17 @@
 
 ## 2026-11-12
 
+Analysis quality changes can now be measured with a deterministic, versioned evaluation harness
+instead of ad hoc prompt comparisons.
+
+- feat(evaluation): add `evaluate-analysis` with a validated manifest/reference schema and safe relative prediction paths
+- feat(evaluation): score coverage, density, fact recall, key moments, and structure with fixed weights and JSON/Markdown reports
+- feat(evaluation): support a mean-score gate and reject references that have not been reviewed against real footage
+- test(evaluation): cover scoring behavior, malformed inputs, report generation, path safety, locale keys, and CLI dispatch
+- docs(evaluation): add 12 versioned case slots and document the baseline completion workflow
+
+The real-footage baseline remains pending; placeholder labels are intentionally unscorable.
+
 Gemini video analysis now uses `VideoMetadata` for logical long-clip windows and exposes per-project
 media resolution, removing the temporary-slice analyze path.
 

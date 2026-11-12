@@ -14,7 +14,7 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
 
 Source: [`docs/analysis/2026-11-05-P0-P2-Issues.md`](docs/analysis/2026-11-05-P0-P2-Issues.md)
 
-Snapshot: 83 items; 71 completed locally; 0 partial; 2 awaiting real-environment verification; 10 pending.
+Snapshot: 83 items; 71 completed locally; 1 partial; 2 awaiting real-environment verification; 9 pending.
 O17 and O18 are complete as of this cleanup. The analysis document remains the source of truth for item-level
 status and verification notes.
 
@@ -32,7 +32,11 @@ P1 items:
 - `[ ]` Q7 same-location entity and duplicate-scene consistency
 - `[ ]` Q11 outline -> shot selection -> review planning loop
 - `[ ]` Q12 generate voiceover from the planned segments after planning
-- `[ ]` F1 create a small scored evaluation set and scoring script
+- `[~]` F1 create a small scored evaluation set and scoring script
+  - `[x]` define a versioned 12-case manifest and reference-label schema
+  - `[x]` add deterministic scoring for coverage, density, fact recall, key moments, and structure
+  - `[x]` emit JSON and Markdown reports with an optional minimum-score gate
+  - `[ ]` run the harness against real project footage and record the first baseline
 
 P2 items:
 

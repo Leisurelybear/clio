@@ -320,6 +320,12 @@ def main(argv: list[str] | None = None) -> int:
         help=t("cli.help.desktop"),
     )
 
+    p_evaluate = sub.add_parser("evaluate-analysis", help=t("cli.help.evaluate_analysis"))
+    p_evaluate.add_argument("--manifest", type=Path, required=True, help=t("cli.help.evaluate.manifest"))
+    p_evaluate.add_argument("--predictions", type=Path, default=None, help=t("cli.help.evaluate.predictions"))
+    p_evaluate.add_argument("--out-dir", type=Path, default=None, help=t("cli.help.evaluate.out_dir"))
+    p_evaluate.add_argument("--min-score", type=float, default=None, help=t("cli.help.evaluate.min_score"))
+
     p_tokens = sub.add_parser("tokens", help=t("cli.help.tokens"))
     _add_io_args(p_tokens)
     p_tokens.set_defaults(func=cmd_tokens)
@@ -360,6 +366,16 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     config_path = Path(args.config)
+
+    if args.command == "evaluate-analysis":
+        from clio.evaluation import run_evaluation
+
+        return run_evaluation(
+            args.manifest,
+            predictions_dir=args.predictions,
+            out_dir=args.out_dir,
+            min_score=args.min_score,
+        )
 
     path_error = _explicit_path_error(args)
     if path_error:

@@ -1,0 +1,90 @@
+{
+  "_schema_version": 1,
+  "suite": "analysis-suite-v1",
+  "cases": [
+    {
+      "id": "case-01-urban-walk",
+      "prediction": "predictions/case-01-urban-walk.json",
+      "reference": "references/case-01-urban-walk.json",
+      "duration_sec": 60,
+      "description": "SCAFFOLD ONLY: Urban walking coverage and street-level details; replace with reviewed labels from real footage."
+    },
+    {
+      "id": "case-02-nature-hike",
+      "prediction": "predictions/case-02-nature-hike.json",
+      "reference": "references/case-02-nature-hike.json",
+      "duration_sec": 60,
+      "description": "SCAFFOLD ONLY: Nature hike coverage, terrain, and changing scenery; replace with reviewed labels from real footage."
+    },
+    {
+      "id": "case-03-food-market",
+      "prediction": "predictions/case-03-food-market.json",
+      "reference": "references/case-03-food-market.json",
+      "duration_sec": 60,
+      "description": "SCAFFOLD ONLY: Food market actions, products, and vendor context; replace with reviewed labels from real footage."
+    },
+    {
+      "id": "case-04-transit",
+      "prediction": "predictions/case-04-transit.json",
+      "reference": "references/case-04-transit.json",
+      "duration_sec": 60,
+      "description": "SCAFFOLD ONLY: Transit transitions and movement between places; replace with reviewed labels from real footage."
+    },
+    {
+      "id": "case-05-water-coast",
+      "prediction": "predictions/case-05-water-coast.json",
+      "reference": "references/case-05-water-coast.json",
+      "duration_sec": 60,
+      "description": "SCAFFOLD ONLY: Coastal or waterfront scenery and activity; replace with reviewed labels from real footage."
+    },
+    {
+      "id": "case-06-night-scene",
+      "prediction": "predictions/case-06-night-scene.json",
+      "reference": "references/case-06-night-scene.json",
+      "duration_sec": 60,
+      "description": "SCAFFOLD ONLY: Low-light scene quality and visible events; replace with reviewed labels from real footage."
+    },
+    {
+      "id": "case-07-indoor-museum",
+      "prediction": "predictions/case-07-indoor-museum.json",
+      "reference": "references/case-07-indoor-museum.json",
+      "duration_sec": 60,
+      "description": "SCAFFOLD ONLY: Indoor exhibit structure, labels, and observations; replace with reviewed labels from real footage."
+    },
+    {
+      "id": "case-08-people-interview",
+      "prediction": "predictions/case-08-people-interview.json",
+      "reference": "references/case-08-people-interview.json",
+      "duration_sec": 60,
+      "description": "SCAFFOLD ONLY: People-focused coverage and conversational context; replace with reviewed labels from real footage."
+    },
+    {
+      "id": "case-09-weather-rain",
+      "prediction": "predictions/case-09-weather-rain.json",
+      "reference": "references/case-09-weather-rain.json",
+      "duration_sec": 60,
+      "description": "SCAFFOLD ONLY: Weather visibility, atmosphere, and continuity; replace with reviewed labels from real footage."
+    },
+    {
+      "id": "case-10-action-sports",
+      "prediction": "predictions/case-10-action-sports.json",
+      "reference": "references/case-10-action-sports.json",
+      "duration_sec": 60,
+      "description": "SCAFFOLD ONLY: Fast-action coverage and key movement moments; replace with reviewed labels from real footage."
+    },
+    {
+      "id": "case-11-landmark-architecture",
+      "prediction": "predictions/case-11-landmark-architecture.json",
+      "reference": "references/case-11-landmark-architecture.json",
+      "duration_sec": 60,
+      "description": "SCAFFOLD ONLY: Landmark identity, composition, and architectural detail; replace with reviewed labels from real footage."
+    },
+    {
+      "id": "case-12-closing-sunset",
+      "prediction": "predictions/case-12-closing-sunset.json",
+      "reference": "references/case-12-closing-sunset.json",
+      "duration_sec": 60,
+      "description": "SCAFFOLD ONLY: Closing sequence, sunset timing, and narrative resolution; replace with reviewed labels from real footage."
+    }
+  ]
+}

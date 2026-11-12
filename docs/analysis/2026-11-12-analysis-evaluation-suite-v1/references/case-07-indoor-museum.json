@@ -1,0 +1,50 @@
+{
+  "_schema_version": 1,
+  "review_status": "pending-real-footage",
+  "duration_sec": 60,
+  "_review_note": "Replace the duration, placeholder facts, aliases, and key moments after selecting real footage. Set review_status to reviewed only after a second manual pass.",
+  "required_facts": [
+    {
+      "id": "case-07-indoor-museum-fact-1",
+      "description": "REPLACE: primary subject or action",
+      "aliases": [
+        "__replace_case-07-indoor-museum_fact_1__"
+      ]
+    },
+    {
+      "id": "case-07-indoor-museum-fact-2",
+      "description": "REPLACE: distinctive place or object detail",
+      "aliases": [
+        "__replace_case-07-indoor-museum_fact_2__"
+      ]
+    },
+    {
+      "id": "case-07-indoor-museum-fact-3",
+      "description": "REPLACE: event outcome or transition",
+      "aliases": [
+        "__replace_case-07-indoor-museum_fact_3__"
+      ]
+    }
+  ],
+  "key_moments": [
+    {
+      "id": "case-07-indoor-museum-moment-1",
+      "label": "REPLACE: required opening or representative moment",
+      "start": 0,
+      "end": 1,
+      "min_overlap_ratio": 0.5
+    },
+    {
+      "id": "case-07-indoor-museum-moment-2",
+      "label": "REPLACE: required event or closing moment",
+      "start": 30,
+      "end": 31,
+      "min_overlap_ratio": 0.5
+    }
+  ],
+  "density": {
+    "min_coverage_ratio": 0.8,
+    "min_entries_per_min": 1.0,
+    "max_entries_per_min": 5.0
+  }
+}
