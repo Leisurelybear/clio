@@ -2,6 +2,12 @@
 import { resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
+vi.mock('../confirm.js', () => ({
+  confirmDialog: vi.fn(async () => true),
+  alertDialog: vi.fn(async () => undefined),
+  promptDialog: vi.fn(async () => ''),
+}));
+
 /**
  * Boot-level regression guard for the editor tab strip.
  *
@@ -79,7 +85,6 @@ describe('editor tab switching', () => {
       if ((options.method || 'GET') !== 'GET') return jsonResponse({ ok: true });
       return jsonResponse(API_GET[raw.split('?')[0]] ?? {});
     });
-    window.confirm = () => true;
     await import('../main.js');
     await tick(400);
     ({ state } = await import('../state.js'));

@@ -6,6 +6,7 @@ import { initTheme, toggleTheme } from './theme.js';
 import { initLanguageSwitcher } from './language-switcher.js';
 import { pickFolder, pickFile, applyPickToInput, initDesktopPickers } from './desktop-pick.js';
 import { addToast } from './toast.js';
+import { confirmDialog } from './confirm.js';
 import { updateRuntimeWarnings } from './runtime-warnings.js';
 import { setupPlayer } from './viewer.js';
 import { save, initProjectConfig, renderActiveTab, refineCurrentFile } from './editor.js';
@@ -109,13 +110,13 @@ async function handleRuntimeWarningAction(actionId) {
   }
   const n = _orphanedCutBackups.length;
   const conflicts = (_orphanedCutBackups || []).filter((it) => it.conflict === 'true' || it.conflict === true);
-  if (!confirm(t('cut_backup.restore_confirm', { count: n }))) {
+  if (!(await confirmDialog(t('cut_backup.restore_confirm', { count: n })))) {
     return;
   }
   try {
     let body = {};
     if (conflicts.length) {
-      const keepNew = confirm(t('cut_backup.conflict_confirm', { count: conflicts.length }));
+      const keepNew = await confirmDialog(t('cut_backup.conflict_confirm', { count: conflicts.length }));
       body = { keep_target: keepNew };
     }
     const r = await api('POST', '/api/cut/restore-backups', body);
@@ -133,7 +134,7 @@ async function handleRuntimeWarningAction(actionId) {
     );
   } catch (e) {
     if (e.status === 409 && e.body && e.body.conflicts && e.body.conflicts.length) {
-      const keepNew = confirm(t('cut_backup.conflict_confirm', { count: e.body.conflicts.length }));
+      const keepNew = await confirmDialog(t('cut_backup.conflict_confirm', { count: e.body.conflicts.length }));
       try {
         const r = await api('POST', '/api/cut/restore-backups', { keep_target: keepNew });
         const count = r.count || (r.restored || []).length || 0;
@@ -280,7 +281,7 @@ async function init() {
         if (!removeBtn) return;
         removeBtn.onclick = async (e) => {
           e.stopPropagation();
-          if (!confirm(t('project.remove_confirm', { name }))) return;
+          if (!(await confirmDialog(t('project.remove_confirm', { name }), { danger: true }))) return;
           const r2 = await api('POST', '/api/project/remove', { project_dir: projectDir });
           if (r2.ok) {
             if (name === state.currentProject?.name && projectDir === state.currentProjectDir) {
@@ -297,7 +298,7 @@ async function init() {
         if (!btn) return;
         btn.onclick = async (e) => {
           e.stopPropagation();
-          if (!confirm(t('project.migrate_confirm', { name }))) return;
+          if (!(await confirmDialog(t('project.migrate_confirm', { name })))) return;
           btn.disabled = true;
           btn.textContent = t('project.migrating');
           try {
@@ -314,7 +315,7 @@ async function init() {
                 projectName: name,
                 projectDir: dest,
               });
-              if (confirm(t('project.migrate_confirm_open', { name }))) {
+              if (await confirmDialog(t('project.migrate_confirm_open', { name }))) {
                 openModal.style.display = 'none';
                 window.location.search = `?project=${encodeURIComponent(name)}&project_dir=${encodeURIComponent(dest)}`;
                 return;
@@ -337,7 +338,7 @@ async function init() {
         const projectDir = card.dataset.projectDir;
         _setupRemoveBtn(card, name, projectDir);
         _setupMigrateBtn(card, name, projectDir);
-        card.onclick = (e) => {
+        card.onclick = async (e) => {
           if (e.target.closest('.project-card-remove') || e.target.closest('.project-card-migrate')) return;
           const isLegacy = card.dataset.legacy === 'true';
           if (isLegacy) {
@@ -345,7 +346,7 @@ async function init() {
             return;
           }
           if (projectDir === state.currentProjectDir) { openModal.style.display = 'none'; return; }
-          if (state.dirty && !confirm(t('project.switch_confirm_dirty'))) return;
+          if (state.dirty && !(await confirmDialog(t('project.switch_confirm_dirty')))) return;
           openModal.style.display = 'none';
           window.location.search = `?project=${encodeURIComponent(name)}&project_dir=${encodeURIComponent(projectDir)}`;
         };
@@ -508,10 +509,10 @@ async function init() {
   // The callback parameter must not be named t: that shadows the i18n t()
   // imported above, so the dirty guard threw and the tab silently refused
   // to switch whenever there were unsaved edits.
-  $$('.tab').forEach(tabButton => tabButton.onclick = () => {
+  $$('.tab').forEach(tabButton => tabButton.onclick = async () => {
     const toTab = tabButton.dataset.tab;
     if (shouldConfirmDirtyTabSwitch({ dirty: state.dirty, fromTab: state.currentTab, toTab })) {
-      if (!confirm(t('shell.tab_dirty_confirm'))) return;
+      if (!(await confirmDialog(t('shell.tab_dirty_confirm')))) return;
       clearDirty();
     }
     state.currentTab = toTab;
