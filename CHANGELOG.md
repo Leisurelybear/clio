@@ -11,6 +11,17 @@ Analysis timelines now carry shot-level attributes and use detected scene bounda
 
 Verification: focused pytest passes 164 tests; full pytest passes `3070 passed, 12 skipped`; Ruff, mypy over 273 source files, and `git diff --check` pass. Related commits: `c5600d7`, `336824c`.
 
+Same-day clips now receive a deterministic entity and duplicate-scene consistency pass before planning, so names and repeated shots stay coherent across independently analyzed footage.
+
+- feat(consistency): add a structured same-day report with canonical entities, aliases, duplicate-scene ranges, bounded fields, clip-index validation, and duration checks
+- feat(consistency): write `plans/<day>_entity_consistency.json/.md`, skip current outputs, regenerate stale lineage, and reject malformed AI output
+- feat(pipeline): run consistency after analysis and before voiceover/planning, with cancellation, file-selection, and dependency propagation
+- feat(plan): inject only current, validated consistency findings into plan prompts and include the report in plan lineage invalidation
+- feat(ui): expose the consistency step in run preview and the Web UI runner with a dedicated day input
+- test(consistency): cover valid/stale/malformed reports, duplicate-scene validation, skip/regeneration, plan cache invalidation, pipeline order, preview, and runner collection
+
+Verification: full pytest passes `3089 passed, 12 skipped`; Vitest passes 891 tests across 81 files; Ruff, mypy over 275 source files, and `git diff --check` pass. Feature commits: `b141fb6`, `8292a0c`, `cfc3c81`, `535146b`.
+
 Editor save flows now have direct regression coverage for routing, refresh behavior, no-op states,
 and failure handling.
 

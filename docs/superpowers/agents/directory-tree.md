@@ -92,6 +92,7 @@ vlog-video-analysis/
     ├── tasks/
     │   ├── compress.py         # Compress all/selected files, vmeta/vindex writing
     │   ├── analyze.py          # Analyze compressed clips
+    │   ├── consistency.py      # Same-day entity and duplicate-scene report
     │   ├── scripts.py          # Generate voiceover JSON
     │   ├── plan.py             # Generate day plans
     │   ├── refine.py           # Refine text/script outputs
@@ -191,7 +192,7 @@ vlog-video-analysis/
     │           ├── notification-center.js / task-center.js / runtime-warnings.js
     │           ├── toast.js / transcription-status.js / ffmpeg-install.js
     │           └── __tests__/                 # Vitest module tests
-    └── tests/                  # 117 pytest modules (2400+ cases)
+    └── tests/                  # 131 pytest modules (3000+ cases)
 ```
 
 ## Test Map
@@ -212,6 +213,8 @@ Use focused tests first, then full regression:
   `test_index.py`
 - Plan domain: `test_plan.py`, `test_plan_input.py`, `test_plan_model.py`, `test_plan_readiness.py`, `test_plan_preview.py`, `test_cut_snap.py`;
   frontend `plan-*.test.js`, `viewer-cut-preview.test.js`
+- Entity consistency: `test_tasks_consistency.py`, `test_tasks_plan.py`, `test_pipeline.py`,
+  `test_run_preview.py`; frontend `runner.test.js`
 - ASR: `test_asr*.py`, `test_transcribe.py`, `test_transcribe_engine_switch.py`, `test_tasks_transcribe.py`,
   `test_transcript_align.py`, `test_whisper_cli.py`
 - ffmpeg install: `test_ffmpeg_install.py`, `test_routes_ffmpeg_install.py`; frontend

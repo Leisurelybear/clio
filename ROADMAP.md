@@ -14,7 +14,7 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
 
 Source: [`docs/analysis/2026-11-05-P0-P2-Issues.md`](docs/analysis/2026-11-05-P0-P2-Issues.md)
 
-Snapshot: 83 items; 75 completed locally; 1 partial; 2 awaiting real-environment verification; 5 pending.
+Snapshot: 83 items; 76 completed locally; 1 partial; 2 awaiting real-environment verification; 4 pending.
 O17 and O18 are complete as of this cleanup. The analysis document remains the source of truth for item-level
 status and verification notes.
 
@@ -29,7 +29,10 @@ P1 items:
   - `[x]` add per-project `analyze.media_resolution` (`low | medium | high`, default `medium`)
   - `[x]` remove physical slicing from the analyze path and invalidate stale window caches
 - `[x]` Q6 shot-level structured analysis attributes and scene boundaries (`c5600d7`, `336824c`)
-- `[ ]` Q7 same-location entity and duplicate-scene consistency
+- `[x]` Q7 same-location entity and duplicate-scene consistency (`b141fb6`, `8292a0c`, `cfc3c81`, `535146b`)
+  - `[x]` generate validated per-day entity and duplicate-scene JSON/Markdown reports
+  - `[x]` inject current reports into planning and invalidate stale plan caches
+  - `[x]` expose the consistency stage in run preview and the Web UI runner
 - `[ ]` Q11 outline -> shot selection -> review planning loop
 - `[x]` Q12 generate voiceover from the planned segments after planning (`89b9315`, `9da2483`)
 - `[~]` F1 create a small scored evaluation set and scoring script

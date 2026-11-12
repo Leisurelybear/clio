@@ -1,6 +1,6 @@
 # 🎬 Clio — AI 预处理流水线
 
-> 🧠 **原片 → 压缩 → AI 理解 → 口播文案 → 剪辑规划 → 剪映成片**
+> 🧠 **原片 → 压缩 → AI 理解 → 同日一致性 → 口播文案 → 剪辑规划 → 剪映成片**
 >
 > 专为旅行 vlogger 打造的 CLI + Web UI 工具，把你的 GoPro / 手机 4K 素材喂给 AI，自动生成摘要、时间轴、口播稿和剪辑顺序，最后在 **剪映 (CapCut)** 里加特效、对口型收尾。
 
@@ -28,7 +28,7 @@
 | ✂️ | **精准裁剪** | | 按规划逐段裁剪，支持快剪 / 重编码 |
 | 🌐 | **Web UI 编辑器** | | 零外部依赖，浏览器看视频 + 编辑 + 跑流水线 |
 | 🗂️ | **任务中心与通知** | | 跨项目持久化后台任务、实时进度、失败重试和通知收件箱 |
-| 🚀 | **一键全流程** | ✅ | `run --day day1` 跑完压缩→转录→分析→口播→规划→标号；裁剪另跑 `cut` |
+| 🚀 | **一键全流程** | ✅ | `run --day day1` 跑完压缩→转录→分析→同日一致性→口播→规划→计划口播→标号；裁剪另跑 `cut` |
 
 ---
 
@@ -81,17 +81,20 @@ graph LR
     A[📹 4K 原片] --> B{🗜️ 压缩}
     B --> C[🧠 Whisper 转录]
     C --> D[🤖 Gemini 分析]
-    D --> E[✍️ DeepSeek 口播]
-    D --> F[🤖 DeepSeek 规划]
-    C --> F
-    F --> G[✂️ 裁剪片段]
-    F --> H[🏷️ 烧录序号]
-    G & H --> I[🎬 剪映成片]
+    D --> E[🧩 同日一致性]
+    E --> F[✍️ DeepSeek 口播]
+    E --> G[🤖 DeepSeek 规划]
+    C --> G
+    G --> H[🎙️ 计划段口播]
+    G --> I[✂️ 裁剪片段]
+    G --> J[🏷️ 烧录序号]
+    I & J --> K[🎬 剪映成片]
 
     style C fill:#e1f5fe,stroke:#01579b
     style D fill:#f3e5f5,stroke:#7b1fa2
-    style E fill:#fff3e0,stroke:#e65100
-    style F fill:#e8f5e9,stroke:#1b5e20
+    style E fill:#e8eaf6,stroke:#3949ab
+    style F fill:#fff3e0,stroke:#e65100
+    style G fill:#e8f5e9,stroke:#1b5e20
 ```
 
 | 步骤 | AI 引擎 | 命令 | 输入 → 输出 |
@@ -99,12 +102,14 @@ graph LR
 | 1️⃣ 压缩 | | `compress` | 4K 原片 → 640p / 时长自适应码率 / ~5MB 目标体积 / 单声道低码率音频（1 原片 1 压缩文件） |
 | 2️⃣ 🧠 **AI 转录** | **Whisper** / 云端 ASR | `transcribe` | 压缩视频 → 语音字幕（本地或云端） |
 | 3️⃣ 🤖 **AI 分析** | **Gemini** 2.5 Flash | `analyze` | 压缩视频 + 转录 → AI 摘要 + 时间轴 JSON |
-| 4️⃣ ✍️ **AI 口播** | **DeepSeek** / OpenAI | `scripts` | 分析 JSON → AI 生成旁白文案 |
-| 5️⃣ 🤖 **AI 规划** | **DeepSeek** / OpenAI | `plan --day day1` | 分析 + 转录 → AI 编排剪辑顺序 |
-| 6️⃣ 🔧 **AI 审阅** | **DeepSeek** / Gemini | `refine` | 已有输出 + trip 上下文 → AI 修正 |
-| 7️⃣ 裁剪 | | `cut --day day1` | 规划完成后单独运行 → 按时间轴截取片段 |
-| 8️⃣ 标号 | | `label` | 压缩视频 → 烧录序号水印 |
-| 🚀 流水线 | AI + 媒体 | `run --day day1` | 依次执行压缩、转录、分析、口播、规划和标号；裁剪需另行运行 `cut` |
+| 4️⃣ 🧩 **同日一致性** | **DeepSeek** / OpenAI | `run --day day1` | 当天分析 JSON → 统一实体名 + 标记重复场景 |
+| 5️⃣ ✍️ **AI 口播** | **DeepSeek** / OpenAI | `scripts` | 分析 JSON → AI 生成旁白文案 |
+| 6️⃣ 🤖 **AI 规划** | **DeepSeek** / OpenAI | `plan --day day1` | 分析 + 转录 + 一致性报告 → AI 编排剪辑顺序 |
+| 7️⃣ 🎙️ **计划段口播** | **DeepSeek** / OpenAI | `run --day day1` | 计划片段 + 转录 → 分段口播 |
+| 8️⃣ 🔧 **AI 审阅** | **DeepSeek** / Gemini | `refine` | 已有输出 + trip 上下文 → AI 修正 |
+| 9️⃣ 裁剪 | | `cut --day day1` | 规划完成后单独运行 → 按时间轴截取片段 |
+| 🔟 标号 | | `label` | 压缩视频 → 烧录序号水印 |
+| 🚀 流水线 | AI + 媒体 | `run --day day1` | 依次执行压缩、转录、分析、同日一致性、口播、规划、计划口播和标号；裁剪需另行运行 `cut` |
 
 > 💡 支持**单个文件**处理：`python main.py analyze -i "output/compressed/001_GL010685.mp4"`
 > 💡 每步独立运行、自动跳过已有输出，加 `--force` 强制重跑

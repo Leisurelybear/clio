@@ -282,3 +282,20 @@ Provider management is a frontend-only experience - no new backend APIs needed:
   timelines unchanged. Do not apply this pass to user-edited plans loaded from disk.
 - When a plan changes, recalculate `total_estimated_sec` so preview, cut, export, and the saved plan
   share one range contract. Keep `clio/tests/test_cut_snap.py` and planner integration coverage green.
+
+### 4.21 Same-Day Entity Consistency (Q7)
+
+- `clio/tasks/consistency.py` is the only supported generator and reader for
+  `plans/<day>_entity_consistency.json/.md`. Reuse the `refine_text` task binding; do not add a
+  separate provider task.
+- The structured output canonicalizes entity names and aliases, carries clip references, and
+  records duplicate scenes with bounded timestamp ranges. Validate clip indexes against the same
+  day's analyzed material, merge aliases case-insensitively, and reject malformed or out-of-range
+  findings before writing.
+- Lineage is deterministic over the plan-clip projection, prompt/context fingerprint, schema
+  version, and report contents. Planning ignores stale or malformed reports and must include the
+  current report in the plan lineage so a changed report regenerates the cached plan.
+- Pipeline order is `analyze -> consistency -> voiceover -> plan -> plan_voiceover -> label`.
+  `run_preview.py` and `runner.js` own the dedicated day input and step presentation.
+- Consistency reports are derived artifacts, not user-edited plan/voiceover artifacts. They do not
+  require the artifact overwrite confirmation flow.
