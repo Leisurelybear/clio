@@ -78,7 +78,7 @@ def handle_post_refine(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) 
         else:
             analysis = _load_analysis_for_script(p, config.texts_dir)
             refined = refine_script(data, analysis, config, context_override=context_override, token_store=token_store)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - AI provider failures are heterogeneous
         return handler._send_json({"ok": False, "error": f"refine failed: {e}"}, 500)
     finally:
         _mark_busy(abs_path, False)
