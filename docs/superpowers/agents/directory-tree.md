@@ -2,7 +2,7 @@
 
 > Load on demand when locating ownership boundaries or test coverage. Keep `AGENTS.md` short; put detailed file maps here.
 >
-> Last refreshed: 2026-11-13 (after the F9 visual transition review).
+> Last refreshed: 2026-11-13 (after the O14 sidebar helper extraction).
 
 ```
 vlog-video-analysis/
@@ -178,6 +178,8 @@ vlog-video-analysis/
     │           ├── i18n.js                    # Catalog lookup, locale events, data-i18n apply
     │           ├── language-switcher.js       # Header 中/EN button + `ui` block defaults
     │           ├── sidebar.js / sidebar-data.js / sidebar-video-filter.js
+    │           ├── sidebar-video-overview.js # Offline summary, filter chips, stage counts
+    │           ├── sidebar-video-display.js # Cover thumbnails and display-name formatting
     │           ├── sidebar-rerun.js / sidebar-relink.js / sidebar-batch-relink.js
     │           ├── sidebar-video-manage.js / sidebar-browse.js
     │           ├── runner.js                  # Run pane, step progress, rerun

@@ -2,6 +2,14 @@
 
 ## 2026-11-13
 
+Sidebar list-summary rendering and media display helpers now live in focused modules while `sidebar-data.js` keeps its compatibility exports.
+
+- refactor(ui): extract offline summary, filter chips, and stage counts into `sidebar-video-overview.js`
+- refactor(ui): extract cover thumbnail and display-name helpers into `sidebar-video-display.js`
+- test(ui): cover offline summary visibility and both stage-filter directions
+
+Verification: focused Vitest passes 62 tests across 4 files; `npm run typecheck` and `git diff --check` pass. Refactor commit: `be1b87b`.
+
 Plan subtitle placeholder resolution now lives in a focused module while `editor-plan.js` keeps its compatibility export.
 
 - refactor(ui): extract saved-subtitle and voiceover fallback handling into `editor-plan-subtitle.js`
