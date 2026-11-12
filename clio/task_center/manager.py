@@ -420,7 +420,7 @@ class TaskManager:
                 self._finish_succeeded(task_id, result or {})
         except TaskCancelled as e:
             self._finish_cancelled(task_id, message=str(e))
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - task executors must persist every failure as a failed task
             self._finish_failed(task_id, e)
         finally:
             if semaphore is not None:
