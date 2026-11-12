@@ -8,6 +8,7 @@ import re
 import subprocess
 import threading
 import time
+from collections.abc import Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from datetime import datetime
 from pathlib import Path
@@ -42,6 +43,7 @@ from clio.processing_state import ProcessingState
 from clio.progress import ProgressReporter
 from clio.prompt_overrides import resolve_prompt_template
 from clio.prompts import ANALYZE_PROMPT, TRANSCRIPT_CONTEXT, WINDOW_SUMMARY_PROMPT
+from clio.scene import SCENE_DETECT_VERSION, detect_scene_boundaries, slice_scene_boundaries
 from clio.schema import add_schema_version
 from clio.tasks._helpers import (
     ClipRecord,
@@ -172,7 +174,8 @@ def _analysis_lineage_fingerprint(
         "window_max_min": int(getattr(config.analyze, "window_max_min", 15) or 15),
         "window_overlap_sec": int(getattr(config.analyze, "window_overlap_sec", 20) or 0),
         "media_resolution": getattr(config.analyze, "media_resolution", "medium"),
-        "analysis_engine_version": 2,
+        "analysis_engine_version": 3,
+        "scene_detection_version": SCENE_DETECT_VERSION,
         "video_fps": 3,
         "compress": {
             "codec": getattr(config.compress, "codec", ""),
@@ -317,6 +320,12 @@ def _analyze_with_optional_windows(
     lineage: str = "",
 ) -> dict:
     """Run Gemini analyze: legacy split files stay single-call; else use windows."""
+    scene_boundaries = detect_scene_boundaries(
+        compressed,
+        duration_sec,
+        str(getattr(config.paths, "ffmpeg", "") or ""),
+        cancel_event=cancel_event,
+    )
 
     def _one_call(
         video_path: str,
@@ -324,6 +333,7 @@ def _analyze_with_optional_windows(
         start_sec: float | None = None,
         end_sec: float | None = None,
         fps: float | None = None,
+        window_boundaries: Sequence[float] | None = None,
     ) -> dict:
         try:
             return analyze_video(
@@ -339,6 +349,7 @@ def _analyze_with_optional_windows(
                 video_end_sec=end_sec,
                 video_fps=fps,
                 media_resolution=getattr(config.analyze, "media_resolution", "medium"),
+                scene_boundaries=window_boundaries,
             )
         except Exception as exc:
             if cancel_event is not None and cancel_event.is_set():
@@ -346,14 +357,21 @@ def _analyze_with_optional_windows(
             raise
 
     if is_legacy_split_path(compressed):
-        return _one_call(str(compressed))
+        return _one_call(str(compressed), window_boundaries=scene_boundaries)
 
     w_max = int(getattr(config.analyze, "window_max_min", 15) or 15)
     overlap = int(getattr(config.analyze, "window_overlap_sec", 20) or 0)
     windows = build_analyze_windows(duration_sec, w_max, overlap)
 
     if len(windows) <= 1:
-        analysis = _one_call(str(compressed), start_sec=0.0, end_sec=duration_sec, fps=3)
+        window_boundaries = slice_scene_boundaries(scene_boundaries, 0.0, duration_sec)
+        analysis = _one_call(
+            str(compressed),
+            start_sec=0.0,
+            end_sec=duration_sec,
+            fps=3,
+            window_boundaries=window_boundaries,
+        )
         return merge_window_analyses([(windows[0], analysis)], overlap) if windows else analysis
 
     cache_dir = window_cache_dir(config.paths.output_dir, compressed.stem)
@@ -376,7 +394,14 @@ def _analyze_with_optional_windows(
             print(t("task.analyze.window_cache_hit", {"name": compressed.name, "index": w.index}))
             partials.append((w, part))
             continue
-        part = _one_call(str(compressed), start_sec=w.start_sec, end_sec=w.end_sec, fps=3)
+        window_boundaries = slice_scene_boundaries(scene_boundaries, w.start_sec, w.end_sec)
+        part = _one_call(
+            str(compressed),
+            start_sec=w.start_sec,
+            end_sec=w.end_sec,
+            fps=3,
+            window_boundaries=window_boundaries,
+        )
         part = shift_analysis_times(part, w.start_sec)
         if cache_key is not None and lineage:
             save_window_cache(cache_dir, window=w, analysis=part, **cache_key)

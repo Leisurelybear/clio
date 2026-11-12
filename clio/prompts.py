@@ -95,7 +95,10 @@ ANALYZE_PROMPT = """请仔细分析这段旅行 vlog 原始素材视频，用中
     {
       "start": "00:00", "end": "00:10",
       "description": "人物沿街行走，手持跟拍，招牌写着 CAFE",
-      "score": 4, "camera": "follow", "quality": "ok", "tags": ["street", "signage"]
+      "score": 4, "camera": "follow", "quality": "ok",
+      "shot_size": "medium", "camera_direction": "forward",
+      "first_frame": "人物从画面左侧进入", "last_frame": "人物走到咖啡店门口",
+      "energy": 3, "audio": "环境声与脚步声", "tags": ["street", "signage"]
     },
     {
       "start": "00:10", "end": "00:22", "description": "...",
@@ -129,6 +132,13 @@ ANALYZE_PROMPT = """请仔细分析这段旅行 vlog 原始素材视频，用中
   场景/招牌文字和明显互动中实际可见的信息。
 - 每条都必须填写一个 1-5 的 score：5 = 封面级，4 = 强亮点，3 = 可用，2 = 填充，1 = 抖动/过暗/无信息。
 - camera 只能是 fixed、handheld、pan、zoom、follow；quality 只能是 ok、shaky、dark、blocked。
+- shot_size 只能是 extreme_wide、wide、medium、close_up、extreme_close_up；
+  camera_direction 只能是 static、left、right、forward、backward、up、down、orbit。
+- first_frame / last_frame 各写一句简短画面描述，说明该行起止时主体、位置或动作的变化。
+- energy 输出 1-5：1 = 静止或无动作，5 = 快速移动、强互动或高信息密度。
+- audio 只描述实际能听到的声音类型，如人声、环境声、音乐、脚步声、静音；无法判断填“未知”。
+- timeline 行是镜头级结构：优先让每行对应一个检测到的镜头；长镜头需要拆行时，
+  不要在同一个镜头内部制造不存在的切点。系统会提供检测到的镜头边界，边界时间是权威参考。
 - tags 输出 1-4 个短标签，优先复用食物、街景、建筑、人物互动、交通、夜景等高频词。
 - 达到最大行数时，优先保留 score >= 4 的条目并缩短静态段落，不能把整段概括成少量长条目。
 - 只描述画面里**实际能看到**的内容，禁止编造看不到的细节。
@@ -151,6 +161,18 @@ ANALYZE_PROMPT = """请仔细分析这段旅行 vlog 原始素材视频，用中
 ## cover_timestamp
 - 选择主体清晰、光线好、构图稳定、有代表性的单个时间点
 - 必须是 timeline 中真实存在的画面点，时间格式 MM:SS 或 HH:MM:SS
+"""
+
+SCENE_BOUNDARY_RANGE = "- 镜头 {index}: {start}-{end}"
+
+
+SCENE_BOUNDARY_CONTEXT = """## 场景检测提供的镜头边界（权威参考）
+检测到 {shot_count} 个镜头区间：
+{scene_ranges}
+
+补充要求：
+- 每个 timeline 行的 start/end 应尽量落在上述镜头边界上；一个镜头可拆成多行，但不得跨越未说明的镜头切换。
+- 如果画面变化与检测边界不一致，只描述实际可见内容，并在该行 first_frame/last_frame 中写清变化。
 """
 
 SCRIPT_PROMPT = """你是旅行 vlog 口播文案写手。根据以下素材分析结果和口播模板，为编号 {index} 的片段写口播文案。

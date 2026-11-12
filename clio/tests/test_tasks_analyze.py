@@ -66,6 +66,7 @@ def _common_mocks(monkeypatch):
     monkeypatch.setattr("clio.tasks._helpers.probe_video_info", lambda *a, **kw: {})
     # run_analyze_all (in analyze.py) also calls resolve_binary for duration gate
     monkeypatch.setattr("clio.tasks.analyze.resolve_binary", lambda *a: "ffprobe")
+    monkeypatch.setattr("clio.tasks.analyze.detect_scene_boundaries", lambda *a, **kw: [])
     # Prevent AI calls
     monkeypatch.setattr("clio.tasks.analyze._build_stem", lambda idx, title, cfg: f"{idx:03d}_{title}")
     monkeypatch.setattr("clio.tasks.analyze._write_text_file", lambda *a: None)
@@ -792,6 +793,68 @@ class TestRunAnalyzeAll:
         assert calls[0]["video_end_sec"] == 60.0
         assert calls[0]["video_fps"] == 3
         assert calls[0]["media_resolution"] == "medium"
+
+    def test_single_window_passes_detected_scene_boundaries(self, monkeypatch, tmp_path: Path):
+        cfg = _cfg(tmp_path)
+        cfg.analyze.max_analyze_duration_min = 0
+        _add_original(cfg, "GL010695.mp4")
+        comp = cfg.compressed_dir / "001_GL010695.mp4"
+        comp.write_bytes(b"video")
+
+        _common_mocks(monkeypatch)
+        monkeypatch.setattr("clio.tasks.analyze.get_duration_sec", lambda *args: 60.0)
+        detected: list[tuple[str, float, str]] = []
+
+        def fake_detect(path, duration, ffmpeg, **kwargs):
+            detected.append((str(path), duration, str(ffmpeg)))
+            return [0.0, 20.0, 60.0]
+
+        monkeypatch.setattr("clio.tasks.analyze.detect_scene_boundaries", fake_detect)
+        calls: list[dict] = []
+
+        def fake_analyze(path, *args, **kwargs):
+            calls.append(kwargs)
+            return {"title": "Short", "summary": "One window", "timeline": []}
+
+        monkeypatch.setattr("clio.tasks.analyze.analyze_video", fake_analyze)
+
+        records = run_analyze_all(cfg)
+
+        assert len(records) == 1
+        assert detected == [(str(comp), 60.0, "ffmpeg")]
+        assert calls[0]["scene_boundaries"] == [0.0, 20.0, 60.0]
+
+    def test_multi_window_slices_scene_boundaries_to_each_window(self, monkeypatch, tmp_path: Path):
+        cfg = _cfg(tmp_path)
+        cfg.analyze.max_analyze_duration_min = 0
+        cfg.analyze.window_max_min = 15
+        cfg.analyze.window_overlap_sec = 20
+        cast(Any, cfg.ai).tasks = {"refine_text": SimpleNamespace(provider="text", model="model")}
+        _add_original(cfg, "GL010695.mp4")
+        comp = cfg.compressed_dir / "001_GL010695.mp4"
+        comp.write_bytes(b"video")
+
+        _common_mocks(monkeypatch)
+        monkeypatch.setattr("clio.tasks.analyze.get_duration_sec", lambda *args: 2400.0)
+        monkeypatch.setattr("clio.tasks.analyze.is_legacy_split_path", lambda path: False)
+        monkeypatch.setattr(
+            "clio.tasks.analyze.detect_scene_boundaries",
+            lambda *args, **kwargs: [0.0, 100.0, 930.0, 1800.0, 2330.0, 2400.0],
+        )
+        monkeypatch.setattr("clio.tasks.analyze.summarize_window_analysis", lambda analysis, *a, **kw: analysis)
+        calls: list[dict] = []
+
+        def fake_analyze(path, *args, **kwargs):
+            calls.append(kwargs)
+            return {"title": f"W{len(calls)}", "summary": "s", "timeline": [], "location": "X"}
+
+        monkeypatch.setattr("clio.tasks.analyze.analyze_video", fake_analyze)
+
+        run_analyze_all(cfg)
+
+        assert calls[0]["scene_boundaries"] == [0.0, 100.0, 900.0]
+        assert calls[1]["scene_boundaries"] == [0.0, 50.0, 900.0]
+        assert calls[2]["scene_boundaries"] == [0.0, 40.0, 570.0, 640.0]
 
     def test_window_failure_writes_nothing(self, monkeypatch, tmp_path: Path):
         cfg = _cfg(tmp_path)

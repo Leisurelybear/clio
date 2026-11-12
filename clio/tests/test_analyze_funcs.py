@@ -470,6 +470,30 @@ def test_analyze_video_forwards_video_metadata(monkeypatch):
     assert kwargs["media_resolution"] == "low"
 
 
+def test_analyze_video_includes_scene_boundaries_and_aligns_timeline(monkeypatch):
+    from clio.analyze import analyze_video
+
+    cfg = _fake_config()
+    provider = MagicMock(provider_id="mock")
+    provider.analyze_video.return_value = AIResponse(
+        '{"title":"x","summary":"y","timeline":['
+        '{"start":"00:05.4","end":"00:09.7","description":"walk"},'
+        '{"start":"00:10.5","end":"00:15","description":"street"}]}'
+    )
+
+    monkeypatch.setattr("clio.analyze.get_video_provider", lambda *a: (provider, "model"))
+
+    result = analyze_video("clip.mp4", cfg, scene_boundaries=[0.0, 5.0, 10.0, 15.0])
+
+    prompt = provider.analyze_video.call_args.args[1]
+    assert "检测到 3 个镜头区间" in prompt
+    assert "镜头 1: 00:00-00:05" in prompt
+    assert "镜头 2: 00:05-00:10" in prompt
+    assert result["timeline"][0]["start"] == "00:05"
+    assert result["timeline"][0]["end"] == "00:10"
+    assert result["timeline"][1]["start"] == "00:10"
+
+
 def test_generate_voiceover_includes_aligned_transcript(monkeypatch):
     from clio.analyze import generate_voiceover
 
@@ -556,6 +580,12 @@ def test_validate_analysis_normalizes_timeline_significance_fields():
                     "score": 7,
                     "camera": " PAN ",
                     "quality": "OK",
+                    "shot_size": " MEDIUM ",
+                    "camera_direction": " Forward ",
+                    "first_frame": " 人物入画 ",
+                    "last_frame": " 走到柜台 ",
+                    "energy": 9,
+                    "audio": " 环境声 ",
                     "tags": ["food", "", "Food", 3, "market"],
                 },
                 {
@@ -565,6 +595,12 @@ def test_validate_analysis_normalizes_timeline_significance_fields():
                     "score": "bad",
                     "camera": "tripod",
                     "quality": "bright",
+                    "shot_size": "macro",
+                    "camera_direction": "sideways",
+                    "first_frame": " ",
+                    "last_frame": 3,
+                    "energy": "high",
+                    "audio": None,
                     "tags": "not-a-list",
                 },
             ],
@@ -586,10 +622,22 @@ def test_validate_analysis_normalizes_timeline_significance_fields():
     assert first["score"] == 5
     assert first["camera"] == "pan"
     assert first["quality"] == "ok"
+    assert first["shot_size"] == "medium"
+    assert first["camera_direction"] == "forward"
+    assert first["first_frame"] == "人物入画"
+    assert first["last_frame"] == "走到柜台"
+    assert first["energy"] == 5
+    assert first["audio"] == "环境声"
     assert first["tags"] == ["food", "market"]
     assert "score" not in second
     assert "camera" not in second
     assert "quality" not in second
+    assert "shot_size" not in second
+    assert "camera_direction" not in second
+    assert "first_frame" not in second
+    assert "last_frame" not in second
+    assert "energy" not in second
+    assert "audio" not in second
     assert second["tags"] == []
     assert len(result["key_moments"]) == 1
     assert result["key_moments"][0]["score"] == 1

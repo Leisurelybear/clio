@@ -57,6 +57,17 @@ def test_video_analysis_schema_contains_timeline_significance_fields() -> None:
     schema = VIDEO_ANALYSIS_OUTPUT.schema
     assert schema is not None
     timeline_schema = schema["$defs"]["AnalysisTimelineItem"]
-    assert set(timeline_schema["properties"]) >= {"score", "camera", "quality", "tags"}
+    assert set(timeline_schema["properties"]) >= {
+        "score",
+        "camera",
+        "quality",
+        "shot_size",
+        "camera_direction",
+        "first_frame",
+        "last_frame",
+        "energy",
+        "audio",
+        "tags",
+    }
     moment_schema = schema["$defs"]["AnalysisKeyMoment"]
     assert set(moment_schema["properties"]) >= {"start", "end", "title", "why", "score"}

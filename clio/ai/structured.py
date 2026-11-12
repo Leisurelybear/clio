@@ -18,6 +18,12 @@ class AnalysisTimelineItem(_StrictModel):
     score: int | None = Field(default=None, ge=1, le=5)
     camera: Literal["fixed", "handheld", "pan", "zoom", "follow"] | None = None
     quality: Literal["ok", "shaky", "dark", "blocked"] | None = None
+    shot_size: Literal["extreme_wide", "wide", "medium", "close_up", "extreme_close_up"] | None = None
+    camera_direction: Literal["static", "left", "right", "forward", "backward", "up", "down", "orbit"] | None = None
+    first_frame: str | None = None
+    last_frame: str | None = None
+    energy: int | None = Field(default=None, ge=1, le=5)
+    audio: str | None = None
     tags: list[str] = Field(default_factory=list)
 
 

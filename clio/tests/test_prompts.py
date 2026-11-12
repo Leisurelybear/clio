@@ -14,6 +14,7 @@ from clio.prompts import (
     REFINE_SCRIPT_PROMPT,
     REFINE_TEXT_FIX_PROMPT,
     REFINE_TEXT_PROMPT,
+    SCENE_BOUNDARY_CONTEXT,
     SCRIPT_PROMPT,
     TRANSCRIPT_CONTEXT,
     load_prompt,
@@ -101,6 +102,27 @@ def test_analyze_prompt_requires_high_detail_timeline():
 def test_analyze_prompt_requires_specific_summary_and_mood():
     assert "独有的具体内容" in ANALYZE_PROMPT
     assert "空泛" in ANALYZE_PROMPT
+
+
+def test_analyze_prompt_requires_shot_level_metadata():
+    for field in ("shot_size", "camera_direction", "first_frame", "last_frame", "energy", "audio"):
+        assert f'"{field}"' in ANALYZE_PROMPT
+    assert "镜头级结构" in ANALYZE_PROMPT
+
+
+def test_scene_boundary_context_formats_authoritative_ranges():
+    from clio.prompt_overrides import format_prompt_template
+
+    rendered = format_prompt_template(
+        "scene_boundary_context",
+        SCENE_BOUNDARY_CONTEXT,
+        shot_count=2,
+        scene_ranges="- 镜头 1: 00:00-00:05\n- 镜头 2: 00:05-00:10",
+    )
+
+    assert "2 个镜头区间" in rendered
+    assert "00:00-00:05" in rendered
+    assert "不得跨越未说明的镜头切换" in rendered
 
 
 def test_analyze_prompt_highlights_support_object():

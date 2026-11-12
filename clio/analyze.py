@@ -5,7 +5,7 @@ import hashlib
 import json
 import math
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, cast
 
@@ -39,10 +39,13 @@ from clio.prompts import (
     REFINE_SCRIPT_PROMPT,
     REFINE_TEXT_FIX_PROMPT,
     REFINE_TEXT_PROMPT,
+    SCENE_BOUNDARY_CONTEXT,
+    SCENE_BOUNDARY_RANGE,
     SCRIPT_PROMPT,
     TRANSCRIPT_CONTEXT,
     WINDOW_SUMMARY_PROMPT,
 )
+from clio.scene import align_shots_to_boundaries, format_scene_timestamp, scene_ranges
 from clio.utils import extract_json
 
 _trip_context_cache: dict[str, str] = {}
@@ -215,6 +218,8 @@ def _coerce_list(value: Any) -> tuple[list[Any], bool]:
 
 _TIMELINE_CAMERA_VALUES = frozenset({"fixed", "handheld", "pan", "zoom", "follow"})
 _TIMELINE_QUALITY_VALUES = frozenset({"ok", "shaky", "dark", "blocked"})
+_TIMELINE_SHOT_SIZE_VALUES = frozenset({"extreme_wide", "wide", "medium", "close_up", "extreme_close_up"})
+_TIMELINE_CAMERA_DIRECTION_VALUES = frozenset({"static", "left", "right", "forward", "backward", "up", "down", "orbit"})
 
 
 def _normalize_score(value: Any) -> int | None:
@@ -234,6 +239,13 @@ def _normalize_choice(value: Any, allowed: frozenset[str]) -> str | None:
         return None
     normalized = value.strip().lower()
     return normalized if normalized in allowed else None
+
+
+def _normalize_optional_text(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return text or None
 
 
 def _normalize_tags(value: Any) -> list[str]:
@@ -263,6 +275,8 @@ def _normalize_timeline_item(item: dict[str, Any]) -> dict[str, Any]:
     for key, allowed in (
         ("camera", _TIMELINE_CAMERA_VALUES),
         ("quality", _TIMELINE_QUALITY_VALUES),
+        ("shot_size", _TIMELINE_SHOT_SIZE_VALUES),
+        ("camera_direction", _TIMELINE_CAMERA_DIRECTION_VALUES),
     ):
         if key in normalized:
             choice = _normalize_choice(normalized[key], allowed)
@@ -270,6 +284,19 @@ def _normalize_timeline_item(item: dict[str, Any]) -> dict[str, Any]:
                 normalized.pop(key, None)
             else:
                 normalized[key] = choice
+    if "energy" in normalized:
+        energy = _normalize_score(normalized["energy"])
+        if energy is None:
+            normalized.pop("energy", None)
+        else:
+            normalized["energy"] = energy
+    for key in ("first_frame", "last_frame", "audio"):
+        if key in normalized:
+            text_value = _normalize_optional_text(normalized[key])
+            if text_value is None:
+                normalized.pop(key, None)
+            else:
+                normalized[key] = text_value
     if "tags" in normalized:
         normalized["tags"] = _normalize_tags(normalized["tags"])
     return normalized
@@ -1026,6 +1053,26 @@ def _validate_with_retry(
     raise AssertionError("validation retry loop exited unexpectedly")
 
 
+def _scene_boundary_prompt(boundaries: Sequence[float] | None) -> str:
+    ranges = scene_ranges(boundaries or [])
+    if not ranges:
+        return ""
+    lines = "\n".join(
+        SCENE_BOUNDARY_RANGE.format(
+            index=index,
+            start=format_scene_timestamp(start),
+            end=format_scene_timestamp(end),
+        )
+        for index, (start, end) in enumerate(ranges, start=1)
+    )
+    return format_prompt_template(
+        "scene_boundary_context",
+        SCENE_BOUNDARY_CONTEXT,
+        shot_count=len(ranges),
+        scene_ranges=lines,
+    )
+
+
 def analyze_video(
     video_path: str,
     config: AppConfig,
@@ -1039,9 +1086,13 @@ def analyze_video(
     video_end_sec: float | None = None,
     video_fps: float | None = None,
     media_resolution: str | None = None,
+    scene_boundaries: Sequence[float] | None = None,
 ) -> dict:
     provider, model = get_video_provider(config, TaskName.VIDEO_ANALYZE)
     base = resolve_prompt_template("video_analyze", ANALYZE_PROMPT, config, task_prompts=task_prompts)
+    scene_context = _scene_boundary_prompt(scene_boundaries)
+    if scene_context:
+        base += "\n\n" + scene_context
     if transcript_context:
         transcript_template = resolve_prompt_template("transcript_context", TRANSCRIPT_CONTEXT, config)
         base += "\n\n" + format_prompt_template(
@@ -1083,13 +1134,14 @@ def analyze_video(
         # Check cancel_event after AI call but before validation
         if cancel_event and cancel_event.is_set():
             raise RuntimeError(t("analyze.cancelled"))
-        return _validate_with_retry(
+        result = _validate_with_retry(
             text,
             video_path,
             validate=_validate_analysis,
             retry=call_analyze,
             analysis=True,
         )
+        return align_shots_to_boundaries(result, scene_boundaries or [])
 
 
 def generate_voiceover(
