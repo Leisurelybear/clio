@@ -6,6 +6,7 @@ import io
 import json
 import time
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -85,7 +86,7 @@ def test_make_handler_applies_configured_log_settings(tmp_path):
     )
 
     with patch("clio.ui.server.ConfigCache"):
-        cls = make_handler(config, None)
+        cls = cast(Any, make_handler(config, None))
 
     assert cls._access_log_mode == "all"
     assert cls._access_log_slow_ms == 120
