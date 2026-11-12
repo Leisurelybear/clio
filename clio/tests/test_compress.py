@@ -2,29 +2,35 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
 from clio.compress import compress_video
+from clio.config import AppConfig
 
 
-def _default_config() -> SimpleNamespace:
-    return SimpleNamespace(
-        paths=SimpleNamespace(ffmpeg="ffmpeg", ffprobe="ffprobe"),
-        compress=SimpleNamespace(
-            target_size_mb=5,
-            max_width=640,
-            fps=15,
-            codec="libx264",
-            remove_audio=True,
-            crf=23,
+def _default_config() -> AppConfig:
+    return cast(
+        AppConfig,
+        SimpleNamespace(
+            paths=SimpleNamespace(ffmpeg="ffmpeg", ffprobe="ffprobe"),
+            compress=SimpleNamespace(
+                target_size_mb=5,
+                max_width=640,
+                fps=15,
+                codec="libx264",
+                remove_audio=True,
+                crf=23,
+            ),
         ),
     )
 
 
-def _mock_ffmpeg(ffmpeg_calls: list) -> callable:
+def _mock_ffmpeg(ffmpeg_calls: list[list[str]]) -> Callable[..., None]:
     """Create a mock run_ffmpeg that records calls and creates the output file."""
 
     def _run(args, ff, progress_callback=None, **kwargs):
@@ -65,7 +71,7 @@ class TestCompressVideo:
         out = tmp_path / "out.mp4"
         monkeypatch.setattr("clio.compress.resolve_binary", lambda *a: "ffmpeg")
         monkeypatch.setattr("clio.compress.get_duration_sec", lambda *a: 60.0)
-        ffmpeg_calls = []
+        ffmpeg_calls: list[list[str]] = []
         monkeypatch.setattr("clio.compress.run_ffmpeg", _mock_ffmpeg(ffmpeg_calls))
         cfg = _default_config()
         for k, v in cfg_overrides.items():
@@ -119,7 +125,7 @@ class TestCompressVideo:
         out = tmp_path / "out.mov"
         monkeypatch.setattr("clio.compress.resolve_binary", lambda *a: "ffmpeg")
         monkeypatch.setattr("clio.compress.get_duration_sec", lambda *a: 60.0)
-        ffmpeg_calls = []
+        ffmpeg_calls: list[list[str]] = []
         monkeypatch.setattr("clio.compress.run_ffmpeg", _mock_ffmpeg(ffmpeg_calls))
         compress_video(src, out, _default_config())
         args = ffmpeg_calls[0]
@@ -131,10 +137,10 @@ class TestCompressVideo:
         out = tmp_path / "out.mp4"
         monkeypatch.setattr("clio.compress.resolve_binary", lambda *a: "ffmpeg")
         monkeypatch.setattr("clio.compress.get_duration_sec", lambda *a: 1.0)
-        ffmpeg_calls = []
+        ffmpeg_calls: list[list[str]] = []
         monkeypatch.setattr("clio.compress.run_ffmpeg", _mock_ffmpeg(ffmpeg_calls))
         cfg = _default_config()
-        cfg.compress.target_size_mb = 1
+        cast(Any, cfg.compress).target_size_mb = 1
         compress_video(src, out, cfg)
         args = ffmpeg_calls[0]
         bv_idx = args.index("-b:v")
@@ -146,7 +152,7 @@ class TestCompressVideo:
         out = tmp_path / "out.mp4"
         monkeypatch.setattr("clio.compress.resolve_binary", lambda *a: "ffmpeg")
         monkeypatch.setattr("clio.compress.get_duration_sec", lambda *a: 600.0)
-        ffmpeg_calls = []
+        ffmpeg_calls: list[list[str]] = []
         monkeypatch.setattr("clio.compress.run_ffmpeg", _mock_ffmpeg(ffmpeg_calls))
 
         compress_video(src, out, _default_config())
