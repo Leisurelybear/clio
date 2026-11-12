@@ -269,6 +269,90 @@ def _clip_duration_sec(clip: dict[str, Any]) -> float:
     return round(duration, 3) if duration is not None and duration > 0 else 0.0
 
 
+def plan_candidate_limit(config: AppConfig) -> int:
+    return _positive_limit(config, "max_candidate_clips", 60)
+
+
+def should_shortlist_plan_clips(clips: list[dict[str, Any]], config: AppConfig) -> bool:
+    limit = plan_candidate_limit(config)
+    return limit > 0 and len(clips) > limit
+
+
+def build_plan_shortlist_cards(clips: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Build the compact card payload used by the first-stage candidate selector."""
+    cards: list[dict[str, Any]] = []
+    for clip in clips:
+        if not isinstance(clip, dict):
+            continue
+        moments = clip.get("key_moments")
+        cards.append(
+            {
+                "index": clip.get("index", ""),
+                "title": clip.get("title", ""),
+                "summary": clip.get("summary", ""),
+                "location": clip.get("location", ""),
+                "duration_sec": _clip_duration_sec(clip),
+                "key_moments": [item for item in moments[:3] if isinstance(item, dict)]
+                if isinstance(moments, list)
+                else [],
+            }
+        )
+    return cards
+
+
+def _candidate_rank(clip: dict[str, Any], position: int) -> tuple[float, float, int]:
+    moments = clip.get("key_moments")
+    scores = (
+        [
+            float(score)
+            for item in moments
+            if isinstance(item, dict)
+            and not isinstance((score := item.get("score")), bool)
+            and isinstance(score, (int, float))
+            and math.isfinite(float(score))
+        ]
+        if isinstance(moments, list)
+        else []
+    )
+    duration = _clip_duration_sec(clip)
+    return (-max(scores, default=0.0), -duration, position)
+
+
+def _fallback_shortlist(clips: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+    ranked = sorted(enumerate(clips), key=lambda pair: _candidate_rank(pair[1], pair[0]))
+    return [clip for _, clip in ranked[:limit]]
+
+
+def resolve_plan_candidates(clips: list[dict[str, Any]], keep: Any, limit: int) -> tuple[list[dict[str, Any]], str]:
+    """Resolve model-selected indices, falling back deterministically on invalid output."""
+    if limit <= 0:
+        return list(clips), "disabled"
+    if len(clips) <= limit:
+        return list(clips), "not_needed"
+
+    indices: list[str] = []
+    if isinstance(keep, list):
+        for value in keep:
+            if not isinstance(value, str):
+                return _fallback_shortlist(clips, limit), "fallback"
+            index = value.strip()
+            if not index:
+                return _fallback_shortlist(clips, limit), "fallback"
+            indices.append(index)
+    else:
+        return _fallback_shortlist(clips, limit), "fallback"
+
+    if not indices or len(indices) > limit or len(set(indices)) != len(indices):
+        return _fallback_shortlist(clips, limit), "fallback"
+
+    by_index = {str(clip.get("index", "")): clip for clip in clips if isinstance(clip, dict)}
+    if any(index not in by_index for index in indices):
+        return _fallback_shortlist(clips, limit), "fallback"
+
+    selected = set(indices)
+    return [clip for clip in clips if isinstance(clip, dict) and str(clip.get("index", "")) in selected], "model"
+
+
 def build_plan_clips(clips: list[dict[str, Any]], config: AppConfig) -> list[dict[str, Any]]:
     """Project full analysis clips into a deterministic, bounded plan input."""
     row_limit = _positive_limit(config, "max_timeline_rows_per_clip", 8)

@@ -7,14 +7,20 @@ from unittest.mock import MagicMock
 
 from clio.config import AppConfig
 from clio.config.models import PlanConfig
-from clio.plan_input import build_plan_clips
+from clio.plan_input import (
+    build_plan_clips,
+    build_plan_shortlist_cards,
+    resolve_plan_candidates,
+    should_shortlist_plan_clips,
+)
 
 
-def _config(row_limit: int = 8, moment_limit: int = 6) -> AppConfig:
+def _config(row_limit: int = 8, moment_limit: int = 6, candidate_limit: int = 60) -> AppConfig:
     cfg = MagicMock(spec=AppConfig)
     cfg.plan = PlanConfig(
         max_timeline_rows_per_clip=row_limit,
         max_key_moments_per_clip=moment_limit,
+        max_candidate_clips=candidate_limit,
     )
     return cast(AppConfig, cfg)
 
@@ -267,3 +273,101 @@ def test_projection_is_deterministic_and_does_not_mutate_input() -> None:
 
     assert first == second
     assert clip == original
+
+
+def _shortlist_clip(index: str, score: int, duration: float, moment_start: str = "00:01") -> dict[str, Any]:
+    return {
+        "index": index,
+        "title": f"title-{index}",
+        "summary": f"summary-{index}",
+        "location": f"location-{index}",
+        "duration_sec": duration,
+        "key_moments": [
+            {"start": moment_start, "end": "00:02", "title": "one", "score": score},
+            {"start": "00:03", "end": "00:04", "title": "two", "score": score - 1},
+            {"start": "00:05", "end": "00:06", "title": "three", "score": score - 2},
+            {"start": "00:07", "end": "00:08", "title": "four", "score": score - 3},
+        ],
+        "timeline": [_row("00:00", f"00:{int(duration):02d}")],
+    }
+
+
+def test_shortlist_trigger_respects_threshold_and_zero_disables() -> None:
+    clips = [_shortlist_clip(str(i), 3, 10) for i in range(4)]
+
+    assert should_shortlist_plan_clips(clips, _config()) is False
+    assert should_shortlist_plan_clips(clips, _config(candidate_limit=0)) is False
+    assert should_shortlist_plan_clips(clips, _config(candidate_limit=4)) is False
+    assert should_shortlist_plan_clips(clips, _config(candidate_limit=3)) is True
+
+
+def test_shortlist_cards_only_send_compact_fields_and_three_moments() -> None:
+    clip = _shortlist_clip("001", 5, 12)
+    clip["timeline"][0]["private"] = "hidden"
+    cards = build_plan_shortlist_cards([clip])
+
+    assert cards == [
+        {
+            "index": "001",
+            "title": "title-001",
+            "summary": "summary-001",
+            "location": "location-001",
+            "duration_sec": 12.0,
+            "key_moments": clip["key_moments"][:3],
+        }
+    ]
+    assert clip["timeline"][0]["private"] == "hidden"
+
+
+def test_resolve_plan_candidates_keeps_valid_model_selection_in_source_order() -> None:
+    clips = [_shortlist_clip("001", 1, 10), _shortlist_clip("002", 5, 20), _shortlist_clip("003", 3, 30)]
+
+    selected, source = resolve_plan_candidates(clips, ["003", "001"], 2)
+
+    assert [clip["index"] for clip in selected] == ["001", "003"]
+    assert source == "model"
+
+
+def test_resolve_plan_candidates_falls_back_on_invalid_duplicate_empty_and_overflow() -> None:
+    clips = [
+        _shortlist_clip("001", 3, 10),
+        _shortlist_clip("002", 5, 5),
+        _shortlist_clip("003", 5, 20),
+    ]
+    for keep in (["001", "999"], ["001", "001"], [], ["001", "002", "003"], [1]):
+        selected, source = resolve_plan_candidates(clips, keep, 2)
+        assert [clip["index"] for clip in selected] == ["003", "002"]
+        assert source == "fallback"
+
+
+def test_resolve_plan_candidates_fallback_uses_score_then_duration_then_source_order() -> None:
+    clips = [
+        _shortlist_clip("001", 4, 10),
+        _shortlist_clip("002", 5, 8),
+        _shortlist_clip("003", 5, 20),
+        _shortlist_clip("004", 0, 100),
+    ]
+
+    selected, source = resolve_plan_candidates(clips, ["bad"], 3)
+
+    assert [clip["index"] for clip in selected] == ["003", "002", "001"]
+    assert source == "fallback"
+
+
+def test_resolve_plan_candidates_noop_when_disabled_or_below_threshold() -> None:
+    clips = [_shortlist_clip("001", 3, 10)]
+
+    assert resolve_plan_candidates(clips, [], 0) == (clips, "disabled")
+    selected, source = resolve_plan_candidates(clips, [], 2)
+    assert selected is not clips
+    assert selected == clips
+    assert source == "not_needed"
+
+
+def test_resolve_plan_candidates_accepts_exact_limit_and_trims_index_whitespace() -> None:
+    clips = [_shortlist_clip("001", 1, 10), _shortlist_clip("002", 2, 20), _shortlist_clip("003", 3, 30)]
+
+    selected, source = resolve_plan_candidates(clips, [" 003 ", "001"], 2)
+
+    assert [clip["index"] for clip in selected] == ["001", "003"]
+    assert source == "model"
