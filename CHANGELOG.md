@@ -2,6 +2,20 @@
 
 ## 2026-11-13
 
+Analysis compression now surfaces non-mutating width and fps recommendations based on the requested
+analysis resolution. High-resolution analysis warns when width is below 1280, and non-low analysis
+warns when fps is below 2; each warning is emitted once through console output and Task Center logs
+without changing compression configuration.
+
+- feat(compress): recommend analysis-friendly width and fps
+- test(compress): cover recommendation thresholds and one-time analyze warnings
+- docs(compress): complete R-048 P2b status
+
+Verification: full pytest passes 3198 tests with 12 skipped; Ruff, format check, mypy over 284 source
+files, and `git diff --check` pass. Commit: `6880480`.
+
+## 2026-11-13
+
 Sparse analysis windows now get one bounded completion retry instead of silently keeping large
 timeline holes. The retry targets only the largest qualifying gap, merges completion rows back in
 source time, and preserves the original analysis when the retry fails or is cancelled.

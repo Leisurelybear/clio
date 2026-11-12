@@ -84,7 +84,7 @@ P2 items:
 
 ### R-048 Higher-detail video analysis and bounded plan input
 
-**Status:** Complete through P2a (2026-11-13). Media resolution, structured significance fields, the prompt density contract, coverage observation, sparse-window completion retry, bounded plan-input projection, and deterministic two-stage candidate shortlisting are implemented. The compress width/fps recommendation remains the only optional P2 item.
+**Status:** Complete through P2b (2026-11-13). Media resolution, structured significance fields, the prompt density contract, coverage observation, sparse-window completion retry, bounded plan-input projection, deterministic two-stage candidate shortlisting, and non-mutating compress width/fps recommendations are implemented.
 
 **Goal:** Raise per-clip analysis density from summary level (~48 s per timeline row) to 8-12 s per
 row, keep the extra detail in `texts/*.json` for voiceover/cut/preview, and stop that detail from
@@ -112,7 +112,7 @@ Design: `docs/superpowers/specs/2026-10-24-analysis-detail-and-plan-input-budget
   lineage fingerprint so cached coarse results are invalidated (`304acd3`)
 - [x] P0a: config schema/descriptions/UI select, example files, `low` fallback guidance, and en/zh
   locale keys (`304acd3`)
-- [x] P0a: emit a one-time analyze warning when `compress.fps < 2`
+- [x] P0a: emit a one-time analyze warning when `compress.fps < 2` and `media_resolution != low`
 - [x] P0b `feat(analyze)`: replace the fixed 60-row cap with a duration-based density contract
   (<=5 min 25-40 rows, 5-10 min 50-80, 10-15 min 75-120; 8-12 s per row, one sentence <=40 chars)
 - [x] P0b: add optional `score` (1-5), `camera`, `quality`, `tags` per timeline row and top-level
@@ -128,7 +128,7 @@ Design: `docs/superpowers/specs/2026-10-24-analysis-detail-and-plan-input-budget
 - [x] P1 (optional) two-stage candidate shortlist: `plan.max_candidate_clips` (60),
   `PLAN_SHORTLIST_PROMPT`, deterministic local fallback (`47703f8`)
 - [x] P2a (optional) sparse-window completion retry: one largest-gap retry below 80% coverage or for gaps >=90s, merged back into the window and cached (`b7a8de6`)
-- [ ] P2b (optional) `compress` width/fps recommendation based on analysis requirements
+- [x] P2b (optional) `compress` width/fps recommendation based on analysis requirements (`6880480`)
 
 **Acceptance:** at `medium` the same clip uses 3.5-4.5x the visual prompt tokens of `low`; new rows
 average <=20 s and <=40 chars; `key_moments` 3-8 per clip; France plan input <60k tokens after P0c and

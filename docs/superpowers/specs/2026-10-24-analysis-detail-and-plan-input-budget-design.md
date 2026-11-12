@@ -1,7 +1,7 @@
 # 分析细节与 Plan 输入预算设计
 
 > 日期: 2026-10-24
-> 状态: P1 已完成（2026-11-13；P0c 的媒体分辨率、显著性字段、窗口合并、prompt 密度契约、覆盖率日志和 plan 输入投影，以及两阶段候选筛选均已实施）；P2 为可选后续项
+> 状态: P2a/P2b 已完成（2026-11-13；P0-P1 的媒体分辨率、显著性字段、窗口合并、prompt 密度契约、覆盖率日志、plan 输入投影和两阶段候选筛选，以及 P2a 稀疏窗口补全重试与 P2b compress width/fps 建议均已实施）；按场景切片仍为未排期可选项
 > 范围: `clio/ai/gemini.py`、`clio/analyze.py`、`clio/analyze_windows.py`、`clio/tasks/plan.py`、`clio/prompts.py`、配置模型与示例
 > 目标: 提高视频分析的画面细节，同时让 plan 输入量不随细节线性膨胀
 
@@ -119,7 +119,7 @@ AnalyzeConfig.media_resolution
 - 推荐配置：`media_resolution: medium` + `window_max_min: 5`。单次窗口约 77k token，与现状同量级；总量仍约 4 倍，但每个窗口的注意力更集中，模型更容易按密度要求输出。
 - **分辨率是上限**：640p + medium 只提高每帧 token，不能恢复压缩时丢掉的招牌/食物纹理。若目标是这些细节，建议同时把 `compress.max_width` 提到 960-1280、`compress.fps` 提到 2-5，并观察压缩文件大小。
 - 不强制改默认窗口或压缩参数，避免一次升级同时改变切片、画质和费用；文档与示例给出推荐组合。
-- 若 `compress.fps < 2` 且 `media_resolution != low`，分析日志给出一次警告：1 fps 限制了快速动作的时间细节，建议 2-5 fps（不改 compress 行为）。
+- P2b 已完成（`6880480`）：`analysis_compress_advice()` 在 `media_resolution=high` 且 `compress.max_width < 1280` 时建议 960-1280；在 `media_resolution != low` 且 `compress.fps < 2` 时建议 2-5。每次 analyze 批次只输出一次 console/Task Center 警告，不修改压缩配置。
 
 ## 6. Layer 2：分析输出契约
 
@@ -393,7 +393,7 @@ def plan_daily_vlog(
 | P0b | 分析 prompt 密度契约 + score/tags/key_moments + 校验/合并 | 新分析 avg gap ≤20s，description ≤40 字，key_moments 3-8 条 |
 | P0c | `plan_input.build_plan_clips` + 去内联转录 + plan lineage | France 项目 plan prompt <60k tokens |
 | P1 | 两阶段候选筛选（已完成，`47703f8`） | 142 素材 plan prompt <30k tokens，选片质量不下降 |
-| P2 | 稀疏窗口补全重试（已完成，`b7a8de6`）、按场景切片、compress width/fps 推荐 | P2a 已完成；其余可选 |
+| P2 | 稀疏窗口补全重试（已完成，`b7a8de6`）、compress width/fps 推荐（已完成，`6880480`）、按场景切片（未排期） | P2a/P2b 已完成；按场景切片仍可选 |
 
 ## 13. 风险
 
