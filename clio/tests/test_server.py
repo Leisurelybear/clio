@@ -48,6 +48,15 @@ def test_builtin_task_handlers_are_registered_for_cold_start(tmp_path):
     }
 
 
+def _header_getter(**values):
+    """Return a header lookup that only supplies explicitly named headers."""
+
+    def get(key, default=None):
+        return values.get(key, default)
+
+    return get
+
+
 def _build_handler(handler_cls, path="/", method="GET"):
     """Create a Handler instance with mocked socket/base-class dependencies."""
     with patch.object(handler_cls, "__init__", lambda self: None):
@@ -130,6 +139,22 @@ class TestMakeHandler:
         assert hasattr(hcls, "output_dir")
         assert hasattr(hcls, "config_path")
         assert hcls.config_path == Path("/fake/config.yaml")
+
+    def test_enables_json_content_type_policy_independently(self, mock_config):
+        with patch("clio.ui.server.ConfigCache"):
+            hcls = cast(
+                Any,
+                make_handler(
+                    mock_config,
+                    None,
+                    enforce_local_session=False,
+                    enforce_json_content_type=True,
+                    enforce_request_origin=True,
+                ),
+            )
+        assert hcls._enforce_local_session is False
+        assert hcls._enforce_request_origin is True
+        assert hcls._enforce_json_ct is True
 
     def test_default_project_values(self, tmp_path, mock_config):
         in_dir = tmp_path / "my-trip"
@@ -1247,19 +1272,34 @@ class TestAuth:
 
 
 class TestLocalSession:
-    """Desktop loopback session gate (Host/Origin) + JSON content-type enforcement.
+    """Cross-origin protection and JSON content-type enforcement.
 
-    The gate is off by default in ``make_handler`` (legacy ``serve`` tests) and is
-    enabled by the desktop ``start_server`` and by ``run()`` on loopback binds.
+    ``make_handler`` keeps the policy off by default for legacy tests; ``run()``
+    enables origin + JSON checks for every bind and adds the loopback Host
+    allowlist only for loopback binds. The desktop host enables all three.
     """
 
     @pytest.fixture
     def enforce_cls(self, handler_cls):
         handler_cls._enforce_local_session = True
+        handler_cls._enforce_request_origin = True
         handler_cls._enforce_json_ct = True
         handler_cls._allowed_hosts = ("127.0.0.1", "localhost", "::1")
         yield handler_cls
         handler_cls._enforce_local_session = False
+        handler_cls._enforce_request_origin = False
+        handler_cls._enforce_json_ct = False
+        handler_cls._allowed_hosts = ()
+
+    @pytest.fixture
+    def lan_cls(self, handler_cls):
+        handler_cls._enforce_local_session = False
+        handler_cls._enforce_request_origin = True
+        handler_cls._enforce_json_ct = True
+        handler_cls._allowed_hosts = ()
+        yield handler_cls
+        handler_cls._enforce_local_session = False
+        handler_cls._enforce_request_origin = False
         handler_cls._enforce_json_ct = False
         handler_cls._allowed_hosts = ()
 
@@ -1267,29 +1307,30 @@ class TestLocalSession:
         """Host: 127.0.0.1:<port> is accepted for API GET."""
         with patch("clio.ui.server.handle_get_env") as mock_fn:
             handler = _build_handler(enforce_cls, path="/api/env")
-            handler.headers.get.side_effect = lambda k, d=None: "127.0.0.1:8765" if k == "Host" else "0"
+            handler.headers.get.side_effect = _header_getter(Host="127.0.0.1:8765")
             handler.do_GET()
             mock_fn.assert_called_once()
 
     def test_localhost_host_accepted(self, enforce_cls):
         with patch("clio.ui.server.handle_get_env") as mock_fn:
             handler = _build_handler(enforce_cls, path="/api/env")
-            handler.headers.get.side_effect = lambda k, d=None: "localhost:8765" if k == "Host" else "0"
+            handler.headers.get.side_effect = _header_getter(Host="localhost:8765")
             handler.do_GET()
             mock_fn.assert_called_once()
 
     def test_foreign_host_rejected_403(self, enforce_cls):
         """Host: evil.example.com is rejected even with a valid token."""
         handler = _build_handler(enforce_cls, path="/api/env?token=test-token-789")
-        handler.headers.get.side_effect = lambda k, d=None: "evil.example.com" if k == "Host" else "0"
+        handler.headers.get.side_effect = _header_getter(Host="evil.example.com")
         handler.do_GET()
         handler.send_response.assert_called_once_with(403)
 
     def test_foreign_origin_rejected_403(self, enforce_cls):
         """Origin: https://evil.example.com is rejected."""
         handler = _build_handler(enforce_cls, path="/api/env?token=test-token-789")
-        handler.headers.get.side_effect = lambda k, d=None: (
-            "127.0.0.1:8765" if k == "Host" else "https://evil.example.com" if k == "Origin" else "0"
+        handler.headers.get.side_effect = _header_getter(
+            Host="127.0.0.1:8765",
+            Origin="https://evil.example.com",
         )
         handler.do_GET()
         handler.send_response.assert_called_once_with(403)
@@ -1297,8 +1338,10 @@ class TestLocalSession:
     def test_null_origin_rejected_403(self, enforce_cls):
         """Opaque browser origins must not reach local write-capable APIs."""
         handler = _build_handler(enforce_cls, path="/api/run/start", method="POST")
-        handler.headers.get.side_effect = lambda k, d=None: (
-            "127.0.0.1:8765" if k == "Host" else "null" if k == "Origin" else "2"
+        handler.headers.get.side_effect = _header_getter(
+            Host="127.0.0.1:8765",
+            Origin="null",
+            **{"Content-Length": "2"},
         )
         handler.do_POST()
         handler.send_response.assert_called_once_with(403)
@@ -1306,25 +1349,64 @@ class TestLocalSession:
     def test_loopback_origin_accepted(self, enforce_cls):
         with patch("clio.ui.server.handle_get_env") as mock_fn:
             handler = _build_handler(enforce_cls, path="/api/env")
-            handler.headers.get.side_effect = lambda k, d=None: (
-                "127.0.0.1:8765" if k == "Host" else "http://127.0.0.1:8765" if k == "Origin" else "0"
+            handler.headers.get.side_effect = _header_getter(
+                Host="127.0.0.1:8765",
+                Origin="http://127.0.0.1:8765",
             )
             handler.do_GET()
             mock_fn.assert_called_once()
+
+    def test_origin_port_mismatch_rejected_403(self, enforce_cls):
+        handler = _build_handler(enforce_cls, path="/api/env")
+        handler.headers.get.side_effect = _header_getter(
+            Host="127.0.0.1:8765",
+            Origin="http://127.0.0.1:9999",
+        )
+        handler.do_GET()
+        handler.send_response.assert_called_once_with(403)
+
+    def test_lan_same_origin_accepted_without_loopback_host_allowlist(self, lan_cls):
+        with patch("clio.ui.server.handle_get_env") as mock_fn:
+            handler = _build_handler(lan_cls, path="/api/env")
+            handler.headers.get.side_effect = _header_getter(
+                Host="192.168.1.5:8765",
+                Origin="http://192.168.1.5:8765",
+            )
+            handler.do_GET()
+            mock_fn.assert_called_once()
+
+    def test_lan_cross_origin_rejected_403(self, lan_cls):
+        handler = _build_handler(lan_cls, path="/api/env")
+        handler.headers.get.side_effect = _header_getter(
+            Host="192.168.1.5:8765",
+            Origin="http://evil.example.com",
+        )
+        handler.do_GET()
+        handler.send_response.assert_called_once_with(403)
+
+    def test_lan_wrong_content_type_rejected_415(self, lan_cls):
+        handler = _build_handler(lan_cls, path="/api/run/start", method="POST")
+        handler.headers.get.side_effect = _header_getter(
+            Host="192.168.1.5:8765",
+            **{"Content-Type": "text/plain", "Content-Length": "2"},
+        )
+        handler.do_POST()
+        handler.send_response.assert_called_once_with(415)
 
     def test_empty_host_accepted(self, enforce_cls):
         """An absent Host header (rare in tests/HTTP1.0) must not be fatal."""
         with patch("clio.ui.server.handle_get_env") as mock_fn:
             handler = _build_handler(enforce_cls, path="/api/env")
-            handler.headers.get.side_effect = lambda k, d=None: "" if k == "Host" else "0"
+            handler.headers.get.side_effect = _header_getter(Host="")
             handler.do_GET()
             mock_fn.assert_called_once()
 
     def test_wrong_content_type_rejected_415(self, enforce_cls):
         """PUT/POST with a non-JSON Content-Type gets 415."""
         handler = _build_handler(enforce_cls, path="/api/plan", method="PUT")
-        handler.headers.get.side_effect = lambda k, d=None: (
-            "127.0.0.1:8765" if k == "Host" else "text/plain" if k == "Content-Type" else "2"
+        handler.headers.get.side_effect = _header_getter(
+            Host="127.0.0.1:8765",
+            **{"Content-Type": "text/plain", "Content-Length": "2"},
         )
         handler.do_PUT()
         handler.send_response.assert_called_once_with(415)
@@ -1333,12 +1415,12 @@ class TestLocalSession:
         body = b'{"video": "x"}'
         with patch("clio.ui.server.handle_put_plan") as mock_fn:
             handler = _build_handler(enforce_cls, path="/api/plan", method="PUT")
-            handler.headers.get.side_effect = lambda k, d=None: (
-                "127.0.0.1:8765"
-                if k == "Host"
-                else "application/json; charset=utf-8"
-                if k == "Content-Type"
-                else str(len(body))
+            handler.headers.get.side_effect = _header_getter(
+                Host="127.0.0.1:8765",
+                **{
+                    "Content-Type": "application/json; charset=utf-8",
+                    "Content-Length": str(len(body)),
+                },
             )
             handler.rfile = io.BytesIO(body)
             handler.do_PUT()
@@ -1348,7 +1430,10 @@ class TestLocalSession:
     def test_missing_content_type_rejected_415(self, enforce_cls, method, path):
         """Local write requests must declare a JSON content type."""
         handler = _build_handler(enforce_cls, path=path, method=method)
-        handler.headers.get.side_effect = lambda k, d=None: "127.0.0.1:8765" if k == "Host" else "2"
+        handler.headers.get.side_effect = _header_getter(
+            Host="127.0.0.1:8765",
+            **{"Content-Length": "2"},
+        )
         getattr(handler, f"do_{method}")()
         handler.send_response.assert_called_once_with(415)
 
@@ -1356,7 +1441,7 @@ class TestLocalSession:
         """Default handlers (no desktop session) accept any Host the token passes."""
         with patch("clio.ui.server.handle_get_env") as mock_fn:
             handler = _build_handler(handler_cls, path="/api/env")
-            handler.headers.get.side_effect = lambda k, d=None: "whatever.example.com" if k == "Host" else "0"
+            handler.headers.get.side_effect = _header_getter(Host="whatever.example.com")
             handler.do_GET()
             mock_fn.assert_called_once()
 
@@ -1423,10 +1508,13 @@ class TestRunPortErrors:
             server.run(active, host="127.0.0.1", port=8800, open_browser=False)
 
     @pytest.mark.parametrize(
-        ("host", "expected_token"),
-        [("0.0.0.0", "generated-token"), ("127.0.0.1", "")],
+        ("host", "expected_token", "expected_local_session"),
+        [
+            ("0.0.0.0", "generated-token", False),
+            ("127.0.0.1", "", True),
+        ],
     )
-    def test_blank_token_is_normalized_by_access_mode(self, monkeypatch, host, expected_token):
+    def test_blank_token_is_normalized_by_access_mode(self, monkeypatch, host, expected_token, expected_local_session):
         from clio.ui import server
 
         active = self._active_config()
@@ -1445,4 +1533,7 @@ class TestRunPortErrors:
         assert server.run(active, host=host, port=8800, api_token="", open_browser=False) == 0
 
         assert make_handler.call_args.kwargs["api_token"] == expected_token
+        assert make_handler.call_args.kwargs["enforce_local_session"] is expected_local_session
+        assert make_handler.call_args.kwargs["enforce_json_content_type"] is True
+        assert make_handler.call_args.kwargs["enforce_request_origin"] is True
         bound_server.serve_forever.assert_called_once_with()

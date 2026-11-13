@@ -28,9 +28,10 @@
 ```text
 run(host, port, api_token, …)
   ├─ make_handler(config, config_path, api_token, bound_host, bound_port, enforce_local_session,
-  │              task_manager=None)
+  │              enforce_json_content_type, enforce_request_origin, task_manager=None)
   └─ Handler closure captures: config, project_dir, output_dir, static_dir,
-       _api_token, _allowed_hosts, _enforce_local_session, _enforce_json_ct
+       _api_token, _allowed_hosts, _enforce_local_session, _enforce_request_origin,
+       _enforce_json_ct
   ├─ ClassVars: _project_states (per-project _ServerState), _config_cache,
   │             _task_manager (lazily created TaskManager + builtin handlers)
   └─ per request: parse_request → _require_local_session → dispatch → _invoke_handler
@@ -38,9 +39,12 @@ run(host, port, api_token, …)
 
 - **Auth**: token empty ⇒ disabled; otherwise `HMAC compare_digest` over `Authorization: Bearer`
   or `?token=` query. Desktop/CLI UI frontends automatically carry the token.
-- **Local-session policy**: `enforce_local_session` binding check (peer address must be an
-  allowed loopback host) for the desktop/local server.
-- **Security hardening**: oversized headers → 431; JSON content-length/media-type enforced before
+- **Session policy**: `enforce_request_origin` rejects opaque origins and requires Origin/Referer
+  to match Host; `enforce_local_session` additionally restricts Host to loopback names for the
+  desktop/local server. `run()` enables both policies on every bind, so LAN mode only relaxes the
+  Host allowlist, not same-origin checks.
+- **Security hardening**: oversized headers → 431; JSON content-type is enforced for every
+  `run()` bind (loopback, LAN, and desktop), and content-length is validated before
   dispatch; `log_message` redacts `token=` query values; `?token=` split keeps secrets out of the
   status line that ends up in access logs. Every response gets CSP, `X-Frame-Options: DENY`,
   `X-Content-Type-Options: nosniff`, and `Referrer-Policy: no-referrer` from the unified

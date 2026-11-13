@@ -325,6 +325,8 @@ def make_handler(
     bound_host: str = "127.0.0.1",
     bound_port: int = 0,
     enforce_local_session: bool = False,
+    enforce_json_content_type: bool | None = None,
+    enforce_request_origin: bool | None = None,
     task_manager: TaskManager | None = None,
 ) -> type[BaseHTTPRequestHandler]:
     def _resolve_handler(name: str):
@@ -338,6 +340,8 @@ def make_handler(
         bound_host=bound_host,
         bound_port=bound_port,
         enforce_local_session=enforce_local_session,
+        enforce_json_content_type=enforce_json_content_type,
+        enforce_request_origin=enforce_request_origin,
         task_manager=task_manager,
         config_cache_factory=ConfigCache,
         auto_reindex=auto_reindex_if_needed,
@@ -416,6 +420,8 @@ def run(
         bound_host=host,
         bound_port=port,
         enforce_local_session=_is_local,
+        enforce_json_content_type=True,
+        enforce_request_origin=True,
     )
     print(f"[startup] HTTP handler ready ({_startup_ms(t0)})")
 

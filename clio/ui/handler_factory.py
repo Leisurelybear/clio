@@ -34,7 +34,7 @@ from clio.i18n import t
 from clio.task_center.manager import TaskManager
 from clio.task_center.store import TaskStore
 from clio.ui.handler_protocol import HandlerProtocol
-from clio.ui.handler_security import has_valid_api_token, validate_local_session
+from clio.ui.handler_security import has_valid_api_token, validate_local_session, validate_request_origin
 from clio.ui.http_server import (
     BUSY_ERROR,
     REQUEST_TIMEOUT_SEC,
@@ -90,6 +90,8 @@ def build_handler_class(
     bound_host: str = "127.0.0.1",
     bound_port: int = 0,
     enforce_local_session: bool = False,
+    enforce_json_content_type: bool | None = None,
+    enforce_request_origin: bool | None = None,
     task_manager: TaskManager | None = None,
     *,
     config_cache_factory: Callable[..., ConfigCache],
@@ -153,6 +155,7 @@ def build_handler_class(
         _api_token: str | None
         _allowed_hosts: tuple[str, ...]
         _enforce_local_session: bool
+        _enforce_request_origin: bool
         _enforce_json_ct: bool
         _access_log_mode: ClassVar[str] = DEFAULT_ACCESS_LOG_MODE
         _access_log_slow_ms: ClassVar[int] = DEFAULT_ACCESS_LOG_SLOW_MS
@@ -339,10 +342,13 @@ def build_handler_class(
             return False
 
         def _require_local_session(self) -> bool:
-            """Reject non-loopback Host, Origin, and Referer values."""
-            if not self.__class__._enforce_local_session:
-                return True
-            error = validate_local_session(self.headers, self.__class__._allowed_hosts)
+            """Reject cross-origin requests and, on loopback, foreign Host values."""
+            if self.__class__._enforce_local_session:
+                error = validate_local_session(self.headers, self.__class__._allowed_hosts)
+            elif self.__class__._enforce_request_origin:
+                error = validate_request_origin(self.headers)
+            else:
+                error = None
             if error is None:
                 return True
             self._send_json({"error": t(error)}, 403)
@@ -626,7 +632,12 @@ def build_handler_class(
     handler_cls.config_path = config_path
     handler_cls._allowed_hosts = _loopback_hosts(bound_host, bound_port)
     handler_cls._enforce_local_session = enforce_local_session
-    handler_cls._enforce_json_ct = enforce_local_session
+    handler_cls._enforce_request_origin = (
+        enforce_local_session if enforce_request_origin is None else enforce_request_origin
+    )
+    handler_cls._enforce_json_ct = (
+        enforce_local_session if enforce_json_content_type is None else enforce_json_content_type
+    )
     access_mode = getattr(config.server, "access_log_mode", DEFAULT_ACCESS_LOG_MODE)
     handler_cls._access_log_mode = access_mode if isinstance(access_mode, str) else DEFAULT_ACCESS_LOG_MODE
     handler_cls._access_log_slow_ms = _setting_int(
