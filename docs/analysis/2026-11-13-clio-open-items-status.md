@@ -11,7 +11,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | Priority | Total | Fixed | Satisfied | In progress | Confirmed | Environment verification | Duplicate | Not applicable | Pending audit |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P1 | 35 | 13 | 10 | 0 | 0 | 0 | 0 | 0 | 12 |
+| P1 | 35 | 14 | 10 | 0 | 0 | 0 | 0 | 0 | 11 |
 | P2 | 59 | 0 | 12 | 0 | 0 | 0 | 0 | 0 | 47 |
 | P3 | 14 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 14 |
 
@@ -43,7 +43,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 022 | P1 | R010 | 10-bit 原片 (HDR HEVC) 压缩后是 H.264 High 10 / yuv420p10le | Fixed | `6d7f1a0` forces `yuv420p` output and tone-maps PQ/HLG sources to BT.709 SDR. Focused: 173 related pytest and 36 export tests passed; real ffmpeg smoke produced H.264 High / yuv420p / BT.709 from HEVC Main 10 / PQ / BT.2020. |
 | 023 | P1 | R008 | 示例配置没有 config_version, 首次加载被当成 V1 迁移, 经 yaml.dump 重写后注释全部丢失 | Fixed | `8bd9bc8` adds `config_version: V2` to the example and handles versionless or V1 global-only files by inserting or replacing only the version marker, preserving existing text, comments, and CRLF line endings without a backup rewrite. Genuine V1 configs with project-level fields still use the split migration. Focused: 168 config tests passed; Ruff and `git diff --check` passed. A broader config batch reached 275 passed with one unrelated existing project-route replacement assertion failure. |
 | 024 | P1 | R009 | 自动升级把当前默认值"写进用户 YAML", 默认值以后再变, 老用户也拿不到; 且在读取路径上写文件 | Fixed | `3dff30b` removes loader-time dataclass default injection for both global and project configs. Missing YAML fields now use runtime defaults without rewriting or losing comments. Aside from first-run config creation, no existing config file is rewritten during loading; only explicit V1-to-V2 migration remains a write path. Focused: 207 config/schema/cache tests passed, plus 165 config follow-up tests. |
-| 025 | P1 | OPT-028 | doctor 不检查旧默认值与模型名有效性 | Pending audit |  |
+| 025 | P1 | OPT-028 | doctor 不检查旧默认值与模型名有效性 | Fixed | `5a67ee5` warns for known legacy defaults and empty or unregistered model bindings, probes each distinct configured provider/model pair once with a bounded timeout (including keyless Ollama), and keeps connectivity failures non-blocking. Focused: 92 pytest cases, ruff, mypy, `main.py check`, and `git diff --check` passed. |
 | 026 | P1 | R011 | 分析指纹包含整段转录文本和全部压缩参数, 任何变化都让全部分析失效并静默重跑 | Pending audit |  |
 | 027 | P1 | OPT-011 | 运行预览只给步骤数 (/api/run/preview), 没有调用数、token 和费用 (F2) | Pending audit |  |
 | 028 | P1 | R014 | plan 输入不设上限: 全部素材的完整 timeline 一次送入, 且每条转录出现三次 (transcript、transcript_segments、<transcript> 块) | Pending audit |  |
