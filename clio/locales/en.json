@@ -484,6 +484,7 @@
   "shutdown.terminated": "  [beforeStop]   ffmpeg (pid={pid}) terminated",
   "shutdown.terminating": "  [beforeStop] terminating {count} running ffmpeg child process(es)...",
   "task.artifact.overwrite_confirmation_required": "Manually edited file(s) would be overwritten: {items}; confirm before running",
+  "task.legacy_audio_removal.confirmation_required": "Legacy audio-preserving outputs were found: this run will regenerate {analyze_count} analysis, {voiceover_count} voiceover, and {compress_count} compressed item(s).",
   "task.analyze.analyzing": "  [{name}] analyzing...",
   "task.analyze.cancel_item": "  [cancel] analysis of {name} was cancelled",
   "task.analyze.cancel_log": "Analysis of {name} was cancelled by the user",

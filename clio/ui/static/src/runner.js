@@ -16,6 +16,7 @@ import { confirmDialog } from './confirm.js';
 import {
   formatRunStartError,
   needsArtifactOverwriteConfirmation,
+  needsLegacyAudioRemovalConfirmation,
   needsPlanOverwriteConfirmation,
   renderRunPreviewHtml,
 } from './runner-preview.js';
@@ -323,7 +324,7 @@ async function startRun() {
     return;
   }
   try {
-    if (options.steps.includes('plan') || options.steps.includes('voiceover') || options.steps.includes('plan_voiceover')) {
+    if (options.steps.some(step => ['plan', 'voiceover', 'plan_voiceover', 'analyze', 'compress'].includes(step))) {
       const previewResponse = await api('POST', '/api/run/preview', options);
       const preview = previewResponse?.preview || null;
       if (needsPlanOverwriteConfirmation(preview, options)) {
@@ -341,6 +342,18 @@ async function startRun() {
           return;
         }
         options.confirm_artifact_overwrite = true;
+      }
+      if (needsLegacyAudioRemovalConfirmation(preview, options)) {
+        const risk = preview.legacy_audio_removal;
+        if (!(await confirmDialog(t('run.confirm_legacy_audio_removal', {
+          analyze_count: Number(risk.analyze_count || 0),
+          voiceover_count: Number(risk.voiceover_count || 0),
+          compress_count: Number(risk.compress_count || 0),
+        }), { danger: true }))) {
+          updateRunStartButtonState();
+          return;
+        }
+        options.confirm_legacy_audio_removal = true;
       }
     }
     _lastRunDay = options.day_label;

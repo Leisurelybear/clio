@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import subprocess
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -9,18 +10,34 @@ from typing import Any
 from clio._constants import VIDEO_EXTENSIONS
 from clio.config.models import AppConfig
 from clio.i18n import t
-from clio.identity import SEGMENT_SUFFIX_RE
+from clio.identity import SEGMENT_SUFFIX_RE, prefer_canonical_compressed
 from clio.index import ArtifactIndex
 from clio.tasks._helpers import (
     MediaSelection,
     _matches_selected_artifact,
     _matches_selected_stem,
+    _path_key,
+    _project_selection_stems,
     _selection_from_files,
+)
+from clio.tasks.analyze import (
+    _analysis_lineage_fingerprint,
+    _build_stem_to_path,
+    _effective_analysis_context,
+    _load_transcript_context,
+    _resolve_original,
+    _uses_multiple_windows,
 )
 from clio.tasks.consistency import entity_consistency_paths
 from clio.tasks.plan import plan_artifact_overwrite_required, plan_overwrite_confirmation_required
-from clio.tasks.scripts import plan_voiceover_artifact_overwrite_required, voiceover_artifact_overwrite_required
-from clio.utils import plan_day_stem
+from clio.tasks.scripts import (
+    _load_script_template,
+    _voiceover_lineage_fingerprint,
+    plan_voiceover_artifact_overwrite_required,
+    voiceover_artifact_overwrite_required,
+)
+from clio.utils import get_duration_sec, plan_day_stem, resolve_binary
+from clio.vmeta import VideoMeta
 
 
 def _step_label(name: str) -> str:
@@ -122,7 +139,239 @@ def build_run_preview(
             "required": True,
             "items": [path.name for path in overwrite_paths],
         }
+    legacy_audio_risk = legacy_audio_removal_risk(
+        config,
+        selected_steps,
+        force=force,
+        use_transcripts=use_transcripts,
+        files=files,
+        context_override=context_override,
+        task_prompts=task_prompts,
+    )
+    if legacy_audio_risk is not None:
+        result["legacy_audio_removal"] = legacy_audio_risk
     return result
+
+
+def legacy_audio_removal_risk(
+    config: AppConfig,
+    steps: Iterable[str],
+    *,
+    force: bool,
+    use_transcripts: bool,
+    files: list[str] | None,
+    context_override: str | None,
+    task_prompts: dict[str, str] | None,
+) -> dict[str, int] | None:
+    """Return counts for artifacts rerun only because audio removal changed.
+
+    This is intentionally narrower than stale-artifact detection. It identifies
+    results produced by the previous ``remove_audio=false`` default which a
+    current ``remove_audio=true`` configuration would silently regenerate.
+    """
+    selected_steps = set(steps)
+    if force or not config.analyze.skip_existing or not config.compress.remove_audio:
+        return None
+    if not selected_steps.intersection({"analyze", "voiceover", "compress"}):
+        return None
+
+    analysis_paths = (
+        _legacy_audio_analysis_paths(
+            config,
+            files=files,
+            use_transcripts=use_transcripts,
+            context_override=context_override,
+            task_prompts=task_prompts,
+        )
+        if "analyze" in selected_steps
+        else []
+    )
+    voiceover_count = (
+        _legacy_audio_voiceover_count(
+            config,
+            analysis_paths,
+            files=files,
+            context_override=context_override,
+            task_prompts=task_prompts,
+        )
+        if "analyze" in selected_steps and "voiceover" in selected_steps
+        else 0
+    )
+    compress_count = _legacy_audio_compress_count(config, files=files) if "compress" in selected_steps else 0
+    counts = {
+        "analyze_count": len(analysis_paths),
+        "voiceover_count": voiceover_count,
+        "compress_count": compress_count,
+    }
+    if not any(counts.values()):
+        return None
+    return {"required": True, **counts}
+
+
+def _legacy_audio_analysis_paths(
+    config: AppConfig,
+    *,
+    files: list[str] | None,
+    use_transcripts: bool,
+    context_override: str | None,
+    task_prompts: dict[str, str] | None,
+) -> list[Path]:
+    if not config.compressed_dir.is_dir():
+        return []
+    selected = _selection_from_files(files) if files is not None else None
+    project_selection = _project_selection_stems(config)
+    selected_paths = project_selection.paths if project_selection is not None else None
+    stem_cache = _build_stem_to_path(config.project_dir)
+    compressed_videos = sorted(
+        path for path in config.compressed_dir.iterdir() if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS
+    )
+    legacy_config = copy.deepcopy(config)
+    legacy_config.global_cfg.compress.remove_audio = False
+    risky: list[Path] = []
+
+    for compressed in prefer_canonical_compressed(compressed_videos):
+        parts = compressed.stem.split("_", 1)
+        if len(parts) != 2 or not parts[0].isdigit():
+            continue
+        original = _resolve_original(
+            compressed.stem,
+            stem_cache,
+            config.project_dir,
+            compressed,
+            selected_paths,
+        )
+        if original is None:
+            continue
+        if selected is not None and not (
+            _matches_selected_stem(compressed, selected, artifact=True) or _matches_selected_stem(original, selected)
+        ):
+            continue
+
+        duration_sec = _analysis_duration_sec(config, compressed, original)
+        effective_context = _effective_analysis_context(config, original, context_override)
+        transcript_context = _load_transcript_context(config, compressed) if use_transcripts else ""
+        multi_window = _uses_multiple_windows(compressed, duration_sec, config)
+        legacy_fingerprint = _analysis_lineage_fingerprint(
+            legacy_config,
+            task_prompts,
+            effective_context,
+            transcript_context,
+            multi_window=multi_window,
+        )
+        current_fingerprint = _analysis_lineage_fingerprint(
+            config,
+            task_prompts,
+            effective_context,
+            transcript_context,
+            multi_window=multi_window,
+        )
+        if current_fingerprint == legacy_fingerprint:
+            continue
+
+        valid_lineages: list[object] = []
+        legacy_path: Path | None = None
+        rerun_would_be_skipped = False
+        for candidate in sorted((config.texts_dir).glob(f"{parts[0]}_*.json")):
+            try:
+                data = json.loads(candidate.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError, UnicodeError):
+                continue
+            if not isinstance(data, dict) or data.get("source_file") != original.name:
+                continue
+            lineage = data.get("_lineage")
+            valid_lineages.append(lineage)
+            if lineage is None or lineage == current_fingerprint:
+                rerun_would_be_skipped = True
+            if lineage == legacy_fingerprint and legacy_path is None:
+                legacy_path = candidate
+
+        if rerun_would_be_skipped or legacy_path is None:
+            continue
+        if all(lineage == legacy_fingerprint for lineage in valid_lineages):
+            risky.append(legacy_path)
+    return risky
+
+
+def _analysis_duration_sec(config: AppConfig, compressed: Path, original: Path) -> float:
+    meta = VideoMeta.read(compressed)
+    if meta is not None and meta.target_duration_sec > 0:
+        return meta.target_duration_sec
+    try:
+        ffprobe = resolve_binary(config.paths.ffprobe, "ffprobe")
+    except (OSError, TypeError, ValueError):
+        return 0.0
+    for candidate in (compressed, original):
+        try:
+            duration_sec = get_duration_sec(candidate, ffprobe)
+        except (OSError, subprocess.SubprocessError, TypeError, ValueError):
+            continue
+        if duration_sec > 0:
+            return duration_sec
+    return 0.0
+
+
+def _legacy_audio_voiceover_count(
+    config: AppConfig,
+    analysis_paths: list[Path],
+    *,
+    files: list[str] | None,
+    context_override: str | None,
+    task_prompts: dict[str, str] | None,
+) -> int:
+    if not analysis_paths:
+        return 0
+    selected = _selection_from_files(files) if files is not None else None
+    template = _load_script_template(config)
+    count = 0
+    for analysis_path in analysis_paths:
+        if selected is not None and not _matches_selected_artifact(analysis_path, selected):
+            continue
+        try:
+            data = json.loads(analysis_path.read_text(encoding="utf-8"))
+            existing = json.loads(
+                (config.scripts_dir / f"{analysis_path.stem}_voiceover.json").read_text(encoding="utf-8")
+            )
+        except (json.JSONDecodeError, OSError, UnicodeError):
+            continue
+        if not isinstance(data, dict) or not isinstance(existing, dict):
+            continue
+        lineage = existing.get("_lineage")
+        if not isinstance(lineage, str) or not lineage:
+            continue
+        data["index"] = data.get("index", analysis_path.stem[:3])
+        current = _voiceover_lineage_fingerprint(
+            config,
+            data,
+            template,
+            task_prompts,
+            context_override,
+        )
+        if lineage == current:
+            count += 1
+    return count
+
+
+def _legacy_audio_compress_count(config: AppConfig, *, files: list[str] | None) -> int:
+    if not config.compressed_dir.is_dir():
+        return 0
+    selected = _selection_from_files(files) if files is not None else None
+    _, source_videos = _source_input_info(config)
+    source_videos = _filter_stem_paths(source_videos, selected)
+    source_keys = {_path_key(source): source for source in source_videos}
+    if not source_keys:
+        return 0
+
+    risky_sources: set[str] = set()
+    for compressed in sorted(config.compressed_dir.iterdir()):
+        if not compressed.is_file() or compressed.suffix.lower() not in VIDEO_EXTENSIONS:
+            continue
+        meta = VideoMeta.read(compressed)
+        if meta is None or meta.compress_settings.get("remove_audio") is not False:
+            continue
+        source_key = _path_key(meta.source_path)
+        if source_key in source_keys:
+            risky_sources.add(source_key)
+    return len(risky_sources)
 
 
 def artifact_overwrite_paths(

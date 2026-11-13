@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 from typing import Any, cast
@@ -16,6 +17,8 @@ from clio.config.models import (
     ProjectWhisperConfig,
     ScriptConfig,
 )
+from clio.tasks.analyze import _analysis_lineage_fingerprint, _effective_analysis_context
+from clio.tasks.scripts import _load_script_template, _voiceover_lineage_fingerprint
 from clio.ui.services.run_preview import build_run_preview
 from clio.vmeta import VideoMeta
 
@@ -30,6 +33,109 @@ def _config(project_dir: Path, output_dir: Path) -> AppConfig:
             whisper=ProjectWhisperConfig(transcripts_subdir="transcripts"),
         ),
         project_dir=project_dir,
+    )
+
+
+def _prepare_legacy_audio_project(tmp_path: Path, *, count: int = 1) -> tuple[AppConfig, list[tuple[Path, Path]]]:
+    input_dir = tmp_path / "videos"
+    output_dir = tmp_path / "output"
+    compressed_dir = output_dir / "compressed"
+    input_dir.mkdir()
+    compressed_dir.mkdir(parents=True)
+    sources: list[tuple[Path, Path]] = []
+    for number, name in enumerate(("A.mp4", "B.mp4")[:count], start=1):
+        original = input_dir / name
+        compressed = compressed_dir / f"{number:03d}_{original.stem}.mp4"
+        original.write_bytes(f"source-{name}".encode())
+        compressed.write_bytes(f"compressed-{name}".encode())
+        VideoMeta.build(
+            original,
+            compressed,
+            10.0,
+            10.0,
+            compress_settings={"remove_audio": False},
+        ).write(compressed)
+        sources.append((original, compressed))
+
+    from clio.tasks._video_loader import save_selected_videos
+
+    save_selected_videos(input_dir, [original for original, _ in sources])
+    config = _config(input_dir, output_dir)
+    config.global_cfg.compress.remove_audio = True
+    config.texts_dir.mkdir(parents=True)
+    config.scripts_dir.mkdir(parents=True)
+    return config, sources
+
+
+def _legacy_analysis_record(
+    config: AppConfig,
+    original: Path,
+    compressed: Path,
+    *,
+    source_file: str | None = None,
+    task_prompts: dict[str, str] | None = None,
+    context_override: str | None = None,
+) -> tuple[dict[str, Any], str]:
+    legacy_config = copy.deepcopy(config)
+    legacy_config.global_cfg.compress.remove_audio = False
+    effective_context = _effective_analysis_context(config, original, context_override)
+    lineage = _analysis_lineage_fingerprint(
+        legacy_config,
+        task_prompts,
+        effective_context,
+        "",
+        multi_window=False,
+    )
+    data = {
+        "index": int(compressed.stem.split("_", 1)[0]),
+        "title": original.stem,
+        "summary": "legacy audio-preserving analysis",
+        "source_file": source_file or original.name,
+        "_lineage": lineage,
+    }
+    return data, lineage
+
+
+_LEGACY_ANALYSIS_LINEAGE = object()
+
+
+def _write_legacy_analysis(
+    config: AppConfig,
+    original: Path,
+    compressed: Path,
+    *,
+    source_file: str | None = None,
+    lineage: str | None | object = _LEGACY_ANALYSIS_LINEAGE,
+    task_prompts: dict[str, str] | None = None,
+    context_override: str | None = None,
+) -> tuple[Path, dict[str, Any]]:
+    data, legacy_lineage = _legacy_analysis_record(
+        config,
+        original,
+        compressed,
+        source_file=source_file,
+        task_prompts=task_prompts,
+        context_override=context_override,
+    )
+    data["_lineage"] = legacy_lineage if lineage is _LEGACY_ANALYSIS_LINEAGE else lineage
+    analysis_path = config.texts_dir / f"{compressed.stem}.json"
+    analysis_path.write_text(json.dumps(data), encoding="utf-8")
+    return analysis_path, data
+
+
+def _current_voiceover_lineage(
+    config: AppConfig,
+    data: dict[str, Any],
+    *,
+    task_prompts: dict[str, str] | None = None,
+    context_override: str | None = None,
+) -> str:
+    return _voiceover_lineage_fingerprint(
+        config,
+        data,
+        _load_script_template(config),
+        task_prompts,
+        context_override,
     )
 
 
@@ -313,6 +419,182 @@ def test_preview_analyze_resolves_nested_original_even_when_project_not_recursiv
     assert preview["steps"][0]["total"] == 1
     assert preview["steps"][0]["will_run"] == 1
     assert preview["steps"][0]["will_skip"] == 0
+
+
+def test_preview_detects_legacy_audio_analysis_rerun(tmp_path: Path) -> None:
+    config, sources = _prepare_legacy_audio_project(tmp_path)
+    original, compressed = sources[0]
+    _write_legacy_analysis(config, original, compressed)
+
+    preview = build_run_preview(config, steps=["analyze"], force=False, use_transcripts=True)
+
+    assert preview["legacy_audio_removal"] == {
+        "required": True,
+        "analyze_count": 1,
+        "voiceover_count": 0,
+        "compress_count": 0,
+    }
+
+
+def test_preview_legacy_audio_analysis_respects_file_selection(tmp_path: Path) -> None:
+    config, sources = _prepare_legacy_audio_project(tmp_path, count=2)
+    for original, compressed in sources:
+        _write_legacy_analysis(config, original, compressed)
+
+    preview = build_run_preview(
+        config,
+        steps=["analyze"],
+        force=False,
+        use_transcripts=True,
+        files=[str(sources[1][0])],
+    )
+
+    assert preview["legacy_audio_removal"] == {
+        "required": True,
+        "analyze_count": 1,
+        "voiceover_count": 0,
+        "compress_count": 0,
+    }
+
+
+def test_preview_legacy_audio_analysis_skips_when_current_workflow_would_not_rerun(
+    tmp_path: Path,
+) -> None:
+    config, sources = _prepare_legacy_audio_project(tmp_path)
+    original, compressed = sources[0]
+    effective_context = _effective_analysis_context(config, original, None)
+    current_lineage = _analysis_lineage_fingerprint(
+        config,
+        None,
+        effective_context,
+        "",
+        multi_window=False,
+    )
+
+    _write_legacy_analysis(config, original, compressed, lineage=current_lineage)
+    assert "legacy_audio_removal" not in build_run_preview(config, steps=["analyze"], force=False, use_transcripts=True)
+
+    _write_legacy_analysis(config, original, compressed, lineage=None)
+    assert "legacy_audio_removal" not in build_run_preview(config, steps=["analyze"], force=False, use_transcripts=True)
+
+    _write_legacy_analysis(config, original, compressed, lineage="other-lineage")
+    assert "legacy_audio_removal" not in build_run_preview(config, steps=["analyze"], force=False, use_transcripts=True)
+
+
+def test_preview_legacy_audio_analysis_skips_invalid_or_mismatched_sources(tmp_path: Path) -> None:
+    config, sources = _prepare_legacy_audio_project(tmp_path, count=2)
+    original_a, compressed_a = sources[0]
+    original_b, compressed_b = sources[1]
+    _write_legacy_analysis(config, original_a, compressed_a, source_file="other.mp4")
+    (config.texts_dir / f"{compressed_b.stem}.json").write_text("{invalid", encoding="utf-8")
+
+    preview = build_run_preview(config, steps=["analyze"], force=False, use_transcripts=True)
+
+    assert "legacy_audio_removal" not in preview
+
+
+def test_preview_legacy_audio_analysis_skips_explicit_or_disabled_reruns(tmp_path: Path) -> None:
+    config, sources = _prepare_legacy_audio_project(tmp_path)
+    original, compressed = sources[0]
+    _write_legacy_analysis(config, original, compressed)
+
+    assert "legacy_audio_removal" not in build_run_preview(config, steps=["analyze"], force=True, use_transcripts=True)
+
+    skip_disabled = copy.deepcopy(config)
+    skip_disabled.analyze.skip_existing = False
+    assert "legacy_audio_removal" not in build_run_preview(
+        skip_disabled, steps=["analyze"], force=False, use_transcripts=True
+    )
+
+    audio_kept = copy.deepcopy(config)
+    audio_kept.global_cfg.compress.remove_audio = False
+    assert "legacy_audio_removal" not in build_run_preview(
+        audio_kept, steps=["analyze"], force=False, use_transcripts=True
+    )
+
+
+def test_preview_detects_legacy_audio_voiceover_rerun(tmp_path: Path) -> None:
+    config, sources = _prepare_legacy_audio_project(tmp_path)
+    original, compressed = sources[0]
+    analysis_path, analysis_data = _write_legacy_analysis(config, original, compressed)
+    (config.scripts_dir / f"{analysis_path.stem}_voiceover.json").write_text(
+        json.dumps({"_lineage": _current_voiceover_lineage(config, analysis_data)}),
+        encoding="utf-8",
+    )
+
+    preview = build_run_preview(
+        config,
+        steps=["analyze", "voiceover"],
+        force=False,
+        use_transcripts=True,
+    )
+
+    assert preview["legacy_audio_removal"] == {
+        "required": True,
+        "analyze_count": 1,
+        "voiceover_count": 1,
+        "compress_count": 0,
+    }
+
+
+def test_preview_legacy_audio_voiceover_skips_unrelated_or_missing_lineage(tmp_path: Path) -> None:
+    config, sources = _prepare_legacy_audio_project(tmp_path)
+    original, compressed = sources[0]
+    analysis_path, analysis_data = _write_legacy_analysis(config, original, compressed)
+    voiceover_path = config.scripts_dir / f"{analysis_path.stem}_voiceover.json"
+
+    voiceover_path.write_text(
+        json.dumps(
+            {
+                "_lineage": _current_voiceover_lineage(
+                    config,
+                    analysis_data,
+                    task_prompts={"voiceover": "different task prompt"},
+                )
+            }
+        ),
+        encoding="utf-8",
+    )
+    preview = build_run_preview(
+        config,
+        steps=["analyze", "voiceover"],
+        force=False,
+        use_transcripts=True,
+    )
+    assert preview["legacy_audio_removal"]["voiceover_count"] == 0
+
+    voiceover_path.write_text(json.dumps({"_lineage": None}), encoding="utf-8")
+    preview = build_run_preview(
+        config,
+        steps=["analyze", "voiceover"],
+        force=False,
+        use_transcripts=True,
+    )
+    assert preview["legacy_audio_removal"] == {
+        "required": True,
+        "analyze_count": 1,
+        "voiceover_count": 0,
+        "compress_count": 0,
+    }
+
+
+def test_preview_detects_legacy_audio_compression_rerun(tmp_path: Path) -> None:
+    config, sources = _prepare_legacy_audio_project(tmp_path, count=2)
+
+    preview = build_run_preview(
+        config,
+        steps=["compress"],
+        force=False,
+        use_transcripts=True,
+        files=[str(sources[0][0])],
+    )
+
+    assert preview["legacy_audio_removal"] == {
+        "required": True,
+        "analyze_count": 0,
+        "voiceover_count": 0,
+        "compress_count": 1,
+    }
 
 
 def test_preview_transcribe_uses_compressed_inputs_and_transcript_json_outputs(tmp_path: Path) -> None:

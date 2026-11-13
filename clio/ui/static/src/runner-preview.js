@@ -10,6 +10,13 @@ export function needsPlanOverwriteConfirmation(preview, options) {
   );
 }
 
+export function needsLegacyAudioRemovalConfirmation(preview, options) {
+  return Boolean(
+    Array.isArray(options?.steps)
+    && preview?.legacy_audio_removal?.required,
+  );
+}
+
 export function needsArtifactOverwriteConfirmation(preview, options) {
   return Boolean(
     Array.isArray(options?.steps)
@@ -38,6 +45,13 @@ export function renderRunPreviewHtml(preview) {
   const artifactOverwrite = preview.artifact_overwrite?.required
     ? `<p class="warn run-artifact-overwrite-warning">${t('run.preview.artifact_overwrite', {
       items: escapeHtml((preview.artifact_overwrite.items || []).join(separator)),
+    })}</p>`
+    : '';
+  const legacyAudioRemoval = preview.legacy_audio_removal?.required
+    ? `<p class="warn run-legacy-audio-removal-warning">${t('run.preview.legacy_audio_removal', {
+      analyze_count: Number(preview.legacy_audio_removal.analyze_count || 0),
+      voiceover_count: Number(preview.legacy_audio_removal.voiceover_count || 0),
+      compress_count: Number(preview.legacy_audio_removal.compress_count || 0),
     })}</p>`
     : '';
   const preflightLine = preflight && preflight.ok === false
@@ -72,6 +86,7 @@ export function renderRunPreviewHtml(preview) {
       ${warningLine}
       ${planOverwrite}
       ${artifactOverwrite}
+      ${legacyAudioRemoval}
       <div class="run-preview-steps">${stepRows}</div>
     </section>
   `;

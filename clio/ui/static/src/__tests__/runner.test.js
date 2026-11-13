@@ -150,6 +150,7 @@ describe('startRun', () => {
     state.selectedFiles = ['A.mp4'];
     state.deps = null;
     document.body.innerHTML = baseDom;
+    await _handleRunStatus({ status: 'idle' });
     const { api } = await import('../api.js');
     vi.mocked(api).mockReset();
     const { confirmDialog } = await import('../confirm.js');
@@ -273,6 +274,121 @@ describe('startRun', () => {
     }));
     const startCall = api.mock.calls.find(([method, url]) => method === 'POST' && url === '/api/run/start');
     expect(startCall?.[2]).toEqual(expect.objectContaining({ steps: ['plan_voiceover'] }));
+  });
+
+  it('refreshes the preview for an analyze-only run', async () => {
+    document.body.innerHTML = `
+      <button id="btn-run-start"></button>
+      <div id="run-preview"></div>
+      <div id="run-progress"></div>
+      <input class="run-step-cb" data-step="plan" type="checkbox">
+      <input class="run-step-cb" data-step="analyze" type="checkbox" checked>
+      <input id="run-day" value="day1">
+      <input id="run-use-transcripts" type="checkbox" checked>
+      <input id="run-overwrite" type="checkbox">
+    `;
+    const { api } = await import('../api.js');
+    api.mockResolvedValueOnce({ preview: {} });
+    api.mockResolvedValueOnce({ ok: true, task_id: 'task-analyze' });
+
+    await startRun();
+
+    expect(api).toHaveBeenNthCalledWith(1, 'POST', '/api/run/preview', expect.objectContaining({
+      steps: ['analyze'],
+    }));
+    const startCall = api.mock.calls.find(([method, url]) => method === 'POST' && url === '/api/run/start');
+    expect(startCall?.[2]).toEqual(expect.objectContaining({ steps: ['analyze'] }));
+  });
+
+  it('refreshes the preview for a compress-only run', async () => {
+    document.body.innerHTML = `
+      <button id="btn-run-start"></button>
+      <div id="run-preview"></div>
+      <div id="run-progress"></div>
+      <input class="run-step-cb" data-step="plan" type="checkbox">
+      <input class="run-step-cb" data-step="compress" type="checkbox" checked>
+      <input id="run-day" value="day1">
+      <input id="run-use-transcripts" type="checkbox" checked>
+      <input id="run-overwrite" type="checkbox">
+    `;
+    const { api } = await import('../api.js');
+    api.mockResolvedValueOnce({ preview: {} });
+    api.mockResolvedValueOnce({ ok: true, task_id: 'task-compress' });
+
+    await startRun();
+
+    expect(api).toHaveBeenNthCalledWith(1, 'POST', '/api/run/preview', expect.objectContaining({
+      steps: ['compress'],
+    }));
+    const startCall = api.mock.calls.find(([method, url]) => method === 'POST' && url === '/api/run/start');
+    expect(startCall?.[2]).toEqual(expect.objectContaining({ steps: ['compress'] }));
+  });
+
+  it('stops without starting when the legacy audio-removal confirmation is declined', async () => {
+    document.body.innerHTML = `
+      <button id="btn-run-start"></button>
+      <div id="run-preview"></div>
+      <div id="run-progress"></div>
+      <input class="run-step-cb" data-step="analyze" type="checkbox" checked>
+      <input id="run-day" value="day1">
+      <input id="run-use-transcripts" type="checkbox" checked>
+      <input id="run-overwrite" type="checkbox">
+    `;
+    const { api } = await import('../api.js');
+    api.mockResolvedValueOnce({
+      preview: {
+        legacy_audio_removal: {
+          required: true,
+          analyze_count: 2,
+          voiceover_count: 1,
+          compress_count: 3,
+        },
+      },
+    });
+    const { confirmDialog } = await import('../confirm.js');
+    vi.mocked(confirmDialog).mockResolvedValue(false);
+
+    await startRun();
+
+    expect(api).toHaveBeenCalledTimes(1);
+    expect(confirmDialog).toHaveBeenCalledWith(
+      expect.stringMatching(/分析 2 项.*口播 1 项.*压缩 3 项/),
+      expect.anything(),
+    );
+    expect(document.getElementById('btn-run-start').disabled).toBe(false);
+    expect(api).not.toHaveBeenCalledWith('POST', '/api/run/start', expect.anything());
+  });
+
+  it('sends the legacy audio-removal confirmation flag after the user accepts', async () => {
+    document.body.innerHTML = `
+      <button id="btn-run-start"></button>
+      <div id="run-preview"></div>
+      <div id="run-progress"></div>
+      <input class="run-step-cb" data-step="analyze" type="checkbox" checked>
+      <input id="run-day" value="day1">
+      <input id="run-use-transcripts" type="checkbox" checked>
+      <input id="run-overwrite" type="checkbox">
+    `;
+    const { api } = await import('../api.js');
+    api.mockResolvedValueOnce({
+      preview: {
+        legacy_audio_removal: {
+          required: true,
+          analyze_count: 2,
+          voiceover_count: 1,
+          compress_count: 0,
+        },
+      },
+    });
+    api.mockResolvedValueOnce({ ok: true, task_id: 'task-legacy-audio' });
+
+    await startRun();
+
+    const startCall = api.mock.calls.find(([method, url]) => method === 'POST' && url === '/api/run/start');
+    expect(startCall?.[2]).toEqual(expect.objectContaining({
+      steps: ['analyze'],
+      confirm_legacy_audio_removal: true,
+    }));
   });
 
   it('does not ask when the fresh preview reports no overwrite risk', async () => {

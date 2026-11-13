@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   formatRunStartError,
   needsArtifactOverwriteConfirmation,
+  needsLegacyAudioRemovalConfirmation,
   needsPlanOverwriteConfirmation,
   renderRunPreviewHtml,
 } from '../runner-preview.js';
@@ -97,6 +98,54 @@ describe('renderRunPreviewHtml', () => {
     expect(html).toContain('会替换 &lt;day2&gt; 的现有计划');
     expect(html).not.toContain('<day2>');
   });
+
+  it('renders the legacy audio-removal warning with all rerun counts', () => {
+    const html = renderRunPreviewHtml({
+      input: { path: 'D:/trip/videos', count: 2 },
+      totals: { selected_steps: 2, will_run: 4, will_skip: 0, warnings: 0 },
+      steps: [],
+      legacy_audio_removal: {
+        required: true,
+        analyze_count: 2,
+        voiceover_count: 1,
+        compress_count: 3,
+      },
+    });
+
+    expect(html).toContain('run-legacy-audio-removal-warning');
+    expect(html).toContain('旧配置曾保留音频');
+    expect(html).toContain('分析 2 项');
+    expect(html).toContain('口播 1 项');
+    expect(html).toContain('压缩 3 项');
+  });
+
+  it('does not render the legacy audio-removal warning when confirmation is not required', () => {
+    const html = renderRunPreviewHtml({
+      input: { path: 'D:/trip/videos', count: 1 },
+      totals: { selected_steps: 1, will_run: 1, will_skip: 0, warnings: 0 },
+      steps: [],
+      legacy_audio_removal: { required: false, analyze_count: 2 },
+    });
+
+    expect(html).not.toContain('run-legacy-audio-removal-warning');
+  });
+
+  it('coerces legacy audio-removal counts to non-executable text', () => {
+    const html = renderRunPreviewHtml({
+      input: { path: 'D:/trip/videos', count: 1 },
+      totals: { selected_steps: 1, will_run: 1, will_skip: 0, warnings: 0 },
+      steps: [],
+      legacy_audio_removal: {
+        required: true,
+        analyze_count: '<img src=x>',
+        voiceover_count: 0,
+        compress_count: 0,
+      },
+    });
+
+    expect(html).not.toContain('<img src=x>');
+    expect(html).toContain('分析 NaN 项');
+  });
 });
 
 describe('needsPlanOverwriteConfirmation', () => {
@@ -132,6 +181,26 @@ describe('needsArtifactOverwriteConfirmation', () => {
     expect(needsArtifactOverwriteConfirmation(riskyPreview, { steps: ['analyze'] })).toBe(false);
     expect(needsArtifactOverwriteConfirmation({}, { steps: ['plan'] })).toBe(false);
     expect(needsArtifactOverwriteConfirmation(null, { steps: ['voiceover'] })).toBe(false);
+  });
+});
+
+describe('needsLegacyAudioRemovalConfirmation', () => {
+  const riskyPreview = {
+    legacy_audio_removal: { required: true, analyze_count: 2, voiceover_count: 1, compress_count: 0 },
+  };
+
+  it('requires confirmation when the preview reports legacy audio removal', () => {
+    expect(needsLegacyAudioRemovalConfirmation(riskyPreview, { steps: ['analyze'] })).toBe(true);
+    expect(needsLegacyAudioRemovalConfirmation(riskyPreview, { steps: ['compress'] })).toBe(true);
+  });
+
+  it('does not require confirmation without selected steps or a risk flag', () => {
+    expect(needsLegacyAudioRemovalConfirmation(riskyPreview, {})).toBe(false);
+    expect(needsLegacyAudioRemovalConfirmation(
+      { legacy_audio_removal: { required: false } },
+      { steps: ['analyze'] },
+    )).toBe(false);
+    expect(needsLegacyAudioRemovalConfirmation(null, { steps: ['analyze'] })).toBe(false);
   });
 });
 

@@ -360,6 +360,72 @@ class TestHandlePostRunStart:
         task = manager.wait(payload["task_id"])
         assert task.input_data["confirm_artifact_overwrite"] is True
 
+    def test_rejects_non_boolean_legacy_audio_removal_confirmation(self, tmp_path):
+        manager = MagicMock()
+        handler, _, _ = _managed_handler(tmp_path, manager)
+
+        handle_post_run_start(handler, {}, {"confirm_legacy_audio_removal": "true"})
+
+        handler._send_json.assert_called_once_with(
+            {"ok": False, "error": "confirm_legacy_audio_removal must be a boolean"}, 400
+        )
+        manager.submit.assert_not_called()
+
+    def test_legacy_audio_removal_requires_confirmation(self, tmp_path, monkeypatch):
+        manager = MagicMock()
+        handler, _, _ = _managed_handler(tmp_path, manager)
+        risk = {
+            "required": True,
+            "analyze_count": 2,
+            "voiceover_count": 1,
+            "compress_count": 0,
+        }
+        detector = MagicMock(return_value=risk)
+        monkeypatch.setattr("clio.ui.routes.run.legacy_audio_removal_risk", detector)
+
+        handle_post_run_start(handler, {}, {"steps": ["analyze"]})
+
+        payload, status = handler._send_json.call_args.args
+        assert status == 409
+        assert payload["code"] == "legacy_audio_removal_confirmation_required"
+        assert payload["legacy_audio_removal"] == risk
+        assert detector.call_args.kwargs == {
+            "force": False,
+            "use_transcripts": True,
+            "files": None,
+            "context_override": None,
+            "task_prompts": None,
+        }
+        manager.submit.assert_not_called()
+
+    def test_confirmed_legacy_audio_removal_is_stored_on_task(self, tmp_path, monkeypatch):
+        from clio.task_center.manager import TaskManager
+        from clio.task_center.store import TaskStore
+
+        _allow_media_preflight(monkeypatch)
+        monkeypatch.setattr("clio.ui.routes.run._run_pipeline_task", lambda context: {"ok": True})
+        monkeypatch.setattr(
+            "clio.ui.routes.run.legacy_audio_removal_risk",
+            lambda *args, **kwargs: {
+                "required": True,
+                "analyze_count": 1,
+                "voiceover_count": 0,
+                "compress_count": 0,
+            },
+        )
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+        handler, _, _ = _managed_handler(tmp_path, manager)
+
+        handle_post_run_start(
+            handler,
+            {},
+            {"steps": ["analyze"], "confirm_legacy_audio_removal": True},
+        )
+
+        payload = handler._send_json.call_args.args[0]
+        task = manager.wait(payload["task_id"])
+        assert task.input_data["confirm_legacy_audio_removal"] is True
+
     def test_pipeline_with_ephemeral_context_is_not_retryable(self, tmp_path, monkeypatch):
         from clio.task_center.manager import TaskManager
         from clio.task_center.store import TaskStore

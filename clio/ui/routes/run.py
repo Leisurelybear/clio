@@ -22,7 +22,7 @@ from clio.tasks.plan import plan_overwrite_confirmation_required
 from clio.tasks.transcribe import run_transcribe_one
 from clio.ui.services.file_service import _find_original_for_compressed, _find_texts_dirs, _is_safe_basename
 from clio.ui.services.project_service import _project_output_dir, collect_allowed_project_paths
-from clio.ui.services.run_preview import artifact_overwrite_paths, build_run_preview
+from clio.ui.services.run_preview import artifact_overwrite_paths, build_run_preview, legacy_audio_removal_risk
 from clio.utils import media_dependencies_for_steps, media_dependency_error, preflight_config_media_deps
 from clio.vmeta import VideoMeta
 
@@ -336,6 +336,9 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
     confirm_artifact_overwrite = obj.get("confirm_artifact_overwrite", False)
     if not isinstance(confirm_artifact_overwrite, bool):
         return handler._send_json({"ok": False, "error": "confirm_artifact_overwrite must be a boolean"}, 400)
+    confirm_legacy_audio_removal = obj.get("confirm_legacy_audio_removal", False)
+    if not isinstance(confirm_legacy_audio_removal, bool):
+        return handler._send_json({"ok": False, "error": "confirm_legacy_audio_removal must be a boolean"}, 400)
     context_override = obj.get("context_override")
     if context_override is not None and not isinstance(context_override, str):
         return handler._send_json({"ok": False, "error": "context_override must be a string"}, 400)
@@ -390,6 +393,33 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
             409,
         )
 
+    legacy_audio_risk = legacy_audio_removal_risk(
+        cfg,
+        selected_steps,
+        force=overwrite,
+        use_transcripts=cfg.plan.use_transcripts,
+        files=files_list,
+        context_override=context_override,
+        task_prompts=task_prompts,
+    )
+    if legacy_audio_risk is not None and not confirm_legacy_audio_removal:
+        return handler._send_json(
+            {
+                "ok": False,
+                "code": "legacy_audio_removal_confirmation_required",
+                "error": t(
+                    "task.legacy_audio_removal.confirmation_required",
+                    {
+                        "analyze_count": legacy_audio_risk["analyze_count"],
+                        "voiceover_count": legacy_audio_risk["voiceover_count"],
+                        "compress_count": legacy_audio_risk["compress_count"],
+                    },
+                ),
+                "legacy_audio_removal": legacy_audio_risk,
+            },
+            409,
+        )
+
     preflight = preflight_config_media_deps(cfg, required=media_dependencies_for_steps(steps))
     if not preflight["ok"]:
         return handler._send_json(media_dependency_error(preflight), 424)
@@ -410,6 +440,7 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
         "overwrite": overwrite,
         "confirm_plan_overwrite": confirm_plan_overwrite,
         "confirm_artifact_overwrite": confirm_artifact_overwrite,
+        "confirm_legacy_audio_removal": confirm_legacy_audio_removal,
         "use_transcripts": cfg.plan.use_transcripts,
     }
     retryable = not (context_override or task_prompts)
