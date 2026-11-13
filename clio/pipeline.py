@@ -59,6 +59,13 @@ _STEP_FUNCS: dict[str, Callable[..., Any]] = {
 
 PIPELINE_STEPS = tuple(_STEP_FUNCS)
 
+# Single-video reruns support a subset of the main pipeline. Derive their order
+# from the canonical pipeline so adding or reordering a stage cannot leave the
+# rerun path on a stale, parallel sequence.
+SINGLE_VIDEO_RERUN_STEPS = tuple(
+    step for step in PIPELINE_STEPS if step in {"compress", "transcribe", "analyze", "voiceover"}
+)
+
 _STEP_DAY_ARG = {"consistency", "plan", "plan_voiceover"}
 
 

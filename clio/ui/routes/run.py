@@ -10,7 +10,14 @@ from typing import TYPE_CHECKING, Any
 from clio._constants import VIDEO_EXTS
 from clio.config import load_config
 from clio.i18n import t
-from clio.pipeline import PIPELINE_STEPS, run_analyze_all, run_compress_all, run_generate_scripts, run_pipeline_steps
+from clio.pipeline import (
+    PIPELINE_STEPS,
+    SINGLE_VIDEO_RERUN_STEPS,
+    run_analyze_all,
+    run_compress_all,
+    run_generate_scripts,
+    run_pipeline_steps,
+)
 from clio.progress import ProgressTracker
 from clio.task_center.executor import project_artifact_key
 from clio.task_center.manager import TaskAlreadyRunningError, TaskManager
@@ -142,42 +149,56 @@ def _run_rerun_task(context) -> dict[str, Any]:
             confirm_artifact_overwrite=confirm_artifact_overwrite,
         )
 
+    def _run_transcribe_step() -> Any:
+        result = run_transcribe_one(
+            cfg,
+            original_video,
+            cancel_event=context.cancel_event,
+            progress_callback=lambda pct: tracker.update(
+                phase="transcribe",
+                current=pct,
+                total=100,
+                message=t("task.transcribing", {"video": video_basename, "pct": pct}),
+            ),
+        )
+        if "error" in result:
+            raise RuntimeError(result["error"])
+        return result
+
+    step_runners = {
+        "compress": lambda: run_compress_all(
+            cfg,
+            tracker=tracker,
+            single_file=original_video,
+            cancel_event=context.cancel_event,
+            overwrite=True,
+        ),
+        "transcribe": _run_transcribe_step,
+        "analyze": lambda: run_analyze_all(
+            cfg,
+            tracker=tracker,
+            single_file=original_video,
+            cancel_event=context.cancel_event,
+            confirm_artifact_overwrite=confirm_artifact_overwrite,
+        ),
+        "voiceover": _run_voiceover_step,
+    }
+    step_labels = {
+        "compress": t("task.step.compress"),
+        "transcribe": t("run.step.transcribe.label"),
+        "analyze": t("task.step.analyze"),
+        "voiceover": t("task.step.voiceover"),
+    }
+
     try:
         _log(f"▶ Starting rerun {task_name} — {video_basename}")
-        for step_name, step_fn, step_label in [
-            (
-                "compress",
-                lambda: run_compress_all(
-                    cfg,
-                    tracker=tracker,
-                    single_file=original_video,
-                    cancel_event=context.cancel_event,
-                    overwrite=True,
-                ),
-                t("task.step.compress"),
-            ),
-            (
-                "analyze",
-                lambda: run_analyze_all(
-                    cfg,
-                    tracker=tracker,
-                    single_file=original_video,
-                    cancel_event=context.cancel_event,
-                    confirm_artifact_overwrite=confirm_artifact_overwrite,
-                ),
-                t("task.step.analyze"),
-            ),
-            (
-                "voiceover",
-                _run_voiceover_step,
-                t("task.step.voiceover"),
-            ),
-        ]:
+        for step_name in SINGLE_VIDEO_RERUN_STEPS:
             if task_name not in (step_name, "all"):
                 continue
             context.reporter.raise_if_cancelled()
+            step_label = step_labels[step_name]
             _log(f"Step: {step_label}...")
-            step_result = step_fn()
+            step_result = step_runners[step_name]()
             if task_name == "all" and step_name == "analyze":
                 texts_json = next(
                     (
@@ -190,23 +211,6 @@ def _run_rerun_task(context) -> dict[str, Any]:
                 if texts_json is None:
                     raise RuntimeError(f"no analysis result found for {video_basename}")
             _log(f"✓ {step_label} complete")
-        if task_name in ("transcribe", "all"):
-            context.reporter.raise_if_cancelled()
-            _log("Step: transcribing audio...")
-            result = run_transcribe_one(
-                cfg,
-                original_video,
-                cancel_event=context.cancel_event,
-                progress_callback=lambda pct: tracker.update(
-                    phase="transcribe",
-                    current=pct,
-                    total=100,
-                    message=t("task.transcribing", {"video": video_basename, "pct": pct}),
-                ),
-            )
-            if "error" in result:
-                raise RuntimeError(result["error"])
-            _log("✓ transcription complete")
         context.reporter.raise_if_cancelled()
         tracker.done(f"{task_name} → {video_basename} complete")
     except TaskCancelled:

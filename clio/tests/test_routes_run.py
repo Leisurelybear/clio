@@ -1435,6 +1435,45 @@ class TestRunRerunTask:
 
         assert captured["single_file"] == new_texts_json
 
+    def test_all_runs_in_pipeline_order(self, tmp_path, monkeypatch):
+        from clio.tasks._helpers import ClipRecord
+
+        context, cfg = self._make_context(tmp_path, task="all")
+        texts_txt = tmp_path / "new_title.txt"
+        texts_txt.with_suffix(".json").write_text("{}", encoding="utf-8")
+        calls = []
+        monkeypatch.setattr("clio.ui.routes.run.load_config", lambda *a, **k: copy.deepcopy(cfg))
+        monkeypatch.setattr(
+            "clio.ui.routes.run.run_compress_all",
+            lambda *a, **kw: calls.append("compress"),
+        )
+        monkeypatch.setattr(
+            "clio.ui.routes.run.run_transcribe_one",
+            lambda *a, **kw: calls.append("transcribe") or {},
+        )
+        monkeypatch.setattr(
+            "clio.ui.routes.run.run_analyze_all",
+            lambda *a, **kw: (
+                calls.append("analyze")
+                or [
+                    ClipRecord(
+                        index=1,
+                        stem="001_new_title",
+                        source_path=Path("source"),
+                        text_path=texts_txt,
+                    )
+                ]
+            ),
+        )
+        monkeypatch.setattr(
+            "clio.ui.routes.run.run_generate_scripts",
+            lambda *a, **kw: calls.append("voiceover"),
+        )
+
+        _run_rerun_task(context)
+
+        assert calls == ["compress", "transcribe", "analyze", "voiceover"]
+
     def test_transcribe_whisper_missing_raises(self, tmp_path, monkeypatch):
         context, cfg = self._make_context(tmp_path, task="transcribe")
         monkeypatch.setattr("clio.ui.routes.run.load_config", lambda *a, **k: copy.deepcopy(cfg))

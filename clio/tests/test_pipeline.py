@@ -31,7 +31,7 @@ def _mock_config(tmp_path: Path):
 
 class TestRunPipelineStepsCancel:
     def test_default_pipeline_orders_transcribe_before_analysis(self):
-        from clio.pipeline import PIPELINE_STEPS
+        from clio.pipeline import PIPELINE_STEPS, SINGLE_VIDEO_RERUN_STEPS
 
         assert PIPELINE_STEPS == (
             "compress",
@@ -42,6 +42,12 @@ class TestRunPipelineStepsCancel:
             "plan",
             "plan_voiceover",
             "label",
+        )
+        assert SINGLE_VIDEO_RERUN_STEPS == (
+            "compress",
+            "transcribe",
+            "analyze",
+            "voiceover",
         )
 
     def test_cancel_stops_after_current_step(self):
