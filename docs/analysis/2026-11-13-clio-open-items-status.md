@@ -11,7 +11,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | Priority | Total | Fixed | Satisfied | Confirmed | Environment verification | Duplicate | Not applicable | Pending audit |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P1 | 35 | 2 | 8 | 2 | 0 | 0 | 0 | 23 |
+| P1 | 35 | 3 | 8 | 1 | 0 | 0 | 0 | 23 |
 | P2 | 59 | 0 | 12 | 0 | 0 | 0 | 0 | 47 |
 | P3 | 14 | 0 | 0 | 0 | 0 | 0 | 0 | 14 |
 
@@ -29,7 +29,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 008 | P0 | R032 | rerun all 的单测把 ClipRecord.text_path mock 成 .json 路径; 真实对象里它是 .txt | Fixed | The regression test now uses a `.txt` `ClipRecord.text_path` and verifies the derived `.json` artifact is passed to voiceover generation. Fixed together with E1. Focused: 72 run-route tests passed. |
 | 009 | P0 | R033 | 结构重试的单测只断言调用次数和"含上次 JSON", 不断言重试 prompt 保留原始任务; 另有用例把"时长偏差两次后失败"写成期望行为 | Fixed | Tests now assert original wrapped prompt/context retention on validation retry and expect a duration-deviating plan to succeed with its actual total. Focused: 80 analyze tests passed across E2/E3 verification. |
 | 010 | P1 | R024 | 没有"真实 ffmpeg + 假 Provider"的端到端冒烟测试 | Fixed | `b8d3200` adds a real-ffmpeg smoke test that generates synthetic A/V media and drives `run_pipeline_steps(["compress", "analyze"])` with only the provider faked. It verifies compression, `.vmeta`/`.vindex` identity, compressed input to the provider, analysis JSON, and the pipeline summary. Focused: 71 tests passed; full suite: 3223 passed, 12 skipped. |
-| 011 | P1 | OPT-031 | CI 没有真实 ffmpeg 的任务; pip-audit 不拦截; 桌面打包任务按条件跳过 | Confirmed | Confirmed against current code and tests; remediation pending. |
+| 011 | P1 | OPT-031 | CI 没有真实 ffmpeg 的任务; pip-audit 不拦截; 桌面打包任务按条件跳过 | Fixed | `e1c45e1` installs ffmpeg on Ubuntu, marks the smoke test `e2e`, runs it as a required CI step, and fails if ffmpeg unexpectedly disappears. `23006c0` removes `continue-on-error` and uses `pip-audit --strict`. `ecff892` builds the desktop bundle on pull requests and main-branch pushes. Verification: e2e 1 passed, filtered pipeline suite 12 passed, workflow YAML parsed successfully, and `git diff --check` passed. |
 | 012 | P1 | OPT-029 | 关键回归被理想化 mock 掩盖 (R032、R033) | Confirmed | Confirmed against current code and tests; remediation pending. |
 | 013 | P1 | OPT-034 | 11 月 7-11 日五天合入 75 个提交, 其中 5 个修复引入回归 | Confirmed | Confirmed against current code and tests; remediation pending. |
 | 014 | P1 | R002 | Provider 的 base_url 与 api_key_env 可经 API 任意改写, 随后 /api/ai/test 会把该环境变量的值作为 Bearer 发往新地址 | Fixed | `ff98198` binds each provider to its canonical `<PROVIDER>_API_KEY`, requires proof of possession before URL or credential-slot changes, strips stored keys, and rejects unsafe connection-test targets before any provider call. Focused: 89 passed, 1 skipped; full suite: 3222 passed, 12 skipped. |
