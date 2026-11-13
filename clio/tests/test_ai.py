@@ -6,7 +6,7 @@ from typing import Any, cast
 
 import pytest
 
-from clio.ai.base import TaskName
+from clio.ai.base import TaskName, VideoAIProvider
 from clio.ai.factory import _build_provider, get_task_config, get_task_provider, get_video_provider
 from clio.ai.gemini import GeminiProvider
 from clio.ai.openai_compat import OpenAICompatProvider
@@ -127,10 +127,9 @@ class TestGetVideoProvider:
 
 
 class TestOpenAICompatHasNoAnalyzeVideo:
-    """OpenAICompatProvider has analyze_video but it raises NotImplementedError."""
+    def test_text_provider_does_not_satisfy_video_protocol(self, loaded_config):
+        provider, _model = get_task_provider(loaded_config, TaskName.VOICEOVER)
 
-    def test_analyze_video_raises(self, loaded_config):
-        provider, model = get_task_provider(loaded_config, TaskName.VOICEOVER)
         assert isinstance(provider, OpenAICompatProvider)
-        with pytest.raises(NotImplementedError):
-            provider.analyze_video("fake_file", "test prompt", "deepseek-chat")
+        assert not hasattr(provider, "analyze_video")
+        assert not isinstance(provider, VideoAIProvider)

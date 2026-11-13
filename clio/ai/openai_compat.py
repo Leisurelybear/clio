@@ -151,21 +151,3 @@ class OpenAICompatProvider:
             cancel_event=cancel_event,
             what=t("ai.retry_what_openai", {"url": self._base_url}),
         )
-
-    def analyze_video(
-        self,
-        video_path: str,
-        prompt: str,
-        model: str,
-        progress_callback=None,
-        cancel_event=None,
-        *,
-        temperature: float | None = None,
-        system: str | None = None,
-        structured_output: StructuredOutput | None = None,
-        video_start_sec: float | None = None,
-        video_end_sec: float | None = None,
-        video_fps: float | None = None,
-        media_resolution: str | None = None,
-    ) -> AIResponse:
-        raise NotImplementedError(t("ai.openai_no_video", {"provider": self.provider_id}))

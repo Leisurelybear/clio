@@ -375,13 +375,3 @@ class TestGenerateText:
         self._prov.generate_text("hello", "deepseek-chat")
         call_url = self._mock_client.post.call_args.args[0]
         assert call_url == "https://api.deepseek.com/chat/completions"
-
-
-class TestAnalyzeVideo:
-    def test_not_implemented(self):
-        with patch("clio.ai.openai_compat.httpx.Client"):
-            from clio.ai.openai_compat import OpenAICompatProvider
-
-            p = OpenAICompatProvider(_make_cfg(), ProxyConfig(enabled=False, url=""))
-            with pytest.raises(NotImplementedError, match="不支持视频分析"):
-                p.analyze_video("video.mp4", "desc", "model")
