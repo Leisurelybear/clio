@@ -78,9 +78,11 @@ def _extract_usage(response) -> TokenUsage | None:
     meta = getattr(response, "usage_metadata", None)
     if meta is None:
         return None
+    candidates_tokens = _usage_count(getattr(meta, "candidates_token_count", None))
+    thoughts_tokens = _usage_count(getattr(meta, "thoughts_token_count", None))
     return TokenUsage(
         prompt_tokens=_usage_count(getattr(meta, "prompt_token_count", None)),
-        completion_tokens=_usage_count(getattr(meta, "candidates_token_count", None)),
+        completion_tokens=candidates_tokens + thoughts_tokens,
         total_tokens=_usage_count(getattr(meta, "total_token_count", None)),
     )
 

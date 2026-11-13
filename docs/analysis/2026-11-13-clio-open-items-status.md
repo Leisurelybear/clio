@@ -76,7 +76,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 055 | P2 | E18 | 删除 plan 只删 .json, 留下 .md, 用户编辑版不备份 | Pending audit |  |
 | 056 | P2 | E19 | 规划默认用推理模型并带 temperature, 超时 120 秒 | Pending audit |  |
 | 057 | P2 | R016 | 只读取 prompt_feedback.block_reason; 候选级 finish_reason=SAFETY/RECITATION 且文本为空时仍报"JSON 解析失败" | Pending audit |  |
-| 058 | P2 | R017 | 只记录 candidates_token_count, 不含思考 token; 官方价目表的输出价包含思考 token | Pending audit |  |
+| 058 | P2 | R017 | 只记录 candidates_token_count, 不含思考 token; 官方价目表的输出价包含思考 token | Fixed | Gemini completion usage now sums candidate and thinking tokens while preserving the provider total. Focused: 67 Gemini provider tests passed. |
 | 059 | P2 | R019 | 云端转录没有置信度, avg_logprob 取默认 0.0, 在对数尺度上等于"最高置信" | Pending audit |  |
 | 060 | P2 | R023 | 保存分析/口播时不重写配套的 .txt/.md; 分析保存不保护 _lineage、index 等字段; 口播保存不做任何校验 | Pending audit |  |
 | 061 | P2 | R030 | 口播步骤遍历 texts 下全部 JSON, 不按 videos.json 过滤 | Pending audit |  |

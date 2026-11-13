@@ -417,6 +417,26 @@ class TestGenerateText:
 
         assert result.finish_reason == "MAX_TOKENS"
 
+    def test_usage_includes_thinking_tokens(self):
+        response = SimpleNamespace(
+            text="ok",
+            candidates=[SimpleNamespace(finish_reason="STOP")],
+            usage_metadata=SimpleNamespace(
+                prompt_token_count=4,
+                candidates_token_count=10,
+                thoughts_token_count=7,
+                total_token_count=21,
+            ),
+        )
+        self._client_mock.models.generate_content.return_value = response
+
+        result = self._prov.generate_text("hi", "gemini-2.5-flash")
+
+        assert result.token_usage is not None
+        assert result.token_usage.prompt_tokens == 4
+        assert result.token_usage.completion_tokens == 17
+        assert result.token_usage.total_tokens == 21
+
     def test_empty_response(self):
         response_mock = MagicMock()
         response_mock.text = ""
