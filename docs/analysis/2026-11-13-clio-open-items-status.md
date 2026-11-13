@@ -12,7 +12,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P1 | 35 | 20 | 15 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P2 | 59 | 4 | 12 | 0 | 0 | 0 | 0 | 0 | 43 |
+| P2 | 59 | 4 | 13 | 0 | 0 | 0 | 0 | 0 | 42 |
 | P3 | 14 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 10 |
 
 ## Item status
@@ -65,7 +65,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 044 | P1 | O17 | AGENTS.md 过长 | Satisfied | Satisfied; documentation split completed. |
 | 045 | P2 | R003 | Origin/Host 校验和 JSON Content-Type 强制只在本机模式开启; LAN 模式全部关闭 | Fixed | `079427a` enforces Origin/Referer-to-Host consistency on every bind and requires JSON content types for all `run()` modes; only the Host allowlist remains loopback-specific. Focused: 227 pytest cases passed, 1 skipped; Ruff passed. |
 | 046 | P2 | O15 | 手工转义; 首页无安全响应头 | Satisfied | Satisfied; escaping/security headers completed (`a97bf4d`, `7390edd`). |
-| 047 | P2 | C10 | 窗口切片流复制可能带来时间偏移 | Pending audit |  |
+| 047 | P2 | C10 | ??????????????? | Satisfied | The analyze path no longer cuts physical window slices: `clio/tasks/analyze.py:734-760` sends the compressed file once per logical window and `clio/ai/gemini.py:420-430` applies Gemini `VideoMetadata(start_offset/end_offset, fps)`. `slice_window_video` remains only as a legacy helper. Focused: 90 `test_tasks_analyze` / `test_analyze_windows` tests passed. |
 | 048 | P2 | D11 | 草稿不截断区间、缺 meta 文件、os 与 fps 写死 | Pending audit |  |
 | 049 | P2 | E12 | 重编码只有 -c:v libx264 -crf 23, 10-bit 原片输出 High 10 | Pending audit |  |
 | 050 | P2 | R015 | 规划与审阅调用不传 cancel_event, 取消要等模型返回 | Pending audit |  |
