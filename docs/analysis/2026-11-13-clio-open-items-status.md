@@ -11,7 +11,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | Priority | Total | Fixed | Satisfied | In progress | Confirmed | Environment verification | Duplicate | Not applicable | Pending audit |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P1 | 35 | 10 | 10 | 0 | 0 | 0 | 0 | 0 | 15 |
+| P1 | 35 | 11 | 10 | 0 | 0 | 0 | 0 | 0 | 14 |
 | P2 | 59 | 0 | 12 | 0 | 0 | 0 | 0 | 0 | 47 |
 | P3 | 14 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 14 |
 
@@ -40,7 +40,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 019 | P1 | E9 | 多窗口合并后的摘要重写失败会让整个长视频失败 | Fixed | `b78a43f` keeps the merged window analysis when summary rewriting fails, marks it with `_summary_failed: true`, and emits a localized warning; cancellation still propagates. Focused: 55 analyze-task and 24 i18n tests passed. Full: 3256 passed, 12 skipped; Ruff, mypy, `main.py check`, and `git diff --check` passed. |
 | 020 | P1 | E7 | 单视频重跑不接受 confirm_artifact_overwrite, 口播被编辑过时只会失败 | Fixed | `ff56888` adds rerun preflight protection for edited analysis and voiceover artifacts, persists the confirmation on managed rerun tasks, and prompts before retrying. Focused: 124 pytest and 4 Vitest cases passed. Full: 3260 pytest passed, 12 skipped; 926 Vitest passed; typecheck, Ruff, mypy, `main.py check`, and `git diff --check` passed. |
 | 021 | P1 | E10 | .env 里只要有白名单外的变量就整体拒绝保存 | Fixed | `ccd42a4` preserves arbitrary non-dangerous dotenv entries while allowing project-read variables such as `CLIO_LANG`, ffmpeg/PyTorch tuning, and proxy endpoints. Secret masking is case-insensitive, dangerous executable/module-injection keys remain blocked, and rejected saves leave the existing file untouched. Focused: 22 passed, 1 skipped; Ruff and `git diff --check` passed. The full suite remains order-dependent because `TestActiveLocale` leaks the process locale; the isolated rerun reached 3230 passed, 37 failed, with failures limited to unrelated locale assertions. |
-| 022 | P1 | R010 | 10-bit 原片 (HDR HEVC) 压缩后是 H.264 High 10 / yuv420p10le | Pending audit |  |
+| 022 | P1 | R010 | 10-bit 原片 (HDR HEVC) 压缩后是 H.264 High 10 / yuv420p10le | Fixed | `6d7f1a0` forces `yuv420p` output and tone-maps PQ/HLG sources to BT.709 SDR. Focused: 173 related pytest and 36 export tests passed; real ffmpeg smoke produced H.264 High / yuv420p / BT.709 from HEVC Main 10 / PQ / BT.2020. |
 | 023 | P1 | R008 | 示例配置没有 config_version, 首次加载被当成 V1 迁移, 经 yaml.dump 重写后注释全部丢失 | Pending audit |  |
 | 024 | P1 | R009 | 自动升级把当前默认值"写进用户 YAML", 默认值以后再变, 老用户也拿不到; 且在读取路径上写文件 | Pending audit |  |
 | 025 | P1 | OPT-028 | doctor 不检查旧默认值与模型名有效性 | Pending audit |  |
