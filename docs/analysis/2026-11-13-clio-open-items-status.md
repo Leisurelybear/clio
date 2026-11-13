@@ -11,7 +11,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | Priority | Total | Fixed | Satisfied | In progress | Confirmed | Environment verification | Duplicate | Not applicable | Pending audit |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P1 | 35 | 16 | 10 | 0 | 0 | 0 | 0 | 0 | 9 |
+| P1 | 35 | 16 | 12 | 0 | 0 | 0 | 0 | 0 | 7 |
 | P2 | 59 | 0 | 12 | 0 | 0 | 0 | 0 | 0 | 47 |
 | P3 | 14 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 11 |
 
@@ -46,8 +46,8 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 025 | P1 | OPT-028 | doctor 不检查旧默认值与模型名有效性 | Fixed | `5a67ee5` warns for known legacy defaults and empty or unregistered model bindings, probes each distinct configured provider/model pair once with a bounded timeout (including keyless Ollama), and keeps connectivity failures non-blocking. Focused: 92 pytest cases, ruff, mypy, `main.py check`, and `git diff --check` passed. |
 | 026 | P1 | R011 | 分析指纹包含整段转录文本和全部压缩参数, 任何变化都让全部分析失效并静默重跑 | Fixed | `d7f72da` narrows the analysis lineage to effective inputs and actual compressed identity, exposes invalidation components, and adds browser-UI-safe cache diagnostics. `3cb3d20` shows rerun counts/reasons in run previews, returns 409 until confirmed, and forwards the confirmation through `run/start`. Focused: 204 pytest and 56 Vitest cases passed; typecheck and Ruff passed. |
 | 027 | P1 | OPT-011 | 运行预览只给步骤数 (/api/run/preview), 没有调用数、token 和费用 (F2) | Pending audit |  |
-| 028 | P1 | R014 | plan 输入不设上限: 全部素材的完整 timeline 一次送入, 且每条转录出现三次 (transcript、transcript_segments、<transcript> 块) | Pending audit |  |
-| 029 | P1 | OPT-012 | plan 的 clips_json 每条 timeline 都带 transcript 与 transcript_segments, 同样内容又出现在 <transcript> 块 (实测每条约 183 字符, 其中转录相关约 110) | Pending audit |  |
+| 028 | P1 | R014 | plan ??????: ??????? timeline ????, ????????? (transcript?transcript_segments?<transcript> ?) | Satisfied | Existing `build_plan_clips()` limits timeline rows and key moments, removes inline transcripts, and uses a bounded candidate shortlist (`90e58f0`, `95da5f6`, `47703f8`). Focused: 102 planning tests passed. |
+| 029 | P1 | OPT-012 | plan ? clips_json ?? timeline ?? transcript ? transcript_segments, ???????? <transcript> ? (????? 183 ??, ??????? 110) | Satisfied | Existing projection omits top-level and timeline-level transcript fields before serialization; regression coverage asserts the removal. Focused with R014: 102 planning tests passed. |
 | 030 | P1 | R018 | 默认绑定 deepseek-chat / deepseek-reasoner; DeepSeek 官方价目页现在只列 deepseek-flash 与 deepseek-v4-pro, 并写明 v4-flash 等旧名已退役 | Pending audit |  |
 | 031 | P1 | OPT-006 | video_analyze ?????? temperature (config.example.yaml:71-73), ?????? None | Fixed | Both shipped examples now bind video analysis at temperature `0.2`; the example-config regression asserts the value. Focused: 106 config tests passed. |
 | 032 | P1 | OPT-001 | 没有评测集, Q1/Q2/Q8/Q9 的效果无法量化 (F1 未开始) | Pending audit |  |
