@@ -916,7 +916,8 @@ def probe_media_details(video_path: Path, ffprobe: str) -> dict[str, Any]:
         "-show_entries",
         (
             "format=duration,size,bit_rate,format_name:"
-            "stream=codec_type,codec_name,width,height,avg_frame_rate,r_frame_rate,bit_rate"
+            "stream=codec_type,codec_name,width,height,avg_frame_rate,r_frame_rate,bit_rate,"
+            "pix_fmt,color_transfer,color_primaries,color_space"
         ),
         "-of",
         "json",
@@ -939,6 +940,10 @@ def probe_media_details(video_path: Path, ffprobe: str) -> dict[str, Any]:
         "height": _positive_int(video_stream.get("height")),
         "fps": round(fps, 3) if fps else None,
         "codec": str(video_stream.get("codec_name") or ""),
+        "pix_fmt": str(video_stream.get("pix_fmt") or ""),
+        "color_transfer": str(video_stream.get("color_transfer") or ""),
+        "color_primaries": str(video_stream.get("color_primaries") or ""),
+        "color_space": str(video_stream.get("color_space") or ""),
     }
     if key is not None:
         with _MEDIA_DETAILS_CACHE_LOCK:

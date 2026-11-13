@@ -24,6 +24,10 @@ _PROBE_JSON = {
             "height": 1080,
             "avg_frame_rate": "30000/1001",
             "bit_rate": "5000000",
+            "pix_fmt": "yuv420p10le",
+            "color_transfer": "smpte2084",
+            "color_primaries": "bt2020",
+            "color_space": "bt2020nc",
         },
     ],
     "format": {
@@ -61,6 +65,10 @@ class TestProbeMediaDetails:
         assert info["duration_sec"] == pytest.approx(123.456)
         assert info["size_bytes"] == 1048576
         assert info["format_name"].startswith("mov,mp4")
+        assert info["pix_fmt"] == "yuv420p10le"
+        assert info["color_transfer"] == "smpte2084"
+        assert info["color_primaries"] == "bt2020"
+        assert info["color_space"] == "bt2020nc"
 
     def test_falls_back_to_r_frame_rate_and_format_bitrate(self, tmp_path: Path):
         video = tmp_path / "clip.mp4"

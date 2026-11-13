@@ -9,7 +9,7 @@ from typing import Any, cast
 
 import pytest
 
-from clio.compress import analysis_compress_advice, compress_video
+from clio.compress import _is_hdr_source, analysis_compress_advice, compress_video
 from clio.config import AppConfig
 
 
@@ -64,7 +64,35 @@ class TestAnalysisCompressAdvice:
         assert [item.field for item in advice] == expected
 
 
+class TestHdrDetection:
+    @pytest.mark.parametrize(
+        ("transfer", "expected"),
+        [
+            ("smpte2084", True),
+            ("ARIB-STD-B67", True),
+            ("bt709", False),
+            ("", False),
+        ],
+    )
+    def test_detects_pq_and_hlg_sources(self, monkeypatch, tmp_path: Path, transfer: str, expected: bool):
+        monkeypatch.setattr("clio.compress.probe_media_details", lambda *_: {"color_transfer": transfer})
+
+        assert _is_hdr_source(tmp_path / "input.mp4", "ffprobe") is expected
+
+    def test_probe_failure_is_treated_as_sdr(self, monkeypatch, tmp_path: Path):
+        def _fail(*_args):
+            raise RuntimeError("probe failed")
+
+        monkeypatch.setattr("clio.compress.probe_media_details", _fail)
+
+        assert _is_hdr_source(tmp_path / "input.mp4", "ffprobe") is False
+
+
 class TestCompressVideo:
+    @pytest.fixture(autouse=True)
+    def _assume_sdr_source(self, monkeypatch):
+        monkeypatch.setattr("clio.compress._is_hdr_source", lambda *_args: False)
+
     def test_zero_duration_raises(self, monkeypatch, tmp_path: Path):
         src = tmp_path / "input.mp4"
         src.write_bytes(b"")
@@ -110,6 +138,25 @@ class TestCompressVideo:
         assert "+faststart" in args
         assert "-an" in args
         assert "-b:v" in args
+
+    def test_forces_8_bit_yuv420p_output(self, monkeypatch, tmp_path: Path):
+        _result, _out, calls = self._run_compress(monkeypatch, tmp_path)
+
+        args = calls[0]
+        assert args[args.index("-pix_fmt") + 1] == "yuv420p"
+        assert args[args.index("-vf") + 1].endswith(",format=yuv420p")
+
+    def test_hdr_source_gets_hdr_to_sdr_tonemap(self, monkeypatch, tmp_path: Path):
+        monkeypatch.setattr("clio.compress._is_hdr_source", lambda *_args: True)
+
+        _result, _out, calls = self._run_compress(monkeypatch, tmp_path)
+
+        args = calls[0]
+        vf = args[args.index("-vf") + 1]
+        assert vf.startswith("zscale=t=linear:npl=100")
+        assert "tonemap=tonemap=hable:desat=0" in vf
+        assert "zscale=t=bt709:m=bt709:r=tv" in vf
+        assert args[args.index("-pix_fmt") + 1] == "yuv420p"
 
     def test_compress_with_audio(self, monkeypatch, tmp_path: Path):
         result, out, calls = self._run_compress(monkeypatch, tmp_path, remove_audio=False)

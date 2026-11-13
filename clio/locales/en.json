@@ -318,6 +318,7 @@
   "common.list_separator": ", ",
   "compress.duration_unreadable": "Cannot read the video duration: {path}",
   "compress.output_duration_unreadable": "Cannot read the duration of the compressed output: {name}",
+  "compress.hdr_tonemap": "HDR source detected; applying HDR-to-SDR tone mapping during compression: {src}",
   "compress.size_summary": "  Size: {before} -> {after} (compressed {ratio}%, target {target} MB)",
   "compress.timed_label": "Compress {src} -> {dst}",
   "config.available_none": "<none>",

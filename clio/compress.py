@@ -11,7 +11,7 @@ from typing import Literal
 from clio.config import AppConfig
 from clio.i18n import t
 from clio.log import format_size, timed
-from clio.utils import get_duration_sec, resolve_binary, run_ffmpeg
+from clio.utils import get_duration_sec, probe_media_details, resolve_binary, run_ffmpeg
 
 ProgressCB = Callable[[float, float], None]  # (current_sec, total_sec)
 MIN_VIDEO_BITRATE = 800_000
@@ -20,6 +20,7 @@ ANALYSIS_WIDTH_MIN = 960
 ANALYSIS_WIDTH_MAX = 1280
 ANALYSIS_FPS_MIN = 2
 ANALYSIS_FPS_MAX = 5
+_HDR_COLOR_TRANSFERS = frozenset({"arib-std-b67", "smpte2084"})
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,16 @@ def analysis_compress_advice(
     return tuple(advice)
 
 
+def _is_hdr_source(input_path: Path, ffprobe: str) -> bool:
+    """Return whether the source carries a PQ or HLG transfer function."""
+    try:
+        details = probe_media_details(input_path, ffprobe)
+    except Exception:  # noqa: BLE001 - color probing must not block compression
+        return False
+    transfer = str(details.get("color_transfer") or "").strip().lower()
+    return transfer in _HDR_COLOR_TRANSFERS
+
+
 def compress_video(
     input_path: Path,
     output_path: Path,
@@ -69,9 +80,31 @@ def compress_video(
         raise ValueError(t("compress.duration_unreadable", {"path": input_path}))
 
     cfg = config.compress
-    vf = f"scale=min({cfg.max_width}\\,iw):-2,fps={cfg.fps}"
+    scale_and_fps = f"scale=min({cfg.max_width}\\,iw):-2,fps={cfg.fps}"
+    if _is_hdr_source(input_path, ffprobe):
+        # zscale converts PQ/HLG into linear light before Hable tone mapping,
+        # then establishes standard BT.709 metadata for the SDR output.
+        vf = (
+            "zscale=t=linear:npl=100,format=gbrpf32le,"
+            "zscale=p=bt709,tonemap=tonemap=hable:desat=0,"
+            f"zscale=t=bt709:m=bt709:r=tv,{scale_and_fps},format=yuv420p"
+        )
+        print(t("compress.hdr_tonemap", {"src": input_path.name}))
+    else:
+        vf = f"{scale_and_fps},format=yuv420p"
 
-    args = ["-i", str(input_path), "-vf", vf, "-c:v", cfg.codec, "-movflags", "+faststart"]
+    args = [
+        "-i",
+        str(input_path),
+        "-vf",
+        vf,
+        "-pix_fmt",
+        "yuv420p",
+        "-c:v",
+        cfg.codec,
+        "-movflags",
+        "+faststart",
+    ]
 
     if cfg.remove_audio:
         args.append("-an")

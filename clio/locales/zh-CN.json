@@ -318,6 +318,7 @@
   "common.list_separator": "、",
   "compress.duration_unreadable": "无法读取视频时长: {path}",
   "compress.output_duration_unreadable": "压缩输出无法读取时长: {name}",
+  "compress.hdr_tonemap": "HDR 源检测到：压缩时执行 HDR→SDR tone mapping: {src}",
   "compress.size_summary": "  体积: {before} -> {after}（压缩 {ratio}%，目标 {target} MB）",
   "compress.timed_label": "压缩 {src} -> {dst}",
   "config.available_none": "<无>",
