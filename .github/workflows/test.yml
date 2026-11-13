@@ -310,9 +310,9 @@ jobs:
     permissions:
       contents: read
     # P2-P32: the PR workflow never built the desktop bundle, so spec/datas
-    # regressions surfaced only at release time. Validate the bundle builds on
-    # every PR that touches packaging or the desktop/UI it bundles.
-    if: startsWith(github.ref, 'refs/pull/')
+    # regressions surfaced only at release time. Build on every PR and every
+    # main-branch push so direct merges cannot bypass packaging validation.
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     steps:
     - uses: actions/checkout@v4
 
