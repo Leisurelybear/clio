@@ -12,7 +12,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P1 | 35 | 20 | 15 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P2 | 59 | 5 | 14 | 0 | 0 | 0 | 0 | 0 | 40 |
+| P2 | 59 | 6 | 14 | 0 | 0 | 0 | 0 | 0 | 39 |
 | P3 | 14 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 10 |
 
 ## Item status
@@ -68,7 +68,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 047 | P2 | C10 | ??????????????? | Satisfied | The analyze path no longer cuts physical window slices: `clio/tasks/analyze.py:734-760` sends the compressed file once per logical window and `clio/ai/gemini.py:420-430` applies Gemini `VideoMetadata(start_offset/end_offset, fps)`. `slice_window_video` remains only as a legacy helper. Focused: 90 `test_tasks_analyze` / `test_analyze_windows` tests passed. |
 | 048 | P2 | D11 | ????????? meta ???os ? fps ?? | Satisfied | `clio/export/jianying.py:351-366` clamps each source timerange to the material length; `:565-571` writes `draft_meta_info.json` from `_build_draft_meta`; `:429-449` derives fps from the first clip and OS from `platform.system()`. Focused: 36 `test_export` tests passed. |
 | 049 | P2 | E12 | ????? -c:v libx264 -crf 23, 10-bit ???? High 10 | Fixed | `dbbf3e2` adds explicit `-preset fast` and `-pix_fmt yuv420p` to re-encoded cuts, so 10-bit/HDR sources no longer produce High 10 output. Focused: 98 `test_cut` / `test_tasks_cut` tests passed; Ruff passed. |
-| 050 | P2 | R015 | 规划与审阅调用不传 cancel_event, 取消要等模型返回 | Pending audit |  |
+| 050 | P2 | R015 | 规划与审阅调用不传 cancel_event, 取消要等模型返回 | Fixed | `452f228` threads `cancel_event` through `refine_text` / `refine_script` and `run_refine_texts` / `run_refine_scripts`; pre-set or mid-call cancellation raises `InterruptedError` instead of waiting for the model or being swallowed as a per-file failure. Focused: 115 `test_analyze_funcs` / `test_tasks_refine` tests passed; full suite 3339 passed, 12 skipped; Ruff passed. |
 | 051 | P2 | E12 | 输出不是 JSON 时 extract_json 直接抛出, 不进入重试 | Pending audit |  |
 | 052 | P2 | E14 | 过时片段的备份只在全部成功时删除 | Pending audit |  |
 | 053 | P2 | E15 | 窗口切片的两条重编码回退仍带 -an; 大小上限写死 200 MB | Pending audit |  |
