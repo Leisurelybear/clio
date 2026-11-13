@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import time as _real_time
+from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -77,6 +78,16 @@ def _clear_ai_cache() -> None:
 def _clear_session_log() -> None:
     """Clear session log buffer between tests to avoid cross-test pollution."""
     session_log.clear()
+
+
+@pytest.fixture(autouse=True)
+def _reset_active_locale() -> Generator[None, None, None]:
+    """Reset the process-wide locale so one test cannot localize later assertions."""
+    from clio import i18n
+
+    i18n.set_active_locale(None)
+    yield
+    i18n.set_active_locale(None)
 
 
 @pytest.fixture(autouse=True)
