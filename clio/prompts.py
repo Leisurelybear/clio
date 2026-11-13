@@ -163,6 +163,12 @@ ANALYZE_PROMPT = """请仔细分析这段旅行 vlog 原始素材视频，用中
 - 必须是 timeline 中真实存在的画面点，时间格式 MM:SS 或 HH:MM:SS
 """
 
+TRUNCATED_RETRY_PROMPT = """上一次输出因长度限制被截断。请重新回答原始请求：
+- 完整保留所有必填字段和关键信息
+- 删除重复、空泛和可省略的描述，使用更紧凑的表达
+- 不要解释重试过程，只输出最终要求的格式"""
+
+
 SCENE_BOUNDARY_RANGE = "- 镜头 {index}: {start}-{end}"
 
 
@@ -658,6 +664,7 @@ REFINE_SCRIPT_FIX_PROMPT = """用户对下面这段 vlog 口播文案给出了**
 
 PROMPT_DEFAULTS = {
     "ANALYZE_PROMPT": ANALYZE_PROMPT,
+    "TRUNCATED_RETRY_PROMPT": TRUNCATED_RETRY_PROMPT,
     "SCRIPT_PROMPT": SCRIPT_PROMPT,
     "PLAN_VOICEOVER_PROMPT": PLAN_VOICEOVER_PROMPT,
     "PLAN_PROMPT": PLAN_PROMPT,

@@ -55,6 +55,18 @@ def normalize_response_reason(value: object) -> str | None:
     return normalized or None
 
 
+_TRUNCATED_FINISH_REASONS = {"length", "max_tokens", "max_output_tokens"}
+
+
+def is_truncated_response(response: AIResponse) -> bool:
+    """Return whether a completion stopped because it hit an output limit."""
+    reason = response.finish_reason
+    if reason is None:
+        return False
+    normalized = str(reason).rsplit(".", 1)[-1].strip().lower()
+    return normalized in _TRUNCATED_FINISH_REASONS
+
+
 @dataclass(frozen=True)
 class AIResponse:
     """Normalized completion returned by every AI provider.

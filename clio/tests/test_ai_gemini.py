@@ -691,6 +691,50 @@ class TestAnalyzeVideo:
         assert result.finish_reason == "STOP"
         self._client_mock.files.delete.assert_called_once_with(name="files/test123")
 
+    def test_truncated_video_output_retries_without_reupload_and_increases_budget(self):
+        from google.genai import types
+
+        from clio.ai.gemini import GeminiProvider
+
+        uploaded = MagicMock(spec=types.File)
+        uploaded.name = "files/test123"
+        uploaded.state = types.FileState.ACTIVE
+        self._client_mock.files.upload.return_value = uploaded
+        self._client_mock.files.get.return_value = uploaded
+        first = SimpleNamespace(
+            text='{"partial":',
+            candidates=[SimpleNamespace(finish_reason=types.FinishReason.MAX_TOKENS)],
+            usage_metadata=SimpleNamespace(
+                prompt_token_count=10,
+                candidates_token_count=20,
+                total_token_count=30,
+            ),
+        )
+        second = SimpleNamespace(
+            text='{"ok":true}',
+            candidates=[SimpleNamespace(finish_reason=types.FinishReason.STOP)],
+            usage_metadata=SimpleNamespace(
+                prompt_token_count=12,
+                candidates_token_count=8,
+                total_token_count=20,
+            ),
+        )
+        self._client_mock.models.generate_content.side_effect = [first, second]
+        provider = GeminiProvider(_make_cfg(max_tokens=2048), ProxyConfig(enabled=False, url=""))
+
+        result = provider.analyze_video(str(self._video), "describe this", "gemini-2.5-flash")
+
+        assert result.text == '{"ok":true}'
+        assert result.token_usage is not None
+        assert result.token_usage.total_tokens == 50
+        assert self._client_mock.files.upload.call_count == 1
+        assert self._client_mock.models.generate_content.call_count == 2
+        first_call, second_call = self._client_mock.models.generate_content.call_args_list
+        assert first_call.kwargs["config"].max_output_tokens == 2048
+        assert second_call.kwargs["config"].max_output_tokens == 4096
+        assert "上一次输出因长度限制被截断" in second_call.kwargs["contents"][-1]
+        self._client_mock.files.delete.assert_called_once_with(name="files/test123")
+
     def test_video_metadata_and_media_resolution_are_sent(self):
         from google.genai import types
 

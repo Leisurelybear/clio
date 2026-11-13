@@ -11,9 +11,10 @@ import httpx
 from google import genai
 from google.genai import types
 
-from clio.ai.base import AIResponse, StructuredOutput, TokenUsage, normalize_response_reason
+from clio.ai.base import AIResponse, StructuredOutput, TokenUsage, is_truncated_response, normalize_response_reason
 from clio.config import ProviderConfig, ProxyConfig
 from clio.i18n import t
+from clio.prompts import TRUNCATED_RETRY_PROMPT
 from clio.ratelimit import make_rate_limiter, wait_for_rate_limit
 from clio.utils import mask_if_looks_like_key, retry_after_seconds, with_retry
 
@@ -101,6 +102,17 @@ def _extract_usage(response) -> TokenUsage | None:
     )
 
 
+def _sum_usage(*usages: TokenUsage | None) -> TokenUsage | None:
+    present = [usage for usage in usages if usage is not None]
+    if not present:
+        return None
+    return TokenUsage(
+        prompt_tokens=sum(usage.prompt_tokens for usage in present),
+        completion_tokens=sum(usage.completion_tokens for usage in present),
+        total_tokens=sum(usage.total_tokens for usage in present),
+    )
+
+
 class GeminiProvider:
     provider_id = "gemini"
 
@@ -129,19 +141,27 @@ class GeminiProvider:
         system: str | None = None,
         structured_output: StructuredOutput | None = None,
         media_resolution: str | None = None,
+        max_output_tokens: int | None = None,
     ):
         """Build a per-call config when per-call options are requested.
 
         The cached `_generation_config` is shared across concurrent calls, so it
         must never be mutated in place.
         """
-        if temperature is None and not system and structured_output is None and media_resolution is None:
+        if (
+            temperature is None
+            and not system
+            and structured_output is None
+            and media_resolution is None
+            and max_output_tokens is None
+        ):
             return self._generation_config
         kwargs: dict = {}
         if temperature is not None:
             kwargs["temperature"] = float(temperature)
-        if self._max_tokens > 0:
-            kwargs["max_output_tokens"] = self._max_tokens
+        output_tokens = self._max_tokens if max_output_tokens is None else max_output_tokens
+        if output_tokens > 0:
+            kwargs["max_output_tokens"] = output_tokens
         if system:
             kwargs["system_instruction"] = system
         if structured_output is not None:
@@ -433,13 +453,17 @@ class GeminiProvider:
                     prompt,
                 ]
 
-            def _do() -> AIResponse:
+            def _generate(*, retry: bool) -> AIResponse:
                 wait_for_rate_limit(self._rl, cancel_event, what=self.provider_id)
+                if retry:
+                    contents[-1] = prompt + "\n\n" + TRUNCATED_RETRY_PROMPT
+                retry_limit = self._max_tokens * 2 if retry and self._max_tokens > 0 else None
                 config = self._config_for(
                     temperature,
                     system,
                     structured_output,
                     media_resolution=media_resolution,
+                    max_output_tokens=retry_limit,
                 )
                 if config is None:
                     response = self._client.models.generate_content(model=model, contents=contents)
@@ -451,7 +475,18 @@ class GeminiProvider:
                     )
                 return _response_from(response)
 
-            return self._call_with_retry(_do, t("ai.retry_what_video", {"model": model}), model, cancel_event)
+            retry_what = t("ai.retry_what_video", {"model": model})
+            first = self._call_with_retry(lambda: _generate(retry=False), retry_what, model, cancel_event)
+            if not is_truncated_response(first):
+                return first
+
+            second = self._call_with_retry(lambda: _generate(retry=True), retry_what, model, cancel_event)
+            return AIResponse(
+                text=second.text,
+                token_usage=_sum_usage(first.token_usage, second.token_usage),
+                finish_reason=second.finish_reason,
+                block_reason=second.block_reason,
+            )
         finally:
             if uploaded is not None and uploaded.name is not None:
                 with contextlib.suppress(Exception):  # remote cleanup must not mask the analysis result

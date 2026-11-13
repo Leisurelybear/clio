@@ -9,7 +9,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, cast
 
-from clio.ai.base import AIResponse, TaskName
+from clio.ai.base import AIResponse, TaskName, is_truncated_response
 from clio.ai.factory import get_task_config, get_task_provider, get_video_provider, provider_use
 from clio.ai.structured import (
     JSON_OBJECT_OUTPUT,
@@ -106,15 +106,6 @@ _REFINEMENT_IMMUTABLE_FIELDS = {
     "media_identity",
     "source_file",
 }
-_TRUNCATED_FINISH_REASONS = {"length", "max_tokens", "max_output_tokens"}
-
-
-def _is_truncated_response(response: AIResponse) -> bool:
-    reason = response.finish_reason
-    if reason is None:
-        return False
-    normalized = str(reason).rsplit(".", 1)[-1].strip().lower()
-    return normalized in _TRUNCATED_FINISH_REASONS
 
 
 def _store_trip_context(project_dir: str, key: str, text: str) -> None:
@@ -598,6 +589,7 @@ def _call_ai(
     provider_name: str = "",
     prompt_price_per_1m_usd: float = 0.0,
     completion_price_per_1m_usd: float = 0.0,
+    retry_on_truncated: bool = True,
 ) -> str:
     # Check cancel_event before starting AI call
     if cancel_event and cancel_event.is_set():
@@ -611,7 +603,8 @@ def _call_ai(
         print("=" * 60)
     prompt_bytes = len(prompt.encode("utf-8"))
     print(f"  AI: {provider_id}/{model}（prompt {format_size(prompt_bytes)}）")
-    for attempt in range(2):
+    attempts = 2 if retry_on_truncated else 1
+    for attempt in range(attempts):
         with timed(f"{label} {provider_id}/{model}"):
             resp = fn()
         print(t("analyze.response_size", {"size": format_size(len(resp.text.encode("utf-8")))}))
@@ -631,7 +624,7 @@ def _call_ai(
             )
         if resp.blocked:
             raise RuntimeError(t("ai.response_blocked", {"reason": resp.block_reason}))
-        if not _is_truncated_response(resp):
+        if not is_truncated_response(resp):
             return resp.text
         print(t("analyze.truncated_output", {"reason": resp.finish_reason}))
         if attempt == 0:
@@ -1178,6 +1171,7 @@ def analyze_video(
             task_name=TaskName.VIDEO_ANALYZE,
             cancel_event=cancel_event,
             system_message=system,
+            retry_on_truncated=False,
             **_usage_meta(config, TaskName.VIDEO_ANALYZE),
         )
 

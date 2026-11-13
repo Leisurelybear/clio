@@ -113,6 +113,22 @@ def test_call_ai_rejects_repeated_truncation():
     assert provider_call.call_count == 2
 
 
+def test_call_ai_can_delegate_truncation_retry_to_provider():
+    provider_call = MagicMock(return_value=AIResponse('{"partial":', finish_reason="length"))
+
+    with pytest.raises(RuntimeError, match="连续两次输出被截断"):
+        _call_ai(
+            "video analysis",
+            "gemini",
+            "model",
+            "prompt",
+            provider_call,
+            retry_on_truncated=False,
+        )
+
+    assert provider_call.call_count == 1
+
+
 def test_summarize_window_analysis_uses_all_windows_and_preserves_other_fields(monkeypatch):
     from clio.analyze import summarize_window_analysis
 
