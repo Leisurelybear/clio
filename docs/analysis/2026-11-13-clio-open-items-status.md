@@ -12,7 +12,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P1 | 35 | 20 | 15 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P2 | 59 | 14 | 14 | 0 | 0 | 0 | 0 | 0 | 31 |
+| P2 | 59 | 14 | 15 | 0 | 0 | 0 | 0 | 0 | 30 |
 | P3 | 14 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 10 |
 
 ## Item status
@@ -82,7 +82,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 061 | P2 | R030 | 口播步骤遍历 texts 下全部 JSON, 不按 videos.json 过滤 | Fixed | `6e11352` filters default batch voiceover inputs through `_project_selection_stems`; explicit `files` selections and single-file runs retain their existing scope. Focused: 111 scripts/helper/pipeline tests passed; full Python suite: 3357 passed, 12 skipped. Ruff and mypy passed. |
 | 062 | P2 | O16 | 前端覆盖率低 | Satisfied | Satisfied; frontend coverage raised (`5487304`). |
 | 063 | P2 | Q13 | 切点按整秒估算 | Satisfied | Satisfied; cut snapping implemented (`0e1c9bf`). |
-| 064 | P2 | R012 | ANALYZE_PROMPT 只要求描述"实际能看到"的内容, 没有任何音频字段; Q2 保留的音轨没被用上 | Pending audit |  |
+| 064 | P2 | R012 | ANALYZE_PROMPT 只要求描述"实际能看到"的内容, 没有任何音频字段; Q2 保留的音轨没被用上 | Satisfied | Existing implementation (`336824c`) adds the timeline `audio` field, its structured-output schema, and validation/normalization. The prompt explicitly asks for audible speech, ambience, music, footsteps, or silence while preserving the no-fabrication rule. Focused: 130 prompt/schema/analysis validation tests passed. |
 | 065 | P2 | E13 | 截断后用完全相同的请求重试, 视频重新上传 | Pending audit |  |
 | 066 | P2 | E16 | 示例仍是 00:10-00:45 (35 秒); narrative_beat/transition 下游未使用 | Pending audit |  |
 | 067 | P2 | O4 | 只发一条 user 消息 | Pending audit |  |
