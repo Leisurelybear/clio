@@ -11,7 +11,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | Priority | Total | Fixed | Satisfied | Confirmed | Environment verification | Duplicate | Not applicable | Pending audit |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P1 | 35 | 7 | 10 | 0 | 0 | 0 | 0 | 18 |
+| P1 | 35 | 8 | 10 | 0 | 0 | 0 | 0 | 17 |
 | P2 | 59 | 0 | 12 | 0 | 0 | 0 | 0 | 47 |
 | P3 | 14 | 0 | 0 | 0 | 0 | 0 | 0 | 14 |
 
@@ -37,7 +37,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 016 | P1 | R006 | 只有 run_plan_all_days 传 filter_by_day=True; run --day、plan --day、UI 运行都不过天过滤, UI 也没有 all-days 入口 | Fixed | `ed63199` makes unscoped multi-day planning default to day filtering, preserving selection-scoped plans. `ab690d1` adds all-day pipeline and UI scoping with previews; explicit file selections remain selection-scoped. Focused: 224 pytest and 34 runner Vitest cases passed; full suites: 3246 pytest (12 skipped) and 924 Vitest cases passed; typecheck, Ruff, mypy, and `main.py check` passed. |
 | 017 | P1 | E4 | 长视频每个窗口切片都注入整段转录 (绝对时间戳) | Fixed | `caaa9ad` clips each injected transcript to the current window or sparse-retry gap, rebases timestamps to zero, preserves segment confidence fields, and bumps analysis/window cache versions. Focused: 44 pytest cases passed; full suite: 3250 passed, 12 skipped; Ruff, mypy, and `git diff --check` passed. |
 | 018 | P1 | E5 | 按 creation_time 的 UTC 日期分天; dayN 每次重算, 但只在为空时写入 | Fixed | `ac81c05` converts timezone-aware container `creation_time` values to UTC before assigning day labels while preserving filename-date fallback. Project-wide relabeling and fill-only writes are covered by existing and new cache tests. Focused: 55 analyze-task tests passed. Full: 3256 passed, 12 skipped; Ruff, mypy, `main.py check`, and `git diff --check` passed. |
-| 019 | P1 | E9 | 多窗口合并后的摘要重写失败会让整个长视频失败 | Pending audit |  |
+| 019 | P1 | E9 | 多窗口合并后的摘要重写失败会让整个长视频失败 | Fixed | `b78a43f` keeps the merged window analysis when summary rewriting fails, marks it with `_summary_failed: true`, and emits a localized warning; cancellation still propagates. Focused: 55 analyze-task and 24 i18n tests passed. Full: 3256 passed, 12 skipped; Ruff, mypy, `main.py check`, and `git diff --check` passed. |
 | 020 | P1 | E7 | 单视频重跑不接受 confirm_artifact_overwrite, 口播被编辑过时只会失败 | Pending audit |  |
 | 021 | P1 | E10 | .env 里只要有白名单外的变量就整体拒绝保存 | Pending audit |  |
 | 022 | P1 | R010 | 10-bit 原片 (HDR HEVC) 压缩后是 H.264 High 10 / yuv420p10le | Pending audit |  |
