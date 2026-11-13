@@ -45,6 +45,7 @@ def cfg(tmp_path) -> AppConfig:
             ),
             plan=PlanConfig(plans_subdir="plans"),
         ),
+        project_dir=tmp_path,
     )
 
 
@@ -232,6 +233,25 @@ class TestRunGenerateScripts:
         assert mock_gen.call_count == 1
         out = cfg.scripts_dir / "002_B_voiceover.json"
         assert out.exists()
+
+    @patch("clio.tasks.scripts.generate_voiceover")
+    def test_default_batch_filters_by_videos_json(self, mock_gen, cfg, tmp_path):
+        current = tmp_path / "current.mp4"
+        current.write_bytes(b"video")
+        (tmp_path / "videos.json").write_text(json.dumps([str(current)]), encoding="utf-8")
+        (cfg.texts_dir / "001_current.json").write_text(
+            json.dumps({"title": "current", "media_identity": {"original_path": str(current)}}),
+            encoding="utf-8",
+        )
+        (cfg.texts_dir / "002_stale.json").write_text(json.dumps({"title": "stale"}), encoding="utf-8")
+        mock_gen.return_value = {"title": "t", "voiceover": "v", "edit_tip": ""}
+
+        from clio.tasks.scripts import run_generate_scripts
+
+        run_generate_scripts(cfg)
+        assert mock_gen.call_count == 1
+        assert (cfg.scripts_dir / "001_current_voiceover.json").exists()
+        assert not (cfg.scripts_dir / "002_stale_voiceover.json").exists()
 
     @patch("clio.tasks.scripts.generate_voiceover")
     def test_overwrite_flag(self, mock_gen, cfg):

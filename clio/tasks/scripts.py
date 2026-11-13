@@ -26,7 +26,13 @@ from clio.progress import ProgressReporter
 from clio.prompts import PLAN_VOICEOVER_PROMPT, SCRIPT_PROMPT
 from clio.resources import find_resource
 from clio.schema import add_schema_version
-from clio.tasks._helpers import _matches_selected_artifact, _selection_from_files, _task_lineage_settings
+from clio.tasks._helpers import (
+    MediaSelection,
+    _matches_selected_artifact,
+    _project_selection_stems,
+    _selection_from_files,
+    _task_lineage_settings,
+)
 from clio.utils import plan_day_stem, write_json_atomic, write_text_atomic
 
 
@@ -263,8 +269,14 @@ def run_generate_scripts(
     template = _load_script_template(config)
 
     input_files = [single_file] if single_file else sorted(config.texts_dir.glob("*.json"))
+    selected: MediaSelection | None
     if files is not None:
         selected = _selection_from_files(files)
+    elif single_file is None:
+        selected = _project_selection_stems(config)
+    else:
+        selected = None
+    if selected is not None:
         input_files = [f for f in input_files if _matches_selected_artifact(f, selected)]
     if not input_files:
         return
