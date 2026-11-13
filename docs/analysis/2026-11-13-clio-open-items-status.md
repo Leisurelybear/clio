@@ -11,7 +11,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | Priority | Total | Fixed | Satisfied | In progress | Confirmed | Environment verification | Duplicate | Not applicable | Pending audit |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P1 | 35 | 17 | 12 | 0 | 0 | 0 | 0 | 0 | 6 |
+| P1 | 35 | 17 | 14 | 0 | 0 | 0 | 0 | 0 | 4 |
 | P2 | 59 | 0 | 12 | 0 | 0 | 0 | 0 | 0 | 47 |
 | P3 | 14 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 11 |
 
@@ -46,14 +46,14 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 025 | P1 | OPT-028 | doctor 不检查旧默认值与模型名有效性 | Fixed | `5a67ee5` warns for known legacy defaults and empty or unregistered model bindings, probes each distinct configured provider/model pair once with a bounded timeout (including keyless Ollama), and keeps connectivity failures non-blocking. Focused: 92 pytest cases, ruff, mypy, `main.py check`, and `git diff --check` passed. |
 | 026 | P1 | R011 | 分析指纹包含整段转录文本和全部压缩参数, 任何变化都让全部分析失效并静默重跑 | Fixed | `d7f72da` narrows the analysis lineage to effective inputs and actual compressed identity, exposes invalidation components, and adds browser-UI-safe cache diagnostics. `3cb3d20` shows rerun counts/reasons in run previews, returns 409 until confirmed, and forwards the confirmation through `run/start`. Focused: 204 pytest and 56 Vitest cases passed; typecheck and Ruff passed. |
 | 027 | P1 | OPT-011 | 运行预览只给步骤数 (/api/run/preview), 没有调用数、token 和费用 (F2) | Pending audit |  |
-| 028 | P1 | R014 | plan ??????: ??????? timeline ????, ????????? (transcript?transcript_segments?<transcript> ?) | Satisfied | Existing `build_plan_clips()` limits timeline rows and key moments, removes inline transcripts, and uses a bounded candidate shortlist (`90e58f0`, `95da5f6`, `47703f8`). Focused: 102 planning tests passed. |
-| 029 | P1 | OPT-012 | plan ? clips_json ?? timeline ?? transcript ? transcript_segments, ???????? <transcript> ? (????? 183 ??, ??????? 110) | Satisfied | Existing projection omits top-level and timeline-level transcript fields before serialization; regression coverage asserts the removal. Focused with R014: 102 planning tests passed. |
-| 030 | P1 | R018 | ???? deepseek-chat / deepseek-reasoner; DeepSeek ????????? deepseek-flash ? deepseek-v4-pro, ??? v4-flash ?????? | Fixed | Examples now bind voiceover to `deepseek-flash` and vlog_plan to `deepseek-v4-pro`; provider/model suggestions, UI defaults, docs, and locale descriptions use the same official pair. Retired names still load with the existing model-list warning. Focused: 106 config tests and 78 Vitest cases passed; typecheck passed. A credentialed `/api/ai/test` call was not run because no DeepSeek API key is available locally. |
-| 031 | P1 | OPT-006 | video_analyze ?????? temperature (config.example.yaml:71-73), ?????? None | Fixed | Both shipped examples now bind video analysis at temperature `0.2`; the example-config regression asserts the value. Focused: 106 config tests passed. |
-| 032 | P1 | OPT-001 | 没有评测集, Q1/Q2/Q8/Q9 的效果无法量化 (F1 未开始) | Pending audit |  |
+| 028 | P1 | R014 | plan 输入不设上限: 全部素材的完整 timeline 一次送入, 且每条转录出现三次 (transcript、transcript_segments、<transcript> 块) | Satisfied | Existing `build_plan_clips()` limits timeline rows and key moments, removes inline transcripts, and uses a bounded candidate shortlist (`90e58f0`, `95da5f6`, `47703f8`). Focused: 102 planning tests passed. |
+| 029 | P1 | OPT-012 | plan 的 clips_json 每条 timeline 都带 transcript 与 transcript_segments, 同样内容又出现在 <transcript> 块 (实测每条约 183 字符, 其中转录相关约 110) | Satisfied | Existing projection omits top-level and timeline-level transcript fields before serialization; regression coverage asserts the removal. Focused with R014: 102 planning tests passed. |
+| 030 | P1 | R018 | 默认绑定 deepseek-chat / deepseek-reasoner; DeepSeek 官方价目页现在只列 deepseek-flash 与 deepseek-v4-pro, 并写明 v4-flash 等旧名已退役 | Fixed | Examples now bind voiceover to `deepseek-flash` and vlog_plan to `deepseek-v4-pro`; provider/model suggestions, UI defaults, docs, and locale descriptions use the same official pair. Retired names still load with the existing model-list warning. Focused: 106 config tests and 78 Vitest cases passed; typecheck passed. A credentialed `/api/ai/test` call was not run because no DeepSeek API key is available locally. |
+| 031 | P1 | OPT-006 | video_analyze 默认绑定没有 temperature (config.example.yaml:71-73), 实测调用时为 None | Fixed | Both shipped examples now bind video analysis at temperature `0.2`; the example-config regression asserts the value. Focused: 106 config tests passed. |
+| 032 | P1 | OPT-001 | 没有评测集, Q1/Q2/Q8/Q9 的效果无法量化 (F1 未开始) | Satisfied | The v1 evaluation suite contains 12 real-footage cases with reviewed references and a stored prediction baseline (`98b4f4d`): 12/12 scored, mean 96.92, minimum 87.51. The suite enforces a minimum-score gate of 70. Focused: 16 evaluation tests passed. |
 | 033 | P1 | R007 | 三条约束互相冲突: max_clips_per_day=12 按"段"截断、总时长 180 秒 ±25% 不满足即失败、提示词要求 3-5 秒钩子与 1-3 秒 B-roll | Pending audit |  |
 | 034 | P1 | O1 | 未使用原生结构化输出 | Satisfied | Satisfied by native structured output (`446d52b`). |
-| 035 | P1 | OPT-002 | 所有任务靠提示约束 JSON, 再用 extract_json 容错 (clio/analyze.py:822, 1026); 非 JSON 输出直接失败 (E12) | Pending audit |  |
+| 035 | P1 | OPT-002 | 所有任务靠提示约束 JSON, 再用 extract_json 容错 (clio/analyze.py:822, 1026); 非 JSON 输出直接失败 (E12) | Satisfied | Native structured output is implemented in `446d52b`: Pydantic-backed schemas in `clio/ai/structured.py` are sent as Gemini `response_json_schema` and OpenAI-compatible `response_format`; fixed-output tasks use schemas while refine tasks retain JSON-object mode and tolerant parsing. Focused: 123 evaluation/provider tests passed. |
 | 036 | P1 | Q6 | 分析输出是散文, 缺镜头属性 | Satisfied | Satisfied; structured shot fields implemented (`c5600d7`, `336824c`). |
 | 037 | P1 | Q11 | 规划一次生成, 没有评审轮 | Satisfied | Satisfied; staged planning implemented (`c3156ba`, `d47829d`). |
 | 038 | P1 | Q12 | 口播在规划前按单素材生成 | Satisfied | Satisfied; planned voiceover implemented (`89b9315`, `9da2483`). |
@@ -129,9 +129,9 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 108 | P3 | R022 | 同为 API, 部分 403/404 返回 HTML 错误页, 部分返回 JSON | Pending audit |  |
 | 109 | P3 | R026 | 锁文件里 69 个包的地址指向 registry.npmmirror.com, 78 个指向 registry.npmjs.org | Pending audit |  |
 | 110 | P3 | R027 | "锁定"文件只固定了 4 个顶层包, 没有传递依赖和哈希; pip-audit 是 continue-on-error | Pending audit |  |
-| 111 | P3 | R028 | ?? global_cfg ??? _paths ??, _ai/_compress/_whisper ?????? | Fixed | Replacing `global_cfg` now invalidates every combined-section cache, not only paths. Focused: 105 config tests passed, including AI/compress/whisper cache replacement. |
-| 112 | P3 | R029 | analyze_video ????????, ? isinstance(provider, VideoAIProvider) ?????, ????? | Fixed | Removed the unsupported placeholder from the OpenAI-compatible provider, so a text-only provider no longer satisfies `VideoAIProvider`. Focused: 15 factory and 31 OpenAI-compatible tests passed. |
-| 113 | P3 | R034 | compress.target_size_mb ?????? 0.01, ?? -crf ???????, compress.crf ????? | Fixed | `target_size_mb: 0` is now valid and selects the CRF path; negative values remain rejected. The project example documents the mode. Focused: 106 config and 27 compression tests passed. |
+| 111 | P3 | R028 | 替换 global_cfg 时只清 _paths 缓存, _ai/_compress/_whisper 仍指向旧对象 | Fixed | Replacing `global_cfg` now invalidates every combined-section cache, not only paths. Focused: 105 config tests passed, including AI/compress/whisper cache replacement. |
+| 112 | P3 | R029 | analyze_video 签名与协议不一致, 但 isinstance(provider, VideoAIProvider) 只看方法名, 检查恒为真 | Fixed | Removed the unsupported placeholder from the OpenAI-compatible provider, so a text-only provider no longer satisfies `VideoAIProvider`. Focused: 15 factory and 31 OpenAI-compatible tests passed. |
+| 113 | P3 | R034 | compress.target_size_mb 的校验下限是 0.01, 因此 -crf 分支永远走不到, compress.crf 配置不生效 | Fixed | `target_size_mb: 0` is now valid and selects the CRF path; negative values remain rejected. The project example documents the mode. Focused: 106 config and 27 compression tests passed. |
 | 114 | P3 | OPT-007 | 规划一次生成 (Q11), 输入是全部素材的完整 timeline | Pending audit |  |
 | 115 | P3 | OPT-010 | 分析输出是散文描述 (Q6), 景别、运镜写在 description 里 | Pending audit |  |
 | 116 | P3 | OPT-022 | 前端 58 个文件 16,164 行无类型 JS, editor-config.js 2,414 行 | Pending audit |  |
