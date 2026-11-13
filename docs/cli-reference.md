@@ -61,12 +61,14 @@ Outputs `[OK] xxx`, `[WARN] xxx`, or `[FAIL] xxx`, plus how many video files wer
 
 Checks the virtual environment, Python version, ffmpeg/ffprobe, config files, provider keys, task bindings, disk paths, and common runtime risks. Unlike `check`, it includes diagnostic guidance for failures.
 
+For every task binding, `doctor` warns when the model is empty or outside a non-empty provider `models` registry. It then makes a best-effort connectivity request for each distinct configured provider/model pair whose credentials are available; local Ollama providers are probed without an API key. It also warns when configuration still pins a known legacy default: `compress.remove_audio=true`, `ai.debug_print_prompt=true`, `analyze.max_analyze_duration_min=30`, or provider `max_tokens=4096`.
+
 ```bash
 python main.py doctor
 python main.py doctor -p "E:/Videos/云南"
 ```
 
-Exit code is `0` when no blocking problem is found, otherwise non-zero.
+Connectivity failures and model-registry mismatches are warnings, not blocking failures. Exit code is `0` when no blocking problem is found, otherwise non-zero.
 
 ---
 

@@ -5,9 +5,10 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Callable, Mapping
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path, PurePath, PureWindowsPath
-from typing import Literal
+from typing import Literal, Protocol
 
 from clio.asr.readiness import check_asr_ready
 from clio.config import AppConfig, load_config
@@ -17,6 +18,11 @@ from clio.utils import discover_ffmpeg_bin, no_console_kwargs
 DoctorStatus = Literal["OK", "WARN", "FAIL"]
 PLACEHOLDER_KEYS = {"your_api_key_here", "YOUR_API_KEY", ""}
 NODE_MIN_VERSION = (22, 12, 0)
+AI_CONNECTIVITY_TIMEOUT_SEC = 20.0
+
+
+class ConnectivityTester(Protocol):
+    def __call__(self, config: AppConfig, *, provider_name: str, model: str) -> Mapping[str, object]: ...
 
 
 @dataclass(frozen=True)
@@ -135,12 +141,157 @@ def provider_key_missing(provider, environ: Mapping[str, str] | None = None) -> 
     return _provider_key_detail(provider)
 
 
+def _legacy_default_items(config: AppConfig) -> list[DoctorItem]:
+    """Warn when a known old default is still pinned explicitly.
+
+    These values were shipped by earlier CLIO releases and later changed because
+    they caused silent data loss, truncation, or excessive regeneration. A
+    matching value may be intentional, so doctor reports WARN rather than FAIL.
+    """
+    items: list[DoctorItem] = []
+    if config.compress.remove_audio:
+        items.append(
+            DoctorItem(
+                t("doctor.item.legacy_default", {"key": "compress.remove_audio"}),
+                "WARN",
+                t("doctor.legacy_default.remove_audio"),
+            )
+        )
+    if config.ai.debug_print_prompt:
+        items.append(
+            DoctorItem(
+                t("doctor.item.legacy_default", {"key": "ai.debug_print_prompt"}),
+                "WARN",
+                t("doctor.legacy_default.debug_print_prompt"),
+            )
+        )
+    if config.analyze.max_analyze_duration_min == 30:
+        items.append(
+            DoctorItem(
+                t("doctor.item.legacy_default", {"key": "analyze.max_analyze_duration_min"}),
+                "WARN",
+                t("doctor.legacy_default.max_analyze_duration_min"),
+            )
+        )
+    legacy_token_providers = sorted(
+        name for name, provider in config.ai.providers.items() if provider.max_tokens == 4096
+    )
+    if legacy_token_providers:
+        items.append(
+            DoctorItem(
+                t("doctor.item.legacy_default", {"key": "ai.providers.max_tokens"}),
+                "WARN",
+                t(
+                    "doctor.legacy_default.max_tokens",
+                    {"providers": ", ".join(legacy_token_providers)},
+                ),
+            )
+        )
+    return items
+
+
+def _ai_binding_items(
+    config: AppConfig,
+    *,
+    environ: Mapping[str, str],
+    connectivity_tester: ConnectivityTester | None,
+) -> list[DoctorItem]:
+    grouped: dict[tuple[str, str], list[str]] = {}
+    for task_name, task in sorted(config.ai.tasks.items()):
+        grouped.setdefault((task.provider, task.model), []).append(task_name)
+
+    items: list[DoctorItem] = []
+    for (provider_name, model), task_names in grouped.items():
+        provider = config.ai.providers.get(provider_name)
+        if provider is None:
+            continue
+
+        tasks = ", ".join(task_names)
+        if not model:
+            items.append(
+                DoctorItem(
+                    t("doctor.item.ai_model", {"task": tasks}),
+                    "WARN",
+                    t("doctor.model.empty"),
+                )
+            )
+            continue
+        if provider.models and model not in provider.models:
+            items.append(
+                DoctorItem(
+                    t("doctor.item.ai_model", {"task": tasks}),
+                    "WARN",
+                    t(
+                        "doctor.model.unlisted",
+                        {
+                            "model": model,
+                            "provider": provider_name,
+                            "available": ", ".join(provider.models),
+                        },
+                    ),
+                )
+            )
+
+        if connectivity_tester is None or provider_key_missing(provider, environ) is not None:
+            continue
+
+        probe_config = deepcopy(config)
+        probe_provider = probe_config.ai.providers[provider_name]
+        probe_provider.retry_attempts = 0
+        probe_provider.timeout_sec = min(float(probe_provider.timeout_sec), AI_CONNECTIVITY_TIMEOUT_SEC)
+        item_name = t("doctor.item.ai_binding", {"provider": provider_name, "model": model})
+        try:
+            result = connectivity_tester(probe_config, provider_name=provider_name, model=model)
+        except Exception as exc:  # noqa: BLE001 - a probe must not crash doctor
+            items.append(
+                DoctorItem(
+                    item_name,
+                    "WARN",
+                    t("doctor.ai.failed", {"tasks": tasks, "error": str(exc)}),
+                )
+            )
+            continue
+
+        if result.get("ok"):
+            elapsed_ms = result.get("elapsed_ms")
+            detail = t(
+                "doctor.ai.connected",
+                {
+                    "tasks": tasks,
+                    "elapsed_ms": int(elapsed_ms) if isinstance(elapsed_ms, int | float) else 0,
+                },
+            )
+            items.append(DoctorItem(item_name, "OK", detail))
+        else:
+            error = str(result.get("error") or t("doctor.ai.unknown_error"))
+            items.append(
+                DoctorItem(
+                    item_name,
+                    "WARN",
+                    t("doctor.ai.failed", {"tasks": tasks, "error": error}),
+                )
+            )
+    return items
+
+
+def _default_connectivity_tester(
+    config: AppConfig,
+    *,
+    provider_name: str,
+    model: str,
+) -> Mapping[str, object]:
+    from clio.ui.services.ai_test_service import test_provider_connection
+
+    return test_provider_connection(config, provider_name=provider_name, model=model)
+
+
 def collect_doctor_checks(
     config: AppConfig,
     *,
     discover_binary: Callable[[str], str | None] = discover_ffmpeg_bin,
     environ: Mapping[str, str] | None = None,
     node_version_getter: Callable[[], str | None] = _node_version,
+    connectivity_tester: ConnectivityTester | None = None,
 ) -> list[DoctorItem]:
     environ = environ if environ is not None else os.environ
     items: list[DoctorItem] = []
@@ -224,11 +375,15 @@ def collect_doctor_checks(
         if provider is None:
             items.append(DoctorItem(f"AI provider: {provider_name}", "FAIL", t("doctor.provider.unconfigured")))
             continue
-        if _provider_has_key(provider, environ):
-            detail = provider.api_key_env or "api_key"
+        missing_key = provider_key_missing(provider, environ)
+        if missing_key is None:
+            detail = provider.api_key_env or ("ollama" if provider.type == "ollama" else "api_key")
             items.append(DoctorItem(f"AI provider: {provider_name}", "OK", detail))
         else:
-            items.append(DoctorItem(f"AI provider: {provider_name}", "FAIL", _provider_key_detail(provider)))
+            items.append(DoctorItem(f"AI provider: {provider_name}", "FAIL", missing_key))
+
+    items.extend(_legacy_default_items(config))
+    items.extend(_ai_binding_items(config, environ=environ, connectivity_tester=connectivity_tester))
 
     node_text = node_version_getter()
     if not node_text:
@@ -254,7 +409,7 @@ def run_doctor(config_path: Path, project_dir: Path | None = None) -> int:
         _print_doctor_items(items)
         return doctor_exit_code(items)
 
-    items.extend(collect_doctor_checks(config))
+    items.extend(collect_doctor_checks(config, connectivity_tester=_default_connectivity_tester))
     _print_doctor_items(items)
     return doctor_exit_code(items)
 

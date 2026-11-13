@@ -321,6 +321,187 @@ def test_collect_checks_flags_unconfigured_referenced_provider(tmp_path: Path) -
     assert ghost.detail == t("doctor.provider.unconfigured")
 
 
+def _set_tasks(config: AppConfig, tasks: dict[str, TaskConfig]) -> None:
+    assert config.project_cfg is not None
+    config.project_cfg.ai.tasks = tasks
+
+
+def _collect_checks(config: AppConfig, *, environ=None, connectivity_tester=None):
+    return collect_doctor_checks(
+        config,
+        discover_binary=lambda name: "x",
+        environ={} if environ is None else environ,
+        node_version_getter=lambda: "v22.12.0",
+        connectivity_tester=connectivity_tester,
+    )
+
+
+def test_collect_checks_warns_on_known_legacy_defaults(tmp_path: Path) -> None:
+    provider = ProviderConfig(name="gemini", type="gemini", api_key="secret", models=["m"], max_tokens=4096)
+    config = _config(tmp_path, provider=provider, whisper=ProjectWhisperConfig(enabled=False))
+    config.global_cfg.compress.remove_audio = True
+    config.global_cfg.ai.debug_print_prompt = True
+    config.analyze.max_analyze_duration_min = 30
+
+    items = _collect_checks(config)
+
+    warning_names = {
+        t("doctor.item.legacy_default", {"key": "compress.remove_audio"}),
+        t("doctor.item.legacy_default", {"key": "ai.debug_print_prompt"}),
+        t("doctor.item.legacy_default", {"key": "analyze.max_analyze_duration_min"}),
+        t("doctor.item.legacy_default", {"key": "ai.providers.max_tokens"}),
+    }
+    warnings = [item for item in items if item.name in warning_names]
+    assert len(warnings) == 4
+    assert all(item.status == "WARN" for item in warnings)
+
+
+def test_collect_checks_warns_when_binding_model_is_not_registered(tmp_path: Path) -> None:
+    provider = ProviderConfig(name="gemini", type="gemini", api_key="secret", models=["allowed-model"])
+    config = _config(tmp_path, provider=provider, whisper=ProjectWhisperConfig(enabled=False))
+    _set_tasks(config, {"vlog_plan": TaskConfig(provider="gemini", model="missing-model")})
+
+    items = _collect_checks(config)
+
+    model_item = next(item for item in items if item.name == t("doctor.item.ai_model", {"task": "vlog_plan"}))
+    assert model_item.status == "WARN"
+    assert model_item.detail == t(
+        "doctor.model.unlisted",
+        {"model": "missing-model", "provider": "gemini", "available": "allowed-model"},
+    )
+
+
+def test_collect_checks_allows_unregistered_models_when_registry_is_empty(tmp_path: Path) -> None:
+    calls: list[str] = []
+    provider = ProviderConfig(name="custom", type="openai", api_key="secret", models=[])
+    config = _config(tmp_path, provider=provider, whisper=ProjectWhisperConfig(enabled=False))
+    _set_tasks(config, {"vlog_plan": TaskConfig(provider="custom", model="third-party-model")})
+
+    def tester(probe_config, *, provider_name, model):
+        calls.append(model)
+        return {"ok": True, "elapsed_ms": 25}
+
+    items = _collect_checks(config, connectivity_tester=tester)
+
+    assert not any(item.name == t("doctor.item.ai_model", {"task": "vlog_plan"}) for item in items)
+    binding_item = next(
+        item
+        for item in items
+        if item.name == t("doctor.item.ai_binding", {"provider": "custom", "model": "third-party-model"})
+    )
+    assert binding_item.status == "OK"
+    assert calls == ["third-party-model"]
+
+
+def test_connectivity_probe_is_grouped_per_provider_model(tmp_path: Path) -> None:
+    calls: list[str] = []
+    provider = ProviderConfig(name="gemini", type="gemini", api_key="secret", models=["m"], timeout_sec=120)
+    config = _config(tmp_path, provider=provider, whisper=ProjectWhisperConfig(enabled=False))
+    _set_tasks(
+        config,
+        {
+            "script_voiceover": TaskConfig(provider="gemini", model="m"),
+            "vlog_plan": TaskConfig(provider="gemini", model="m"),
+        },
+    )
+
+    def tester(probe_config, *, provider_name, model):
+        calls.append(model)
+        probe_provider = probe_config.ai.providers[provider_name]
+        assert probe_provider.retry_attempts == 0
+        assert probe_provider.timeout_sec == 20.0
+        assert config.ai.providers[provider_name].retry_attempts == 2
+        return {"ok": True, "elapsed_ms": 42}
+
+    items = _collect_checks(config, connectivity_tester=tester)
+
+    binding_item = next(
+        item for item in items if item.name == t("doctor.item.ai_binding", {"provider": "gemini", "model": "m"})
+    )
+    assert binding_item.status == "OK"
+    assert "script_voiceover" in binding_item.detail
+    assert "vlog_plan" in binding_item.detail
+    assert calls == ["m"]
+
+
+def test_connectivity_probe_skips_missing_key_and_empty_model(tmp_path: Path) -> None:
+    calls: list[str] = []
+    provider = ProviderConfig(
+        name="gemini",
+        type="gemini",
+        api_key_env="GEMINI_API_KEY",
+        models=["m"],
+    )
+    config = _config(tmp_path, provider=provider, whisper=ProjectWhisperConfig(enabled=False))
+    _set_tasks(config, {"vlog_plan": TaskConfig(provider="gemini", model="")})
+
+    def tester(probe_config, *, provider_name, model):
+        calls.append(model)
+        return {"ok": True}
+
+    items = _collect_checks(config, environ={}, connectivity_tester=tester)
+
+    assert calls == []
+    model_item = next(item for item in items if item.name == t("doctor.item.ai_model", {"task": "vlog_plan"}))
+    assert model_item.status == "WARN"
+    assert model_item.detail == t("doctor.model.empty")
+
+
+def test_connectivity_probe_runs_for_ollama_without_api_key(tmp_path: Path) -> None:
+    calls: list[str] = []
+    provider = ProviderConfig(
+        name="ollama",
+        type="ollama",
+        base_url="http://localhost:11434/v1",
+        models=["llama3.2"],
+    )
+    config = _config(tmp_path, provider=provider, whisper=ProjectWhisperConfig(enabled=False))
+    _set_tasks(config, {"vlog_plan": TaskConfig(provider="ollama", model="llama3.2")})
+
+    def tester(probe_config, *, provider_name, model):
+        calls.append(model)
+        return {"ok": True, "elapsed_ms": 10}
+
+    items = _collect_checks(config, environ={}, connectivity_tester=tester)
+
+    provider_item = next(item for item in items if item.name == "AI provider: ollama")
+    binding_item = next(
+        item for item in items if item.name == t("doctor.item.ai_binding", {"provider": "ollama", "model": "llama3.2"})
+    )
+    assert provider_item.status == "OK"
+    assert binding_item.status == "OK"
+    assert calls == ["llama3.2"]
+    assert doctor_exit_code(items) == 0
+
+
+def test_connectivity_probe_failures_only_warn(tmp_path: Path) -> None:
+    provider = ProviderConfig(name="gemini", type="gemini", api_key="secret", models=["m"])
+    config = _config(tmp_path, provider=provider, whisper=ProjectWhisperConfig(enabled=False))
+    _set_tasks(config, {"vlog_plan": TaskConfig(provider="gemini", model="m")})
+
+    def failed_tester(probe_config, *, provider_name, model):
+        return {"ok": False, "error": "model unavailable"}
+
+    failed_items = _collect_checks(config, connectivity_tester=failed_tester)
+    failed_item = next(
+        item for item in failed_items if item.name == t("doctor.item.ai_binding", {"provider": "gemini", "model": "m"})
+    )
+    assert failed_item.status == "WARN"
+    assert "model unavailable" in failed_item.detail
+    assert doctor_exit_code(failed_items) == 0
+
+    def crashing_tester(probe_config, *, provider_name, model):
+        raise RuntimeError("connection exploded")
+
+    crash_items = _collect_checks(config, connectivity_tester=crashing_tester)
+    crash_item = next(
+        item for item in crash_items if item.name == t("doctor.item.ai_binding", {"provider": "gemini", "model": "m"})
+    )
+    assert crash_item.status == "WARN"
+    assert "connection exploded" in crash_item.detail
+    assert doctor_exit_code(crash_items) == 0
+
+
 def test_run_doctor_passes_project_dir_and_reports_config_failure(tmp_path: Path, monkeypatch) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text("proxy:\n  enabled: false\n", encoding="utf-8")
@@ -331,13 +512,19 @@ def test_run_doctor_passes_project_dir_and_reports_config_failure(tmp_path: Path
         return _config(tmp_path)
 
     monkeypatch.setattr("clio.doctor.load_config", fake_load_config)
-    monkeypatch.setattr("clio.doctor.collect_doctor_checks", lambda config: [])
+
+    def fake_collect(config, **kwargs):
+        captured["connectivity_tester"] = kwargs.get("connectivity_tester")
+        return []
+
+    monkeypatch.setattr("clio.doctor.collect_doctor_checks", fake_collect)
     monkeypatch.setattr("clio.doctor._print_doctor_items", lambda items: None)
     project_dir = tmp_path / "proj"
     project_dir.mkdir()
 
     assert run_doctor(config_path, project_dir) == 0
     assert captured["project_dir"] == project_dir
+    assert callable(captured["connectivity_tester"])
 
     def boom(*args, **kwargs):
         raise ValueError("bad config")
