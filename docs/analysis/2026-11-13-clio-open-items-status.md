@@ -12,7 +12,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P1 | 35 | 20 | 15 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P2 | 59 | 10 | 14 | 0 | 0 | 0 | 0 | 0 | 35 |
+| P2 | 59 | 11 | 14 | 0 | 0 | 0 | 0 | 0 | 34 |
 | P3 | 14 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 10 |
 
 ## Item status
@@ -74,7 +74,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 053 | P2 | E15 | 窗口切片的两条重编码回退仍带 -an; 大小上限写死 200 MB | Fixed | `e3d4c03` removes the module-level 200 MB cap from the legacy slicer: `max_bytes` is now required from the caller (intended to come from `video_upload_max_mb`), and both re-encode fallbacks keep a mono 64 kbps AAC track instead of `-an`. Focused: 90 `test_analyze_windows` / `test_tasks_analyze` tests passed; full suite 3341 passed, 12 skipped; Ruff passed. |
 | 054 | P2 | E17 | 单视频"全部重跑"仍是 压缩 → 分析 → 口播 → 转录 | Fixed | `b1d24df` now runs `all` in `compress -> transcribe -> analyze -> voiceover` order, with regression coverage for the canonical rerun sequence. Focused: 107 pytest cases passed; Ruff passed. |
 | 055 | P2 | E18 | 删除 plan 只删 .json, 留下 .md, 用户编辑版不备份 | Fixed | `94c9375` backs up both `{day}_plan.json` and `{day}_plan.md` before deletion, removes both files, and aborts without deleting anything when backup creation fails. The response lists created backups. Focused: 65 `test_routes_plan` tests passed; full suite 3343 passed, 12 skipped; Ruff passed. |
-| 056 | P2 | E19 | 规划默认用推理模型并带 temperature, 超时 120 秒 | Pending audit |  |
+| 056 | P2 | E19 | 规划默认用推理模型并带 temperature, 超时 120 秒 | Fixed | `61e04ef` adds an optional per-task `ai.tasks.<name>.timeout_sec` (parser, validators, UI field, separate cached provider) and binds `vlog_plan` to 300 s; the shipped examples no longer send a temperature to the reasoning model. Real-account large-material planning was not run here, so the provider-side latency check remains manual. Focused: 188 config/AI pytest cases + 80 Vitest cases passed; full suite 3346 passed, 12 skipped; typecheck, Ruff, and mypy passed. |
 | 057 | P2 | R016 | 只读取 prompt_feedback.block_reason; 候选级 finish_reason=SAFETY/RECITATION 且文本为空时仍报"JSON 解析失败" | Fixed | Empty candidates now surface blocking finish reasons (including SAFETY and RECITATION) as `block_reason` instead of falling through to JSON parsing. Focused: 69 Gemini provider tests passed. |
 | 058 | P2 | R017 | 只记录 candidates_token_count, 不含思考 token; 官方价目表的输出价包含思考 token | Fixed | Gemini completion usage now sums candidate and thinking tokens while preserving the provider total. Focused: 67 Gemini provider tests passed. |
 | 059 | P2 | R019 | 云端转录没有置信度, avg_logprob 取默认 0.0, 在对数尺度上等于"最高置信" | Pending audit |  |
