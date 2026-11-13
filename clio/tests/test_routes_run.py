@@ -334,6 +334,44 @@ class TestHandlePostRunStart:
         assert payload["items"] == ["day1_plan.json"]
         manager.submit.assert_not_called()
 
+    def test_edited_analysis_requires_confirmation(self, tmp_path):
+        from clio.tasks._video_loader import save_selected_videos
+        from clio.vmeta import VideoMeta
+
+        manager = MagicMock()
+        handler, project_dir, output_dir = _managed_handler(tmp_path, manager)
+        cfg = handler._get_config.return_value
+        cfg.compressed_dir.mkdir(parents=True)
+        cfg.texts_dir.mkdir(parents=True)
+        original = project_dir / "A.mp4"
+        compressed = cfg.compressed_dir / "001_A.mp4"
+        original.write_bytes(b"source")
+        compressed.write_bytes(b"compressed")
+        VideoMeta.build(original, compressed, 10.0, 10.0).write(compressed)
+        save_selected_videos(project_dir, [original])
+        analysis = cfg.texts_dir / "001_A.json"
+        analysis.write_text(
+            json.dumps(
+                {
+                    "title": "A",
+                    "source_file": "A.mp4",
+                    "compressed_file": compressed.name,
+                    "_lineage": "stale",
+                    "_user_edited": True,
+                }
+            ),
+            encoding="utf-8",
+        )
+        analysis.with_suffix(".txt").write_text("user edit", encoding="utf-8")
+
+        handle_post_run_start(handler, {}, {"steps": ["analyze"]})
+
+        payload, status = handler._send_json.call_args.args
+        assert status == 409
+        assert payload["code"] == "artifact_overwrite_confirmation_required"
+        assert payload["items"] == ["001_A.json", "001_A.txt"]
+        manager.submit.assert_not_called()
+
     def test_confirmed_artifact_overwrite_is_stored_on_task(self, tmp_path, monkeypatch):
         from clio.task_center.manager import TaskManager
         from clio.task_center.store import TaskStore

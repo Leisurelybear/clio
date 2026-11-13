@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from clio._constants import VIDEO_EXTENSIONS
+from clio.artifact_guard import artifact_requires_overwrite_confirmation
 from clio.config.models import AppConfig
 from clio.i18n import t
 from clio.identity import SEGMENT_SUFFIX_RE, prefer_canonical_compressed
@@ -27,6 +28,7 @@ from clio.tasks.analyze import (
     _load_transcript_context,
     _resolve_original,
     _uses_multiple_windows,
+    analysis_artifact_overwrite_required,
 )
 from clio.tasks.consistency import entity_consistency_paths
 from clio.tasks.plan import plan_artifact_overwrite_required, plan_overwrite_confirmation_required
@@ -374,6 +376,65 @@ def _legacy_audio_compress_count(config: AppConfig, *, files: list[str] | None) 
     return len(risky_sources)
 
 
+def _analysis_artifact_overwrite_paths(
+    config: AppConfig,
+    *,
+    force: bool,
+    files: list[str] | None,
+    context_override: str | None,
+    task_prompts: dict[str, str] | None,
+) -> list[Path]:
+    """Return protected analysis JSON/TXT files this analyze run would replace."""
+    if not config.compressed_dir.is_dir() or not config.texts_dir.is_dir():
+        return []
+    protected_indices = {
+        candidate.stem.split("_", 1)[0]
+        for candidate in config.texts_dir.glob("*.json")
+        if candidate.stem.split("_", 1)[0].isdigit() and artifact_requires_overwrite_confirmation(candidate)
+    }
+    if not protected_indices:
+        return []
+
+    selected = _selection_from_files(files) if files is not None else None
+    project_selection = _project_selection_stems(config)
+    selected_paths = project_selection.paths if project_selection is not None else None
+    stem_cache = _build_stem_to_path(config.project_dir)
+    compressed_videos = sorted(
+        path for path in config.compressed_dir.iterdir() if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS
+    )
+    risky: list[Path] = []
+    for compressed in prefer_canonical_compressed(compressed_videos):
+        parts = compressed.stem.split("_", 1)
+        if len(parts) != 2 or parts[0] not in protected_indices:
+            continue
+        original = _resolve_original(
+            compressed.stem,
+            stem_cache,
+            config.project_dir,
+            compressed,
+            selected_paths,
+        )
+        if original is None:
+            continue
+        if selected is not None and not (
+            _matches_selected_stem(compressed, selected, artifact=True) or _matches_selected_stem(original, selected)
+        ):
+            continue
+        risky.extend(
+            analysis_artifact_overwrite_required(
+                config,
+                compressed,
+                original,
+                parts[0],
+                overwrite=force,
+                context_override=context_override,
+                task_prompts=task_prompts,
+                duration_sec=_analysis_duration_sec(config, compressed, original),
+            )
+        )
+    return risky
+
+
 def artifact_overwrite_paths(
     config: AppConfig,
     steps: Iterable[str],
@@ -390,6 +451,16 @@ def artifact_overwrite_paths(
     artifact_config = copy.deepcopy(config)
     artifact_config.plan.use_transcripts = use_transcripts
     paths: list[Path] = []
+    if "analyze" in selected_steps:
+        paths.extend(
+            _analysis_artifact_overwrite_paths(
+                artifact_config,
+                force=force,
+                files=files,
+                context_override=context_override,
+                task_prompts=task_prompts,
+            )
+        )
     if "plan" in selected_steps and plan_artifact_overwrite_required(
         artifact_config,
         day_label,

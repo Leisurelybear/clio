@@ -300,10 +300,11 @@ class TestRunPipelineStepsCancel:
         ):
             run_pipeline_steps(config, steps=list(fake_funcs), confirm_artifact_overwrite=True)
 
+        assert all_kwargs["analyze"].get("confirm_artifact_overwrite") is True
         assert all_kwargs["plan"].get("confirm_artifact_overwrite") is True
         assert all_kwargs["voiceover"].get("confirm_artifact_overwrite") is True
         assert all_kwargs["plan_voiceover"].get("confirm_artifact_overwrite") is True
-        for step in ("compress", "analyze", "consistency", "transcribe", "label"):
+        for step in ("compress", "consistency", "transcribe", "label"):
             assert "confirm_artifact_overwrite" not in all_kwargs[step]
 
     def test_nonzero_step_result_fails_pipeline(self, tmp_path: Path):

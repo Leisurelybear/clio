@@ -454,6 +454,72 @@ class TestRunAnalyzeAll:
         assert len(records2) == 1
         assert analyze_calls == []
 
+    def test_user_edited_stale_analysis_requires_confirmation(self, monkeypatch, tmp_path: Path):
+        from clio.artifact_guard import ArtifactOverwriteConfirmationRequired
+
+        cfg = _cfg(tmp_path)
+        _add_original(cfg, "GL010695.mp4")
+        (cfg.compressed_dir / "001_GL010695.mp4").write_bytes(b"video")
+        existing_json = cfg.texts_dir / "001_Old.json"
+        original_bytes = json.dumps(
+            {"title": "Old", "source_file": "GL010695.mp4", "_lineage": "stale", "_user_edited": True}
+        ).encode()
+        existing_json.write_bytes(original_bytes)
+        existing_text = existing_json.with_suffix(".txt")
+        existing_text.write_text("user edit", encoding="utf-8")
+
+        _common_mocks(monkeypatch)
+        monkeypatch.setattr("clio.tasks.analyze.get_duration_sec", lambda *a, **kw: 60.0)
+        analyze_called = False
+
+        def _analyze(*a, **kw):
+            nonlocal analyze_called
+            analyze_called = True
+            return {"title": "Fresh", "source_file": "GL010695.mp4"}
+
+        monkeypatch.setattr("clio.tasks.analyze.analyze_video", _analyze)
+        cfg.analyze.skip_existing = True
+
+        with pytest.raises(ArtifactOverwriteConfirmationRequired):
+            run_analyze_all(cfg)
+
+        assert analyze_called is False
+        assert existing_json.read_bytes() == original_bytes
+        assert existing_text.read_text(encoding="utf-8") == "user edit"
+        assert not list(cfg.texts_dir.glob("*.bak.*"))
+
+    def test_confirmed_stale_analysis_is_backed_up_before_replacement(self, monkeypatch, tmp_path: Path):
+        cfg = _cfg(tmp_path)
+        _add_original(cfg, "GL010695.mp4")
+        (cfg.compressed_dir / "001_GL010695.mp4").write_bytes(b"video")
+        existing_json = cfg.texts_dir / "001_Old.json"
+        existing_json.write_text(
+            json.dumps({"title": "Old", "source_file": "GL010695.mp4", "_lineage": "stale", "_user_edited": True}),
+            encoding="utf-8",
+        )
+        existing_json.with_suffix(".txt").write_text("user edit", encoding="utf-8")
+
+        _common_mocks(monkeypatch)
+        monkeypatch.setattr("clio.tasks.analyze.get_duration_sec", lambda *a, **kw: 60.0)
+        monkeypatch.setattr("clio.tasks.analyze.extract_cover_frame", lambda *a, **kw: None)
+        monkeypatch.setattr(
+            "clio.tasks.analyze.analyze_video",
+            lambda *a, **kw: {"title": "Fresh", "source_file": "GL010695.mp4"},
+        )
+        cfg.analyze.skip_existing = True
+
+        records = run_analyze_all(cfg, confirm_artifact_overwrite=True)
+
+        assert len(records) == 1
+        assert not existing_json.exists()
+        assert not existing_json.with_suffix(".txt").exists()
+        json_backups = list(cfg.texts_dir.glob("001_Old.json.bak.*"))
+        text_backups = list(cfg.texts_dir.glob("001_Old.txt.bak.*"))
+        assert len(json_backups) == 1
+        assert len(text_backups) == 1
+        assert json.loads(json_backups[0].read_text(encoding="utf-8"))["_user_edited"] is True
+        assert text_backups[0].read_text(encoding="utf-8") == "user edit"
+
     def test_duration_gate_skips_long_legacy_segment(self, monkeypatch, tmp_path: Path):
         cfg = _cfg(tmp_path)
         _add_original(cfg, "GL010695.mp4")

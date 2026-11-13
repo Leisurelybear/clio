@@ -30,6 +30,11 @@ from clio.analyze_windows import (
     shift_analysis_times,
     window_cache_dir,
 )
+from clio.artifact_guard import (
+    ArtifactOverwriteConfirmationRequired,
+    artifact_requires_overwrite_confirmation,
+    backup_artifacts,
+)
 from clio.compress import analysis_compress_advice
 from clio.config import AppConfig
 from clio.i18n import t
@@ -66,7 +71,7 @@ from clio.tasks._helpers import (
 from clio.tasks.cover import extract_cover_frame
 from clio.tasks.transcript_align import attach_transcript_to_analysis
 from clio.utils import get_duration_sec, resolve_binary, run_probe, write_json_atomic
-from clio.vmeta import VideoIndex
+from clio.vmeta import VideoIndex, VideoMeta
 
 _CAPTURE_DATE_RE = re.compile(r"(?<!\d)(20\d{2})[-_]?([01]\d)[-_]?([0-3]\d)")
 
@@ -251,6 +256,72 @@ def _effective_analysis_context(config: AppConfig, original: Path, context_overr
         # the base video analysis or cache check from running.
         print(t("task.analyze.gpmf_context_failed", {"exc": exc}))
         return context_override
+
+
+def analysis_artifact_overwrite_required(
+    config: AppConfig,
+    compressed: Path,
+    original: Path,
+    idx_str: str,
+    *,
+    overwrite: bool,
+    context_override: str | None,
+    task_prompts: dict[str, str] | None,
+    duration_sec: float,
+) -> list[Path]:
+    """Return protected JSON/TXT analysis pairs a rerun would replace."""
+    existing = sorted(config.texts_dir.glob(f"{idx_str}_*.json"))
+    if not existing:
+        return []
+
+    if not overwrite and config.analyze.skip_existing:
+        effective_context = _effective_analysis_context(config, original, context_override)
+        transcript_context = _load_transcript_context(config, compressed)
+        current_lineage = _analysis_lineage_fingerprint(
+            config,
+            task_prompts,
+            effective_context,
+            transcript_context,
+            multi_window=_uses_multiple_windows(compressed, duration_sec, config),
+        )
+        for candidate in existing:
+            try:
+                data = json.loads(candidate.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError, UnicodeError):
+                continue
+            if not isinstance(data, dict) or data.get("source_file") != original.name:
+                continue
+            if data.get("_lineage") in {None, current_lineage}:
+                # One accepted cache entry skips the item before stale files are removed.
+                return []
+
+    risky: list[Path] = []
+    for candidate in existing:
+        if not artifact_requires_overwrite_confirmation(candidate):
+            continue
+        risky.append(candidate)
+        text_path = candidate.with_suffix(".txt")
+        if text_path.is_file():
+            risky.append(text_path)
+    return risky
+
+
+def _analysis_duration_sec(config: AppConfig, compressed: Path, original: Path) -> float:
+    meta = VideoMeta.read(compressed)
+    if meta is not None and meta.target_duration_sec > 0:
+        return meta.target_duration_sec
+    try:
+        ffprobe = resolve_binary(config.paths.ffprobe, "ffprobe")
+    except (OSError, TypeError, ValueError):
+        return 0.0
+    for candidate in (compressed, original):
+        try:
+            duration = get_duration_sec(candidate, ffprobe)
+        except (OSError, subprocess.SubprocessError, TypeError, ValueError):
+            continue
+        if duration > 0:
+            return duration
+    return 0.0
 
 
 def _build_stem_to_path(project_dir: Path | None = None) -> dict[str, Path | None]:
@@ -483,6 +554,7 @@ def _process_video_item(
     cancel_event: threading.Event | None = None,
     context_override: str | None = None,
     task_prompts: dict[str, str] | None = None,
+    confirm_artifact_overwrite: bool = False,
 ) -> ClipRecord | None:
     idx_val = int(idx_str)
 
@@ -606,6 +678,18 @@ def _process_video_item(
         state.mark(original.stem, "analyze", "cancelled")
         return None
 
+    protected_stale = [
+        candidate for candidate in stale_candidates if artifact_requires_overwrite_confirmation(candidate)
+    ]
+    if protected_stale and not confirm_artifact_overwrite:
+        raise ArtifactOverwriteConfirmationRequired(
+            t(
+                "task.artifact.overwrite_confirmation_required",
+                {"items": ", ".join(candidate.name for candidate in protected_stale)},
+            ),
+            protected_stale,
+        )
+
     print(t("task.analyze.analyzing", {"name": compressed.name}))
     t0 = time.monotonic()
     try:
@@ -669,6 +753,29 @@ def _process_video_item(
     cover_path = extract_cover_frame(config, cover_source, analysis, stem, fallback_path=compressed)
     if cover_path is not None:
         analysis["cover_file"] = str(cover_path.relative_to(config.paths.output_dir))
+
+    # Re-check immediately before replacing files so an edit made while the
+    # provider call was running still cannot be overwritten silently.
+    protected_stale = [
+        candidate for candidate in stale_candidates if artifact_requires_overwrite_confirmation(candidate)
+    ]
+    if protected_stale and not confirm_artifact_overwrite:
+        raise ArtifactOverwriteConfirmationRequired(
+            t(
+                "task.artifact.overwrite_confirmation_required",
+                {"items": ", ".join(candidate.name for candidate in protected_stale)},
+            ),
+            protected_stale,
+        )
+    if protected_stale:
+        backup_paths: list[Path] = []
+        for candidate in protected_stale:
+            backup_paths.append(candidate)
+            text_path = candidate.with_suffix(".txt")
+            if text_path.is_file():
+                backup_paths.append(text_path)
+        backup_artifacts(backup_paths)
+
     _write_text_file(final_text, analysis, original, compressed)
     write_json_atomic(json_path, analysis)
     cleanup_window_cache_dir(window_cache_dir(config.paths.output_dir, compressed.stem))
@@ -706,6 +813,7 @@ def run_analyze_all(
     overwrite: bool = False,
     context_override: str | None = None,
     task_prompts: dict[str, str] | None = None,
+    confirm_artifact_overwrite: bool = False,
     **kwargs: Any,
 ) -> list[ClipRecord]:
     """Analyze already-compressed videos using AI (compress step must precede this).
@@ -788,6 +896,38 @@ def run_analyze_all(
         print(t("task.analyze.compressed_dir_empty", {"path": config.compressed_dir}))
         return []
 
+    if not confirm_artifact_overwrite:
+        protected_indices = {
+            candidate.stem.split("_", 1)[0]
+            for candidate in config.texts_dir.glob("*.json")
+            if candidate.stem.split("_", 1)[0].isdigit() and artifact_requires_overwrite_confirmation(candidate)
+        }
+        protected_artifacts: list[Path] = []
+        for compressed, original, idx_str in items:
+            if idx_str not in protected_indices:
+                continue
+            protected_artifacts.extend(
+                analysis_artifact_overwrite_required(
+                    config,
+                    compressed,
+                    original,
+                    idx_str,
+                    overwrite=overwrite,
+                    context_override=context_override,
+                    task_prompts=task_prompts,
+                    duration_sec=_analysis_duration_sec(config, compressed, original),
+                )
+            )
+        unique_artifacts: dict[Path, Path] = {}
+        for artifact in protected_artifacts:
+            unique_artifacts.setdefault(artifact.resolve(), artifact)
+        if unique_artifacts:
+            names = ", ".join(path.name for path in unique_artifacts.values())
+            raise ArtifactOverwriteConfirmationRequired(
+                t("task.artifact.overwrite_confirmation_required", {"items": names}),
+                unique_artifacts.values(),
+            )
+
     compress_fps = getattr(config.compress, "fps", 0)
     compress_width = getattr(config.compress, "max_width", 0)
     media_resolution = str(getattr(config.analyze, "media_resolution", "medium") or "medium")
@@ -853,6 +993,7 @@ def run_analyze_all(
                     cancel_event,
                     context_override,
                     task_prompts,
+                    confirm_artifact_overwrite,
                 )
                 pending[future] = None
                 return True

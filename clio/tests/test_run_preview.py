@@ -1153,6 +1153,45 @@ def test_preview_reports_user_edited_plan_after_input_change(tmp_path: Path) -> 
     }
 
 
+def test_preview_reports_user_edited_stale_analysis(tmp_path: Path) -> None:
+    input_dir = tmp_path / "videos"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+    (output_dir / "compressed").mkdir(parents=True)
+    (output_dir / "texts").mkdir(parents=True)
+    config = _config(input_dir, output_dir)
+    original = input_dir / "A.mp4"
+    compressed = config.compressed_dir / "001_A.mp4"
+    original.write_bytes(b"source")
+    compressed.write_bytes(b"compressed")
+    VideoMeta.build(original, compressed, 10.0, 10.0).write(compressed)
+
+    from clio.tasks._video_loader import save_selected_videos
+
+    save_selected_videos(input_dir, [original])
+    analysis = config.texts_dir / "001_A.json"
+    analysis.write_text(
+        json.dumps(
+            {
+                "title": "A",
+                "source_file": "A.mp4",
+                "compressed_file": compressed.name,
+                "_lineage": "stale",
+                "_user_edited": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+    analysis.with_suffix(".txt").write_text("user edit", encoding="utf-8")
+
+    preview = build_run_preview(config, steps=["analyze"], force=False, use_transcripts=True)
+
+    assert preview["artifact_overwrite"] == {
+        "required": True,
+        "items": ["001_A.json", "001_A.txt"],
+    }
+
+
 def test_preview_reports_user_edited_voiceover_after_prompt_context_change(tmp_path: Path) -> None:
     from clio.artifact_guard import mark_user_edited
     from clio.tasks.scripts import run_generate_scripts

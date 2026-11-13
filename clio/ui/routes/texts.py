@@ -173,7 +173,9 @@ def handle_put_texts(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) ->
     error = _analysis_payload_error(obj)
     if error is not None:
         return handler._send_json({"ok": False, "code": "invalid_analysis", "error": error}, 400)
-    data = json.dumps(obj, ensure_ascii=False, indent=2).encode("utf-8")
+    saved = dict(obj)
+    mark_user_edited(saved)
+    data = json.dumps(saved, ensure_ascii=False, indent=2).encode("utf-8")
     try:
         version = save_with_version(p, data, request_version(handler))
     except ArtifactConflictError as exc:

@@ -116,7 +116,7 @@ def run_pipeline_steps(
                     kwargs["overwrite"] = True
                 if step == "plan" and confirm_plan_overwrite:
                     kwargs["confirm_plan_overwrite"] = True
-                if step in {"plan", "voiceover", "plan_voiceover"} and confirm_artifact_overwrite:
+                if step in {"analyze", "plan", "voiceover", "plan_voiceover"} and confirm_artifact_overwrite:
                     kwargs["confirm_artifact_overwrite"] = True
                 if context_override:
                     kwargs["context_override"] = context_override
