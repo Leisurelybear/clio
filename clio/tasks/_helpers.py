@@ -424,17 +424,17 @@ def _format_highlight(highlight: object) -> str:
 
 def _write_text_file(path: Path, analysis: dict, source: Path, compressed: Path) -> None:
     lines = [
-        t("md.title", {"title": analysis.get("title", t("md.untitled"))}),
+        t("md.title", {"title": analysis.get("title") or t("md.untitled")}),
         "",
         t("md.source_file", {"name": source.name}),
         t("md.compressed_file", {"name": compressed.name}),
         "",
         t("md.summary_section"),
-        analysis.get("summary", ""),
+        analysis.get("summary") or "",
         "",
-        t("md.location", {"value": analysis.get("location", t("md.unknown"))}),
-        t("md.mood", {"value": analysis.get("mood", "")}),
-        t("md.suggested_use", {"value": analysis.get("suggested_use", "")}),
+        t("md.location", {"value": analysis.get("location") or t("md.unknown")}),
+        t("md.mood", {"value": analysis.get("mood") or ""}),
+        t("md.suggested_use", {"value": analysis.get("suggested_use") or ""}),
         "",
         t("md.timeline_section"),
     ]
@@ -451,18 +451,18 @@ def _write_text_file(path: Path, analysis: dict, source: Path, compressed: Path)
 
 def _rewrite_text_file(path: Path, analysis: dict) -> None:
     """根据已存在的 analysis 重写 .txt（不需要源文件/压缩文件路径）。"""
-    source_name = analysis.get("source_file", "?")
+    source_name = analysis.get("source_file") or analysis.get("compressed_file") or "?"
     lines = [
-        t("md.title", {"title": analysis.get("title", t("md.untitled"))}),
+        t("md.title", {"title": analysis.get("title") or t("md.untitled")}),
         "",
         t("md.source_file", {"name": source_name}),
         "",
         t("md.summary_section"),
-        analysis.get("summary", ""),
+        analysis.get("summary") or "",
         "",
-        t("md.location", {"value": analysis.get("location", t("md.unknown"))}),
-        t("md.mood", {"value": analysis.get("mood", "")}),
-        t("md.suggested_use", {"value": analysis.get("suggested_use", "")}),
+        t("md.location", {"value": analysis.get("location") or t("md.unknown")}),
+        t("md.mood", {"value": analysis.get("mood") or ""}),
+        t("md.suggested_use", {"value": analysis.get("suggested_use") or ""}),
         "",
         t("md.timeline_section"),
     ]

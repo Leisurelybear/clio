@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 from http import HTTPStatus
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from clio.ui.services.file_service import ArtifactConflictError, version_headers
+from clio.ui.services.file_service import version_headers
 
 
 @pytest.fixture
@@ -87,6 +88,26 @@ class TestHandlePutTexts:
         "timeline": [{"start": "00:00", "end": "00:05", "description": "d"}],
     }
 
+    @staticmethod
+    def _write_analysis(path: Path, **overrides) -> dict:
+        data = {
+            "_lineage": "server-lineage",
+            "_lineage_components": {"prompt": "server-prompt"},
+            "_schema_version": 2,
+            "compressed_file": "001.mp4",
+            "cover_file": "covers/001.jpg",
+            "index": 7,
+            "media_identity": {"source_stem": "source"},
+            "source_file": "source.mp4",
+            "title": "Old title",
+            "summary": "old summary",
+            "timeline": [],
+        }
+        data.update(overrides)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data), encoding="utf-8")
+        return data
+
     def test_forbidden(self, handler):
         handler._resolve_texts.return_value = None
         from clio.ui.routes.texts import handle_put_texts
@@ -96,45 +117,60 @@ class TestHandlePutTexts:
         resp = handler._send_json.call_args.args[0]
         assert resp["ok"] is False
 
-    def test_saves_file_with_if_match(self, handler):
-        path = handler._resolve_texts.return_value
-        new_version = "1111111111111111"
+    def test_saves_file_with_if_match_and_preserves_server_fields(self, handler, tmp_path: Path):
+        path = tmp_path / "001.json"
+        existing = self._write_analysis(path)
+        sidecar = path.with_suffix(".txt")
+        sidecar.write_text("old sidecar", encoding="utf-8")
+        handler._resolve_texts.return_value = path
         from clio.ui.routes.texts import handle_put_texts
 
-        with (
-            patch("clio.ui.routes.texts.request_version", return_value="0123456789abcdef") as mock_request,
-            patch("clio.ui.routes.texts.save_with_version", return_value=new_version) as mock_save,
-        ):
-            handle_put_texts(handler, {"file": ["001.json"]}, dict(self.PAYLOAD))
+        payload = {
+            "title": "New title",
+            "summary": "new summary",
+            "timeline": [{"start": "00:00", "end": "00:05", "description": "new"}],
+            "index": 999,
+            "_lineage": "tampered",
+            "_lineage_components": {"prompt": "tampered"},
+            "media_identity": {"source_stem": "tampered"},
+            "source_file": "tampered.mp4",
+        }
+        from clio.ui.services.file_service import content_version
+
+        expected = content_version(path.read_bytes())
+        with patch("clio.ui.routes.texts.request_version", return_value=expected) as mock_request:
+            handle_put_texts(handler, {"file": ["001.json"]}, payload)
 
         mock_request.assert_called_once_with(handler)
-        saved_path, saved_data, expected = mock_save.call_args.args
-        saved = json.loads(saved_data)
-        assert saved_path is path
-        assert saved["title"] == self.PAYLOAD["title"]
+        saved = json.loads(path.read_text(encoding="utf-8"))
+        for key in ("_lineage", "_lineage_components", "media_identity", "source_file"):
+            assert saved[key] == existing[key]
+        assert saved["index"] == existing["index"]
+        assert saved["title"] == "New title"
+        assert saved["summary"] == "new summary"
         assert saved["_user_edited"] is True
         assert saved["_user_edited_at"]
-        assert expected == "0123456789abcdef"
-        handler._send_json.assert_called_once_with(
-            {"ok": True, "path": str(path), "version": new_version},
-            extra_headers=version_headers(new_version),
-        )
+        assert "New title" in sidecar.read_text(encoding="utf-8")
+        body = handler._send_json.call_args.args[0]
+        assert body["ok"] is True
+        assert body["version"] == content_version(path.read_bytes())
 
-    def test_stale_version_returns_conflict(self, handler):
-        current = "aaaaaaaaaaaaaaaa"
+    def test_stale_version_returns_conflict_without_rewriting_sidecar(self, handler, tmp_path: Path):
+        path = tmp_path / "001.json"
+        self._write_analysis(path)
+        sidecar = path.with_suffix(".txt")
+        sidecar.write_text("old sidecar", encoding="utf-8")
+        handler._resolve_texts.return_value = path
         from clio.ui.routes.texts import handle_put_texts
 
-        with patch(
-            "clio.ui.routes.texts.save_with_version",
-            side_effect=ArtifactConflictError(current),
-        ):
+        with patch("clio.ui.routes.texts.request_version", return_value="aaaaaaaaaaaaaaaa"):
             handle_put_texts(handler, {"file": ["001.json"]}, dict(self.PAYLOAD))
 
         payload, status = handler._send_json.call_args.args
         assert status == 409
         assert payload["code"] == "artifact_conflict"
-        assert payload["current_version"] == current
-        assert handler._send_json.call_args.kwargs["extra_headers"] == version_headers(current)
+        assert sidecar.read_text(encoding="utf-8") == "old sidecar"
+        assert json.loads(path.read_text(encoding="utf-8"))["title"] == "Old title"
 
     @pytest.mark.parametrize(
         "payload",
@@ -174,43 +210,62 @@ class TestHandlePutTexts:
         assert body["code"] == "invalid_analysis"
         assert body["error"]
 
-    def test_accepts_minimal_valid_payload(self, handler):
+    def test_accepts_minimal_valid_payload(self, handler, tmp_path: Path):
+        path = tmp_path / "001.json"
+        self._write_analysis(path)
+        handler._resolve_texts.return_value = path
         from clio.ui.routes.texts import handle_put_texts
 
-        with patch("clio.ui.routes.texts.save_with_version", return_value="v"):
-            handle_put_texts(
-                handler,
-                {"file": ["001.json"]},
-                {"title": "A", "summary": "s", "timeline": []},
-            )
+        handle_put_texts(
+            handler,
+            {"file": ["001.json"]},
+            {"title": "A", "summary": "s", "timeline": []},
+        )
 
         body = handler._send_json.call_args.args[0]
         assert body["ok"] is True
 
-    def test_accepts_numeric_timeline_bounds_and_null_optionals(self, handler):
+    def test_accepts_numeric_timeline_bounds_and_null_optionals(self, handler, tmp_path: Path):
+        path = tmp_path / "001.json"
+        self._write_analysis(path)
+        handler._resolve_texts.return_value = path
         from clio.ui.routes.texts import handle_put_texts
 
-        with patch("clio.ui.routes.texts.save_with_version", return_value="v"):
-            handle_put_texts(
-                handler,
-                {"file": ["001.json"]},
-                {
-                    "title": "A",
-                    "summary": None,
-                    "location": None,
-                    "mood": None,
-                    "suggested_use": None,
-                    "cover_timestamp": None,
-                    "timeline": [{"start": 0, "end": 5.5}],
-                    "highlights": ["x", {"text": "y"}],
-                },
-            )
+        handle_put_texts(
+            handler,
+            {"file": ["001.json"]},
+            {
+                "title": "A",
+                "summary": None,
+                "location": None,
+                "mood": None,
+                "suggested_use": None,
+                "cover_timestamp": None,
+                "timeline": [{"start": 0, "end": 5.5}],
+                "highlights": ["x", {"text": "y"}],
+            },
+        )
 
         body = handler._send_json.call_args.args[0]
         assert body["ok"] is True
 
 
 class TestHandlePutVoiceover:
+    @staticmethod
+    def _write_script(path: Path, **overrides) -> dict:
+        data = {
+            "_lineage": "server-lineage",
+            "_schema_version": 2,
+            "title": "Old title",
+            "voiceover": "old voiceover",
+            "edit_tip": "old tip",
+            "duration_hint_sec": 20,
+        }
+        data.update(overrides)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data), encoding="utf-8")
+        return data
+
     def test_forbidden(self, handler):
         handler._resolve_in.return_value = None
         from clio.ui.routes.texts import handle_put_voiceover
@@ -220,45 +275,92 @@ class TestHandlePutVoiceover:
         resp = handler._send_json.call_args.args[0]
         assert resp["ok"] is False
 
-    def test_saves_file_with_if_match(self, handler):
-        path = handler._resolve_in.return_value
-        new_version = "2222222222222222"
+    def test_saves_file_with_if_match_and_rewrites_markdown(self, handler, tmp_path: Path):
+        path = tmp_path / "001_voiceover.json"
+        existing = self._write_script(path)
+        sidecar = path.with_suffix(".md")
+        sidecar.write_text("old markdown", encoding="utf-8")
+        handler._resolve_in.return_value = path
         from clio.ui.routes.texts import handle_put_voiceover
+        from clio.ui.services.file_service import content_version
 
-        with (
-            patch("clio.ui.routes.texts.request_version", return_value="0123456789abcdef") as mock_request,
-            patch("clio.ui.routes.texts.save_with_version", return_value=new_version) as mock_save,
-        ):
-            handle_put_voiceover(handler, {"file": ["001.json"]}, {"voiceover": "test"})
+        expected = content_version(path.read_bytes())
+        with patch("clio.ui.routes.texts.request_version", return_value=expected) as mock_request:
+            handle_put_voiceover(
+                handler,
+                {"file": ["001_voiceover.json"]},
+                {
+                    "title": "New title",
+                    "voiceover": "new voiceover",
+                    "edit_tip": "new tip",
+                    "duration_hint_sec": 30,
+                    "_lineage": "tampered",
+                    "_schema_version": 99,
+                },
+            )
 
         mock_request.assert_called_once_with(handler)
-        saved_path, saved_data, expected = mock_save.call_args.args
-        saved = json.loads(saved_data)
-        assert saved_path is path
-        assert saved["voiceover"] == "test"
+        saved = json.loads(path.read_text(encoding="utf-8"))
+        assert saved["_lineage"] == existing["_lineage"]
+        assert saved["_schema_version"] == existing["_schema_version"]
+        assert saved["voiceover"] == "new voiceover"
         assert saved["_user_edited"] is True
         assert saved["_user_edited_at"]
-        assert expected == "0123456789abcdef"
-        handler._send_json.assert_called_once_with(
-            {"ok": True, "path": str(path), "version": new_version},
-            extra_headers=version_headers(new_version),
-        )
+        markdown = sidecar.read_text(encoding="utf-8")
+        assert "New title" in markdown
+        assert "new voiceover" in markdown
+        assert "old voiceover" not in markdown
+        body = handler._send_json.call_args.args[0]
+        assert body["ok"] is True
+        assert body["version"] == content_version(path.read_bytes())
 
-    def test_stale_version_returns_conflict(self, handler):
-        current = "bbbbbbbbbbbbbbbb"
+    def test_stale_version_returns_conflict_without_rewriting_markdown(self, handler, tmp_path: Path):
+        path = tmp_path / "001_voiceover.json"
+        self._write_script(path)
+        sidecar = path.with_suffix(".md")
+        sidecar.write_text("old markdown", encoding="utf-8")
+        handler._resolve_in.return_value = path
         from clio.ui.routes.texts import handle_put_voiceover
 
-        with patch(
-            "clio.ui.routes.texts.save_with_version",
-            side_effect=ArtifactConflictError(current),
-        ):
-            handle_put_voiceover(handler, {"file": ["001.json"]}, {"voiceover": "test"})
+        with patch("clio.ui.routes.texts.request_version", return_value="bbbbbbbbbbbbbbbb"):
+            handle_put_voiceover(handler, {"file": ["001_voiceover.json"]}, {"voiceover": "test"})
 
         payload, status = handler._send_json.call_args.args
         assert status == 409
         assert payload["code"] == "artifact_conflict"
-        assert payload["current_version"] == current
-        assert handler._send_json.call_args.kwargs["extra_headers"] == version_headers(current)
+        assert sidecar.read_text(encoding="utf-8") == "old markdown"
+        assert json.loads(path.read_text(encoding="utf-8"))["voiceover"] == "old voiceover"
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {},
+            {"voiceover": ""},
+            {"voiceover": "   "},
+            {"voiceover": 1},
+            {"voiceover": "text", "title": 1},
+            {"voiceover": "text", "edit_tip": 1},
+            {"voiceover": "text", "duration_hint_sec": True},
+            {"voiceover": "text", "duration_hint_sec": -1},
+            {"voiceover": "text", "duration_hint_sec": "20"},
+        ],
+    )
+    def test_rejects_malformed_voiceover(self, handler, payload):
+        from clio.ui.routes.texts import handle_put_voiceover
+
+        with (
+            patch("clio.ui.routes.texts.request_version") as mock_request,
+            patch("clio.ui.routes.texts.save_with_version") as mock_save,
+        ):
+            handle_put_voiceover(handler, {"file": ["001_voiceover.json"]}, payload)
+
+        mock_request.assert_not_called()
+        mock_save.assert_not_called()
+        body, status = handler._send_json.call_args.args
+        assert status == 400
+        assert body["ok"] is False
+        assert body["code"] == "invalid_voiceover"
+        assert body["error"]
 
 
 class TestHandleGetCover:

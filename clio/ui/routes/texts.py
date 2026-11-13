@@ -11,6 +11,7 @@ from urllib.parse import quote
 
 from clio.artifact_guard import mark_user_edited
 from clio.i18n import t
+from clio.tasks._helpers import _rewrite_script_md, _rewrite_text_file
 from clio.ui.services.file_service import (
     ArtifactConflictError,
     read_with_version,
@@ -24,6 +25,17 @@ if TYPE_CHECKING:
 
 _COVER_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 _SAFE_COVER_NAME = re.compile(r"^[^\x00-\x1f\x7f/\\<>:\"|?*]+$")
+_ANALYSIS_SERVER_FIELDS = {
+    "_lineage",
+    "_lineage_components",
+    "_schema_version",
+    "compressed_file",
+    "cover_file",
+    "id",
+    "index",
+    "media_identity",
+    "source_file",
+}
 
 
 def _content_disposition(basename: str) -> str:
@@ -61,7 +73,7 @@ def _analysis_payload_error(obj: dict) -> str | None:
     summary = obj.get("summary")
     if summary is not None and not isinstance(summary, str):
         return t("api.texts_field_type", {"field": "summary", "expected": "string"})
-    for key in ("location", "mood", "suggested_use", "cover_timestamp"):
+    for key in ("location", "mood", "suggested_use", "cover_timestamp", "cover_file"):
         value = obj.get(key)
         if value is not None and not isinstance(value, str):
             return t("api.texts_field_type", {"field": key, "expected": "string"})
@@ -87,6 +99,45 @@ def _analysis_payload_error(obj: dict) -> str | None:
         if any(not isinstance(item, (dict, str)) for item in highlights):
             return t("api.texts_highlights_entry_invalid")
     return None
+
+
+def _voiceover_payload_error(obj: dict) -> str | None:
+    """Return an i18n error message when a voiceover payload is malformed."""
+    voiceover = obj.get("voiceover")
+    if not isinstance(voiceover, str) or not voiceover.strip():
+        return t("api.texts_voiceover_required")
+    for key in ("title", "edit_tip"):
+        value = obj.get(key)
+        if value is not None and not isinstance(value, str):
+            return t("api.texts_field_type", {"field": key, "expected": "string"})
+    duration = obj.get("duration_hint_sec")
+    if duration is not None and (isinstance(duration, bool) or not isinstance(duration, (int, float)) or duration < 0):
+        return t(
+            "api.texts_field_type",
+            {"field": "duration_hint_sec", "expected": t("api.texts_non_negative_number")},
+        )
+    return None
+
+
+def _read_existing_object(path: Path) -> tuple[dict | None, str | None]:
+    """Read an existing JSON artifact and its version for optimistic writes."""
+    try:
+        raw, version = read_with_version(path)
+        parsed = json.loads(raw.decode("utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None, None
+    return (parsed, version) if isinstance(parsed, dict) else (None, None)
+
+
+def _preserve_analysis_server_fields(existing: dict, candidate: dict) -> dict:
+    """Keep server-owned analysis metadata authoritative during UI saves."""
+    saved = dict(candidate)
+    for key in _ANALYSIS_SERVER_FIELDS:
+        if key in existing:
+            saved[key] = existing[key]
+        else:
+            saved.pop(key, None)
+    return saved
 
 
 def _send_artifact_conflict(handler: HandlerProtocol, exc: ArtifactConflictError) -> None:
@@ -173,13 +224,20 @@ def handle_put_texts(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) ->
     error = _analysis_payload_error(obj)
     if error is not None:
         return handler._send_json({"ok": False, "code": "invalid_analysis", "error": error}, 400)
-    saved = dict(obj)
+    existing, existing_version = _read_existing_object(p)
+    if existing is None:
+        return handler._send_json(
+            {"ok": False, "code": "invalid_analysis", "error": t("api.texts_existing_invalid")},
+            500,
+        )
+    saved = _preserve_analysis_server_fields(existing, obj)
     mark_user_edited(saved)
     data = json.dumps(saved, ensure_ascii=False, indent=2).encode("utf-8")
     try:
-        version = save_with_version(p, data, request_version(handler))
+        version = save_with_version(p, data, request_version(handler) or existing_version)
     except ArtifactConflictError as exc:
         return _send_artifact_conflict(handler, exc)
+    _rewrite_text_file(p.with_suffix(".txt"), saved)
     handler._send_json(
         {"ok": True, "path": str(p), "version": version},
         extra_headers=version_headers(version),
@@ -193,13 +251,28 @@ def handle_put_voiceover(handler: HandlerProtocol, qs: dict[str, Any], obj: dict
     p = handler._resolve_in("scripts", fname, proj_out)
     if p is None:
         return handler._send_json({"ok": False, "error": "forbidden or not found"}, 403)
+    error = _voiceover_payload_error(obj)
+    if error is not None:
+        return handler._send_json({"ok": False, "code": "invalid_voiceover", "error": error}, 400)
+    existing, existing_version = _read_existing_object(p)
+    if existing is None:
+        return handler._send_json(
+            {"ok": False, "code": "invalid_voiceover", "error": t("api.texts_existing_invalid")},
+            500,
+        )
     saved = dict(obj)
+    for key in ("_lineage", "_schema_version"):
+        if key in existing:
+            saved[key] = existing[key]
+        else:
+            saved.pop(key, None)
     mark_user_edited(saved)
     data = json.dumps(saved, ensure_ascii=False, indent=2).encode("utf-8")
     try:
-        version = save_with_version(p, data, request_version(handler))
+        version = save_with_version(p, data, request_version(handler) or existing_version)
     except ArtifactConflictError as exc:
         return _send_artifact_conflict(handler, exc)
+    _rewrite_script_md(p.with_suffix(".md"), saved)
     handler._send_json(
         {"ok": True, "path": str(p), "version": version},
         extra_headers=version_headers(version),
