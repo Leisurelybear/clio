@@ -29,6 +29,7 @@ from clio.tasks.analyze import (
     _resolve_original,
     _uses_multiple_windows,
     analysis_artifact_overwrite_required,
+    analysis_cache_status,
 )
 from clio.tasks.consistency import entity_consistency_paths
 from clio.tasks.plan import (
@@ -106,6 +107,8 @@ def build_run_preview(
             force=force,
             use_transcripts=use_transcripts,
             day_labels=preview_day_labels,
+            context_override=context_override,
+            task_prompts=task_prompts,
         )
         for step in selected_steps
     ]
@@ -159,7 +162,123 @@ def build_run_preview(
     )
     if legacy_audio_risk is not None:
         result["legacy_audio_removal"] = legacy_audio_risk
+    if "analyze" in selected_steps:
+        analysis_risk = analysis_rerun_risk(
+            config,
+            selected_steps,
+            force=force,
+            use_transcripts=use_transcripts,
+            files=files,
+            context_override=context_override,
+            task_prompts=task_prompts,
+        )
+        if analysis_risk is not None:
+            result["analysis_rerun"] = analysis_risk
     return result
+
+
+ANALYSIS_RERUN_REASON_ORDER = (
+    "invalid",
+    "source_mismatch",
+    "provider_model",
+    "prompt",
+    "context",
+    "transcript",
+    "compressed_media",
+    "window",
+    "legacy",
+    "unknown",
+)
+
+
+def analysis_rerun_risk(
+    config: AppConfig,
+    steps: Iterable[str],
+    *,
+    force: bool,
+    use_transcripts: bool,
+    files: list[str] | None,
+    context_override: str | None,
+    task_prompts: dict[str, str] | None,
+) -> dict[str, Any] | None:
+    """Explain cache-invalidated analysis reruns before a run starts."""
+    if force or not config.analyze.skip_existing or "analyze" not in set(steps):
+        return None
+
+    selected = _selection_from_files(files) if files is not None else None
+    project_selection = _project_selection_stems(config)
+    selected_paths = project_selection.paths if project_selection is not None else None
+    stem_cache = _build_stem_to_path(config.project_dir)
+    compressed_videos = _video_files(config.compressed_dir, recursive=False)
+    if selected is not None:
+        compressed_videos = [
+            compressed
+            for compressed in compressed_videos
+            if _matches_selected_stem(compressed, selected, artifact=True)
+        ]
+    source_videos = list(_source_input_info(config)[1])
+    pairs = _analysis_input_pairs(config, compressed_videos, source_videos, stem_cache, selected_paths)
+
+    reason_counts = {reason: 0 for reason in ANALYSIS_RERUN_REASON_ORDER}
+    rerun_count = 0
+    for compressed, original in pairs:
+        status = analysis_cache_status(
+            config,
+            compressed,
+            original,
+            compressed.stem.split("_", 1)[0],
+            overwrite=False,
+            context_override=context_override,
+            task_prompts=task_prompts,
+            duration_sec=_analysis_duration_sec(config, compressed, original),
+            use_transcripts=use_transcripts,
+        )
+        if not status.rerun_required:
+            continue
+        reasons = list(status.reasons)
+        if status.invalid:
+            reasons.append("invalid")
+        if status.source_mismatch:
+            reasons.append("source_mismatch")
+        if not reasons:
+            reasons.append("unknown")
+        rerun_count += 1
+        for reason in dict.fromkeys(reasons):
+            reason_counts[reason] = reason_counts.get(reason, 0) + 1
+
+    if rerun_count == 0:
+        return None
+    return {
+        "required": True,
+        "count": rerun_count,
+        "reasons": [
+            {"key": reason, "count": reason_counts[reason]}
+            for reason in ANALYSIS_RERUN_REASON_ORDER
+            if reason_counts[reason]
+        ],
+    }
+
+
+def _analysis_input_pairs(
+    config: AppConfig,
+    compressed_videos: list[Path],
+    source_videos: list[Path],
+    stem_cache: dict[str, Path | None],
+    selected_paths: frozenset[str] | None,
+) -> list[tuple[Path, Path]]:
+    source_names = {source.stem.lower(): source.name for source in source_videos}
+    pairs: list[tuple[Path, Path]] = []
+    for compressed in _resolvable_analysis_inputs(compressed_videos, source_names):
+        original = _resolve_original(
+            compressed.stem,
+            stem_cache,
+            config.project_dir,
+            compressed,
+            selected_paths,
+        )
+        if original is not None:
+            pairs.append((compressed, original))
+    return pairs
 
 
 def legacy_audio_removal_risk(
@@ -564,11 +683,21 @@ def _step_preview(
     force: bool,
     use_transcripts: bool,
     day_labels: list[str],
+    context_override: str | None,
+    task_prompts: dict[str, str] | None,
 ) -> dict[str, Any]:
     if step == "compress":
         return _compress_step(config, source_videos, force=force)
     if step == "analyze":
-        return _analyze_step(config, compressed_videos, all_recursive_source_videos, force=force, index=index)
+        return _analyze_step(
+            config,
+            compressed_videos,
+            all_recursive_source_videos,
+            force=force,
+            use_transcripts=use_transcripts,
+            context_override=context_override,
+            task_prompts=task_prompts,
+        )
     if step == "transcribe":
         if not use_transcripts:
             return _warning_step(step, t("api.preview_transcribe_disabled"))
@@ -607,15 +736,37 @@ def _analyze_step(
     source_videos: list[Path],
     *,
     force: bool,
-    index: ArtifactIndex,
+    use_transcripts: bool,
+    context_override: str | None,
+    task_prompts: dict[str, str] | None,
 ) -> dict[str, Any]:
-    source_names = {source.stem.lower(): source.name for source in source_videos}
-    inputs = _resolvable_analysis_inputs(compressed_videos, source_names)
-    total = len(inputs)
+    project_selection = _project_selection_stems(config)
+    selected_paths = project_selection.paths if project_selection is not None else None
+    pairs = _analysis_input_pairs(
+        config,
+        compressed_videos,
+        source_videos,
+        _build_stem_to_path(config.project_dir),
+        selected_paths,
+    )
+    total = len(pairs)
     if force:
         return _step("analyze", total=total, will_run=total, will_skip=0)
 
-    skipped = sum(1 for compressed in inputs if (g := index.lookup(compressed_stem=compressed.stem)) and g.texts)
+    skipped = 0
+    for compressed, original in pairs:
+        status = analysis_cache_status(
+            config,
+            compressed,
+            original,
+            compressed.stem.split("_", 1)[0],
+            overwrite=False,
+            context_override=context_override,
+            task_prompts=task_prompts,
+            duration_sec=_analysis_duration_sec(config, compressed, original),
+            use_transcripts=use_transcripts,
+        )
+        skipped += int(status.accepted)
     return _step("analyze", total=total, will_run=total - skipped, will_skip=skipped)
 
 

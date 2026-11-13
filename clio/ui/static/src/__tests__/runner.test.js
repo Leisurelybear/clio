@@ -429,6 +429,71 @@ describe('startRun', () => {
     }));
   });
 
+  it('stops without starting when the analysis rerun confirmation is declined', async () => {
+    document.body.innerHTML = `
+      <button id="btn-run-start"></button>
+      <div id="run-preview"></div>
+      <div id="run-progress"></div>
+      <input class="run-step-cb" data-step="analyze" type="checkbox" checked>
+      <input id="run-day" value="day1">
+      <input id="run-use-transcripts" type="checkbox" checked>
+      <input id="run-overwrite" type="checkbox">
+    `;
+    const { api } = await import('../api.js');
+    api.mockResolvedValueOnce({
+      preview: {
+        analysis_rerun: {
+          required: true,
+          count: 2,
+          reasons: [{ key: 'prompt', count: 2 }],
+        },
+      },
+    });
+    const { confirmDialog } = await import('../confirm.js');
+    vi.mocked(confirmDialog).mockResolvedValue(false);
+
+    await startRun();
+
+    expect(api).toHaveBeenCalledTimes(1);
+    expect(confirmDialog).toHaveBeenCalledWith(
+      expect.stringContaining('重跑 2 个视频'),
+      expect.anything(),
+    );
+    expect(document.getElementById('btn-run-start').disabled).toBe(false);
+    expect(api).not.toHaveBeenCalledWith('POST', '/api/run/start', expect.anything());
+  });
+
+  it('sends the analysis rerun confirmation flag after the user accepts', async () => {
+    document.body.innerHTML = `
+      <button id="btn-run-start"></button>
+      <div id="run-preview"></div>
+      <div id="run-progress"></div>
+      <input class="run-step-cb" data-step="analyze" type="checkbox" checked>
+      <input id="run-day" value="day1">
+      <input id="run-use-transcripts" type="checkbox" checked>
+      <input id="run-overwrite" type="checkbox">
+    `;
+    const { api } = await import('../api.js');
+    api.mockResolvedValueOnce({
+      preview: {
+        analysis_rerun: {
+          required: true,
+          count: 2,
+          reasons: [{ key: 'prompt', count: 2 }],
+        },
+      },
+    });
+    api.mockResolvedValueOnce({ ok: true, task_id: 'task-analysis-rerun' });
+
+    await startRun();
+
+    const startCall = api.mock.calls.find(([method, url]) => method === 'POST' && url === '/api/run/start');
+    expect(startCall?.[2]).toEqual(expect.objectContaining({
+      steps: ['analyze'],
+      confirm_analysis_rerun: true,
+    }));
+  });
+
   it('does not ask when the fresh preview reports no overwrite risk', async () => {
     const { api } = await import('../api.js');
     api.mockResolvedValueOnce({ preview: {} });

@@ -500,6 +500,87 @@ class TestHandlePostRunStart:
         task = manager.wait(payload["task_id"])
         assert task.input_data["confirm_legacy_audio_removal"] is True
 
+    def test_rejects_non_boolean_analysis_rerun_confirmation(self, tmp_path):
+        manager = MagicMock()
+        handler, _, _ = _managed_handler(tmp_path, manager)
+
+        handle_post_run_start(handler, {}, {"confirm_analysis_rerun": "true"})
+
+        handler._send_json.assert_called_once_with(
+            {"ok": False, "error": "confirm_analysis_rerun must be a boolean"}, 400
+        )
+        manager.submit.assert_not_called()
+
+    def test_analysis_rerun_requires_confirmation(self, tmp_path, monkeypatch):
+        manager = MagicMock()
+        handler, _, _ = _managed_handler(tmp_path, manager)
+        risk = {
+            "required": True,
+            "count": 2,
+            "reasons": [{"key": "prompt", "count": 2}],
+        }
+        detector = MagicMock(return_value=risk)
+        monkeypatch.setattr("clio.ui.routes.run.analysis_rerun_risk", detector)
+
+        handle_post_run_start(handler, {}, {"steps": ["analyze"]})
+
+        payload, status = handler._send_json.call_args.args
+        assert status == 409
+        assert payload["code"] == "analysis_rerun_confirmation_required"
+        assert payload["analysis_rerun"] == risk
+        assert detector.call_args.kwargs == {
+            "force": False,
+            "use_transcripts": True,
+            "files": None,
+            "context_override": None,
+            "task_prompts": None,
+        }
+        manager.submit.assert_not_called()
+
+    def test_confirmed_analysis_rerun_is_stored_on_task(self, tmp_path, monkeypatch):
+        from clio.task_center.manager import TaskManager
+        from clio.task_center.store import TaskStore
+
+        _allow_media_preflight(monkeypatch)
+        monkeypatch.setattr("clio.ui.routes.run._run_pipeline_task", lambda context: {"ok": True})
+        monkeypatch.setattr(
+            "clio.ui.routes.run.analysis_rerun_risk",
+            lambda *args, **kwargs: {
+                "required": True,
+                "count": 1,
+                "reasons": [{"key": "context", "count": 1}],
+            },
+        )
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+        handler, _, _ = _managed_handler(tmp_path, manager)
+
+        handle_post_run_start(
+            handler,
+            {},
+            {"steps": ["analyze"], "confirm_analysis_rerun": True},
+        )
+
+        payload = handler._send_json.call_args.args[0]
+        task = manager.wait(payload["task_id"])
+        assert task.input_data["confirm_analysis_rerun"] is True
+
+    def test_analysis_rerun_without_risk_does_not_require_confirmation(self, tmp_path, monkeypatch):
+        from clio.task_center.manager import TaskManager
+        from clio.task_center.store import TaskStore
+
+        _allow_media_preflight(monkeypatch)
+        monkeypatch.setattr("clio.ui.routes.run._run_pipeline_task", lambda context: {"ok": True})
+        monkeypatch.setattr("clio.ui.routes.run.analysis_rerun_risk", lambda *args, **kwargs: None)
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+        handler, _, _ = _managed_handler(tmp_path, manager)
+
+        handle_post_run_start(handler, {}, {"steps": ["analyze"]})
+
+        payload = handler._send_json.call_args.args[0]
+        task = manager.wait(payload["task_id"])
+        assert task.status.value == "succeeded"
+        assert task.input_data["confirm_analysis_rerun"] is False
+
     def test_pipeline_with_ephemeral_context_is_not_retryable(self, tmp_path, monkeypatch):
         from clio.task_center.manager import TaskManager
         from clio.task_center.store import TaskStore

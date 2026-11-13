@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   formatRunStartError,
+  needsAnalysisRerunConfirmation,
   needsArtifactOverwriteConfirmation,
   needsLegacyAudioRemovalConfirmation,
   needsPlanOverwriteConfirmation,
@@ -119,6 +120,28 @@ describe('renderRunPreviewHtml', () => {
     expect(html).toContain('压缩 3 项');
   });
 
+  it('renders analysis rerun reasons and escapes untrusted values', () => {
+    const html = renderRunPreviewHtml({
+      input: { path: 'D:/trip/videos', count: 2 },
+      totals: { selected_steps: 1, will_run: 3, will_skip: 0, warnings: 0 },
+      steps: [],
+      analysis_rerun: {
+        required: true,
+        count: 3,
+        reasons: [
+          { key: 'prompt', count: 2 },
+          { key: '<img src=x>', count: 1 },
+        ],
+      },
+    });
+
+    expect(html).toContain('run-analysis-rerun-warning');
+    expect(html).toContain('重跑 3 个视频');
+    expect(html).toContain('分析提示词已变化 (2)');
+    expect(html).toContain('run.preview.analysis_reason.&lt;img src=x&gt; (1)');
+    expect(html).not.toContain('<img src=x>');
+  });
+
   it('does not render the legacy audio-removal warning when confirmation is not required', () => {
     const html = renderRunPreviewHtml({
       input: { path: 'D:/trip/videos', count: 1 },
@@ -165,6 +188,29 @@ describe('needsPlanOverwriteConfirmation', () => {
       files: ['A.mp4'],
     })).toBe(false);
     expect(needsPlanOverwriteConfirmation({}, { steps: ['plan'], files: ['A.mp4'] })).toBe(false);
+  });
+});
+
+describe('needsAnalysisRerunConfirmation', () => {
+  const riskyPreview = {
+    analysis_rerun: {
+      required: true,
+      count: 2,
+      reasons: [{ key: 'prompt', count: 2 }],
+    },
+  };
+
+  it('requires confirmation for selected analyze runs with cache rerun risk', () => {
+    expect(needsAnalysisRerunConfirmation(riskyPreview, { steps: ['analyze'] })).toBe(true);
+  });
+
+  it('does not require confirmation for other steps or risk-free previews', () => {
+    expect(needsAnalysisRerunConfirmation(riskyPreview, { steps: ['plan'] })).toBe(false);
+    expect(needsAnalysisRerunConfirmation(
+      { analysis_rerun: { required: false } },
+      { steps: ['analyze'] },
+    )).toBe(false);
+    expect(needsAnalysisRerunConfirmation(null, { steps: ['analyze'] })).toBe(false);
   });
 });
 

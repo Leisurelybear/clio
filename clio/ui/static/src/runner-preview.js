@@ -17,6 +17,14 @@ export function needsLegacyAudioRemovalConfirmation(preview, options) {
   );
 }
 
+export function needsAnalysisRerunConfirmation(preview, options) {
+  return Boolean(
+    Array.isArray(options?.steps)
+    && options.steps.includes('analyze')
+    && preview?.analysis_rerun?.required,
+  );
+}
+
 export function needsArtifactOverwriteConfirmation(preview, options) {
   return Boolean(
     Array.isArray(options?.steps)
@@ -54,6 +62,20 @@ export function renderRunPreviewHtml(preview) {
       compress_count: Number(preview.legacy_audio_removal.compress_count || 0),
     })}</p>`
     : '';
+  const analysisReasons = Array.isArray(preview.analysis_rerun?.reasons)
+    ? preview.analysis_rerun.reasons
+    : [];
+  const analysisRerun = preview.analysis_rerun?.required
+    ? `<div class="warn run-analysis-rerun-warning">
+      <p>${t('run.preview.analysis_rerun', {
+        count: Number(preview.analysis_rerun.count || 0),
+      })}</p>
+      ${analysisReasons.length ? `<ul>${analysisReasons.map(reason => {
+        const key = String(reason?.key || 'unknown');
+        return `<li>${escapeHtml(t(`run.preview.analysis_reason.${key}`))} (${Number(reason?.count || 0)})</li>`;
+      }).join('')}</ul>` : ''}
+    </div>`
+    : '';
   const preflightLine = preflight && preflight.ok === false
     ? `<p class="err run-preflight-error">${t('run.preview.preflight_error', { detail: escapeHtml(preflight.detail || t('run.preview.step_unrunnable')) })}\n` +
       `${missing.length ? t('run.preview.missing', { items: escapeHtml(missing.join(separator)) }) : ''}</p>`
@@ -87,6 +109,7 @@ export function renderRunPreviewHtml(preview) {
       ${planOverwrite}
       ${artifactOverwrite}
       ${legacyAudioRemoval}
+      ${analysisRerun}
       <div class="run-preview-steps">${stepRows}</div>
     </section>
   `;

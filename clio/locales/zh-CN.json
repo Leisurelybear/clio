@@ -498,6 +498,7 @@
   "shutdown.terminated": "  [beforeStop]   ffmpeg (pid={pid}) 已终止",
   "shutdown.terminating": "  [beforeStop] 终止 {count} 个运行中的 ffmpeg 子进程...",
   "task.artifact.overwrite_confirmation_required": "以下已人工编辑的文件将被覆盖：{items}；请确认后再运行",
+"task.analysis_rerun.confirmation_required": "检测到分析缓存失效，本次将重跑 {count} 个视频的分析，可能产生额外 AI 费用。",
   "task.legacy_audio_removal.confirmation_required": "检测到旧配置曾保留音频：本次将重跑分析 {analyze_count} 项、口播 {voiceover_count} 项、压缩 {compress_count} 项。",
   "task.analyze.analyzing": "  [{name}] 分析中...",
   "task.analyze.cancel_item": "  [取消] 分析 {name} 被取消",

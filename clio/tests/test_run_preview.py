@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any, cast
 from unittest.mock import patch
 
+import pytest
+
 from clio.config.models import (
     AnalyzeConfig,
     AppConfig,
@@ -17,7 +19,12 @@ from clio.config.models import (
     ProjectWhisperConfig,
     ScriptConfig,
 )
-from clio.tasks.analyze import _effective_analysis_context, _legacy_analysis_lineage_fingerprint
+from clio.tasks.analyze import (
+    _analysis_lineage_components,
+    _effective_analysis_context,
+    _legacy_analysis_lineage_fingerprint,
+    _lineage_fingerprint_from_components,
+)
 from clio.tasks.scripts import _load_script_template, _voiceover_lineage_fingerprint
 from clio.ui.services.run_preview import build_run_preview
 from clio.vmeta import VideoMeta
@@ -65,6 +72,29 @@ def _prepare_legacy_audio_project(tmp_path: Path, *, count: int = 1) -> tuple[Ap
     config.texts_dir.mkdir(parents=True)
     config.scripts_dir.mkdir(parents=True)
     return config, sources
+
+
+def _write_current_analysis(config: AppConfig, original: Path, compressed: Path) -> Path:
+    effective_context = _effective_analysis_context(config, original, None)
+    components = _analysis_lineage_components(
+        config,
+        None,
+        effective_context,
+        "",
+        multi_window=False,
+        compressed=compressed,
+    )
+    data = {
+        "index": int(compressed.stem.split("_", 1)[0]),
+        "title": original.stem,
+        "summary": "current analysis",
+        "source_file": original.name,
+        "_lineage": _lineage_fingerprint_from_components(components),
+        "_lineage_components": components,
+    }
+    path = config.texts_dir / f"{compressed.stem}.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    return path
 
 
 def _legacy_analysis_record(
@@ -337,7 +367,8 @@ def test_preview_analyze_counts_source_file_matched_json_outputs(tmp_path: Path)
     (compressed_dir / "001_A.mp4").write_bytes(b"compressed")
     (compressed_dir / "002_B.mp4").write_bytes(b"compressed")
     (compressed_dir / "003_C.mp4").write_bytes(b"compressed")
-    (texts_dir / "001_Title.json").write_text(json.dumps({"source_file": "A.MP4"}), encoding="utf-8")
+    config = _config(input_dir, output_dir)
+    _write_current_analysis(config, input_dir / "A.MP4", compressed_dir / "001_A.mp4")
     (texts_dir / "002_Broken.json").write_text("{", encoding="utf-8")
 
     from clio.tasks._video_loader import save_selected_videos
@@ -347,7 +378,7 @@ def test_preview_analyze_counts_source_file_matched_json_outputs(tmp_path: Path)
     ]
     save_selected_videos(input_dir, vids)
     preview = build_run_preview(
-        _config(input_dir, output_dir),
+        config,
         steps=["analyze"],
         force=False,
         use_transcripts=True,
@@ -357,6 +388,168 @@ def test_preview_analyze_counts_source_file_matched_json_outputs(tmp_path: Path)
     assert preview["steps"][0]["total"] == 2
     assert preview["steps"][0]["will_run"] == 1
     assert preview["steps"][0]["will_skip"] == 1
+
+
+def test_preview_current_analysis_cache_needs_no_rerun_confirmation(tmp_path: Path) -> None:
+    config, sources = _prepare_legacy_audio_project(tmp_path)
+    original, compressed = sources[0]
+    _write_current_analysis(config, original, compressed)
+
+    preview = build_run_preview(config, steps=["analyze"], force=False, use_transcripts=True)
+
+    assert "analysis_rerun" not in preview
+    assert preview["steps"][0]["will_run"] == 0
+    assert preview["steps"][0]["will_skip"] == 1
+
+
+@pytest.mark.parametrize(
+    "component",
+    ("provider_model", "prompt", "context", "transcript", "compressed_media", "window"),
+)
+def test_preview_analysis_rerun_reports_changed_lineage_component(
+    tmp_path: Path,
+    component: str,
+) -> None:
+    config, sources = _prepare_legacy_audio_project(tmp_path)
+    original, compressed = sources[0]
+    analysis_path = _write_current_analysis(config, original, compressed)
+    data = json.loads(analysis_path.read_text(encoding="utf-8"))
+    data["_lineage_components"][component] = "stale-component"
+    analysis_path.write_text(json.dumps(data), encoding="utf-8")
+
+    preview = build_run_preview(config, steps=["analyze"], force=False, use_transcripts=True)
+
+    assert preview["analysis_rerun"] == {
+        "required": True,
+        "count": 1,
+        "reasons": [{"key": component, "count": 1}],
+    }
+    assert preview["steps"][0]["will_run"] == 1
+    assert preview["steps"][0]["will_skip"] == 0
+
+
+def test_preview_analysis_rerun_reports_legacy_cache(tmp_path: Path) -> None:
+    config, sources = _prepare_legacy_audio_project(tmp_path)
+    original, compressed = sources[0]
+    _write_legacy_analysis(config, original, compressed, lineage="stale-legacy-lineage")
+
+    preview = build_run_preview(config, steps=["analyze"], force=False, use_transcripts=True)
+
+    assert preview["analysis_rerun"] == {
+        "required": True,
+        "count": 1,
+        "reasons": [{"key": "legacy", "count": 1}],
+    }
+
+
+def test_preview_analysis_rerun_reports_invalid_cache(tmp_path: Path) -> None:
+    config, sources = _prepare_legacy_audio_project(tmp_path)
+    _, compressed = sources[0]
+    (config.texts_dir / f"{compressed.stem}.json").write_text("{invalid", encoding="utf-8")
+
+    preview = build_run_preview(config, steps=["analyze"], force=False, use_transcripts=True)
+
+    assert preview["analysis_rerun"] == {
+        "required": True,
+        "count": 1,
+        "reasons": [{"key": "invalid", "count": 1}],
+    }
+
+
+def test_preview_analysis_rerun_reports_source_mismatch(tmp_path: Path) -> None:
+    config, sources = _prepare_legacy_audio_project(tmp_path)
+    original, compressed = sources[0]
+    analysis_path = _write_current_analysis(config, original, compressed)
+    data = json.loads(analysis_path.read_text(encoding="utf-8"))
+    data["source_file"] = "other.mp4"
+    analysis_path.write_text(json.dumps(data), encoding="utf-8")
+
+    preview = build_run_preview(config, steps=["analyze"], force=False, use_transcripts=True)
+
+    assert preview["analysis_rerun"] == {
+        "required": True,
+        "count": 1,
+        "reasons": [{"key": "source_mismatch", "count": 1}],
+    }
+
+
+def test_preview_analysis_rerun_respects_file_selection(tmp_path: Path) -> None:
+    config, sources = _prepare_legacy_audio_project(tmp_path, count=2)
+    original_a, compressed_a = sources[0]
+    _write_current_analysis(config, *sources[1])
+    analysis_a = _write_current_analysis(config, original_a, compressed_a)
+    data = json.loads(analysis_a.read_text(encoding="utf-8"))
+    data["_lineage_components"]["prompt"] = "stale-component"
+    analysis_a.write_text(json.dumps(data), encoding="utf-8")
+
+    unselected = build_run_preview(
+        config,
+        steps=["analyze"],
+        force=False,
+        use_transcripts=True,
+        files=[str(sources[1][0])],
+    )
+
+    assert "analysis_rerun" not in unselected
+    assert unselected["steps"][0]["total"] == 1
+    assert unselected["steps"][0]["will_run"] == 0
+
+    selected = build_run_preview(
+        config,
+        steps=["analyze"],
+        force=False,
+        use_transcripts=True,
+        files=[str(original_a)],
+    )
+
+    assert selected["analysis_rerun"] == {
+        "required": True,
+        "count": 1,
+        "reasons": [{"key": "prompt", "count": 1}],
+    }
+    assert selected["steps"][0]["total"] == 1
+    assert selected["steps"][0]["will_run"] == 1
+
+
+def test_preview_analysis_rerun_counts_each_reason_once_per_video(tmp_path: Path) -> None:
+    config, sources = _prepare_legacy_audio_project(tmp_path, count=2)
+    original_a, compressed_a = sources[0]
+    original_b, compressed_b = sources[1]
+    analysis_a = _write_current_analysis(config, original_a, compressed_a)
+    data = json.loads(analysis_a.read_text(encoding="utf-8"))
+    data["_lineage_components"]["prompt"] = "stale-component"
+    data["_lineage_components"]["context"] = "stale-component"
+    analysis_a.write_text(json.dumps(data), encoding="utf-8")
+    (config.texts_dir / f"{compressed_b.stem}.json").write_text("{invalid", encoding="utf-8")
+
+    preview = build_run_preview(config, steps=["analyze"], force=False, use_transcripts=True)
+
+    assert preview["analysis_rerun"] == {
+        "required": True,
+        "count": 2,
+        "reasons": [
+            {"key": "invalid", "count": 1},
+            {"key": "prompt", "count": 1},
+            {"key": "context", "count": 1},
+        ],
+    }
+
+
+def test_preview_analysis_rerun_skips_explicit_or_disabled_reruns(tmp_path: Path) -> None:
+    config, sources = _prepare_legacy_audio_project(tmp_path)
+    original, compressed = sources[0]
+    analysis_path = _write_current_analysis(config, original, compressed)
+    data = json.loads(analysis_path.read_text(encoding="utf-8"))
+    data["_lineage_components"]["prompt"] = "stale-component"
+    analysis_path.write_text(json.dumps(data), encoding="utf-8")
+
+    assert "analysis_rerun" not in build_run_preview(config, steps=["analyze"], force=True, use_transcripts=True)
+
+    skip_disabled = copy.deepcopy(config)
+    skip_disabled.analyze.skip_existing = False
+    assert "analysis_rerun" not in build_run_preview(
+        skip_disabled, steps=["analyze"], force=False, use_transcripts=True
+    )
 
 
 def test_preview_analyze_ignores_compressed_without_resolved_original(tmp_path: Path) -> None:
@@ -889,8 +1082,9 @@ def test_preview_files_selection_filters_non_plan_steps(tmp_path: Path) -> None:
     (input_dir / "B.mp4").write_bytes(b"video")
     (compressed_dir / "001_A.mp4").write_bytes(b"compressed")
     (compressed_dir / "002_B.mp4").write_bytes(b"compressed")
-    (texts_dir / "001_A.json").write_text(json.dumps({"source_file": "A.mp4"}), encoding="utf-8")
-    (texts_dir / "002_B.json").write_text(json.dumps({"source_file": "B.mp4"}), encoding="utf-8")
+    config = _config(input_dir, output_dir)
+    _write_current_analysis(config, input_dir / "A.mp4", compressed_dir / "001_A.mp4")
+    _write_current_analysis(config, input_dir / "B.mp4", compressed_dir / "002_B.mp4")
     (transcripts_dir / "001_A_transcript.json").write_text("{}", encoding="utf-8")
     (scripts_dir / "001_A_voiceover.json").write_text("{}", encoding="utf-8")
     (labeled_dir / "001_A_labeled.mp4").write_bytes(b"labeled")
@@ -902,7 +1096,7 @@ def test_preview_files_selection_filters_non_plan_steps(tmp_path: Path) -> None:
     ]
     save_selected_videos(input_dir, vids)
     preview = build_run_preview(
-        _config(input_dir, output_dir),
+        config,
         steps=["compress", "transcribe", "analyze", "voiceover", "label"],
         force=False,
         use_transcripts=True,

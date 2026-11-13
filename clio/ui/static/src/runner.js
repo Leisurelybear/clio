@@ -15,6 +15,7 @@ import { onLocaleChange, t } from './i18n.js';
 import { confirmDialog } from './confirm.js';
 import {
   formatRunStartError,
+  needsAnalysisRerunConfirmation,
   needsArtifactOverwriteConfirmation,
   needsLegacyAudioRemovalConfirmation,
   needsPlanOverwriteConfirmation,
@@ -388,6 +389,15 @@ async function startRun() {
           return;
         }
         options.confirm_legacy_audio_removal = true;
+      }
+      if (needsAnalysisRerunConfirmation(preview, options)) {
+        if (!(await confirmDialog(t('run.confirm_analysis_rerun', {
+          count: Number(preview.analysis_rerun.count || 0),
+        }), { danger: true }))) {
+          updateRunStartButtonState();
+          return;
+        }
+        options.confirm_analysis_rerun = true;
       }
     }
     _lastRunDay = options.day_label;
