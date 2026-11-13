@@ -403,7 +403,7 @@ def _analyze_with_optional_windows(
     compressed: Path,
     duration_sec: float,
     config: AppConfig,
-    token_store: FileTokenUsageStore,
+    token_store: FileTokenUsageStore | None,
     cancel_event: threading.Event | None,
     effective_context: str | None,
     task_prompts: dict[str, str] | None,
