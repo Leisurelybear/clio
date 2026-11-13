@@ -12,6 +12,25 @@ import { bindCoverThumbFallback, videoDisplayName, videoThumbHtml } from './side
 let _portalDropdown = null;
 let _portalCloseHandler = null;
 
+async function requestRerun(payload) {
+  try {
+    return await api('POST', '/api/rerun', payload);
+  } catch (e) {
+    if (e?.status !== 409 || e.body?.code !== 'artifact_overwrite_confirmation_required') throw e;
+    const items = Array.isArray(e.body.items)
+      ? e.body.items.map(item => String(item)).filter(Boolean)
+      : [];
+    const message = items.length
+      ? t('run.confirm_artifact_overwrite', { items: items.join(t('common.list_separator')) })
+      : (e.body.error || e.message);
+    if (!(await confirmDialog(message, { danger: true }))) {
+      setStatus(t('sidebar.rerun_cancelled'), 'warn', { persist: false });
+      return null;
+    }
+    return api('POST', '/api/rerun', { ...payload, confirm_artifact_overwrite: true });
+  }
+}
+
 export function renderVideoItem(v, { relinkVideo, removeVideoFromProject, rerenderVideoList }) {
   const li = document.createElement('li');
   let checkboxHtml = '';
@@ -147,13 +166,14 @@ export function renderVideoItem(v, { relinkVideo, removeVideoFromProject, rerend
         }
         setStatus(t('sidebar.rerunning', { task, file }), 'ok', { persist: false });
         try {
-          const r = await api('POST', '/api/rerun', {
+          const r = await requestRerun({
             video: file,
             task: task,
             source: state.source,
             index: v.index || undefined,
             abspath: v.abs_path || (v.match && v.match.abs_path) || undefined,
           });
+          if (!r) return;
           if (r.ok) {
             setStatus(r.message || t('sidebar.rerun_started', { task }), 'ok', { persist: false });
             import('./sidebar-rerun.js').then(mod => mod.showRerunProgress(task, file, r.task_id));

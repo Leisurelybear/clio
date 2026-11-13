@@ -742,6 +742,7 @@ class TestHandlePostRerun:
             {"video": "clip.mp4", "task": "transcribe", "source": "sideways"},
             {"video": "clip.mp4", "task": "transcribe", "abspath": 123},
             {"video": "clip.mp4", "task": "transcribe", "index": 1},
+            {"video": "clip.mp4", "task": "transcribe", "confirm_artifact_overwrite": "true"},
         ],
     )
     def test_non_string_or_invalid_fields_return_400(self, payload, tmp_path: Path, _handler):
@@ -873,6 +874,124 @@ class TestHandlePostRerun:
 
         payload = handler._send_json.call_args[0][0]
         assert payload["ok"] is True
+
+    def test_edited_analysis_requires_confirmation_on_rerun(self, tmp_path: Path, monkeypatch):
+        from clio.task_center.manager import TaskManager
+        from clio.task_center.store import TaskStore
+        from clio.tasks._video_loader import save_selected_videos
+        from clio.vmeta import VideoMeta
+
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+        monkeypatch.setattr("clio.ui.routes.run._run_rerun_task", lambda context: {"ok": True})
+        handler, project_dir, _ = _managed_handler(tmp_path, manager)
+        cfg = handler._get_config.return_value
+        cfg.compressed_dir.mkdir(parents=True)
+        cfg.texts_dir.mkdir(parents=True)
+        original = project_dir / "A.mp4"
+        compressed = cfg.compressed_dir / "001_A.mp4"
+        original.write_bytes(b"source")
+        compressed.write_bytes(b"compressed")
+        VideoMeta.build(original, compressed, 10.0, 10.0).write(compressed)
+        save_selected_videos(project_dir, [original])
+        analysis = cfg.texts_dir / "001_A.json"
+        analysis.write_text(
+            json.dumps(
+                {
+                    "title": "A",
+                    "source_file": "A.mp4",
+                    "compressed_file": compressed.name,
+                    "_lineage": "stale",
+                    "_user_edited": True,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        handle_post_rerun(
+            handler,
+            {},
+            {"video": original.name, "task": "analyze", "source": "original", "index": "001"},
+        )
+
+        payload, status = handler._send_json.call_args.args
+        assert status == 409
+        assert payload["code"] == "artifact_overwrite_confirmation_required"
+        assert payload["items"] == ["001_A.json"]
+        assert manager.store.list() == []
+
+    def test_edited_voiceover_requires_confirmation_on_rerun(self, tmp_path: Path, monkeypatch):
+        from clio.task_center.manager import TaskManager
+        from clio.task_center.store import TaskStore
+
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+        monkeypatch.setattr("clio.ui.routes.run._run_rerun_task", lambda context: {"ok": True})
+        handler, project_dir, _ = _managed_handler(tmp_path, manager)
+        cfg = handler._get_config.return_value
+        cfg.paths._project.output_dir = project_dir / "output"
+        cfg.texts_dir.mkdir(parents=True)
+        cfg.scripts_dir.mkdir(parents=True)
+        original = project_dir / "A.mp4"
+        original.write_bytes(b"source")
+        (cfg.texts_dir / "001_A.json").write_text(
+            json.dumps({"title": "A", "source_file": original.name}),
+            encoding="utf-8",
+        )
+        voiceover = cfg.scripts_dir / "001_A_voiceover.json"
+        voiceover.write_text(
+            json.dumps({"voiceover": "edited", "_user_edited": True}),
+            encoding="utf-8",
+        )
+
+        handle_post_rerun(
+            handler,
+            {},
+            {"video": original.name, "task": "voiceover", "source": "original", "index": "001"},
+        )
+
+        payload, status = handler._send_json.call_args.args
+        assert status == 409
+        assert payload["code"] == "artifact_overwrite_confirmation_required"
+        assert payload["items"] == [voiceover.name]
+        assert manager.store.list() == []
+
+    def test_confirmed_voiceover_overwrite_is_stored_on_rerun_task(self, tmp_path: Path, monkeypatch):
+        from clio.task_center.manager import TaskManager
+        from clio.task_center.store import TaskStore
+
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+        monkeypatch.setattr("clio.ui.routes.run._run_rerun_task", lambda context: {"ok": True})
+        handler, project_dir, _ = _managed_handler(tmp_path, manager)
+        cfg = handler._get_config.return_value
+        cfg.paths._project.output_dir = project_dir / "output"
+        cfg.texts_dir.mkdir(parents=True)
+        cfg.scripts_dir.mkdir(parents=True)
+        original = project_dir / "A.mp4"
+        original.write_bytes(b"source")
+        (cfg.texts_dir / "001_A.json").write_text(
+            json.dumps({"title": "A", "source_file": original.name}),
+            encoding="utf-8",
+        )
+        (cfg.scripts_dir / "001_A_voiceover.json").write_text(
+            json.dumps({"voiceover": "edited", "_user_edited": True}),
+            encoding="utf-8",
+        )
+
+        handle_post_rerun(
+            handler,
+            {},
+            {
+                "video": original.name,
+                "task": "voiceover",
+                "source": "original",
+                "index": "001",
+                "confirm_artifact_overwrite": True,
+            },
+        )
+
+        payload = handler._send_json.call_args.args[0]
+        assert payload["ok"] is True
+        task = manager.wait(payload["task_id"])
+        assert task.input_data["confirm_artifact_overwrite"] is True
 
 
 class TestManagedRunIntegration:
@@ -1167,36 +1286,41 @@ class TestRunRerunTask:
         assert result == {"task": "compress", "video": "clip.mp4"}
         assert calls == ["compress"]
 
-    def test_analyze_skips_existing_disabled(self, tmp_path, monkeypatch):
+    def test_analyze_skips_existing_disabled_and_passes_overwrite_confirmation(self, tmp_path, monkeypatch):
         context, cfg = self._make_context(tmp_path, task="analyze")
+        context.input_data["confirm_artifact_overwrite"] = True
         captured_cfgs = []
         monkeypatch.setattr("clio.ui.routes.run.load_config", lambda *a, **k: copy.deepcopy(cfg))
 
         def fake_analyze(config, *args, **kwargs):
-            captured_cfgs.append(config)
+            captured_cfgs.append((config, kwargs))
 
         monkeypatch.setattr("clio.ui.routes.run.run_analyze_all", fake_analyze)
 
         _run_rerun_task(context)
 
-        assert captured_cfgs[0].analyze.skip_existing is False
+        assert captured_cfgs[0][0].analyze.skip_existing is False
+        assert captured_cfgs[0][1]["confirm_artifact_overwrite"] is True
 
-    def test_voiceover_uses_texts_json(self, tmp_path, monkeypatch):
+    def test_voiceover_uses_texts_json_and_passes_overwrite_confirmation(self, tmp_path, monkeypatch):
         context, cfg = self._make_context(tmp_path, task="voiceover")
         texts_json = tmp_path / "texts.json"
         texts_json.write_text("[]", encoding="utf-8")
         context.input_data["texts_json"] = str(texts_json)
+        context.input_data["confirm_artifact_overwrite"] = True
         captured = {}
         monkeypatch.setattr("clio.ui.routes.run.load_config", lambda *a, **k: copy.deepcopy(cfg))
 
         def fake_scripts(config, *args, single_file=None, **kw):
             captured["single_file"] = single_file
+            captured["confirm_artifact_overwrite"] = kw.get("confirm_artifact_overwrite")
 
         monkeypatch.setattr("clio.ui.routes.run.run_generate_scripts", fake_scripts)
 
         _run_rerun_task(context)
 
         assert captured["single_file"] == texts_json
+        assert captured["confirm_artifact_overwrite"] is True
 
     def test_all_uses_analysis_path_created_by_current_rerun(self, tmp_path, monkeypatch):
         from clio.tasks._helpers import ClipRecord
@@ -1306,6 +1430,7 @@ class TestManagedRerunSubmit:
             analyze=SimpleNamespace(skip_existing=True),
             plan=SimpleNamespace(use_transcripts=True),
             compressed_dir=comp_dir,
+            texts_dir=tmp_path / "texts",
         )
         (tmp_path / "out").mkdir(exist_ok=True)
         handler._get_config.return_value = cfg
@@ -1350,9 +1475,12 @@ class TestManagedRerunSubmit:
             paths=SimpleNamespace(output_dir=tmp_path / "out"),
             analyze=SimpleNamespace(skip_existing=True),
             plan=SimpleNamespace(use_transcripts=True),
-            compressed_dir=None,
+            compressed_dir=tmp_path / "compressed",
+            texts_dir=tmp_path / "texts",
         )
         (tmp_path / "out").mkdir(exist_ok=True)
+        (tmp_path / "compressed").mkdir(exist_ok=True)
+        (tmp_path / "texts").mkdir(exist_ok=True)
         handler._get_config.return_value = cfg
 
         from unittest.mock import patch as mock_patch
@@ -1406,9 +1534,12 @@ class TestManagedRerunSubmit:
             paths=SimpleNamespace(output_dir=tmp_path / "out"),
             analyze=SimpleNamespace(skip_existing=True),
             plan=SimpleNamespace(use_transcripts=True),
-            compressed_dir=None,
+            compressed_dir=tmp_path / "compressed",
+            texts_dir=tmp_path / "texts",
         )
         (tmp_path / "out").mkdir(exist_ok=True)
+        (tmp_path / "compressed").mkdir(exist_ok=True)
+        (tmp_path / "texts").mkdir(exist_ok=True)
         handler._get_config.return_value = cfg
 
         from unittest.mock import patch as mock_patch

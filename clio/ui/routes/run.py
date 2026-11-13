@@ -115,6 +115,7 @@ def _run_rerun_task(context) -> dict[str, Any]:
     input_data = context.input_data
     cfg = _task_config(context)
     cfg.analyze.skip_existing = False
+    confirm_artifact_overwrite = bool(input_data.get("confirm_artifact_overwrite", False))
     video_basename = str(input_data["video_basename"])
     task_name = str(input_data["task"])
     original_video = Path(input_data["original_video"])
@@ -128,7 +129,13 @@ def _run_rerun_task(context) -> dict[str, Any]:
         tracker.log(message)
 
     def _run_voiceover_step() -> Any:
-        return run_generate_scripts(cfg, tracker=tracker, single_file=texts_json, cancel_event=context.cancel_event)
+        return run_generate_scripts(
+            cfg,
+            tracker=tracker,
+            single_file=texts_json,
+            cancel_event=context.cancel_event,
+            confirm_artifact_overwrite=confirm_artifact_overwrite,
+        )
 
     try:
         _log(f"▶ Starting rerun {task_name} — {video_basename}")
@@ -147,7 +154,11 @@ def _run_rerun_task(context) -> dict[str, Any]:
             (
                 "analyze",
                 lambda: run_analyze_all(
-                    cfg, tracker=tracker, single_file=original_video, cancel_event=context.cancel_event
+                    cfg,
+                    tracker=tracker,
+                    single_file=original_video,
+                    cancel_event=context.cancel_event,
+                    confirm_artifact_overwrite=confirm_artifact_overwrite,
                 ),
                 t("task.step.analyze"),
             ),
@@ -614,6 +625,9 @@ def handle_post_rerun(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -
     abspath_value = obj.get("abspath")
     if abspath_value is not None and not isinstance(abspath_value, str):
         return handler._send_json({"ok": False, "error": "abspath must be a string"}, 400)
+    confirm_artifact_overwrite = obj.get("confirm_artifact_overwrite", False)
+    if not isinstance(confirm_artifact_overwrite, bool):
+        return handler._send_json({"ok": False, "error": "confirm_artifact_overwrite must be a boolean"}, 400)
     abspath_raw = (abspath_value or "").strip()
     original_video: Path | None = None
 
@@ -687,6 +701,33 @@ def handle_post_rerun(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -
         if texts_json is None:
             return handler._send_json({"ok": False, "error": f"no analysis result found for {stem}"}, 404)
 
+    artifact_steps: list[str] = []
+    if task in ("analyze", "all"):
+        artifact_steps.append("analyze")
+    if task in ("voiceover", "all"):
+        artifact_steps.append("voiceover")
+    if artifact_steps:
+        artifact_cfg = copy.deepcopy(cfg)
+        artifact_cfg.analyze.skip_existing = False
+        artifact_paths = artifact_overwrite_paths(
+            artifact_cfg,
+            artifact_steps,
+            force=False,
+            use_transcripts=bool(getattr(cfg.plan, "use_transcripts", True)),
+            files=[str(original_video)],
+        )
+        if artifact_paths and not confirm_artifact_overwrite:
+            items = [path.name for path in artifact_paths]
+            return handler._send_json(
+                {
+                    "ok": False,
+                    "code": "artifact_overwrite_confirmation_required",
+                    "error": t("task.artifact.overwrite_confirmation_required", {"items": ", ".join(items)}),
+                    "items": items,
+                },
+                409,
+            )
+
     manager = _managed_task_manager(handler)
     if manager is None:
         return handler._send_json({"ok": False, "error": "task center unavailable"}, 500)
@@ -708,6 +749,7 @@ def handle_post_rerun(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -
                 "video_basename": video_basename,
                 "original_video": str(original_video),
                 "texts_json": str(texts_json) if texts_json is not None else None,
+                "confirm_artifact_overwrite": confirm_artifact_overwrite,
             },
             private_input_data={"_config": cfg},
             input_summary={"task": task, "video": video_basename},
