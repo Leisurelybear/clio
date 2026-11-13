@@ -10,7 +10,7 @@ import threading
 import time
 from collections.abc import Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypedDict
 
@@ -93,6 +93,21 @@ def _capture_date_key(value: str) -> str:
         return ""
 
 
+def _creation_time_utc_date_key(value: str) -> str:
+    """Return the UTC calendar date encoded by a container creation_time."""
+    text = str(value).strip()
+    if not text:
+        return ""
+    iso_text = f"{text[:-1]}+00:00" if text[-1] in "Zz" else text
+    try:
+        parsed = datetime.fromisoformat(iso_text)
+    except ValueError:
+        return ""
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(UTC)
+    return parsed.date().isoformat()
+
+
 def _original_capture_date(original: Path, ffprobe: str) -> str:
     if ffprobe and original.is_file():
         try:
@@ -114,7 +129,7 @@ def _original_capture_date(original: Path, ffprobe: str) -> str:
             if isinstance(format_tags, dict):
                 for key, value in format_tags.items():
                     if key.lower() == "creation_time":
-                        date_key = _capture_date_key(str(value))
+                        date_key = _creation_time_utc_date_key(str(value))
                         if date_key:
                             return date_key
             for stream in probe_data.get("streams") or []:
@@ -122,7 +137,7 @@ def _original_capture_date(original: Path, ffprobe: str) -> str:
                 if isinstance(tags, dict):
                     for key, value in tags.items():
                         if key.lower() == "creation_time":
-                            date_key = _capture_date_key(str(value))
+                            date_key = _creation_time_utc_date_key(str(value))
                             if date_key:
                                 return date_key
         except (OSError, RuntimeError, subprocess.SubprocessError, ValueError, TypeError, json.JSONDecodeError):

@@ -186,6 +186,43 @@ def test_build_day_labels_uses_capture_dates_and_filename_fallback(monkeypatch, 
     assert labels[str(second.resolve())] == "day2"
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("2026-11-08T23:30:00Z", "2026-11-08"),
+        ("2026-11-09T01:30:00+08:00", "2026-11-08"),
+        ("2026-11-09T23:30:00-05:00", "2026-11-10"),
+        ("2026-11-09T01:30:00", "2026-11-09"),
+    ],
+)
+def test_creation_time_utc_date_key(value: str, expected: str):
+    from clio.tasks.analyze import _creation_time_utc_date_key
+
+    assert _creation_time_utc_date_key(value) == expected
+
+
+def test_build_day_labels_uses_utc_creation_date(monkeypatch, tmp_path: Path):
+    from clio.tasks.analyze import _build_day_labels
+
+    cfg = _cfg(tmp_path)
+    first = tmp_path / "local-nov-9.mp4"
+    second = tmp_path / "utc-nov-9.mp4"
+    for path in (first, second):
+        path.write_bytes(b"video")
+
+    def fake_probe(cmd, **kwargs):
+        value = "2026-11-09T01:30:00+08:00" if Path(cmd[-1]) == first else "2026-11-09T12:00:00Z"
+        return type("ProbeResult", (), {"stdout": json.dumps({"format": {"tags": {"creation_time": value}}})})()
+
+    monkeypatch.setattr("clio.tasks.analyze.resolve_binary", lambda *args: "ffprobe")
+    monkeypatch.setattr("clio.tasks.analyze.run_probe", fake_probe)
+
+    labels = _build_day_labels(cfg, [(tmp_path / "001_a.mp4", first, "001"), (tmp_path / "002_b.mp4", second, "002")])
+
+    assert labels[str(first.resolve())] == "day1"
+    assert labels[str(second.resolve())] == "day2"
+
+
 def test_selected_analysis_keeps_project_day_mapping(monkeypatch, tmp_path: Path):
     cfg = _cfg(tmp_path)
     first = _add_original(cfg, "20261108_120000.mp4")
@@ -400,6 +437,33 @@ class TestRunAnalyzeAll:
         records = run_analyze_all(cfg)
         assert len(records) == 1
         assert analyze_called is False
+
+    def test_cached_day_label_is_filled_only_when_empty(self, monkeypatch, tmp_path: Path):
+        cfg = _cfg(tmp_path)
+        _add_original(cfg, "GL010695.mp4")
+        (cfg.compressed_dir / "001_GL010695.mp4").write_bytes(b"video")
+        existing_json = cfg.texts_dir / "001_Test_Clip.json"
+        existing_data = {
+            "title": "Test Clip",
+            "source_file": "GL010695.mp4",
+            "day_label": "custom-day",
+        }
+        existing_json.write_text(json.dumps(existing_data), encoding="utf-8")
+
+        _common_mocks(monkeypatch)
+        monkeypatch.setattr("clio.tasks.analyze._analysis_lineage_fingerprint", lambda *args, **kwargs: "lineage")
+        cfg.analyze.skip_existing = True
+
+        run_analyze_all(cfg)
+        stamped = json.loads(existing_json.read_text(encoding="utf-8"))
+        assert stamped["day_label"] == "custom-day"
+        assert stamped["_lineage"] == "lineage"
+
+        stamped.pop("day_label")
+        existing_json.write_text(json.dumps(stamped), encoding="utf-8")
+        run_analyze_all(cfg)
+
+        assert json.loads(existing_json.read_text(encoding="utf-8"))["day_label"] == "day1"
 
     def test_skip_invalidated_when_lineage_changes(self, monkeypatch, tmp_path: Path):
         """Changing the prompt/model grants a new _lineage and re-analyzes."""
