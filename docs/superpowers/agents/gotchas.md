@@ -144,12 +144,14 @@ See `clio/compress.py`.
 
 ### 9.21 Config Loading Must Not Materialize Defaults
 
-- `load_config()` is read-only unless an explicit versioned migration is required.
+- `load_config()` is read-only except for adding a missing version marker or running an explicit versioned migration.
 - Missing YAML fields use the dataclass defaults in memory; never write current defaults back
   into `config.yaml` or `project.yaml`, because future default changes must reach existing users.
-- Legacy V1 migration remains an explicit write path: back up first, write atomically, and record
-  `config_version: V2`. Do not use a generic loader-time `yaml.dump()` upgrade path, which would
-  silently discard user comments and future-proofing.
+- A versionless global-only config receives only a `config_version: V2` marker; preserve the
+  existing YAML text and comments instead of reserializing it.
+- A true V1 config with project-level fields remains an explicit migration write path: back up
+  first, write atomically, and record `config_version: V2`. Do not use a generic loader-time
+  `yaml.dump()` upgrade path, which would silently discard user comments and future-proofing.
 
 ### 9.22 Sidebar Video Filter: Reset on Source Switch
 

@@ -100,11 +100,57 @@ class TestV1ToV2Migration:
 
     def test_already_v2_skips(self, tmp_path: Path):
         cfg_path = tmp_path / "config.yaml"
-        cfg_path.write_text("config_version: V2\nproxy:\n  enabled: false\n", encoding="utf-8")
+        original = "config_version: V2\nproxy:\n  enabled: false\n"
+        cfg_path.write_text(original, encoding="utf-8")
+
         _migrate_if_needed(cfg_path)
-        # No .bak should exist
+
+        assert cfg_path.read_text(encoding="utf-8") == original
         bak = cfg_path.with_suffix(".yaml.bak")
         assert not bak.is_file()
+
+    def test_versionless_global_only_config_preserves_text_and_comments(self, tmp_path: Path):
+        cfg_path = tmp_path / "config.yaml"
+        original = "# keep this comment\r\nproxy:\r\n  enabled: false\r\n"
+        cfg_path.write_bytes(original.encode("utf-8"))
+
+        _migrate_if_needed(cfg_path)
+
+        expected = "# keep this comment\r\nconfig_version: V2\r\nproxy:\r\n  enabled: false\r\n"
+        assert cfg_path.read_bytes().decode("utf-8") == expected
+        assert not cfg_path.with_suffix(".yaml.bak").exists()
+
+    def test_global_only_v1_replaces_marker_and_preserves_comments(self, tmp_path: Path):
+        cfg_path = tmp_path / "config.yaml"
+        original = "# keep this comment\nconfig_version: V1  # legacy\nproxy:\n  enabled: false\n"
+        cfg_path.write_text(original, encoding="utf-8")
+
+        _migrate_if_needed(cfg_path)
+
+        expected = "# keep this comment\nconfig_version: V2  # legacy\nproxy:\n  enabled: false\n"
+        assert cfg_path.read_text(encoding="utf-8") == expected
+        assert not cfg_path.with_suffix(".yaml.bak").exists()
+
+    def test_versionless_project_config_dispatches_to_split_migration(self, tmp_path: Path):
+        cfg_path = tmp_path / "config.yaml"
+        cfg_path.write_text(
+            yaml.dump(
+                {
+                    "proxy": {"enabled": False},
+                    "compress": {"fps": 30, "target_size_mb": 10},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        _migrate_if_needed(cfg_path)
+
+        global_raw = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+        project_raw = yaml.safe_load((tmp_path / "project.yaml").read_text(encoding="utf-8"))
+        assert global_raw["config_version"] == "V2"
+        assert global_raw["compress"] == {"fps": 30}
+        assert project_raw["compress"] == {"target_size_mb": 10}
+        assert cfg_path.with_suffix(".yaml.bak").is_file()
 
     def test_v1_config_loaded_correctly_after_migration(self, tmp_path: Path):
         cfg_path = tmp_path / "config.yaml"

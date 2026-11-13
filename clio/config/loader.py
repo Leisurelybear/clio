@@ -391,6 +391,41 @@ def _migrate_v1_to_v2(config_path: Path) -> None:
                     pass
 
 
+def _set_v2_marker_without_rewrite(config_path: Path) -> None:
+    """Set a V2 marker without reserializing an existing global-only config."""
+    from clio.utils import write_text_atomic
+
+    with config_path.open(encoding="utf-8", newline="") as config_file:
+        original = config_file.read()
+    lines = original.splitlines(keepends=True)
+    newline = "\r\n" if "\r\n" in original else "\n"
+    marker = f"config_version: {_V2}"
+
+    for index, line in enumerate(lines):
+        if not line.startswith(_CONFIG_VERSION + ":"):
+            continue
+        content = line.rstrip("\r\n")
+        ending = line[len(content) :]
+        comment = re.search(r"\s+#.*$", content)
+        suffix = comment.group(0) if comment else ""
+        lines[index] = marker + suffix + ending
+        write_text_atomic(config_path, "".join(lines))
+        return
+
+    insert_at = len(lines)
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or stripped.startswith("%"):
+            continue
+        insert_at = index + 1 if stripped == "---" else index
+        break
+
+    if insert_at == len(lines) and original and not original.endswith(("\n", "\r")):
+        marker = newline + marker
+    lines.insert(insert_at, marker + newline)
+    write_text_atomic(config_path, "".join(lines))
+
+
 def _migrate_if_needed(config_path: Path) -> None:
     """Check config_version and auto-migrate if V1."""
     if not config_path.is_file():
@@ -398,6 +433,9 @@ def _migrate_if_needed(config_path: Path) -> None:
     raw = _load_yaml_mapping(config_path)
     version = raw.get(_CONFIG_VERSION)
     if version == _V2:
+        return
+    if version in (None, "V1") and not _filter_project_only(raw):
+        _set_v2_marker_without_rewrite(config_path)
         return
     _migrate_v1_to_v2(config_path)
 

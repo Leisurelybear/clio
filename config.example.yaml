@@ -19,6 +19,8 @@
 #   script, plan, export
 #   whisper: enabled, model_size, language, device, max_segments_per_clip, transcripts_subdir, engine
 
+config_version: V2
+
 proxy:
   enabled: false
   url: "socks5://127.0.0.1:1080"

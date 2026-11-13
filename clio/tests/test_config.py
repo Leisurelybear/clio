@@ -559,6 +559,8 @@ class TestLoadConfig:
         assert path is not None
         assert path.is_file()
         assert path.name == "config.example.yaml"
+        example_data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        assert example_data["config_version"] == "V2"
         assert "ai:" in path.read_text(encoding="utf-8")
 
     def test_example_configs_use_reasoning_model_for_vlog_plan(self):
@@ -580,6 +582,7 @@ class TestLoadConfig:
         assert "ai:" in target.read_text(encoding="utf-8")
         assert cfg.compress.fps == 15
         assert cfg.proxy.enabled is False
+        assert not target.with_suffix(".yaml.bak").exists()
 
     def test_missing_file_raises_when_generation_blocked(self, tmp_path):
         blocker = tmp_path / "blocker"
