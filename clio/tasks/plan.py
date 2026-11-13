@@ -324,6 +324,7 @@ def _plan_lineage_fingerprint(
             "prompts": prompts,
             "use_transcripts": transcripts_enabled,
             "max_clips_per_day": getattr(config.plan, "max_clips_per_day", 12),
+            "max_segments": getattr(config.plan, "max_segments", 40),
             "target_duration_sec": getattr(config.plan, "target_duration_sec", 180),
             "max_timeline_rows_per_clip": getattr(config.plan, "max_timeline_rows_per_clip", 8),
             "max_key_moments_per_clip": getattr(config.plan, "max_key_moments_per_clip", 6),

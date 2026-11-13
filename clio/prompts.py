@@ -330,7 +330,8 @@ PLAN_PROMPT = """你是旅行 vlog 剪辑策划。用户以「一天行程 = 一
 capture_time（拍摄时间）和 gps（经纬度）：
 {clips_json}
 
-目标：选出不超过 {max_clips} 个片段，总时长约 {target_duration_sec} 秒，排成有叙事感的顺序。
+目标：最多使用 {max_clips} 个不同素材，最终最多输出 {max_segments} 个片段，
+总时长约 {target_duration_sec} 秒，排成有叙事感的顺序。
 
 选片原则（按优先级）：
 1. **画面质量优先**：优先选择光线充足、画面稳定、构图清晰的片段
@@ -347,6 +348,8 @@ capture_time（拍摄时间）和 gps（经纬度）：
 8. **素材长度**：结合 duration_sec 判断是否值得整段使用，不要只看标题或摘要。
 
 **重要规则：**
+- 不同素材数量不得超过 {max_clips} 个，最终 sequence 片段数不得超过 {max_segments} 个。
+- 同一素材可以拆成多个时间不重叠的 segment；需要开场 3-5 秒钩子、1-3 秒 B-roll 或反应镜头时，优先这样拆分。
 - 每个 segment 的 index 字段必须精确匹配素材列表中某个素材的 index 值，不要自行编造序号。
   index 是引用素材的键，不是输出序号。
 - 每个 segment 的 use_timeline 必须从该素材 timeline 的真实时间范围内选取（如 "00:10-00:45"），
@@ -408,11 +411,12 @@ PLAN_OUTLINE_PROMPT = """你是旅行 vlog 剪辑策划。先不要直接排定�
 当天素材摘要（JSON 数组）：
 {clips_json}
 
-目标：把素材组织成一条有起承转合的日度 vlog，最终最多选择 {max_clips} 个片段，
-总时长约 {target_duration_sec} 秒。
+目标：把素材组织成一条有起承转合的日度 vlog。最多使用 {max_clips} 个不同素材，
+最终最多输出 {max_segments} 个片段，总时长约 {target_duration_sec} 秒。
 
 ## 大纲要求
-- beats 必须按播放顺序排列，数量不超过 {max_clips}；通常为 4-8 个，片段上限较小时按上限收敛
+- beats 必须按播放顺序排列，数量不超过 {max_segments}；通常为 4-8 个，片段上限较小时按上限收敛
+- 不同 candidate 素材总数不得超过 {max_clips}；同一素材可在多个 beat 中复用，以支持 3-5 秒钩子和 1-3 秒 B-roll
 - 每个 beat 明确 narrative_beat、叙事作用、目标时长，以及 1-3 个 candidate_indices
 - candidate_indices 必须原样引用素材 JSON 中存在的 index，不得编造
 - 优先从 timeline[].score 为 4-5、quality 为 ok、key_moments 附近的区间选候选
@@ -454,7 +458,8 @@ PLAN_REVIEW_PROMPT = """你是旅行 vlog 的剪辑规划复审员。请检查�
 {clips_json}
 
 ## 规划约束
-- 最多 {max_clips} 个片段，总时长尽量接近 {target_duration_sec} 秒
+- 最多使用 {max_clips} 个不同素材，最终 sequence 最多 {max_segments} 个片段，总时长尽量接近 {target_duration_sec} 秒
+- 同一素材可拆成多个不重叠片段；优先用短切点构造 3-5 秒钩子和 1-3 秒 B-roll，而不是删除这些镜头
 - 每个 index 必须来自素材列表；每个 use_timeline 必须落在该素材真实 timeline 内
 - 同一素材的多个 use_timeline 不得重叠
 - 检查叙事是否完整、开场是否有钩子、结尾是否收束、节奏是否合理

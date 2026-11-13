@@ -939,8 +939,25 @@ def _build_plan_transcript_info(
     return info
 
 
-def _validate_plan_ranges(result: dict, clips: list[dict], max_clips: int, target_duration_sec: float) -> dict:
-    """Filter impossible plan segments and normalize the reported duration."""
+def _cap_plan_segments(valid: list[dict], limit: int) -> list[dict]:
+    """Keep both story edges when a sequence exceeds its segment budget."""
+    if limit <= 0 or len(valid) <= limit:
+        return valid
+    head_count = (limit + 1) // 2
+    tail_count = limit - head_count
+    head = valid[:head_count]
+    tail = valid[-tail_count:] if tail_count else []
+    return head + tail
+
+
+def _validate_plan_ranges(
+    result: dict,
+    clips: list[dict],
+    max_clips: int,
+    target_duration_sec: float,
+    max_segments: int = 0,
+) -> dict:
+    """Filter invalid plan segments and enforce source and segment budgets."""
     by_index: dict[int | str, list[tuple[float, float]]] = {}
     for clip in clips:
         raw = clip.get("index")
@@ -974,15 +991,24 @@ def _validate_plan_ranges(result: dict, clips: list[dict], max_clips: int, targe
 
     if dropped:
         print(t("analyze.plan_dropped_timeline", {"count": dropped}))
-    if max_clips > 0 and len(valid) > max_clips:
-        print(t("analyze.plan_max_clips", {"max": max_clips}))
-        # Keep both the opening and the ending so a model overproducing
-        # segments does not silently remove the story's conclusion.
-        head_count = (max_clips + 1) // 2
-        tail_count = max_clips - head_count
-        head = valid[:head_count]
-        tail = valid[-tail_count:] if tail_count else []
-        valid = head + tail
+    if max_clips > 0:
+        source_order = list(dict.fromkeys(_plan_index_key(segment.get("index")) for segment in valid))
+        if len(source_order) > max_clips:
+            print(
+                t(
+                    "analyze.plan_max_clips",
+                    {"max": max_clips, "sources": len(source_order), "kept": max_clips},
+                )
+            )
+            head_count = (max_clips + 1) // 2
+            tail_count = max_clips - head_count
+            kept_sources = set(source_order[:head_count])
+            if tail_count:
+                kept_sources.update(source_order[-tail_count:])
+            valid = [segment for segment in valid if _plan_index_key(segment.get("index")) in kept_sources]
+    if max_segments > 0 and len(valid) > max_segments:
+        print(t("analyze.plan_max_segments", {"max": max_segments, "actual": len(valid)}))
+        valid = _cap_plan_segments(valid, max_segments)
 
     total = 0.0
     for segment in valid:
@@ -1487,6 +1513,7 @@ def plan_daily_vlog(
     outline_template = resolve_prompt_template("plan_outline", PLAN_OUTLINE_PROMPT, config, task_prompts=task_prompts)
     review_template = resolve_prompt_template("plan_review", PLAN_REVIEW_PROMPT, config, task_prompts=task_prompts)
     max_clips = int(getattr(config.plan, "max_clips_per_day", 0) or 0)
+    max_segments = int(getattr(config.plan, "max_segments", 40) or 0)
     target_duration_sec = float(getattr(config.plan, "target_duration_sec", 0) or 0)
     system = _system_context(config)
 
@@ -1580,6 +1607,7 @@ def plan_daily_vlog(
             plan_template,
             clips_json=clips_json,
             max_clips=max_clips,
+            max_segments=max_segments,
             target_duration_sec=target_duration_sec,
             example_index=example_index,
         )
@@ -1618,6 +1646,7 @@ def plan_daily_vlog(
             outline_template,
             clips_json=clips_json,
             max_clips=max_clips,
+            max_segments=max_segments,
             target_duration_sec=target_duration_sec,
         )
         outline_prompt = _wrap_with_context(
@@ -1652,6 +1681,7 @@ def plan_daily_vlog(
                 draft_json=json.dumps(candidate, ensure_ascii=False, indent=None),
                 validation_issues=issue_text,
                 max_clips=max_clips,
+                max_segments=max_segments,
                 target_duration_sec=target_duration_sec,
             )
             return _wrap_with_context(
@@ -1670,6 +1700,7 @@ def plan_daily_vlog(
                     selected_validation_clips,
                     max_clips,
                     target_duration_sec,
+                    max_segments,
                 )
                 issues = _plan_validation_issues(result, selected_validation_clips, target_duration_sec)
             return result, issues
@@ -1691,7 +1722,7 @@ def plan_daily_vlog(
             outline_payload = extract_json(
                 call_stage(t("analyze.label.vlog_plan_outline"), outline_prompt, VLOG_PLAN_OUTLINE_OUTPUT)
             )
-            outline = _normalize_plan_outline(outline_payload, selected_clips, max_beats=max_clips)
+            outline = _normalize_plan_outline(outline_payload, selected_clips, max_beats=max_segments)
         except ValueError:
             pass
         if outline is None:

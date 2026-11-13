@@ -763,7 +763,7 @@ class TestHandleGetConfigProject:
                     },
                     "analyze": {"skip_existing": True},
                     "script": {"target_words": 300},
-                    "plan": {"max_clips_per_day": 5},
+                    "plan": {"max_clips_per_day": 5, "max_segments": 30},
                     "export": {"canvas_ratio": "9:16"},
                 }
             ),
@@ -788,6 +788,7 @@ class TestHandleGetConfigProject:
         assert payload["analyze"]["skip_existing"] is True
         assert payload["script"]["target_words"] == 300
         assert payload["plan"]["max_clips_per_day"] == 5
+        assert payload["plan"]["max_segments"] == 30
         assert payload["export"]["canvas_ratio"] == "9:16"
         assert "ffmpeg" not in payload["paths"]
         assert "logs_dir" not in payload["paths"]
@@ -821,6 +822,7 @@ class TestHandleGetConfigProject:
         payload = handler._send_json.call_args[0][0]
         assert "plan" in payload
         assert payload["plan"]["max_clips_per_day"] == 12
+        assert payload["plan"]["max_segments"] == 40
         assert payload["plan"]["target_duration_sec"] == 180
         assert payload["plan"]["use_transcripts"] is True
         assert "analyze" in payload

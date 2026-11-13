@@ -22,9 +22,9 @@ PROMPT_PLACEHOLDERS: dict[str, set[str]] = {
         "opening_tip",
         "ending_tip",
     },
-    "vlog_plan": {"clips_json", "max_clips", "target_duration_sec", "example_index"},
+    "vlog_plan": {"clips_json", "max_clips", "max_segments", "target_duration_sec", "example_index"},
     "vlog_plan_shortlist": {"cards_json", "max_candidates"},
-    "plan_outline": {"clips_json", "max_clips", "target_duration_sec"},
+    "plan_outline": {"clips_json", "max_clips", "max_segments", "target_duration_sec"},
     "plan_outline_context": {"outline_json"},
     "transition_review": {"pairs_json"},
     "plan_review": {
@@ -32,6 +32,7 @@ PROMPT_PLACEHOLDERS: dict[str, set[str]] = {
         "draft_json",
         "validation_issues",
         "max_clips",
+        "max_segments",
         "target_duration_sec",
     },
     "refine_text": {"existing_json"},
@@ -42,6 +43,14 @@ PROMPT_PLACEHOLDERS: dict[str, set[str]] = {
     "refine_script": {"analysis_json", "existing_json"},
     "refine_script_fix": {"fix_instruction", "analysis_json", "existing_json"},
     "transcript_context": {"transcripts_json"},
+}
+
+PROMPT_OPTIONAL_PLACEHOLDERS: dict[str, set[str]] = {
+    # Added after custom prompt overrides already existed. Keep these
+    # available to new templates without invalidating older ones.
+    "vlog_plan": {"max_segments"},
+    "plan_outline": {"max_segments"},
+    "plan_review": {"max_segments"},
 }
 
 PROMPT_ALIASES: dict[str, tuple[str, ...]] = {
@@ -89,7 +98,8 @@ def validate_prompt_template(prompt_name: str, prompt_template: str, available: 
         used = _used_placeholders(prompt_template)
     except _PromptFormatError as exc:
         raise ValueError(f"Prompt '{prompt_name}' has invalid placeholder syntax: {exc}") from exc
-    missing = sorted(available_placeholders - used)
+    optional = PROMPT_OPTIONAL_PLACEHOLDERS.get(prompt_name, set())
+    missing = sorted(available_placeholders - optional - used)
     unknown = sorted(used - available_placeholders)
     if missing:
         fields = ", ".join(f"{{{name}}}" for name in missing)

@@ -43,7 +43,8 @@ export async function _loadConfigSchema() {
 export const FIELD_LABELS = {
   // plan
   'plan.plans_subdir': '规划子目录',
-  'plan.max_clips_per_day': '每日最多片段数',
+  'plan.max_clips_per_day': '每日最多素材数',
+  'plan.max_segments': '每日最多片段数',
   'plan.target_duration_sec': '目标时长（秒）',
   'plan.use_transcripts': '注入语音转录',
   // analyze

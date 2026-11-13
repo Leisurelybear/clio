@@ -36,7 +36,12 @@ def _fake_config(context: str = "", context_override: str | None = None) -> AppC
         AppConfig,
         SimpleNamespace(
             ai=SimpleNamespace(context=context, debug_print_prompt=False),
-            plan=SimpleNamespace(max_clips_per_day=10, target_duration_sec=300, max_candidate_clips=60),
+            plan=SimpleNamespace(
+                max_clips_per_day=10,
+                max_segments=40,
+                target_duration_sec=300,
+                max_candidate_clips=60,
+            ),
             script=SimpleNamespace(target_words=150),
             whisper=SimpleNamespace(max_segments_per_clip=5),
             paths=SimpleNamespace(input_dir=Path("/tmp")),
@@ -904,7 +909,7 @@ def test_merge_refinement_accepts_complete_timeline_replacement():
     assert merged["timeline"] == replacement
 
 
-def test_validate_plan_ranges_caps_segments_and_recomputes_duration():
+def test_validate_plan_ranges_caps_distinct_sources_and_recomputes_duration():
     clips = [
         {"index": "001", "timeline": [{"start": "00:00", "end": "00:20"}]},
         {"index": "002", "timeline": [{"start": "00:00", "end": "00:20"}]},
@@ -923,7 +928,52 @@ def test_validate_plan_ranges_caps_segments_and_recomputes_duration():
     assert validated["total_estimated_sec"] == 10.0
 
 
-def test_validate_plan_ranges_preserves_opening_and_ending_when_capped():
+def test_validate_plan_ranges_allows_multiple_segments_from_one_source():
+    clips = [{"index": "001", "timeline": [{"start": "00:00", "end": "00:20"}]}]
+    result = {
+        "sequence": [
+            {"index": "001", "use_timeline": "00:00-00:03"},
+            {"index": "001", "use_timeline": "00:04-00:05"},
+            {"index": "001", "use_timeline": "00:08-00:12"},
+        ]
+    }
+
+    validated = _validate_plan_ranges(result, clips, max_clips=1, target_duration_sec=180)
+
+    assert [segment["use_timeline"] for segment in validated["sequence"]] == [
+        "00:00-00:03",
+        "00:04-00:05",
+        "00:08-00:12",
+    ]
+    assert validated["total_estimated_sec"] == 8.0
+
+
+def test_validate_plan_ranges_caps_final_segment_count_independently():
+    clips = [{"index": "001", "timeline": [{"start": "00:00", "end": "00:20"}]}]
+    result = {
+        "sequence": [
+            {"index": "001", "use_timeline": "00:00-00:03"},
+            {"index": "001", "use_timeline": "00:04-00:05"},
+            {"index": "001", "use_timeline": "00:08-00:12"},
+        ]
+    }
+
+    validated = _validate_plan_ranges(
+        result,
+        clips,
+        max_clips=1,
+        target_duration_sec=180,
+        max_segments=2,
+    )
+
+    assert [segment["use_timeline"] for segment in validated["sequence"]] == [
+        "00:00-00:03",
+        "00:08-00:12",
+    ]
+    assert validated["total_estimated_sec"] == 7.0
+
+
+def test_validate_plan_ranges_preserves_opening_and_ending_sources_when_capped():
     clips = [{"index": str(index), "timeline": [{"start": "00:00", "end": "00:20"}]} for index in range(1, 5)]
     result = {"sequence": [{"index": str(index), "use_timeline": "00:00-00:05"} for index in range(1, 5)]}
 
@@ -1438,6 +1488,7 @@ class TestPlanDailyVlog:
         responses = [json.dumps(outline), json.dumps(draft), json.dumps(review)]
         cfg = _fake_config()
         cfg.plan.max_clips_per_day = 2
+        cfg.plan.max_segments = 2
         cfg.plan.target_duration_sec = 10
         monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (MagicMock(), "model"))
         monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, cfg, **kw: prompt)

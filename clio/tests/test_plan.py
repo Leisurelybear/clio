@@ -284,6 +284,7 @@ class TestPlanLineageFingerprint:
         ("field", "value"),
         [
             ("max_clips_per_day", 8),
+            ("max_segments", 20),
             ("target_duration_sec", 240),
             ("max_timeline_rows_per_clip", 3),
             ("max_key_moments_per_clip", 3),

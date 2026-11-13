@@ -537,14 +537,14 @@ Supported files and required placeholders:
 |---|---|
 | `video_analyze.md` | none |
 | `voiceover.md` | `{index}`, `{title}`, `{summary}`, `{location}`, `{timeline_text}`, `{template}`, `{target_words}` |
-| `vlog_plan.md` | `{clips_json}`, `{max_clips}`, `{target_duration_sec}`, `{example_index}` |
+| `vlog_plan.md` | `{clips_json}`, `{max_clips}`, `{target_duration_sec}`, `{example_index}`; `{max_segments}` is optional for legacy overrides |
 | `refine_text.md` | `{existing_json}` |
 | `refine_text_fix.md` | `{fix_instruction}`, `{existing_json}` |
 | `refine_script.md` | `{analysis_json}`, `{existing_json}` |
 | `refine_script_fix.md` | `{fix_instruction}`, `{analysis_json}`, `{existing_json}` |
 | `transcript_context.md` | `{transcripts_json}` |
 
-Missing or unknown placeholders fail before the AI request. Use `{{` and `}}` for literal JSON braces inside custom prompt files.
+Missing required or unknown placeholders fail before the AI request. Optional placeholders may be omitted by legacy overrides. Use `{{` and `}}` for literal JSON braces inside custom prompt files.
 
 For prompt experiments, prefer creating an override file instead of editing `clio/prompts.py`; deleting the override restores the built-in prompt.
 

@@ -638,7 +638,7 @@ class TestLoadConfig:
             "media_resolution": "high",
         }
         raw["script"] = {"target_words": "100"}
-        raw["plan"] = {"max_clips_per_day": "6", "use_transcripts": "false"}
+        raw["plan"] = {"max_clips_per_day": "6", "max_segments": "9", "use_transcripts": "false"}
         raw["whisper"] = {"enabled": "false", "max_segments_per_clip": "3"}
         raw["preview"] = {"subtitles": {"max_lines": "3", "pos_x": "25"}}
         (tmp_config / "project.yaml").write_text(yaml.safe_dump(raw), encoding="utf-8")
@@ -654,6 +654,7 @@ class TestLoadConfig:
         assert cfg.analyze.media_resolution == "high"
         assert cfg.script.target_words == 100
         assert cfg.plan.max_clips_per_day == 6
+        assert cfg.plan.max_segments == 9
         assert cfg.plan.use_transcripts is False
         assert cfg.whisper.enabled is False
         assert cfg.whisper.max_segments_per_clip == 3

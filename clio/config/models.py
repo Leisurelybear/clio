@@ -80,7 +80,8 @@ class ScriptConfig:
 @dataclass
 class PlanConfig:
     plans_subdir: str = "plans"
-    max_clips_per_day: int = 12
+    max_clips_per_day: int = 12  # maximum distinct source clips used in one daily vlog
+    max_segments: int = 40  # maximum final timeline segments, including multiple cuts per source
     target_duration_sec: int = 180
     use_transcripts: bool = True
     max_timeline_rows_per_clip: int = 8

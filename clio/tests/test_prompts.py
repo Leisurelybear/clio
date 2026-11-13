@@ -9,7 +9,9 @@ import pytest
 from clio.prompt_overrides import PROMPT_PLACEHOLDERS, validate_prompt_template
 from clio.prompts import (
     ANALYZE_PROMPT,
+    PLAN_OUTLINE_PROMPT,
     PLAN_PROMPT,
+    PLAN_REVIEW_PROMPT,
     PLAN_SHORTLIST_PROMPT,
     REFINE_SCRIPT_FIX_PROMPT,
     REFINE_SCRIPT_PROMPT,
@@ -159,6 +161,15 @@ def test_plan_prompt_enforces_short_hook_broll_and_narrative_beats():
     assert "1-3 秒 B-roll" in PLAN_PROMPT
     assert "narrative_beat" in PLAN_PROMPT
     assert "transition" in PLAN_PROMPT
+
+
+def test_planning_prompts_separate_source_and_segment_limits():
+    for prompt in (PLAN_PROMPT, PLAN_OUTLINE_PROMPT, PLAN_REVIEW_PROMPT):
+        assert "{max_clips}" in prompt
+        assert "{max_segments}" in prompt
+        assert "不同素材" in prompt
+    assert "同一素材可以拆成多个时间不重叠的 segment" in PLAN_PROMPT
+    assert "同一素材的多个 use_timeline 不得重叠" in PLAN_REVIEW_PROMPT
 
 
 def test_script_prompt_binds_to_timeline_details():

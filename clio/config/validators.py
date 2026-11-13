@@ -219,6 +219,7 @@ def _validate_config(config: AppConfig) -> None:
     _require_max("compress.crf", config.compress.crf, 51)
     _require_min("script.target_words", config.script.target_words, 1)
     _require_min("plan.max_clips_per_day", config.plan.max_clips_per_day, 1)
+    _require_min("plan.max_segments", config.plan.max_segments, 1)
     _require_min("plan.target_duration_sec", config.plan.target_duration_sec, 1)
     _require_min("plan.max_timeline_rows_per_clip", config.plan.max_timeline_rows_per_clip, 0)
     _require_min("plan.max_key_moments_per_clip", config.plan.max_key_moments_per_clip, 0)

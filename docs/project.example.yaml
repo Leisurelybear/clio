@@ -57,7 +57,8 @@ script:
 
 plan:
   plans_subdir: plans
-  max_clips_per_day: 12
+  max_clips_per_day: 12          # maximum distinct source clips used per day
+  max_segments: 40               # maximum final timeline segments across those sources
   target_duration_sec: 180
   max_timeline_rows_per_clip: 8  # 0 = do not truncate detailed analysis rows
   max_key_moments_per_clip: 6    # 0 = do not truncate highlights/key moments

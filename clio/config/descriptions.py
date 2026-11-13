@@ -73,7 +73,8 @@ CONFIG_DESCRIPTIONS: dict[str, str] = {
     "script.target_words": "单条口播文案的字数上限；短素材会按 timeline 时长自动缩短",
     # plan
     "plan.plans_subdir": "剪辑规划存放的子目录名",
-    "plan.max_clips_per_day": "每日 vlog 最大片段数",
+    "plan.max_clips_per_day": "每日 vlog 最多使用的不同素材数（同一素材可拆成多个不重叠片段）",
+    "plan.max_segments": "每日 vlog 最终 sequence 的最大片段数，包含同一素材的多个切片",
     "plan.target_duration_sec": "每日 vlog 目标时长（秒）",
     "plan.use_transcripts": "规划时是否注入语音转录内容作为参考",
     "plan.max_timeline_rows_per_clip": "每个素材注入规划的最多时间轴行数（0=不限制）",

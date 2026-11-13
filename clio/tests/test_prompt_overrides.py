@@ -101,6 +101,53 @@ class TestPromptResolver:
         with pytest.raises(ValueError, match=r"voiceover.*missing.*\{title\}"):
             format_prompt_template("voiceover", "Only {index}", index="001", title="Paris")
 
+    @pytest.mark.parametrize(
+        ("prompt_name", "template", "values"),
+        [
+            (
+                "vlog_plan",
+                "{clips_json} {max_clips} {target_duration_sec} {example_index}",
+                {
+                    "clips_json": "[]",
+                    "max_clips": "12",
+                    "max_segments": "40",
+                    "target_duration_sec": "180",
+                    "example_index": "001",
+                },
+            ),
+            (
+                "plan_outline",
+                "{clips_json} {max_clips} {target_duration_sec}",
+                {
+                    "clips_json": "[]",
+                    "max_clips": "12",
+                    "max_segments": "40",
+                    "target_duration_sec": "180",
+                },
+            ),
+            (
+                "plan_review",
+                "{clips_json} {draft_json} {validation_issues} {max_clips} {target_duration_sec}",
+                {
+                    "clips_json": "[]",
+                    "draft_json": "{}",
+                    "validation_issues": "none",
+                    "max_clips": "12",
+                    "max_segments": "40",
+                    "target_duration_sec": "180",
+                },
+            ),
+        ],
+    )
+    def test_legacy_plan_prompts_without_optional_max_segments_remain_compatible(
+        self, prompt_name: str, template: str, values: dict[str, str]
+    ):
+        from clio.prompt_overrides import format_prompt_template
+
+        rendered = format_prompt_template(prompt_name, template, **values)
+
+        assert "40" not in rendered
+
     def test_unknown_placeholder_fails_before_formatting(self):
         from clio.prompt_overrides import format_prompt_template
 
