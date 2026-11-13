@@ -11,8 +11,8 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | Priority | Total | Fixed | Satisfied | In progress | Confirmed | Environment verification | Duplicate | Not applicable | Pending audit |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P1 | 35 | 19 | 15 | 0 | 0 | 0 | 0 | 0 | 1 |
-| P2 | 59 | 2 | 12 | 0 | 0 | 0 | 0 | 0 | 45 |
+| P1 | 35 | 20 | 15 | 0 | 0 | 0 | 0 | 0 | 0 |
+| P2 | 59 | 3 | 12 | 0 | 0 | 0 | 0 | 0 | 44 |
 | P3 | 14 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 10 |
 
 ## Item status
@@ -61,7 +61,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 040 | P1 | Q5 | 未用 fps、偏移和 media_resolution | Satisfied | Satisfied; media resolution/window metadata implemented (`304acd3`). |
 | 041 | P1 | Q4 | 拍摄时间与 GPS 默认不用 | Satisfied | Satisfied; GPMF defaults are enabled (`7189ede`). |
 | 042 | P1 | F2 | 只统计 token, 没有费用与版本 | Satisfied | Existing calls record provider, model, prompt-version hash, split token counts, and estimated USD cost; the token pane exposes provider, prompt version, and cost. Focused: 18 token-usage tests passed. |
-| 043 | P1 | OPT-018 | 单视频重跑 (clio/ui/routes/run.py:113-196) 自己维护一套步骤表, 与 pipeline_STEP_FUNCS 平行 | Pending audit |  |
+| 043 | P1 | OPT-018 | 单视频重跑 (clio/ui/routes/run.py:113-196) 自己维护一套步骤表, 与 pipeline_STEP_FUNCS 平行 | Fixed | `b1d24df` derives `SINGLE_VIDEO_RERUN_STEPS` from `PIPELINE_STEPS` and drives reruns through step runner/label maps. Focused: 107 pytest cases passed; Ruff passed. |
 | 044 | P1 | O17 | AGENTS.md 过长 | Satisfied | Satisfied; documentation split completed. |
 | 045 | P2 | R003 | Origin/Host 校验和 JSON Content-Type 强制只在本机模式开启; LAN 模式全部关闭 | Pending audit |  |
 | 046 | P2 | O15 | 手工转义; 首页无安全响应头 | Satisfied | Satisfied; escaping/security headers completed (`a97bf4d`, `7390edd`). |
@@ -72,7 +72,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 051 | P2 | E12 | 输出不是 JSON 时 extract_json 直接抛出, 不进入重试 | Pending audit |  |
 | 052 | P2 | E14 | 过时片段的备份只在全部成功时删除 | Pending audit |  |
 | 053 | P2 | E15 | 窗口切片的两条重编码回退仍带 -an; 大小上限写死 200 MB | Pending audit |  |
-| 054 | P2 | E17 | 单视频"全部重跑"仍是 压缩 → 分析 → 口播 → 转录 | Pending audit |  |
+| 054 | P2 | E17 | 单视频"全部重跑"仍是 压缩 → 分析 → 口播 → 转录 | Fixed | `b1d24df` now runs `all` in `compress -> transcribe -> analyze -> voiceover` order, with regression coverage for the canonical rerun sequence. Focused: 107 pytest cases passed; Ruff passed. |
 | 055 | P2 | E18 | 删除 plan 只删 .json, 留下 .md, 用户编辑版不备份 | Pending audit |  |
 | 056 | P2 | E19 | 规划默认用推理模型并带 temperature, 超时 120 秒 | Pending audit |  |
 | 057 | P2 | R016 | 只读取 prompt_feedback.block_reason; 候选级 finish_reason=SAFETY/RECITATION 且文本为空时仍报"JSON 解析失败" | Fixed | Empty candidates now surface blocking finish reasons (including SAFETY and RECITATION) as `block_reason` instead of falling through to JSON parsing. Focused: 69 Gemini provider tests passed. |
