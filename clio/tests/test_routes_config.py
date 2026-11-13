@@ -1227,7 +1227,7 @@ class TestHandlePutConfigProject:
         data = yaml.safe_load(proj_yaml.read_text(encoding="utf-8"))
         assert data["compress"]["target_size_mb"] == 10
 
-    def test_updates_existing_project_yaml(self, tmp_path: Path):
+    def test_replaces_existing_project_yaml_without_materializing_defaults(self, tmp_path: Path):
         handler = MagicMock()
         cfg = tmp_path / "config.yaml"
         cfg.write_text(yaml.dump({"paths": {"input_dir": "./in", "output_dir": "./out"}}), encoding="utf-8")
@@ -1242,8 +1242,7 @@ class TestHandlePutConfigProject:
         handler._send_json = MagicMock()
         handle_put_config_project(handler, {}, {"compress": {"max_width": 1920}})
         data = yaml.safe_load(proj_yaml.read_text(encoding="utf-8"))
-        assert data["compress"]["target_size_mb"] == 5
-        assert data["compress"]["max_width"] == 1920
+        assert data == {"compress": {"max_width": 1920}}
 
     def test_coerces_quoted_numbers_from_client(self, tmp_path: Path):
         """The settings UI used to send select_or_number values as strings."""
