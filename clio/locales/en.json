@@ -935,5 +935,7 @@
   "run.step.consistency.label": "Canonicalize entities and duplicate scenes",
   "run.step.consistency.hint": "Review all same-day clips for naming and duplicate shots",
   "run.step_short.consistency": "Consistency",
-  "run.skip_hint.consistency": "The same-day report is current"
+  "run.skip_hint.consistency": "The same-day report is current",
+  "ai.provider_test_insecure_url": "Provider connection tests require HTTPS or a loopback HTTP URL.",
+  "ai.provider_test_unsafe_key_env": "Provider '{provider}' uses an unsafe API-key environment variable; expected {expected}."
 }

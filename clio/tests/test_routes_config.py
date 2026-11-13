@@ -100,7 +100,7 @@ class TestProviderCrud:
                 {
                     "name": "myprovider",
                     "type": "openai_compat",
-                    "api_key_env": "MY_KEY",
+                    "api_key_env": "MYPROVIDER_API_KEY",
                     "base_url": "https://example.com/v1",
                     "models": ["model-a"],
                 },
@@ -112,6 +112,27 @@ class TestProviderCrud:
         saved = yaml.safe_load(config_path.read_text(encoding="utf-8"))
         assert saved["ai"]["providers"]["myprovider"]["type"] == "openai_compat"
         assert saved["ai"]["providers"]["myprovider"]["api_key"] == ""
+
+    def test_post_provider_rejects_noncanonical_key_env(self, tmp_path):
+        config_path = _write_provider_config(tmp_path)
+        handler = self._handler(config_path)
+        before = config_path.read_text(encoding="utf-8")
+
+        handle_post_provider(
+            handler,
+            {},
+            {
+                "name": "myprovider",
+                "type": "openai_compat",
+                "api_key_env": "OTHER_API_KEY",
+                "base_url": "https://example.com/v1",
+                "models": ["model-a"],
+            },
+        )
+
+        assert handler._send_json.call_args[0][1] == 400
+        assert "MYPROVIDER_API_KEY" in handler._send_json.call_args[0][0]["error"]
+        assert config_path.read_text(encoding="utf-8") == before
 
     def test_post_provider_coerces_numeric_strings(self, tmp_path):
         from unittest.mock import patch as mock_patch
@@ -192,6 +213,40 @@ class TestProviderCrud:
         assert payload["ok"] is True, payload
         saved = yaml.safe_load(config_path.read_text(encoding="utf-8"))
         assert saved["ai"]["providers"]["openai"]["models"] == ["new-model"]
+
+    def test_put_rejects_credential_retarget_without_reentered_key(self, tmp_path, monkeypatch):
+        config_path = _write_provider_config(tmp_path)
+        handler = self._handler(config_path)
+        before = config_path.read_text(encoding="utf-8")
+        monkeypatch.setenv("OPENAI_API_KEY", "shell-secret")
+
+        handle_put_provider(handler, {}, {"base_url": "https://attacker.example/v1"}, "openai")
+
+        assert handler._send_json.call_args[0][1] == 400
+        assert "re-enter the current API key" in handler._send_json.call_args[0][0]["error"]
+        assert config_path.read_text(encoding="utf-8") == before
+
+    def test_put_allows_credential_retarget_with_matching_reentered_key(self, tmp_path, monkeypatch):
+        from unittest.mock import patch as mock_patch
+
+        config_path = _write_provider_config(tmp_path)
+        handler = self._handler(config_path)
+        monkeypatch.setenv("OPENAI_API_KEY", "shell-secret")
+
+        with mock_patch("clio.ui.routes.config_routes.load_global_config"):
+            handle_put_provider(
+                handler,
+                {},
+                {"base_url": "https://gateway.example/v1", "api_key": "shell-secret"},
+                "openai",
+            )
+
+        payload = handler._send_json.call_args[0][0]
+        assert payload["ok"] is True, payload
+        saved = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        stored = saved["ai"]["providers"]["openai"]
+        assert stored["base_url"] == "https://gateway.example/v1"
+        assert stored["api_key"] == ""
 
     def test_put_invalid_name_rejected(self, tmp_path):
         config_path = _write_provider_config(tmp_path)
@@ -815,6 +870,22 @@ class TestHandlePutConfigGlobal:
             i18n.set_active_locale(None)
             handler.__class__._config_cache = MagicMock()
 
+    def test_rejects_provider_credential_retarget_without_reentered_key(self, tmp_path: Path, monkeypatch):
+        cfg = _write_provider_config(tmp_path)
+        before = cfg.read_text(encoding="utf-8")
+        monkeypatch.setenv("OPENAI_API_KEY", "shell-secret")
+        handler = MagicMock()
+        handler.config_path = cfg
+        handler._send_json = MagicMock()
+        body = yaml.safe_load(before)
+        body["ai"]["providers"]["openai"]["base_url"] = "https://attacker.example/v1"
+
+        handle_put_config_global(handler, {}, body)
+
+        assert handler._send_json.call_args[0][1] == 400
+        assert "re-enter the current API key" in handler._send_json.call_args[0][0]["error"]
+        assert cfg.read_text(encoding="utf-8") == before
+
     def test_writes_to_config_yaml(self, tmp_path: Path):
         handler = MagicMock()
         cfg = tmp_path / "config.yaml"
@@ -1090,6 +1161,24 @@ class TestHandlePutConfigRawApiKey:
         assert stored != "********"
         assert stored != "sk-live-real-secret"
         assert stored in ("", None)
+
+    def test_put_raw_global_rejects_credential_retarget_without_proof(self, tmp_path: Path, monkeypatch):
+        cfg = _write_provider_config(tmp_path)
+        before = cfg.read_text(encoding="utf-8")
+        monkeypatch.setenv("OPENAI_API_KEY", "shell-secret")
+        handler = MagicMock()
+        handler.config_path = cfg
+        handler.project_dir = tmp_path
+        handler._resolve_project_dir.return_value = tmp_path
+        handler._send_json = MagicMock()
+        body = yaml.safe_load(before)
+        body["ai"]["providers"]["openai"]["base_url"] = "https://attacker.example/v1"
+
+        handle_put_config_raw(handler, {}, body)
+
+        assert handler._send_json.call_args[0][1] == 400
+        assert "re-enter the current API key" in handler._send_json.call_args[0][0]["error"]
+        assert cfg.read_text(encoding="utf-8") == before
 
 
 class TestHandlePutConfigProject:

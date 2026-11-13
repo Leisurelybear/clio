@@ -935,5 +935,7 @@
   "run.step.consistency.label": "统一实体与重复场景",
   "run.step.consistency.hint": "汇总当天素材，统一命名并标记重复拍摄",
   "run.step_short.consistency": "一致性",
-  "run.skip_hint.consistency": "当天报告已是最新"
+  "run.skip_hint.consistency": "当天报告已是最新",
+  "ai.provider_test_insecure_url": "Provider 连接测试仅允许 HTTPS 或回环地址。",
+  "ai.provider_test_unsafe_key_env": "Provider '{provider}' 的 API Key 环境变量不安全；应使用 {expected}。"
 }

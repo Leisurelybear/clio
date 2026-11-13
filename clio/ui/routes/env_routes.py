@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 import yaml
 
 from clio.ai.factory import _clear_provider_cache
+from clio.ai.provider_security import is_provider_key_env_name
 from clio.config import _load_dotenv
 from clio.config.loader import parse_dotenv
 from clio.i18n import t
@@ -61,7 +62,7 @@ def _allowed_env_names(handler: HandlerProtocol) -> set[str]:
             if not isinstance(provider, dict):
                 continue
             name = provider.get("api_key_env")
-            if isinstance(name, str) and _ENV_NAME_RE.fullmatch(name):
+            if isinstance(name, str) and is_provider_key_env_name(name):
                 allowed.add(name)
     return allowed
 
@@ -112,9 +113,9 @@ def handle_get_env(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
             text = template_path.read_text(encoding="utf-8")
         else:
             text = t("api.env_template_header")
-    handler._send_json(
-        {"path": str(env_path) if env_path else "", "content": _mask_env_content(text, _allowed_env_names(handler))}
-    )
+    allowed = _allowed_env_names(handler)
+    allowed.update(key for key in parse_dotenv(text) if is_provider_key_env_name(key))
+    handler._send_json({"path": str(env_path) if env_path else "", "content": _mask_env_content(text, allowed)})
 
 
 def handle_put_env(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
@@ -126,8 +127,11 @@ def handle_put_env(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> N
         return handler._send_json({"ok": False, "error": "content must be a string"}, 400)
     previous_content = env_path.read_text(encoding="utf-8") if env_path.is_file() else ""
     allowed = _allowed_env_names(handler)
+    allowed.update(
+        key for key in parse_dotenv(previous_content) | parse_dotenv(content) if is_provider_key_env_name(key)
+    )
     parsed = parse_dotenv(content)
-    invalid = sorted(key for key in parsed if key not in allowed)
+    invalid = sorted(key for key in parsed if key not in allowed and not is_provider_key_env_name(key))
     if invalid:
         return handler._send_json(
             {"ok": False, "error": f"unsupported environment variable(s): {', '.join(invalid)}"}, 400

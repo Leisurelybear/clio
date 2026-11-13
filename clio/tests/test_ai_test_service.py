@@ -180,9 +180,8 @@ def test_missing_key_error_preserves_actionable_env_var(monkeypatch) -> None:
     assert "DEEPSEEK_API_KEY" in result["error"]
 
 
-def test_key_like_api_key_env_is_masked(monkeypatch) -> None:
+def test_key_like_api_key_env_is_rejected_before_provider_call(monkeypatch) -> None:
     fake_provider = MagicMock()
-    fake_provider.generate_text.side_effect = RuntimeError("bad env sk-env-secret")
     monkeypatch.setattr("clio.ui.services.ai_test_service._build_provider", lambda cfg, name: fake_provider)
 
     from clio.ui.services.ai_test_service import test_provider_connection
@@ -193,7 +192,23 @@ def test_key_like_api_key_env_is_masked(monkeypatch) -> None:
 
     assert result["ok"] is False
     assert "sk-env-secret" not in result["error"]
-    assert "***" in result["error"]
+    assert "DEEPSEEK_API_KEY" in result["error"]
+    fake_provider.generate_text.assert_not_called()
+
+
+def test_remote_plain_http_provider_url_is_rejected_before_provider_call(monkeypatch) -> None:
+    fake_provider = MagicMock()
+    monkeypatch.setattr("clio.ui.services.ai_test_service._build_provider", lambda cfg, name: fake_provider)
+
+    from clio.ui.services.ai_test_service import test_provider_connection
+
+    config = _config()
+    config.ai.providers["deepseek"].base_url = "http://attacker.example/v1"
+    result = test_provider_connection(config, provider_name="deepseek", model="deepseek-chat")
+
+    assert result["ok"] is False
+    assert "HTTPS" in result["error"]
+    fake_provider.generate_text.assert_not_called()
 
 
 def test_known_provider_failure_masks_key_like_model(monkeypatch) -> None:

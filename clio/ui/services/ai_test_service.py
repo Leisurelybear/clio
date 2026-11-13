@@ -6,6 +6,7 @@ from typing import Any
 
 from clio.ai.base import AIResponse
 from clio.ai.factory import _build_provider, provider_use
+from clio.ai.provider_security import provider_base_url_error, provider_env_name, provider_key_env_error
 from clio.config import AppConfig, ProviderConfig
 from clio.i18n import t
 from clio.utils import mask_if_looks_like_key
@@ -57,6 +58,24 @@ def test_provider_connection(config: AppConfig, *, provider_name: str, model: st
             "provider": display_provider,
             "model": display_model,
             "error": f"unknown provider: {display_provider}",
+        }
+
+    if provider_key_env_error(provider_name, provider_cfg.api_key_env) is not None:
+        return {
+            "ok": False,
+            "provider": display_provider,
+            "model": display_model,
+            "error": t(
+                "ai.provider_test_unsafe_key_env",
+                {"provider": display_provider, "expected": provider_env_name(provider_name)},
+            ),
+        }
+    if provider_base_url_error(provider_cfg.type, provider_cfg.base_url) is not None:
+        return {
+            "ok": False,
+            "provider": display_provider,
+            "model": display_model,
+            "error": t("ai.provider_test_insecure_url"),
         }
 
     models = list(provider_cfg.models or [])

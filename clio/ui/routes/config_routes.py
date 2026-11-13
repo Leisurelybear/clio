@@ -14,6 +14,7 @@ from urllib.parse import unquote
 import yaml
 
 from clio.ai.factory import _clear_provider_cache
+from clio.ai.provider_security import normalize_provider_key_env, provider_key_env_error, provider_rebind_error
 from clio.config import CONFIG_DESCRIPTIONS, deep_merge, load_config, load_global_config
 from clio.config.models import (
     AnalyzeConfig,
@@ -165,6 +166,8 @@ def handle_put_config_raw(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
         return handler._send_json({"ok": False, "error": f"cannot read current config: {e}"}, 500)
     coerced = _coerce_config_types(obj, _global_type_reference(ref_raw))
     _coerce_provider_entries(coerced)
+    if error := _validate_provider_bindings(ref_raw, coerced):
+        return handler._send_json({"ok": False, "error": error}, 400)
     _strip_provider_api_keys(coerced)
     try:
         yml = yaml.dump(coerced, allow_unicode=True, default_flow_style=False, sort_keys=False, indent=2)
@@ -499,6 +502,8 @@ def handle_put_config_global(handler: HandlerProtocol, qs: dict[str, Any], obj: 
         return handler._send_json({"ok": False, "error": f"cannot read current config: {e}"}, 500)
     coerced = _coerce_config_types(obj, _global_type_reference(ref_raw))
     _coerce_provider_entries(coerced)
+    if error := _validate_provider_bindings(ref_raw, coerced):
+        return handler._send_json({"ok": False, "error": error}, 400)
     _strip_provider_api_keys(coerced)
     try:
         yml = yaml.dump(coerced, allow_unicode=True, default_flow_style=False, sort_keys=False, indent=2)
@@ -590,6 +595,8 @@ def _provider_error(name: str, provider: dict[str, Any]) -> str | None:
     models = provider.get("models", [])
     if not isinstance(models, list) or any(not isinstance(m, str) for m in models):
         return "models must be a list of strings"
+    if error := provider_key_env_error(name, provider.get("api_key_env", "")):
+        return error
     capabilities = provider.get("capabilities")
     if capabilities is not None and (
         not isinstance(capabilities, list) or any(not isinstance(c, str) for c in capabilities)
@@ -602,9 +609,9 @@ def _normalize_provider(name: str, obj: dict[str, Any]) -> dict[str, Any]:
     provider_type = obj.get("type", "gemini")
     data = {
         "type": provider_type,
-        "api_key_env": obj.get("api_key_env", ""),
-        # Never persist API keys in yaml (R-033b); runtime still reads legacy via env-first fallback.
-        "api_key": "",
+        "api_key_env": normalize_provider_key_env(obj.get("api_key_env", "")),
+        # Keep the client value only long enough to prove a credential retarget; every write strips it.
+        "api_key": obj.get("api_key", ""),
         "base_url": obj.get("base_url", ""),
         "poll_interval_sec": obj.get("poll_interval_sec", 5),
         "retry_attempts": obj.get("retry_attempts", 2),
@@ -620,6 +627,32 @@ def _normalize_provider(name: str, obj: dict[str, Any]) -> dict[str, Any]:
     if obj.get("name"):
         data["name"] = name
     return _coerce_config_types(data, _provider_type_reference())
+
+
+def _provider_mapping(raw: dict[str, Any]) -> dict[str, Any]:
+    providers = (raw.get("ai") or {}).get("providers")
+    return providers if isinstance(providers, dict) else {}
+
+
+def _validate_provider_bindings(previous_raw: dict[str, Any], candidate_raw: dict[str, Any]) -> str | None:
+    """Reject non-canonical env bindings and unproven credential retargeting."""
+    previous_providers = _provider_mapping(previous_raw)
+    candidate_providers = _provider_mapping(candidate_raw)
+    for raw_name, provider in candidate_providers.items():
+        if not isinstance(raw_name, str):
+            return "provider names must be strings"
+        if not isinstance(provider, dict):
+            return f"provider '{raw_name}' must be a mapping"
+        if isinstance(provider.get("api_key_env"), str):
+            provider["api_key_env"] = normalize_provider_key_env(provider["api_key_env"])
+        if error := _provider_error(raw_name, provider):
+            return error
+        previous = previous_providers.get(raw_name, {})
+        if not isinstance(previous, dict):
+            previous = {}
+        if error := provider_rebind_error(raw_name, previous, provider):
+            return error
+    return None
 
 
 def _mask_provider_dict(provider: dict[str, Any]) -> dict[str, Any]:
@@ -706,7 +739,7 @@ def handle_post_provider(handler: HandlerProtocol, qs: dict[str, Any], obj: dict
     if name in providers:
         return handler._send_json({"ok": False, "error": f"provider already exists: {name}"}, 409)
     provider = _normalize_provider(name, obj)
-    error = _provider_error(name, provider)
+    error = _provider_error(name, provider) or provider_rebind_error(name, {}, provider)
     if error:
         return handler._send_json({"ok": False, "error": error}, 400)
     providers[name] = provider
@@ -722,11 +755,15 @@ def handle_put_provider(handler: HandlerProtocol, qs: dict[str, Any], obj: dict[
     if error:
         return handler._send_json({"ok": False, "error": error}, 500)
     assert raw is not None
-    provider = _normalize_provider(name, obj)
-    error = _provider_error(name, provider)
+    providers = raw.setdefault("ai", {}).setdefault("providers", {})
+    previous = providers.get(name, {})
+    if not isinstance(previous, dict):
+        previous = {}
+    merged = {**previous, **obj}
+    provider = _normalize_provider(name, merged)
+    error = _provider_error(name, provider) or provider_rebind_error(name, previous, provider)
     if error:
         return handler._send_json({"ok": False, "error": error}, 400)
-    providers = raw.setdefault("ai", {}).setdefault("providers", {})
     providers[name] = provider
     ok, error = _write_global_config_raw(handler, raw)
     if not ok:
