@@ -11,7 +11,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | Priority | Total | Fixed | Satisfied | In progress | Confirmed | Environment verification | Duplicate | Not applicable | Pending audit |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P1 | 35 | 18 | 15 | 0 | 0 | 0 | 0 | 0 | 2 |
+| P1 | 35 | 19 | 15 | 0 | 0 | 0 | 0 | 0 | 1 |
 | P2 | 59 | 2 | 12 | 0 | 0 | 0 | 0 | 0 | 45 |
 | P3 | 14 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 10 |
 
@@ -51,7 +51,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 030 | P1 | R018 | 默认绑定 deepseek-chat / deepseek-reasoner; DeepSeek 官方价目页现在只列 deepseek-flash 与 deepseek-v4-pro, 并写明 v4-flash 等旧名已退役 | Fixed | Examples now bind voiceover to `deepseek-flash` and vlog_plan to `deepseek-v4-pro`; provider/model suggestions, UI defaults, docs, and locale descriptions use the same official pair. Retired names still load with the existing model-list warning. Focused: 106 config tests and 78 Vitest cases passed; typecheck passed. A credentialed `/api/ai/test` call was not run because no DeepSeek API key is available locally. |
 | 031 | P1 | OPT-006 | video_analyze 默认绑定没有 temperature (config.example.yaml:71-73), 实测调用时为 None | Fixed | Both shipped examples now bind video analysis at temperature `0.2`; the example-config regression asserts the value. Focused: 106 config tests passed. |
 | 032 | P1 | OPT-001 | 没有评测集, Q1/Q2/Q8/Q9 的效果无法量化 (F1 未开始) | Satisfied | The v1 evaluation suite contains 12 real-footage cases with reviewed references and a stored prediction baseline (`98b4f4d`): 12/12 scored, mean 96.92, minimum 87.51. The suite enforces a minimum-score gate of 70. Focused: 16 evaluation tests passed. |
-| 033 | P1 | R007 | 三条约束互相冲突: max_clips_per_day=12 按"段"截断、总时长 180 秒 ±25% 不满足即失败、提示词要求 3-5 秒钩子与 1-3 秒 B-roll | Pending audit |  |
+| 033 | P1 | R007 | 三条约束互相冲突: max_clips_per_day=12 按"段"截断、总时长 180 秒 ±25% 不满足即失败、提示词要求 3-5 秒钩子与 1-3 秒 B-roll | Fixed | `17aca81` separates distinct-source and final-segment limits, keeps non-overlapping cuts from one source, retains timeline validation, and makes `{max_segments}` optional for legacy prompt overrides. Focused: 376 pytest cases passed; frontend: 934 Vitest cases passed. |
 | 034 | P1 | O1 | 未使用原生结构化输出 | Satisfied | Satisfied by native structured output (`446d52b`). |
 | 035 | P1 | OPT-002 | 所有任务靠提示约束 JSON, 再用 extract_json 容错 (clio/analyze.py:822, 1026); 非 JSON 输出直接失败 (E12) | Satisfied | Native structured output is implemented in `446d52b`: Pydantic-backed schemas in `clio/ai/structured.py` are sent as Gemini `response_json_schema` and OpenAI-compatible `response_format`; fixed-output tasks use schemas while refine tasks retain JSON-object mode and tolerant parsing. Focused: 123 evaluation/provider tests passed. |
 | 036 | P1 | Q6 | 分析输出是散文, 缺镜头属性 | Satisfied | Satisfied; structured shot fields implemented (`c5600d7`, `336824c`). |
