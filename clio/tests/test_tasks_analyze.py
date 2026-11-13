@@ -74,6 +74,27 @@ def _common_mocks(monkeypatch):
     monkeypatch.setattr("clio.tasks.analyze._write_text_file", lambda *a: None)
 
 
+def _cache_fields(
+    cfg: AppConfig,
+    compressed: Path,
+    *,
+    context_override: str | None = None,
+    transcript_context: str = "",
+) -> dict[str, object]:
+    from clio.tasks.analyze import _analysis_lineage_components, _lineage_fingerprint_from_components
+
+    components = _analysis_lineage_components(
+        cfg,
+        context_override=context_override,
+        transcript_context=transcript_context,
+        compressed=compressed,
+    )
+    return {
+        "_lineage": _lineage_fingerprint_from_components(components),
+        "_lineage_components": components,
+    }
+
+
 def test_effective_context_falls_back_when_gpmf_enrichment_fails(monkeypatch, tmp_path: Path, capsys):
     from clio.tasks.analyze import _effective_analysis_context
 
@@ -93,20 +114,13 @@ def test_effective_context_falls_back_when_gpmf_enrichment_fails(monkeypatch, tm
 @pytest.mark.parametrize(
     ("section", "field", "value"),
     [
+        ("analyze", "max_analyze_duration_min", 45),
         ("analyze", "window_max_min", 16),
         ("analyze", "window_overlap_sec", 25),
         ("analyze", "media_resolution", "high"),
-        ("compress", "codec", "libx265"),
-        ("compress", "fps", 30),
-        ("compress", "remove_audio", True),
-        ("compress", "crf", 28),
-        ("compress", "target_size_mb", 8),
-        ("compress", "max_width", 1280),
     ],
 )
-def test_analysis_lineage_changes_with_window_and_compression_settings(
-    tmp_path: Path, section: str, field: str, value: object
-):
+def test_analysis_lineage_changes_with_window_settings(tmp_path: Path, section: str, field: str, value: object):
     from clio.tasks.analyze import _analysis_lineage_fingerprint
 
     cfg = _cfg(tmp_path)
@@ -114,6 +128,119 @@ def test_analysis_lineage_changes_with_window_and_compression_settings(
     setattr(getattr(cfg, section), field, value)
 
     assert _analysis_lineage_fingerprint(cfg) != base
+
+
+def test_analysis_lineage_ignores_uncompressed_setting_changes(tmp_path: Path):
+    from clio.tasks.analyze import _analysis_lineage_fingerprint
+
+    cfg = _cfg(tmp_path)
+    compressed = cfg.compressed_dir / "001_A.mp4"
+    compressed.write_bytes(b"compressed")
+    baseline = _analysis_lineage_fingerprint(cfg, compressed=compressed)
+
+    cfg.compress.codec = "libx265"
+    cfg.compress.fps = 30
+    cfg.compress.remove_audio = True
+    cfg.compress.crf = 28
+    cfg.compress.target_size_mb = 8
+    cfg.compress.max_width = 1280
+
+    assert _analysis_lineage_fingerprint(cfg, compressed=compressed) == baseline
+
+
+def test_analysis_lineage_tracks_actual_compressed_identity(tmp_path: Path):
+    from clio.tasks.analyze import _analysis_lineage_fingerprint
+
+    cfg = _cfg(tmp_path)
+    original = tmp_path / "A.mp4"
+    original.write_bytes(b"source")
+    compressed = cfg.compressed_dir / "001_A.mp4"
+    compressed.write_bytes(b"compressed")
+    meta = VideoMeta.build(original, compressed, 10.0, 10.0)
+    meta.write(compressed)
+    baseline = _analysis_lineage_fingerprint(cfg, compressed=compressed)
+
+    meta.target_size += 1
+    meta.write(compressed)
+    assert _analysis_lineage_fingerprint(cfg, compressed=compressed) != baseline
+
+    with_meta_change = _analysis_lineage_fingerprint(cfg, compressed=compressed)
+    compressed.write_bytes(b"compressed-plus")
+    assert _analysis_lineage_fingerprint(cfg, compressed=compressed) != with_meta_change
+
+
+def test_analysis_cache_status_reports_component_reasons(tmp_path: Path):
+    from clio.tasks.analyze import analysis_cache_status
+
+    cfg = _cfg(tmp_path)
+    original = _add_original(cfg, "GL010695.mp4")
+    compressed = cfg.compressed_dir / "001_GL010695.mp4"
+    compressed.write_bytes(b"video")
+    fields = _cache_fields(cfg, compressed)
+    cached = {
+        "title": "Cached",
+        "source_file": original.name,
+        **fields,
+    }
+    cache_path = cfg.texts_dir / "001_Cached.json"
+    cache_path.write_text(json.dumps(cached), encoding="utf-8")
+    cfg.analyze.skip_existing = True
+
+    current = analysis_cache_status(
+        cfg,
+        compressed,
+        original,
+        "001",
+        overwrite=False,
+        context_override=None,
+        task_prompts=None,
+        duration_sec=10.0,
+    )
+    assert current.accepted
+    assert current.reasons == ()
+
+    cfg.analyze.window_max_min = 12
+    changed = analysis_cache_status(
+        cfg,
+        compressed,
+        original,
+        "001",
+        overwrite=False,
+        context_override=None,
+        task_prompts=None,
+        duration_sec=10.0,
+    )
+    assert not changed.accepted
+    assert changed.reasons == ("window",)
+
+
+def test_analysis_cache_status_does_not_accept_legacy_without_confirmation(tmp_path: Path):
+    from clio.tasks.analyze import analysis_cache_status
+
+    cfg = _cfg(tmp_path)
+    original = _add_original(cfg, "GL010695.mp4")
+    compressed = cfg.compressed_dir / "001_GL010695.mp4"
+    compressed.write_bytes(b"video")
+    (cfg.texts_dir / "001_Legacy.json").write_text(
+        json.dumps({"title": "Legacy", "source_file": original.name}),
+        encoding="utf-8",
+    )
+    cfg.analyze.skip_existing = True
+
+    status = analysis_cache_status(
+        cfg,
+        compressed,
+        original,
+        "001",
+        overwrite=False,
+        context_override=None,
+        task_prompts=None,
+        duration_sec=10.0,
+    )
+    assert not status.accepted
+    assert status.rerun_required
+    assert status.legacy
+    assert status.reasons == ("legacy",)
 
 
 def test_window_summary_lineage_changes_only_when_multi_window(tmp_path: Path):
@@ -420,7 +547,15 @@ class TestRunAnalyzeAll:
         comp.write_bytes(b"\x00" * 100)
         existing_json = cfg.texts_dir / "001_Test_Clip.json"
         existing_json.write_text(
-            json.dumps({"title": "Test Clip", "summary": "A test", "source_file": "GL010695.mp4"}), encoding="utf-8"
+            json.dumps(
+                {
+                    "title": "Test Clip",
+                    "summary": "A test",
+                    "source_file": "GL010695.mp4",
+                    **_cache_fields(cfg, comp),
+                }
+            ),
+            encoding="utf-8",
         )
 
         _common_mocks(monkeypatch)
@@ -447,17 +582,18 @@ class TestRunAnalyzeAll:
             "title": "Test Clip",
             "source_file": "GL010695.mp4",
             "day_label": "custom-day",
+            **_cache_fields(cfg, cfg.compressed_dir / "001_GL010695.mp4"),
         }
         existing_json.write_text(json.dumps(existing_data), encoding="utf-8")
 
         _common_mocks(monkeypatch)
-        monkeypatch.setattr("clio.tasks.analyze._analysis_lineage_fingerprint", lambda *args, **kwargs: "lineage")
         cfg.analyze.skip_existing = True
 
         run_analyze_all(cfg)
         stamped = json.loads(existing_json.read_text(encoding="utf-8"))
         assert stamped["day_label"] == "custom-day"
-        assert stamped["_lineage"] == "lineage"
+        assert stamped["_lineage"] == existing_data["_lineage"]
+        assert stamped["_lineage_components"] == existing_data["_lineage_components"]
 
         stamped.pop("day_label")
         existing_json.write_text(json.dumps(stamped), encoding="utf-8")
@@ -504,7 +640,9 @@ class TestRunAnalyzeAll:
         saved = sorted(cfg.texts_dir.glob("*.json"))
         assert len(saved) == 1
         assert saved[0].name != existing_json.name
-        assert json.loads(saved[0].read_text(encoding="utf-8"))["_lineage"] == _analysis_lineage_fingerprint(cfg)
+        assert json.loads(saved[0].read_text(encoding="utf-8"))["_lineage"] == _analysis_lineage_fingerprint(
+            cfg, compressed=comp
+        )
 
         # Second run now skips (lineage matches).
         analyze_calls: list = []

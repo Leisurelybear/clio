@@ -10,6 +10,7 @@ import threading
 import time
 from collections.abc import Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypedDict
@@ -174,6 +175,112 @@ class _FailureCounter:
             return self._count
 
 
+ANALYSIS_LINEAGE_COMPONENTS = (
+    "provider_model",
+    "prompt",
+    "context",
+    "transcript",
+    "compressed_media",
+    "window",
+)
+
+
+def _lineage_component_hash(value: object) -> str:
+    payload = json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _compressed_media_component(compressed: Path | None) -> str:
+    """Fingerprint the actual compressed artifact, not the desired settings."""
+    if compressed is None:
+        return _lineage_component_hash({"available": False})
+    identity: dict[str, object] = {"available": False, "meta": False}
+    try:
+        stat = compressed.stat()
+    except OSError:
+        return _lineage_component_hash(identity)
+    identity.update(
+        {
+            "available": True,
+            "size": stat.st_size,
+            "mtime_ns": stat.st_mtime_ns,
+        }
+    )
+    meta = VideoMeta.read(compressed)
+    if meta is not None:
+        identity.update(
+            {
+                "meta": True,
+                "target_size": meta.target_size,
+                "target_modifyTime": meta.target_modifyTime,
+                "verify": meta.verify,
+            }
+        )
+    return _lineage_component_hash(identity)
+
+
+def _analysis_lineage_components(
+    config: AppConfig,
+    task_prompts: dict[str, str] | None = None,
+    context_override: str | None = None,
+    transcript_context: str = "",
+    *,
+    multi_window: bool = False,
+    compressed: Path | None = None,
+) -> dict[str, str]:
+    """Return independently identifiable inputs that affect analysis output."""
+    try:
+        prompt = resolve_prompt_template("video_analyze", ANALYZE_PROMPT, config, task_prompts=task_prompts)
+    except (OSError, UnicodeDecodeError, ValueError):
+        prompt = ANALYZE_PROMPT
+
+    transcript_prompt = ""
+    if transcript_context:
+        try:
+            transcript_prompt = resolve_prompt_template(
+                "transcript_context", TRANSCRIPT_CONTEXT, config, task_prompts=task_prompts
+            )
+        except (OSError, UnicodeDecodeError, ValueError):
+            transcript_prompt = TRANSCRIPT_CONTEXT
+
+    window_data: dict[str, object] = {
+        "max_analyze_duration_min": getattr(config.analyze, "max_analyze_duration_min", 0),
+        "window_max_min": int(getattr(config.analyze, "window_max_min", 15) or 15),
+        "window_overlap_sec": int(getattr(config.analyze, "window_overlap_sec", 20) or 0),
+        "media_resolution": getattr(config.analyze, "media_resolution", "medium"),
+        "analysis_engine_version": 5,
+        "scene_detection_version": SCENE_DETECT_VERSION,
+        "video_fps": 3,
+        "multi_window": multi_window,
+    }
+    if multi_window:
+        try:
+            summary_prompt = resolve_prompt_template(
+                "window_summary", WINDOW_SUMMARY_PROMPT, config, task_prompts=task_prompts
+            )
+        except (OSError, UnicodeDecodeError, ValueError):
+            summary_prompt = WINDOW_SUMMARY_PROMPT
+        window_data["window_summary"] = {
+            "version": 1,
+            "task": _task_lineage_settings(config, "refine_text"),
+            "prompt": summary_prompt,
+        }
+
+    return {
+        "provider_model": _lineage_component_hash(_task_lineage_settings(config, "video_analyze")),
+        "prompt": _lineage_component_hash(prompt),
+        "context": _lineage_component_hash(_prompt_context_parts(config, context_override)),
+        "transcript": _lineage_component_hash({"context": transcript_context, "prompt": transcript_prompt}),
+        "compressed_media": _compressed_media_component(compressed),
+        "window": _lineage_component_hash(window_data),
+    }
+
+
+def _lineage_fingerprint_from_components(components: dict[str, str]) -> str:
+    canonical = {name: components[name] for name in ANALYSIS_LINEAGE_COMPONENTS}
+    return _lineage_component_hash(canonical)
+
+
 def _analysis_lineage_fingerprint(
     config: AppConfig,
     task_prompts: dict[str, str] | None = None,
@@ -181,12 +288,38 @@ def _analysis_lineage_fingerprint(
     transcript_context: str = "",
     *,
     multi_window: bool = False,
+    compressed: Path | None = None,
 ) -> str:
     """Fingerprint of everything that can change a cached analysis result.
 
-    Changing the analyze prompt (builtin, override file, or runtime task prompt)
-    or the video_analyze provider/model invalidates the skip_existing cache so
-    users never silently keep results produced under an older lineage.
+    The aggregate is derived from stable components so callers can explain why a
+    cache entry is stale without exposing prompt, context, or transcript text.
+    """
+    return _lineage_fingerprint_from_components(
+        _analysis_lineage_components(
+            config,
+            task_prompts,
+            context_override,
+            transcript_context,
+            multi_window=multi_window,
+            compressed=compressed,
+        )
+    )
+
+
+def _legacy_analysis_lineage_fingerprint(
+    config: AppConfig,
+    task_prompts: dict[str, str] | None = None,
+    context_override: str | None = None,
+    transcript_context: str = "",
+    *,
+    multi_window: bool = False,
+) -> str:
+    """Reproduce the pre-component fingerprint for compatible cache migration.
+
+    Existing analysis files do not carry component hashes. Accepting an unchanged
+    legacy lineage avoids a one-time full-project rerun solely because the cache
+    format gained reason reporting.
     """
     try:
         prompt = resolve_prompt_template("video_analyze", ANALYZE_PROMPT, config, task_prompts=task_prompts)
@@ -230,6 +363,122 @@ def _analysis_lineage_fingerprint(
         }
     payload = json.dumps(payload_data, sort_keys=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+@dataclass(frozen=True)
+class AnalysisCacheStatus:
+    accepted_path: Path | None
+    accepted_data: dict[str, Any] | None
+    current_lineage: str
+    current_components: dict[str, str]
+    reasons: tuple[str, ...]
+    legacy: bool
+    source_mismatch: bool
+    invalid: bool
+    existing_paths: tuple[Path, ...]
+    effective_context: str | None
+    transcript_context: str
+    multi_window: bool
+
+    @property
+    def accepted(self) -> bool:
+        return self.accepted_path is not None
+
+    @property
+    def rerun_required(self) -> bool:
+        return bool(self.existing_paths) and not self.accepted
+
+
+def analysis_cache_status(
+    config: AppConfig,
+    compressed: Path,
+    original: Path,
+    idx_str: str,
+    *,
+    overwrite: bool,
+    context_override: str | None,
+    task_prompts: dict[str, str] | None,
+    duration_sec: float,
+    use_transcripts: bool = True,
+) -> AnalysisCacheStatus:
+    """Evaluate existing analysis candidates with the same rules as execution."""
+    effective_context = _effective_analysis_context(config, original, context_override)
+    transcript_context = _load_transcript_context(config, compressed) if use_transcripts else ""
+    multi_window = _uses_multiple_windows(compressed, duration_sec, config)
+    current_components = _analysis_lineage_components(
+        config,
+        task_prompts,
+        effective_context,
+        transcript_context,
+        multi_window=multi_window,
+        compressed=compressed,
+    )
+    current_lineage = _lineage_fingerprint_from_components(current_components)
+    legacy_lineage = _legacy_analysis_lineage_fingerprint(
+        config,
+        task_prompts,
+        effective_context,
+        transcript_context,
+        multi_window=multi_window,
+    )
+    existing = tuple(sorted(config.texts_dir.glob(f"{idx_str}_*.json")))
+    accepted_path: Path | None = None
+    accepted_data: dict[str, Any] | None = None
+    reasons: set[str] = set()
+    legacy = False
+    source_mismatch = False
+    invalid = False
+
+    if not overwrite and config.analyze.skip_existing:
+        for candidate in existing:
+            try:
+                data = json.loads(candidate.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError, UnicodeError):
+                invalid = True
+                continue
+            if not isinstance(data, dict) or data.get("source_file") != original.name:
+                source_mismatch = True
+                continue
+            stored_components = data.get("_lineage_components")
+            if not isinstance(stored_components, dict):
+                legacy = True
+                if data.get("_lineage") == legacy_lineage:
+                    if accepted_path is None:
+                        accepted_path = candidate
+                        accepted_data = data
+                else:
+                    reasons.add("legacy")
+                continue
+            component_diff = [
+                name for name in ANALYSIS_LINEAGE_COMPONENTS if stored_components.get(name) != current_components[name]
+            ]
+            if data.get("_lineage") != current_lineage or component_diff:
+                reasons.update(component_diff)
+                if not component_diff:
+                    reasons.add("legacy")
+                    legacy = True
+                continue
+            if accepted_path is None:
+                accepted_path = candidate
+                accepted_data = data
+
+    ordered_reasons = tuple(name for name in ANALYSIS_LINEAGE_COMPONENTS if name in reasons)
+    if "legacy" in reasons:
+        ordered_reasons += ("legacy",)
+    return AnalysisCacheStatus(
+        accepted_path=accepted_path,
+        accepted_data=accepted_data,
+        current_lineage=current_lineage,
+        current_components=current_components,
+        reasons=ordered_reasons,
+        legacy=legacy,
+        source_mismatch=source_mismatch,
+        invalid=invalid,
+        existing_paths=existing,
+        effective_context=effective_context,
+        transcript_context=transcript_context,
+        multi_window=multi_window,
+    )
 
 
 def _uses_multiple_windows(compressed: Path, duration_sec: float, config: AppConfig) -> bool:
@@ -284,35 +533,25 @@ def analysis_artifact_overwrite_required(
     context_override: str | None,
     task_prompts: dict[str, str] | None,
     duration_sec: float,
+    use_transcripts: bool = True,
 ) -> list[Path]:
     """Return protected JSON/TXT analysis pairs a rerun would replace."""
-    existing = sorted(config.texts_dir.glob(f"{idx_str}_*.json"))
-    if not existing:
+    status = analysis_cache_status(
+        config,
+        compressed,
+        original,
+        idx_str,
+        overwrite=overwrite,
+        context_override=context_override,
+        task_prompts=task_prompts,
+        duration_sec=duration_sec,
+        use_transcripts=use_transcripts,
+    )
+    if status.accepted:
         return []
 
-    if not overwrite and config.analyze.skip_existing:
-        effective_context = _effective_analysis_context(config, original, context_override)
-        transcript_context = _load_transcript_context(config, compressed)
-        current_lineage = _analysis_lineage_fingerprint(
-            config,
-            task_prompts,
-            effective_context,
-            transcript_context,
-            multi_window=_uses_multiple_windows(compressed, duration_sec, config),
-        )
-        for candidate in existing:
-            try:
-                data = json.loads(candidate.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError, UnicodeError):
-                continue
-            if not isinstance(data, dict) or data.get("source_file") != original.name:
-                continue
-            if data.get("_lineage") in {None, current_lineage}:
-                # One accepted cache entry skips the item before stale files are removed.
-                return []
-
     risky: list[Path] = []
-    for candidate in existing:
+    for candidate in status.existing_paths:
         if not artifact_requires_overwrite_confirmation(candidate):
             continue
         risky.append(candidate)
@@ -581,6 +820,7 @@ def _process_video_item(
     context_override: str | None = None,
     task_prompts: dict[str, str] | None = None,
     confirm_artifact_overwrite: bool = False,
+    use_transcripts: bool = True,
 ) -> ClipRecord | None:
     idx_val = int(idx_str)
 
@@ -599,54 +839,48 @@ def _process_video_item(
         except (OSError, subprocess.SubprocessError, TypeError, ValueError):
             pass
 
-    effective_context = _effective_analysis_context(config, original, context_override)
-    transcript_context = _load_transcript_context(config, compressed)
-    multi_window = _uses_multiple_windows(compressed, duration_sec, config)
-    current_lineage = _analysis_lineage_fingerprint(
+    cache = analysis_cache_status(
         config,
-        task_prompts,
-        effective_context,
-        transcript_context,
-        multi_window=multi_window,
+        compressed,
+        original,
+        idx_str,
+        overwrite=overwrite,
+        context_override=context_override,
+        task_prompts=task_prompts,
+        duration_sec=duration_sec,
+        use_transcripts=use_transcripts,
     )
-
-    existing = sorted(config.texts_dir.glob(f"{idx_str}_*.json"))
+    effective_context = cache.effective_context
+    transcript_context = cache.transcript_context
+    current_lineage = cache.current_lineage
+    existing = list(cache.existing_paths)
     json_path = None
     analysis = None
     # Lineage or source mismatches: keep the old files until a fresh analysis
     # has been committed, so a failed re-run never loses the previous result.
-    stale_candidates: list[Path] = list(existing) if overwrite or not config.analyze.skip_existing else []
-    if not overwrite and config.analyze.skip_existing and existing:
+    stale_candidates: list[Path] = (
+        existing if (overwrite or not config.analyze.skip_existing or cache.rerun_required) else []
+    )
+    if cache.accepted:
+        json_path = cache.accepted_path
+        analysis = cache.accepted_data
+        if json_path is None or analysis is None:
+            raise RuntimeError("analysis cache status accepted without a candidate")
+        if not str(analysis.get("day_label") or "").strip():
+            analysis["day_label"] = day_label
+            write_json_atomic(json_path, analysis)
+    elif existing:
         for candidate in existing:
-            try:
-                existing_data = json.loads(candidate.read_text(encoding="utf-8"))
-                source_matches = existing_data.get("source_file", "") == original.name
-                if source_matches and existing_data.get("_lineage") == current_lineage and json_path is None:
-                    if not str(existing_data.get("day_label") or "").strip():
-                        existing_data["day_label"] = day_label
-                        write_json_atomic(candidate, existing_data)
-                    json_path = candidate
-                    analysis = existing_data
-                    continue
-                if source_matches and existing_data.get("_lineage") is None and json_path is None:
-                    # Pre-lineage cache: accept and stamp the current lineage so
-                    # future prompt/model changes invalidate it.
-                    json_path = candidate
-                    analysis = existing_data
-                    if not str(analysis.get("day_label") or "").strip():
-                        analysis["day_label"] = day_label
-                    analysis["_lineage"] = current_lineage
-                    write_json_atomic(candidate, analysis)
-                    if tracker:
-                        tracker.log(t("task.analyze.lineage_stamped", {"name": candidate.name}))
-                    continue
-                if source_matches:
-                    print(t("task.analyze.overwrite_prompt_changed", {"name": candidate.name}))
-                else:
-                    print(t("task.analyze.overwrite_source_mismatch", {"name": candidate.name}))
-            except (json.JSONDecodeError, OSError):
-                pass
-            stale_candidates.append(candidate)
+            if candidate not in cache.existing_paths:
+                continue
+            print(
+                t(
+                    "task.analyze.overwrite_prompt_changed"
+                    if not cache.source_mismatch
+                    else "task.analyze.overwrite_source_mismatch",
+                    {"name": candidate.name},
+                )
+            )
     if json_path:
         text_path = json_path.with_suffix(".txt")
         if tracker:
@@ -663,8 +897,8 @@ def _process_video_item(
             index=idx_val,
             stem=json_path.stem,
             source_path=original,
-            compressed_path=compressed,
             text_path=text_path,
+            compressed_path=compressed,
             analysis=analysis,
             duration_sec=duration_sec,
             identity=identity,
@@ -762,8 +996,10 @@ def _process_video_item(
     identity = resolve_identity(compressed, idx_str, project_dir=config.project_dir)
     add_schema_version(analysis)
     analysis["_lineage"] = current_lineage
+    analysis["_lineage_components"] = cache.current_components
     analysis["media_identity"] = _identity_to_dict(identity)
-    attach_transcript_to_analysis(config, analysis)
+    if use_transcripts:
+        attach_transcript_to_analysis(config, analysis)
     coverage = measure_timeline_coverage(analysis, duration_sec)
     print(
         f"[analyze] {compressed.name}: rows={coverage.rows} "
@@ -840,6 +1076,7 @@ def run_analyze_all(
     context_override: str | None = None,
     task_prompts: dict[str, str] | None = None,
     confirm_artifact_overwrite: bool = False,
+    use_transcripts: bool = True,
     **kwargs: Any,
 ) -> list[ClipRecord]:
     """Analyze already-compressed videos using AI (compress step must precede this).
@@ -942,6 +1179,7 @@ def run_analyze_all(
                     context_override=context_override,
                     task_prompts=task_prompts,
                     duration_sec=_analysis_duration_sec(config, compressed, original),
+                    use_transcripts=use_transcripts,
                 )
             )
         unique_artifacts: dict[Path, Path] = {}
@@ -1020,6 +1258,7 @@ def run_analyze_all(
                     context_override,
                     task_prompts,
                     confirm_artifact_overwrite,
+                    use_transcripts,
                 )
                 pending[future] = None
                 return True

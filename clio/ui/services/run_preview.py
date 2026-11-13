@@ -22,9 +22,9 @@ from clio.tasks._helpers import (
     _selection_from_files,
 )
 from clio.tasks.analyze import (
-    _analysis_lineage_fingerprint,
     _build_stem_to_path,
     _effective_analysis_context,
+    _legacy_analysis_lineage_fingerprint,
     _load_transcript_context,
     _resolve_original,
     _uses_multiple_windows,
@@ -260,14 +260,14 @@ def _legacy_audio_analysis_paths(
         effective_context = _effective_analysis_context(config, original, context_override)
         transcript_context = _load_transcript_context(config, compressed) if use_transcripts else ""
         multi_window = _uses_multiple_windows(compressed, duration_sec, config)
-        legacy_fingerprint = _analysis_lineage_fingerprint(
+        legacy_fingerprint = _legacy_analysis_lineage_fingerprint(
             legacy_config,
             task_prompts,
             effective_context,
             transcript_context,
             multi_window=multi_window,
         )
-        current_fingerprint = _analysis_lineage_fingerprint(
+        current_fingerprint = _legacy_analysis_lineage_fingerprint(
             config,
             task_prompts,
             effective_context,

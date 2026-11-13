@@ -17,7 +17,7 @@ from clio.config.models import (
     ProjectWhisperConfig,
     ScriptConfig,
 )
-from clio.tasks.analyze import _analysis_lineage_fingerprint, _effective_analysis_context
+from clio.tasks.analyze import _effective_analysis_context, _legacy_analysis_lineage_fingerprint
 from clio.tasks.scripts import _load_script_template, _voiceover_lineage_fingerprint
 from clio.ui.services.run_preview import build_run_preview
 from clio.vmeta import VideoMeta
@@ -79,7 +79,7 @@ def _legacy_analysis_record(
     legacy_config = copy.deepcopy(config)
     legacy_config.global_cfg.compress.remove_audio = False
     effective_context = _effective_analysis_context(config, original, context_override)
-    lineage = _analysis_lineage_fingerprint(
+    lineage = _legacy_analysis_lineage_fingerprint(
         legacy_config,
         task_prompts,
         effective_context,
@@ -463,7 +463,7 @@ def test_preview_legacy_audio_analysis_skips_when_current_workflow_would_not_rer
     config, sources = _prepare_legacy_audio_project(tmp_path)
     original, compressed = sources[0]
     effective_context = _effective_analysis_context(config, original, None)
-    current_lineage = _analysis_lineage_fingerprint(
+    current_lineage = _legacy_analysis_lineage_fingerprint(
         config,
         None,
         effective_context,
