@@ -12,7 +12,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P1 | 35 | 20 | 15 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P2 | 59 | 7 | 14 | 0 | 0 | 0 | 0 | 0 | 38 |
+| P2 | 59 | 8 | 14 | 0 | 0 | 0 | 0 | 0 | 37 |
 | P3 | 14 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 10 |
 
 ## Item status
@@ -70,7 +70,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 049 | P2 | E12 | ????? -c:v libx264 -crf 23, 10-bit ???? High 10 | Fixed | `dbbf3e2` adds explicit `-preset fast` and `-pix_fmt yuv420p` to re-encoded cuts, so 10-bit/HDR sources no longer produce High 10 output. Focused: 98 `test_cut` / `test_tasks_cut` tests passed; Ruff passed. |
 | 050 | P2 | R015 | 规划与审阅调用不传 cancel_event, 取消要等模型返回 | Fixed | `452f228` threads `cancel_event` through `refine_text` / `refine_script` and `run_refine_texts` / `run_refine_scripts`; pre-set or mid-call cancellation raises `InterruptedError` instead of waiting for the model or being swallowed as a per-file failure. Focused: 115 `test_analyze_funcs` / `test_tasks_refine` tests passed; full suite 3339 passed, 12 skipped; Ruff passed. |
 | 051 | P2 | E12 | 输出不是 JSON 时 extract_json 直接抛出, 不进入重试 | Fixed | `61b46d2` treats an `extract_json` parse failure as a retryable validation issue: the first malformed response is sent back once with a parse-correction prompt, and a second parse failure raises the existing validation error instead of aborting immediately. Focused: 113 `test_analyze_funcs` / i18n tests passed; full suite 3341 passed, 12 skipped; Ruff passed. |
-| 052 | P2 | E14 | 过时片段的备份只在全部成功时删除 | Pending audit |  |
+| 052 | P2 | E14 | 过时片段的备份只在全部成功时删除 | Fixed | `c661272` moves stale-artifact cleanup into a `finally` block, so `.clio_bak` files are removed when the cut finishes even after failed segments or cancellation, instead of only when every segment succeeded. Focused: 98 `test_cut` / `test_tasks_cut` tests passed; Ruff passed. |
 | 053 | P2 | E15 | 窗口切片的两条重编码回退仍带 -an; 大小上限写死 200 MB | Pending audit |  |
 | 054 | P2 | E17 | 单视频"全部重跑"仍是 压缩 → 分析 → 口播 → 转录 | Fixed | `b1d24df` now runs `all` in `compress -> transcribe -> analyze -> voiceover` order, with regression coverage for the canonical rerun sequence. Focused: 107 pytest cases passed; Ruff passed. |
 | 055 | P2 | E18 | 删除 plan 只删 .json, 留下 .md, 用户编辑版不备份 | Pending audit |  |
