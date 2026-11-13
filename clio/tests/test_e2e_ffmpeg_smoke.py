@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,8 @@ from clio.config import load_config
 from clio.pipeline import run_pipeline_steps
 from clio.tasks._video_loader import save_selected_videos
 from clio.utils import discover_ffmpeg_bin, get_duration_sec
+
+pytestmark = pytest.mark.e2e
 
 
 def _make_video(ffmpeg: str, output: Path) -> None:
@@ -82,6 +85,8 @@ def test_real_ffmpeg_compresses_and_analyzes_with_fake_provider(
     ffmpeg = discover_ffmpeg_bin("ffmpeg")
     ffprobe = discover_ffmpeg_bin("ffprobe")
     if not ffmpeg or not ffprobe:
+        if os.environ.get("CLIO_REQUIRE_FFMPEG_E2E") == "1":
+            pytest.fail("ffmpeg/ffprobe are required for the CI end-to-end smoke test")
         pytest.skip("ffmpeg/ffprobe are not installed")
 
     raw = tmp_config / "raw" / "20261113_120000.mp4"

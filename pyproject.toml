@@ -44,6 +44,9 @@ clio = ["ui/static/**/*", "ui/static/**/.*", "locales/*.json"]
 [tool.pytest.ini_options]
 testpaths = ["clio/tests"]
 addopts = "-v --tb=short"
+markers = [
+    "e2e: requires real external media binaries",
+]
 
 [tool.ruff]
 target-version = "py311"

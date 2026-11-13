@@ -83,9 +83,22 @@ jobs:
         pip install -r requirements-locked.txt
         pip install pytest pytest-cov pytest-randomly
 
+    - name: Install ffmpeg (Ubuntu)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ffmpeg
+
     - name: Run tests with coverage
       run: |
-        python -m pytest clio/tests/ -p randomly --cov=clio --cov-branch --cov-report=term --cov-report=xml --cov-config=pyproject.toml --junitxml=.pytest_cache/pytest-results.xml
+        python -m pytest clio/tests/ -m "not e2e" -p randomly --cov=clio --cov-branch --cov-report=term --cov-report=xml --cov-config=pyproject.toml --junitxml=.pytest_cache/pytest-results.xml
+
+    - name: Run real-ffmpeg end-to-end smoke (Ubuntu)
+      if: runner.os == 'Linux'
+      env:
+        CLIO_REQUIRE_FFMPEG_E2E: "1"
+      run: |
+        python -m pytest clio/tests/test_e2e_ffmpeg_smoke.py -m e2e
 
     - name: Annotate pytest failures
       if: failure()
