@@ -12,7 +12,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P1 | 35 | 20 | 15 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P2 | 59 | 14 | 15 | 0 | 0 | 0 | 0 | 0 | 30 |
+| P2 | 59 | 15 | 15 | 0 | 0 | 0 | 0 | 0 | 29 |
 | P3 | 14 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 10 |
 
 ## Item status
@@ -83,7 +83,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 062 | P2 | O16 | 前端覆盖率低 | Satisfied | Satisfied; frontend coverage raised (`5487304`). |
 | 063 | P2 | Q13 | 切点按整秒估算 | Satisfied | Satisfied; cut snapping implemented (`0e1c9bf`). |
 | 064 | P2 | R012 | ANALYZE_PROMPT 只要求描述"实际能看到"的内容, 没有任何音频字段; Q2 保留的音轨没被用上 | Satisfied | Existing implementation (`336824c`) adds the timeline `audio` field, its structured-output schema, and validation/normalization. The prompt explicitly asks for audible speech, ambience, music, footsteps, or silence while preserving the no-fabrication rule. Focused: 130 prompt/schema/analysis validation tests passed. |
-| 065 | P2 | E13 | 截断后用完全相同的请求重试, 视频重新上传 | Pending audit |  |
+| 065 | P2 | E13 | 截断后用完全相同的请求重试, 视频重新上传 | Fixed | `c2daa93`: Gemini now retries truncated video generation with the same uploaded file, appends compact-output guidance, doubles the configured output budget, and sums both attempts' token usage. The analyzer delegates video truncation retry so it cannot trigger another upload. Focused: 89 analyze-func and 70 Gemini tests passed; full suite: 3359 passed, 12 skipped; Ruff, mypy, and diff check passed. |
 | 066 | P2 | E16 | 示例仍是 00:10-00:45 (35 秒); narrative_beat/transition 下游未使用 | Pending audit |  |
 | 067 | P2 | O4 | 只发一条 user 消息 | Pending audit |  |
 | 068 | P2 | R013 | "5-10 秒一条"与"每窗口最多 60 条"在 15 分钟窗口下矛盾 (需要 90-180 条) | Pending audit |  |
