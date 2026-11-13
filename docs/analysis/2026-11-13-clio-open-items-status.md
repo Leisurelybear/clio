@@ -11,7 +11,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | Priority | Total | Fixed | Satisfied | Confirmed | Environment verification | Duplicate | Not applicable | Pending audit |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P1 | 35 | 0 | 8 | 4 | 0 | 0 | 0 | 23 |
+| P1 | 35 | 1 | 8 | 3 | 0 | 0 | 0 | 23 |
 | P2 | 59 | 0 | 12 | 0 | 0 | 0 | 0 | 47 |
 | P3 | 14 | 0 | 0 | 0 | 0 | 0 | 0 | 14 |
 
@@ -32,7 +32,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 011 | P1 | OPT-031 | CI 没有真实 ffmpeg 的任务; pip-audit 不拦截; 桌面打包任务按条件跳过 | Confirmed | Confirmed against current code and tests; remediation pending. |
 | 012 | P1 | OPT-029 | 关键回归被理想化 mock 掩盖 (R032、R033) | Confirmed | Confirmed against current code and tests; remediation pending. |
 | 013 | P1 | OPT-034 | 11 月 7-11 日五天合入 75 个提交, 其中 5 个修复引入回归 | Confirmed | Confirmed against current code and tests; remediation pending. |
-| 014 | P1 | R002 | Provider 的 base_url 与 api_key_env 可经 API 任意改写, 随后 /api/ai/test 会把该环境变量的值作为 Bearer 发往新地址 | Pending audit |  |
+| 014 | P1 | R002 | Provider 的 base_url 与 api_key_env 可经 API 任意改写, 随后 /api/ai/test 会把该环境变量的值作为 Bearer 发往新地址 | Fixed | `ff98198` binds each provider to its canonical `<PROVIDER>_API_KEY`, requires proof of possession before URL or credential-slot changes, strips stored keys, and rejects unsafe connection-test targets before any provider call. Focused: 89 passed, 1 skipped; full suite: 3222 passed, 12 skipped. |
 | 015 | P1 | E8 | 分析保存不打用户编辑标记; 重跑或指纹变化时旧分析被直接删除 | Pending audit |  |
 | 016 | P1 | R006 | 只有 run_plan_all_days 传 filter_by_day=True; run --day、plan --day、UI 运行都不过天过滤, UI 也没有 all-days 入口 | Pending audit |  |
 | 017 | P1 | E4 | 长视频每个窗口切片都注入整段转录 (绝对时间戳) | Pending audit |  |
