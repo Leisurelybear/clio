@@ -531,19 +531,19 @@ class TestLoadConfig:
         assert cfg.compress.remove_audio is True
         assert yaml.safe_load(cfg_path.read_text(encoding="utf-8"))["compress"]["remove_audio"] is True
 
-    def test_auto_upgrade_preserves_explicit_remove_audio_true(self, tmp_config):
+    def test_missing_defaults_are_not_materialized_into_yaml(self, tmp_config):
         cfg_path = tmp_config / "config.yaml"
         raw = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
         raw["compress"]["remove_audio"] = True
         raw["compress"].pop("fps", None)
-        cfg_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+        original = yaml.safe_dump(raw)
+        cfg_path.write_text(original, encoding="utf-8")
 
         cfg = load_config(cfg_path)
 
         assert cfg.compress.fps == 15
         assert cfg.compress.remove_audio is True
-        upgraded = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
-        assert upgraded["compress"]["remove_audio"] is True
+        assert cfg_path.read_text(encoding="utf-8") == original
 
     def test_missing_file_raises(self, tmp_path):
         blocker = tmp_path / "blocker"

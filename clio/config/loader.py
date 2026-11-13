@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import contextlib
-import dataclasses
 import json
 import os
 import re
@@ -29,18 +28,12 @@ from clio.config.models import (
     ProjectConfig,
     ProjectPathsConfig,
     ProjectWhisperConfig,
-    ProviderConfig,
     ProxyConfig,
     ScriptConfig,
     ServerConfig,
-    TaskConfig,
     UiConfig,
 )
-from clio.config.parsers import (
-    _infer_provider_capabilities,
-    _parse_providers,
-    _parse_tasks,
-)
+from clio.config.parsers import _parse_providers, _parse_tasks
 from clio.config.validators import _filter_dc, _validate_config, validate_global_config
 from clio.i18n import t
 from clio.resources import find_resource
@@ -80,8 +73,6 @@ _PROJECT_SECTION_DC_MAP: dict[str, type] = {
     "export": ExportConfig,
     "preview": PreviewConfig,
 }
-
-_MISSING = object()
 
 
 def _path(value: str | None, base: Path | None = None) -> Path:
@@ -176,121 +167,6 @@ def deep_merge(base: dict, override: dict) -> dict:
         if key not in base:
             result[key] = override[key]
     return result
-
-
-def _resolve_field_default(fd: dataclasses.Field):
-    if fd.default is not dataclasses.MISSING:
-        return fd.default
-    if fd.default_factory is not dataclasses.MISSING:
-        return fd.default_factory()
-    return _MISSING
-
-
-def _is_plain_yaml_value(val: Any) -> bool:
-    """A scalar/list/dict we can serialize without python-object tags.
-
-    Dataclass instances must never be written back into config.yaml. Only
-    accept none/str/int/float/bool and (deeply) plain dicts/lists.
-    """
-    if val is None or isinstance(val, (str, int, float, bool)):
-        return True
-    if isinstance(val, dict):
-        return all(isinstance(k, str) and _is_plain_yaml_value(v) for k, v in val.items())
-    if isinstance(val, list):
-        return all(_is_plain_yaml_value(v) for v in val)
-    return False
-
-
-def _upgrade_config_file(yaml_path: Path, *, section_map: dict[str, type]) -> None:
-    if not yaml_path.is_file():
-        return
-    raw = _load_yaml_mapping(yaml_path)
-
-    added: list[str] = []
-    changed = False
-
-    for section_name, dc_type in section_map.items():
-        section = raw.get(section_name)
-        if not isinstance(section, dict):
-            continue
-        for fd in getattr(dc_type, "__dataclass_fields__", {}).values():
-            if fd.name in section:
-                continue
-            val = _resolve_field_default(fd)
-            if val is _MISSING:
-                continue
-            if not _is_plain_yaml_value(val):
-                continue
-            if isinstance(val, Path):
-                val = str(val)
-            section[fd.name] = val
-            added.append(f"{section_name}.{fd.name}")
-            changed = True
-
-    providers = raw.get("ai", {}).get("providers", {})
-    if isinstance(providers, dict):
-        for pname, pcfg in providers.items():
-            if not isinstance(pcfg, dict):
-                continue
-            for fd in ProviderConfig.__dataclass_fields__.values():
-                if fd.name in pcfg:
-                    continue
-                val = _resolve_field_default(fd)
-                if val is _MISSING:
-                    continue
-                if fd.name == "capabilities":
-                    val = _infer_provider_capabilities(pcfg.get("type", "gemini"))
-                pcfg[fd.name] = val
-                added.append(f"ai.providers.{pname}.{fd.name}")
-                changed = True
-
-    ai_raw = raw.get("ai", {})
-    if isinstance(ai_raw, dict):
-        for task_section in ("tasks", "default_tasks"):
-            tasks = ai_raw.get(task_section, {})
-            if not isinstance(tasks, dict):
-                continue
-            for tname, tcfg in tasks.items():
-                if not isinstance(tcfg, dict):
-                    continue
-                for fd in TaskConfig.__dataclass_fields__.values():
-                    if fd.name in tcfg:
-                        continue
-                    val = _resolve_field_default(fd)
-                    if val is _MISSING or val is None:
-                        continue
-                    tcfg[fd.name] = val
-                    added.append(f"ai.{task_section}.{tname}.{fd.name}")
-                    changed = True
-
-    if not changed:
-        return
-
-    text = yaml.dump(raw, default_flow_style=False, allow_unicode=True, sort_keys=False)
-    # Validate the generated text is plain YAML we can load back before touching
-    # the original file (backup-first, atomic replace with rollback tolerance).
-    try:
-        reloaded = yaml.safe_load(text)
-    except yaml.YAMLError:
-        return
-    if not isinstance(reloaded, dict):
-        return
-    try:
-        previous = yaml_path.read_text(encoding="utf-8")
-    except OSError:
-        previous = None
-    if previous is not None:
-        bak = yaml_path.with_name(yaml_path.name + ".bak")
-        if not bak.exists():
-            with contextlib.suppress(OSError):
-                bak.write_text(previous, encoding="utf-8")
-    from clio.utils import write_text_atomic
-
-    try:
-        write_text_atomic(yaml_path, text)
-    except OSError:
-        return
-    print(f"[config] {yaml_path.name} auto-added {len(added)} new field(s): {', '.join(added)}")
 
 
 def _load_context(ai_raw: dict, base: Path, project_dir: Path | None = None) -> str:
@@ -534,7 +410,6 @@ def load_global_config(config_path: str | Path = "config.yaml") -> GlobalConfig:
 
     _ensure_global_config(config_file)
     _migrate_if_needed(config_file)
-    _upgrade_config_file(config_file, section_map=_GLOBAL_SECTION_DC_MAP)
 
     try:
         raw = _load_yaml_mapping(config_file)
@@ -587,8 +462,6 @@ def load_project_config(
     project_yaml = project_dir.resolve() / "project.yaml"
     if not project_yaml.is_file():
         return None
-
-    _upgrade_config_file(project_yaml, section_map=_PROJECT_SECTION_DC_MAP)
 
     raw = _load_yaml_mapping(project_yaml)
 

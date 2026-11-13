@@ -142,16 +142,14 @@ See `clio/compress.py`.
 - Script files additionally build a reverse map via `text_stem_to_compressed` to match `_voiceover` files back to their compressed stems
 - The `_parse_segment_info` regex also expanded to support `_partNN`, `_ptNN`, `_chunkNN` (case-insensitive) in addition to `_segNN` (B-073, `f2465cd`)
 
-### 9.21 Config Auto-Upgrade: Dataclass Defaults Injection
+### 9.21 Config Loading Must Not Materialize Defaults
 
-- `_upgrade_config_file()` in `loader.py` runs at the start of every `load_config()` call
-- For each YAML section (`paths`, `proxy`, `ai`, `compress`, `analyze`, `naming`, `script`, `plan`, `whisper`), it checks the corresponding dataclass for fields not present in the YAML and injects their Python `field(default=...)` values
-- Also covers `ai.providers.*` (per `ProviderConfig`) and `ai.tasks.*` (per `TaskConfig`)
-- Handles both `config.yaml` and `project.yaml` independently
-- `Path`-typed defaults are converted to strings via `str()` before YAML serialization to avoid unsafe `!!python/object` tags
-- Writes back via `yaml.dump()` only when something changed; prints a summary to stdout
-- **Trade-off**: PyYAML does not preserve comments — a one-time loss when new fields are injected
-- Uses atomic write (tmp + `os.replace`) to prevent partial writes on crash
+- `load_config()` is read-only unless an explicit versioned migration is required.
+- Missing YAML fields use the dataclass defaults in memory; never write current defaults back
+  into `config.yaml` or `project.yaml`, because future default changes must reach existing users.
+- Legacy V1 migration remains an explicit write path: back up first, write atomically, and record
+  `config_version: V2`. Do not use a generic loader-time `yaml.dump()` upgrade path, which would
+  silently discard user comments and future-proofing.
 
 ### 9.22 Sidebar Video Filter: Reset on Source Switch
 

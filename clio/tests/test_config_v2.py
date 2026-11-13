@@ -590,11 +590,12 @@ class TestGlobalDefaultTasks:
         with pytest.raises(ValueError, match="ai.default_tasks.voiceover.temperature"):
             validate_global_config(cfg)
 
-    def test_upgrades_missing_default_task_fields(self, tmp_path: Path):
+    def test_missing_task_defaults_are_not_materialized(self, tmp_path: Path):
         cfg_path = tmp_path / "config.yaml"
         cfg_path.write_text(
             yaml.dump(
                 {
+                    "config_version": "V2",
                     "ai": {
                         "providers": {"gemini": {"type": "gemini", "api_key": "g"}},
                         "default_tasks": {"video_analyze": {"provider": "gemini"}},
@@ -603,12 +604,24 @@ class TestGlobalDefaultTasks:
             ),
             encoding="utf-8",
         )
+        original = cfg_path.read_text(encoding="utf-8")
 
         cfg = load_config(cfg_path, project_dir=tmp_path)
         assert cfg.ai.tasks["video_analyze"].model == ""
-        upgraded = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
-        assert upgraded["ai"]["default_tasks"]["video_analyze"]["model"] == ""
-        assert "temperature" not in upgraded["ai"]["default_tasks"]["video_analyze"]
+        assert cfg_path.read_text(encoding="utf-8") == original
+
+    def test_project_yaml_defaults_are_not_materialized(self, tmp_path: Path):
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text("config_version: V2\n", encoding="utf-8")
+        project_path = tmp_path / "project.yaml"
+        original = "# keep this comment\ncompress:\n  target_size_mb: 6\n"
+        project_path.write_text(original, encoding="utf-8")
+
+        cfg = load_config(config_path, project_dir=tmp_path)
+
+        assert cfg.compress.target_size_mb == 6
+        assert cfg.compress.max_width == 640
+        assert project_path.read_text(encoding="utf-8") == original
 
 
 class TestProhibitedFields:
