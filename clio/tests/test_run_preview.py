@@ -1387,3 +1387,146 @@ def test_preview_reports_user_edited_plan_voiceover_after_context_change(tmp_pat
         "required": True,
         "items": ["day1_plan_voiceover.json", "day1_plan_voiceover.md"],
     }
+
+
+def _write_day_analysis(config: AppConfig, index: str, source: str, day_label: str) -> None:
+    config.texts_dir.mkdir(parents=True, exist_ok=True)
+    compressed_stem = f"{index}_{source}"
+    data = {
+        "index": int(index),
+        "title": source,
+        "summary": day_label,
+        "source_file": f"{source}.mp4",
+        "compressed_file": f"{compressed_stem}.mp4",
+        "day_label": day_label,
+        "media_identity": {
+            "original_stem": source,
+            "original_path": f"{source}.mp4",
+            "compressed_stem": compressed_stem,
+            "compressed_path": f"{compressed_stem}.mp4",
+            "index": index,
+            "segment_index": None,
+            "segment_offset_sec": 0.0,
+        },
+    }
+    (config.texts_dir / f"{compressed_stem}.json").write_text(json.dumps(data), encoding="utf-8")
+
+
+def test_preview_all_days_counts_each_discovered_plan(tmp_path: Path) -> None:
+    input_dir = tmp_path / "videos"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+    config = _config(input_dir, output_dir)
+    _write_day_analysis(config, "001", "A", "day1")
+    _write_day_analysis(config, "002", "B", "day2")
+    config.plans_dir.mkdir(parents=True)
+    (config.plans_dir / "day1_plan.json").write_text("{}", encoding="utf-8")
+    (config.plans_dir / "day1_plan.md").write_text("# plan", encoding="utf-8")
+
+    preview = build_run_preview(
+        config,
+        steps=["plan"],
+        force=False,
+        use_transcripts=True,
+        all_days=True,
+    )
+
+    step = preview["steps"][0]
+    assert step["total"] == 2
+    assert step["will_run"] == 1
+    assert step["will_skip"] == 1
+
+
+def test_preview_all_days_counts_consistency_per_day(tmp_path: Path) -> None:
+    from clio.tasks.consistency import entity_consistency_paths
+
+    input_dir = tmp_path / "videos"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+    config = _config(input_dir, output_dir)
+    _write_day_analysis(config, "001", "A", "day2")
+    _write_day_analysis(config, "002", "B", "day1")
+    out_json, out_md = entity_consistency_paths(config, "day1")
+    out_json.parent.mkdir(parents=True, exist_ok=True)
+    out_json.write_text("{}", encoding="utf-8")
+    out_md.write_text("# consistency", encoding="utf-8")
+
+    preview = build_run_preview(
+        config,
+        steps=["consistency"],
+        force=False,
+        use_transcripts=True,
+        all_days=True,
+    )
+
+    step = preview["steps"][0]
+    assert step["total"] == 2
+    assert step["will_run"] == 1
+    assert step["will_skip"] == 1
+
+
+def test_preview_all_days_plan_voiceover_uses_only_planned_days(tmp_path: Path) -> None:
+    input_dir = tmp_path / "videos"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+    config = _config(input_dir, output_dir)
+    _write_day_analysis(config, "001", "A", "day1")
+    _write_day_analysis(config, "002", "B", "day2")
+    config.plans_dir.mkdir(parents=True)
+    (config.plans_dir / "day1_plan.json").write_text("{}", encoding="utf-8")
+    config.scripts_dir.mkdir(parents=True)
+    (config.scripts_dir / "day1_plan_voiceover.json").write_text("{}", encoding="utf-8")
+    (config.scripts_dir / "day1_plan_voiceover.md").write_text("# voiceover", encoding="utf-8")
+
+    preview = build_run_preview(
+        config,
+        steps=["plan_voiceover"],
+        force=False,
+        use_transcripts=True,
+        all_days=True,
+    )
+
+    step = preview["steps"][0]
+    assert step["total"] == 1
+    assert step["will_run"] == 0
+    assert step["will_skip"] == 1
+
+
+def test_preview_all_days_reports_protected_artifact_on_later_day(tmp_path: Path) -> None:
+    from clio.artifact_guard import mark_user_edited
+    from clio.tasks.plan import run_plan_vlog
+
+    input_dir = tmp_path / "videos"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+    config = _config(input_dir, output_dir)
+    _write_day_analysis(config, "001", "A", "day1")
+    _write_day_analysis(config, "002", "B", "day2")
+    generated = {
+        "day_title": "Day",
+        "theme": "trip",
+        "total_estimated_sec": 60,
+        "sequence": [{"index": "001", "title": "A", "use_timeline": "00:00-00:10"}],
+    }
+    with patch("clio.tasks.plan.plan_daily_vlog", return_value=generated):
+        run_plan_vlog(config, day_label="day1", overwrite=True)
+        run_plan_vlog(config, day_label="day2", overwrite=True)
+
+    plan_path = config.plans_dir / "day2_plan.json"
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    mark_user_edited(plan, edited_at="2026-11-10T00:00:00Z")
+    plan_path.write_text(json.dumps(plan), encoding="utf-8")
+
+    preview = build_run_preview(
+        config,
+        steps=["plan"],
+        force=False,
+        use_transcripts=True,
+        all_days=True,
+        context_override="changed planning context",
+    )
+
+    assert preview["artifact_overwrite"] == {
+        "required": True,
+        "items": ["day2_plan.json", "day2_plan.md"],
+    }

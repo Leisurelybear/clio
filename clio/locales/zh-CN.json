@@ -434,6 +434,7 @@
   "md.unknown": "未知",
   "md.untitled": "未命名",
   "pipeline.cancelled": "[取消] pipeline 被用户终止（步骤: {step}）",
+  "pipeline.all_days_files_conflict": "全部分集不能与选中文件同时使用",
   "pipeline.done": "完成！输出目录: {output_dir}",
   "pipeline.step_failed": "{label}失败（退出码 {code}）",
   "pipeline.unknown_steps": "未知的 pipeline step: {unknown}（可选: {available}）",

@@ -349,9 +349,14 @@ def _plan_lineage_fingerprint(
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _discover_day_labels(config: AppConfig) -> list[str]:
+def discover_day_labels(config: AppConfig) -> list[str]:
+    """Return sorted day labels present in usable project analysis artifacts."""
     labels, _ = _discover_day_labels_with_errors(config)
     return labels
+
+
+def _discover_day_labels(config: AppConfig) -> list[str]:
+    return discover_day_labels(config)
 
 
 def _discover_day_labels_with_errors(config: AppConfig) -> tuple[list[str], list[tuple[str, str]]]:
@@ -685,6 +690,7 @@ def run_plan_all_days(
     tracker: ProgressReporter | None = None,
     cancel_event: threading.Event | None = None,
     overwrite: bool = False,
+    confirm_artifact_overwrite: bool = False,
     context_override: str | None = None,
     task_prompts: dict[str, str] | None = None,
 ) -> dict[str, Any] | None:
@@ -707,6 +713,7 @@ def run_plan_all_days(
             tracker=tracker,
             cancel_event=cancel_event,
             overwrite=overwrite,
+            confirm_artifact_overwrite=confirm_artifact_overwrite,
             context_override=context_override,
             filter_by_day=True,
             task_prompts=task_prompts,

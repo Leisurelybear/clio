@@ -214,6 +214,42 @@ class TestHandlePostRunStart:
         assert payload["ok"] is True
         assert manager.wait(payload["task_id"]).status.value == "succeeded"
 
+    def test_rejects_non_boolean_all_days(self, tmp_path):
+        manager = MagicMock()
+        handler, _, _ = _managed_handler(tmp_path, manager)
+
+        handle_post_run_start(handler, {}, {"all_days": "true"})
+
+        handler._send_json.assert_called_once_with({"ok": False, "error": "all_days must be a boolean"}, 400)
+        manager.submit.assert_not_called()
+
+    def test_rejects_all_days_with_files(self, tmp_path):
+        manager = MagicMock()
+        handler, _, _ = _managed_handler(tmp_path, manager)
+
+        handle_post_run_start(handler, {}, {"steps": ["plan"], "files": ["A.mp4"], "all_days": True})
+
+        payload, status = handler._send_json.call_args.args
+        assert status == 400
+        assert "all_days cannot be combined" in payload["error"]
+        manager.submit.assert_not_called()
+
+    def test_all_days_is_stored_on_task_input_and_summary(self, tmp_path, monkeypatch):
+        from clio.task_center.manager import TaskManager
+        from clio.task_center.store import TaskStore
+
+        _allow_media_preflight(monkeypatch)
+        monkeypatch.setattr("clio.ui.routes.run._run_pipeline_task", lambda context: {"ok": True})
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+        handler, _, _ = _managed_handler(tmp_path, manager)
+
+        handle_post_run_start(handler, {}, {"steps": ["consistency"], "all_days": True})
+
+        payload = handler._send_json.call_args.args[0]
+        task = manager.wait(payload["task_id"])
+        assert task.input_data["all_days"] is True
+        assert task.input_summary["all_days"] is True
+
     def test_unknown_step_is_rejected_before_submit(self, tmp_path):
         manager = MagicMock()
         handler, _, _ = _managed_handler(tmp_path, manager)
@@ -552,10 +588,43 @@ class TestHandlePostRunPreview:
             use_transcripts=False,
             files=["A.mp4"],
             day_label="day3",
+            all_days=False,
             context_override=None,
             task_prompts=None,
         )
         handler._send_json.assert_called_once_with({"ok": True, "preview": expected})
+
+    def test_builds_all_days_preview_from_request(self, tmp_path: Path, _handler, monkeypatch):
+        handler = _handler
+        proj_dir = tmp_path / "input"
+        cfg = MagicMock()
+        handler._resolve_project_dir.return_value = proj_dir
+        handler._get_config.return_value = cfg
+        expected: dict[str, object] = {"input": {}, "steps": [], "totals": {}}
+        build = MagicMock(return_value=expected)
+        monkeypatch.setattr("clio.ui.routes.run.build_run_preview", build)
+
+        handle_post_run_preview(handler, {}, {"steps": ["plan"], "day_label": "day1", "all_days": True})
+
+        build.assert_called_once_with(
+            cfg,
+            ["plan"],
+            force=False,
+            use_transcripts=True,
+            files=None,
+            day_label="day1",
+            all_days=True,
+            context_override=None,
+            task_prompts=None,
+        )
+        handler._send_json.assert_called_once_with({"ok": True, "preview": expected})
+
+    def test_rejects_all_days_with_files_in_preview(self, _handler):
+        handle_post_run_preview(_handler, {}, {"steps": ["plan"], "files": ["A.mp4"], "all_days": True})
+
+        payload, status = _handler._send_json.call_args.args
+        assert status == 400
+        assert "all_days cannot be combined" in payload["error"]
 
     def test_preview_includes_media_preflight(self, tmp_path: Path, _handler, monkeypatch):
         handler = _handler
@@ -592,6 +661,7 @@ class TestHandlePostRunPreview:
         ("payload", "error"),
         [
             ({"overwrite": "false"}, "overwrite must be a boolean"),
+            ({"all_days": 1}, "all_days must be a boolean"),
             ({"use_transcripts": 1}, "use_transcripts must be a boolean"),
             ({"steps": ["compress", 2]}, "steps must be a list of strings"),
             ({"files": ["A.mp4", 2]}, "files items must be strings"),
@@ -630,6 +700,7 @@ class TestHandlePostRunPreview:
             use_transcripts=True,
             files=None,
             day_label="day1",
+            all_days=False,
             context_override=None,
             task_prompts=None,
         )
@@ -968,6 +1039,7 @@ class TestRunPipelineTask:
             captured["files"] = kwargs.get("files")
             captured["overwrite"] = kwargs.get("overwrite")
             captured["confirm_plan_overwrite"] = kwargs.get("confirm_plan_overwrite")
+            captured["all_days"] = kwargs.get("all_days")
             return {"steps_run": 3}
 
         monkeypatch.setattr("clio.ui.routes.run.run_pipeline_steps", fake_pipeline)
@@ -987,6 +1059,7 @@ class TestRunPipelineTask:
                 "files": ["a.mp4"],
                 "overwrite": True,
                 "confirm_plan_overwrite": True,
+                "all_days": True,
             },
             task=SimpleNamespace(project_path=str(tmp_path)),
             reporter=MagicMock(),
@@ -1001,6 +1074,7 @@ class TestRunPipelineTask:
         assert captured["files"] == ["a.mp4"]
         assert captured["overwrite"] is True
         assert captured["confirm_plan_overwrite"] is True
+        assert captured["all_days"] is True
 
     def test_cancelled_marks_tracker_and_reraises(self, tmp_path, monkeypatch):
         from clio.task_center.reporter import TaskCancelled

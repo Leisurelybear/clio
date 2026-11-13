@@ -434,6 +434,7 @@
   "md.unknown": "Unknown",
   "md.untitled": "Untitled",
   "pipeline.cancelled": "[cancel] pipeline stopped by user (step: {step})",
+  "pipeline.all_days_files_conflict": "All days cannot be combined with selected files",
   "pipeline.done": "Done! Output directory: {output_dir}",
   "pipeline.step_failed": "{label} failed (exit code {code})",
   "pipeline.unknown_steps": "Unknown pipeline step(s): {unknown} (available: {available})",

@@ -105,6 +105,10 @@ function renderRun() {
             <span class="run-option-label">${t('run.day_label')}</span>
             <input id="run-day" class="run-option-input" value="${escapeHtml(state.currentDay)}">
           </label>
+          <label class="run-option run-option-check">
+            <input type="checkbox" id="run-all-days">
+            <span>${t('run.all_days')}</span>
+          </label>
         </div>
         ` : ''}
         ${isPlan ? `
@@ -174,6 +178,13 @@ function renderRun() {
   if (overwriteCb) {
     overwriteCb.addEventListener('change', () => refreshRunPreview({ silent: true }));
   }
+  const allDaysCb = $('run-all-days');
+  if (allDaysCb) {
+    allDaysCb.addEventListener('change', () => {
+      toggleDayScopeInputs();
+      refreshRunPreview({ silent: true });
+    });
+  }
 
   togglePlanSubOptions();
   updateRunFilesBadge();
@@ -197,20 +208,39 @@ function togglePlanSubOptions() {
   const consistencyCb = document.querySelector('.run-step-cb[data-step="consistency"]');
   const planCb = document.querySelector('.run-step-cb[data-step="plan"]');
   const planVoiceoverCb = document.querySelector('.run-step-cb[data-step="plan_voiceover"]');
+  const dayEnabled = consistencyCb?.checked
+    || planCb?.checked
+    || planVoiceoverCb?.checked
+    || (!consistencyCb && !planCb && !planVoiceoverCb);
   const daySub = document.querySelector('.run-step-day-sub');
   if (daySub) {
-    const dayEnabled = consistencyCb?.checked
-      || planCb?.checked
-      || planVoiceoverCb?.checked
-      || (!consistencyCb && !planCb && !planVoiceoverCb);
     daySub.style.opacity = dayEnabled ? '1' : '0.35';
     daySub.querySelectorAll('input, button').forEach(el => el.disabled = !dayEnabled);
   }
+  toggleDayScopeInputs(dayEnabled);
   const planSub = document.querySelector('.run-step-plan-sub');
   if (!planSub) return;
   const transcriptsEnabled = planCb?.checked || planVoiceoverCb?.checked || (!planCb && !planVoiceoverCb);
   planSub.style.opacity = transcriptsEnabled ? '1' : '0.35';
   planSub.querySelectorAll('input, button').forEach(el => el.disabled = !transcriptsEnabled);
+}
+
+function toggleDayScopeInputs(dayEnabledOverride) {
+  const allDaysCb = $('run-all-days');
+  const dayInput = $('run-day');
+  if (!allDaysCb || !dayInput) return;
+  const consistencyCb = document.querySelector('.run-step-cb[data-step="consistency"]');
+  const planCb = document.querySelector('.run-step-cb[data-step="plan"]');
+  const planVoiceoverCb = document.querySelector('.run-step-cb[data-step="plan_voiceover"]');
+  const dayEnabled = dayEnabledOverride ?? (
+    consistencyCb?.checked
+    || planCb?.checked
+    || planVoiceoverCb?.checked
+    || (!consistencyCb && !planCb && !planVoiceoverCb)
+  );
+  if (state.selectionMode) allDaysCb.checked = false;
+  allDaysCb.disabled = !dayEnabled || state.selectionMode;
+  dayInput.disabled = !dayEnabled || allDaysCb.checked;
 }
 
 function getRunButtonText() {
@@ -227,6 +257,7 @@ function updateRunStartButtonState() {
   const btn = $('btn-run-start');
   if (!btn || _runActive) return;
   const noSelection = state.selectionMode && state.selectedFiles.length === 0;
+  toggleDayScopeInputs();
   btn.disabled = noSelection;
   btn.innerHTML = getRunButtonText();
   btn.title = noSelection ? t('run.pick_first_title') : '';
@@ -240,6 +271,9 @@ function collectRunOptions() {
     use_transcripts: $('run-use-transcripts')?.checked ?? true,
     overwrite: !!$('run-overwrite')?.checked,
   };
+  if ($('run-all-days')?.checked) {
+    options.all_days = true;
+  }
   if (state.selectionMode && state.selectedFiles.length > 0) {
     options.files = state.selectedFiles.slice();
   }

@@ -460,6 +460,7 @@
   "run.context_placeholder": "Add extra instructions to every AI for this run only.&#10;&#10;One instruction per line; step prefixes are supported:&#10;[analyze] pay attention to close-ups of food&#10;[voiceover] use a more conversational tone&#10;[plan] prefer action shots&#10;&#10;Instructions without a prefix apply to every step.&#10;These hints apply to this run only and are never saved to the config.",
   "run.confirm_legacy_audio_removal": "Legacy audio-preserving outputs were found. Continue will regenerate {analyze_count} analysis, {voiceover_count} voiceover, and {compress_count} compressed item(s). This may incur additional AI charges.\n\nContinue?",
   "run.current_project": "Current project: {path}",
+  "run.all_days": "Process every episode for plan, consistency, and plan voiceover",
   "run.day_label": "Episode",
   "run.deps_required": "{items} is required to run the selected steps",
   "run.done": "Pipeline complete",

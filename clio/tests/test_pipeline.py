@@ -336,3 +336,91 @@ class TestRunPipelineStepsCancel:
         ):
             with pytest.raises(RuntimeError, match="语音转录失败"):
                 run_full_pipeline(config)
+
+
+class TestAllDayScoping:
+    def test_plan_all_days_uses_collection_entrypoint(self, tmp_path: Path):
+        config = _mock_config(tmp_path)
+        tracker = MagicMock()
+        plan_step = MagicMock()
+        expected = {"days": [{"day_label": "day1"}, {"day_label": "day2"}]}
+        with (
+            patch("clio.pipeline.auto_reindex_if_needed"),
+            patch("clio.pipeline.discover_day_labels", return_value=["day1", "day2"]),
+            patch("clio.pipeline.run_plan_all_days", return_value=expected) as all_days,
+            patch("clio.pipeline._STEP_FUNCS", {"plan": plan_step}),
+            patch("builtins.print"),
+            patch("clio.pipeline.timed", lambda msg: MagicMock(__enter__=lambda s: None, __exit__=lambda *a: None)),
+        ):
+            result = run_pipeline_steps(
+                config,
+                steps=["plan"],
+                tracker=tracker,
+                all_days=True,
+                overwrite=True,
+                confirm_artifact_overwrite=True,
+                context_override="focus",
+                task_prompts={"plan": "brief"},
+            )
+
+        plan_step.assert_not_called()
+        all_days.assert_called_once_with(
+            config,
+            tracker=tracker,
+            cancel_event=None,
+            overwrite=True,
+            confirm_artifact_overwrite=True,
+            context_override="focus",
+            task_prompts={"plan": "brief"},
+        )
+        assert result["processed"] == 1
+        assert result["steps"] == [{"name": "plan", "processed": 1, "failed": 0}]
+
+    def test_day_scoped_steps_run_in_sorted_day_order(self, tmp_path: Path):
+        config = _mock_config(tmp_path)
+        tracker = MagicMock()
+        calls: dict[str, list[str]] = {"consistency": [], "plan_voiceover": []}
+
+        def _make_mock(name):
+            def _mock(config_arg, day_label, tracker_arg, **kwargs):
+                calls[name].append(day_label)
+                return {"day_label": day_label}
+
+            return _mock
+
+        fake_funcs = {name: _make_mock(name) for name in calls}
+        with (
+            patch("clio.pipeline.auto_reindex_if_needed"),
+            patch("clio.pipeline.discover_day_labels", return_value=["day1", "day2", "day3"]),
+            patch("clio.pipeline._STEP_FUNCS", fake_funcs),
+            patch("builtins.print"),
+            patch("clio.pipeline.timed", lambda msg: MagicMock(__enter__=lambda s: None, __exit__=lambda *a: None)),
+        ):
+            result = run_pipeline_steps(config, steps=list(calls), tracker=tracker, all_days=True)
+
+        expected = ["day1", "day2", "day3"]
+        assert calls == {"consistency": expected, "plan_voiceover": expected}
+        assert result["processed"] == 6
+
+    def test_non_day_step_runs_once(self, tmp_path: Path):
+        config = _mock_config(tmp_path)
+        tracker = MagicMock()
+        analyze = MagicMock(return_value=["a"])
+        with (
+            patch("clio.pipeline.auto_reindex_if_needed"),
+            patch("clio.pipeline.discover_day_labels", return_value=["day1", "day2"]),
+            patch("clio.pipeline._STEP_FUNCS", {"analyze": analyze}),
+            patch("builtins.print"),
+            patch("clio.pipeline.timed", lambda msg: MagicMock(__enter__=lambda s: None, __exit__=lambda *a: None)),
+        ):
+            result = run_pipeline_steps(config, steps=["analyze"], tracker=tracker, all_days=True)
+
+        analyze.assert_called_once_with(config, tracker)
+        assert result["processed"] == 1
+
+    def test_rejects_all_days_with_selected_files(self, tmp_path: Path):
+        config = _mock_config(tmp_path)
+        with patch("clio.pipeline.auto_reindex_if_needed") as reindex:
+            with pytest.raises(ValueError):
+                run_pipeline_steps(config, steps=["plan"], files=["A.mp4"], all_days=True)
+        reindex.assert_not_called()

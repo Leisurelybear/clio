@@ -61,6 +61,7 @@ describe('collectRunOptions', () => {
       <input class="run-step-cb" data-step="consistency" type="checkbox" checked>
       <input class="run-step-cb" data-step="plan" type="checkbox">
       <input id="run-day" value="day2">
+      <input id="run-all-days" type="checkbox">
       <input id="run-use-transcripts" type="checkbox" checked>
       <input id="run-overwrite" type="checkbox">
       <textarea id="run-context-override">[analyze] focus food</textarea>
@@ -74,6 +75,12 @@ describe('collectRunOptions', () => {
     expect(opts.use_transcripts).toBe(true);
     expect(opts.overwrite).toBe(false);
     expect(opts.context_override).toBe('[analyze] focus food');
+  });
+
+  it('collects all_days only when the scope checkbox is checked', () => {
+    document.getElementById('run-all-days').checked = true;
+    expect(collectRunOptions().all_days).toBe(true);
+    expect(collectRunOptions().day_label).toBe('day2');
   });
 
   it('marks overwrite when checkbox is checked', () => {
@@ -121,6 +128,37 @@ describe('getRunButtonText / updateRunStartButtonState', () => {
     expect(btn.disabled).toBe(false);
     expect(btn.innerHTML).toContain('(1)');
     expect(btn.innerHTML).toContain('运行选中步骤');
+  });
+
+  it('clears and disables all-days scope in selection mode', () => {
+    state.selectionMode = true;
+    state.selectedFiles = ['a.mp4'];
+    document.body.innerHTML = `
+      <button id="btn-run-start" class="btn-primary"></button>
+      <input id="run-day" value="day2">
+      <input id="run-all-days" type="checkbox" checked>
+    `;
+
+    updateRunStartButtonState();
+
+    expect(document.getElementById('run-all-days').checked).toBe(false);
+    expect(document.getElementById('run-all-days').disabled).toBe(true);
+    expect(document.getElementById('run-day').disabled).toBe(false);
+  });
+
+  it('disables the single-day input when all days is selected', () => {
+    state.selectionMode = false;
+    state.selectedFiles = [];
+    document.body.innerHTML = `
+      <button id="btn-run-start" class="btn-primary"></button>
+      <input id="run-day" value="day2">
+      <input id="run-all-days" type="checkbox" checked>
+    `;
+
+    updateRunStartButtonState();
+
+    expect(document.getElementById('run-all-days').disabled).toBe(false);
+    expect(document.getElementById('run-day').disabled).toBe(true);
   });
 
   it('disables start button when selection mode has no files', () => {

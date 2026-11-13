@@ -95,6 +95,7 @@ def _run_pipeline_task(context) -> dict[str, Any]:
             tracker=tracker,
             cancel_event=context.cancel_event,
             files=input_data.get("files"),
+            all_days=bool(input_data.get("all_days", False)),
             overwrite=bool(input_data.get("overwrite", False)),
             confirm_plan_overwrite=bool(input_data.get("confirm_plan_overwrite", False)),
             confirm_artifact_overwrite=bool(input_data.get("confirm_artifact_overwrite", False)),
@@ -327,6 +328,14 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
         return handler._send_json({"ok": False, "error": "files must be a list of video names"}, 400)
     if files_list is not None and not all(isinstance(item, str) for item in files_list):
         return handler._send_json({"ok": False, "error": "files items must be strings"}, 400)
+    all_days = obj.get("all_days", False)
+    if not isinstance(all_days, bool):
+        return handler._send_json({"ok": False, "error": "all_days must be a boolean"}, 400)
+    if all_days and files_list is not None:
+        return handler._send_json(
+            {"ok": False, "error": "all_days cannot be combined with an explicit file selection"},
+            400,
+        )
     overwrite = obj.get("overwrite", False)
     if not isinstance(overwrite, bool):
         return handler._send_json({"ok": False, "error": "overwrite must be a boolean"}, 400)
@@ -378,6 +387,7 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
         use_transcripts=cfg.plan.use_transcripts,
         files=files_list,
         day_label=day_label,
+        all_days=all_days,
         context_override=context_override,
         task_prompts=task_prompts,
     )
@@ -437,6 +447,7 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
         "day_label": day_label,
         "steps": steps,
         "files": files_list,
+        "all_days": all_days,
         "overwrite": overwrite,
         "confirm_plan_overwrite": confirm_plan_overwrite,
         "confirm_artifact_overwrite": confirm_artifact_overwrite,
@@ -448,6 +459,7 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
         "steps": list(steps or []),
         "file_count": len(files_list) if files_list is not None else None,
         "day_label": day_label,
+        "all_days": all_days,
         "retryable": retryable,
     }
     if not retryable:
@@ -492,6 +504,14 @@ def handle_post_run_preview(handler: HandlerProtocol, qs: dict[str, Any], obj: d
         return handler._send_json({"ok": False, "error": "files must be a list of video names"}, 400)
     if files_list is not None and not all(isinstance(item, str) for item in files_list):
         return handler._send_json({"ok": False, "error": "files items must be strings"}, 400)
+    all_days = obj.get("all_days", False)
+    if not isinstance(all_days, bool):
+        return handler._send_json({"ok": False, "error": "all_days must be a boolean"}, 400)
+    if all_days and files_list is not None:
+        return handler._send_json(
+            {"ok": False, "error": "all_days cannot be combined with an explicit file selection"},
+            400,
+        )
     overwrite = obj.get("overwrite", False)
     if not isinstance(overwrite, bool):
         return handler._send_json({"ok": False, "error": "overwrite must be a boolean"}, 400)
@@ -541,6 +561,7 @@ def handle_post_run_preview(handler: HandlerProtocol, qs: dict[str, Any], obj: d
         use_transcripts=use_transcripts,
         files=files_list,
         day_label=day_label,
+        all_days=all_days,
         context_override=context_override,
         task_prompts=task_prompts,
     )

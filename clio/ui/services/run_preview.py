@@ -31,7 +31,11 @@ from clio.tasks.analyze import (
     analysis_artifact_overwrite_required,
 )
 from clio.tasks.consistency import entity_consistency_paths
-from clio.tasks.plan import plan_artifact_overwrite_required, plan_overwrite_confirmation_required
+from clio.tasks.plan import (
+    discover_day_labels,
+    plan_artifact_overwrite_required,
+    plan_overwrite_confirmation_required,
+)
 from clio.tasks.scripts import (
     _load_script_template,
     _voiceover_lineage_fingerprint,
@@ -55,11 +59,13 @@ def build_run_preview(
     use_transcripts: bool,
     files: list[str] | None = None,
     day_label: str = "day1",
+    all_days: bool = False,
     context_override: str | None = None,
     task_prompts: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     selected_steps = list(steps)
     selected = _selection_from_files(files) if files is not None else None
+    preview_day_labels = _preview_day_labels(config, day_label, all_days)
 
     source_input_info, all_source_videos = _source_input_info(config)
     from clio.tasks._video_loader import source_videos as _load_source_videos
@@ -99,7 +105,7 @@ def build_run_preview(
             index=index,
             force=force,
             use_transcripts=use_transcripts,
-            day_label=day_label,
+            day_labels=preview_day_labels,
         )
         for step in selected_steps
     ]
@@ -133,6 +139,7 @@ def build_run_preview(
         use_transcripts=use_transcripts,
         files=files,
         day_label=day_label,
+        all_days=all_days,
         context_override=context_override,
         task_prompts=task_prompts,
     )
@@ -443,6 +450,7 @@ def artifact_overwrite_paths(
     use_transcripts: bool,
     files: list[str] | None = None,
     day_label: str = "day1",
+    all_days: bool = False,
     context_override: str | None = None,
     task_prompts: dict[str, str] | None = None,
 ) -> list[Path]:
@@ -450,6 +458,7 @@ def artifact_overwrite_paths(
     selected_steps = set(steps)
     artifact_config = copy.deepcopy(config)
     artifact_config.plan.use_transcripts = use_transcripts
+    day_labels = _preview_day_labels(artifact_config, day_label, all_days)
     paths: list[Path] = []
     if "analyze" in selected_steps:
         paths.extend(
@@ -461,23 +470,26 @@ def artifact_overwrite_paths(
                 task_prompts=task_prompts,
             )
         )
-    if "plan" in selected_steps and plan_artifact_overwrite_required(
-        artifact_config,
-        day_label,
-        files,
-        overwrite=force,
-        context_override=context_override,
-        task_prompts=task_prompts,
-    ):
-        safe_day = plan_day_stem(day_label)
-        paths.extend(
-            path
-            for path in (
-                artifact_config.plans_dir / f"{safe_day}_plan.json",
-                artifact_config.plans_dir / f"{safe_day}_plan.md",
+    if "plan" in selected_steps:
+        for scoped_day in day_labels:
+            if not plan_artifact_overwrite_required(
+                artifact_config,
+                scoped_day,
+                files,
+                overwrite=force,
+                context_override=context_override,
+                task_prompts=task_prompts,
+            ):
+                continue
+            safe_day = plan_day_stem(scoped_day)
+            paths.extend(
+                path
+                for path in (
+                    artifact_config.plans_dir / f"{safe_day}_plan.json",
+                    artifact_config.plans_dir / f"{safe_day}_plan.md",
+                )
+                if path.is_file()
             )
-            if path.is_file()
-        )
     if "voiceover" in selected_steps:
         paths.extend(
             voiceover_artifact_overwrite_required(
@@ -489,15 +501,16 @@ def artifact_overwrite_paths(
             )
         )
     if "plan_voiceover" in selected_steps:
-        paths.extend(
-            plan_voiceover_artifact_overwrite_required(
-                artifact_config,
-                day_label,
-                overwrite=force,
-                context_override=context_override,
-                task_prompts=task_prompts,
+        for scoped_day in day_labels:
+            paths.extend(
+                plan_voiceover_artifact_overwrite_required(
+                    artifact_config,
+                    scoped_day,
+                    overwrite=force,
+                    context_override=context_override,
+                    task_prompts=task_prompts,
+                )
             )
-        )
     unique: dict[Path, Path] = {}
     for path in paths:
         unique.setdefault(path.resolve(), path)
@@ -506,6 +519,12 @@ def artifact_overwrite_paths(
 
 def _starts_from_compressed(steps: list[str]) -> bool:
     return bool(steps) and steps[0] in {"analyze", "transcribe"}
+
+
+def _preview_day_labels(config: AppConfig, day_label: str, all_days: bool) -> list[str]:
+    if not all_days:
+        return [day_label]
+    return discover_day_labels(config) or [day_label]
 
 
 def _source_input_info(config: AppConfig) -> tuple[dict[str, Any], list[Path]]:
@@ -544,7 +563,7 @@ def _step_preview(
     index: ArtifactIndex,
     force: bool,
     use_transcripts: bool,
-    day_label: str,
+    day_labels: list[str],
 ) -> dict[str, Any]:
     if step == "compress":
         return _compress_step(config, source_videos, force=force)
@@ -555,16 +574,16 @@ def _step_preview(
             return _warning_step(step, t("api.preview_transcribe_disabled"))
         return _transcribe_step(config, compressed_videos, all_recursive_source_videos, force=force, index=index)
     if step == "consistency":
-        return _consistency_step(config, all_analysis_jsons, day_label=day_label, force=force)
+        return _consistency_step(config, all_analysis_jsons, day_labels=day_labels, force=force)
     if step == "voiceover":
         return _voiceover_step(config, analysis_jsons, force=force)
     if step == "plan":
-        return _plan_step(config, all_analysis_jsons, day_label=day_label, force=force)
+        return _plan_step(config, all_analysis_jsons, day_labels=day_labels, force=force)
     if step == "plan_voiceover":
         return _plan_voiceover_step(
             config,
             all_analysis_jsons,
-            day_label=day_label,
+            day_labels=day_labels,
             force=force,
         )
     if step == "label":
@@ -622,14 +641,18 @@ def _consistency_step(
     config: AppConfig,
     analysis_jsons: list[Path],
     *,
-    day_label: str,
+    day_labels: list[str],
     force: bool,
 ) -> dict[str, Any]:
     if not analysis_jsons:
         return _warning_step("consistency", t("api.preview_missing_analyze_consistency"))
-    out_json, out_md = entity_consistency_paths(config, day_label)
-    skipped = 0 if force else int(out_md.is_file() and _valid_json_file(out_json))
-    return _step("consistency", total=1, will_run=1 - skipped, will_skip=skipped)
+    total = len(day_labels)
+    skipped = 0
+    if not force:
+        for scoped_day in day_labels:
+            out_json, out_md = entity_consistency_paths(config, scoped_day)
+            skipped += int(out_md.is_file() and _valid_json_file(out_json))
+    return _step("consistency", total=total, will_run=total - skipped, will_skip=skipped)
 
 
 def _voiceover_step(
@@ -653,14 +676,17 @@ def _voiceover_step(
     return _step("voiceover", total=total, will_run=total - skipped, will_skip=skipped)
 
 
-def _plan_step(config: AppConfig, analysis_jsons: list[Path], *, day_label: str, force: bool) -> dict[str, Any]:
+def _plan_step(config: AppConfig, analysis_jsons: list[Path], *, day_labels: list[str], force: bool) -> dict[str, Any]:
     if not analysis_jsons:
         return _warning_step("plan", t("api.preview_missing_analyze_plan"))
-    total = 1
-    safe_day = plan_day_stem(day_label)
-    plan_json = config.plans_dir / f"{safe_day}_plan.json"
-    plan_md = config.plans_dir / f"{safe_day}_plan.md"
-    skipped = 0 if force else int(plan_md.is_file() and _valid_json_file(plan_json))
+    total = len(day_labels)
+    skipped = 0
+    if not force:
+        for scoped_day in day_labels:
+            safe_day = plan_day_stem(scoped_day)
+            plan_json = config.plans_dir / f"{safe_day}_plan.json"
+            plan_md = config.plans_dir / f"{safe_day}_plan.md"
+            skipped += int(plan_md.is_file() and _valid_json_file(plan_json))
     return _step("plan", total=total, will_run=total - skipped, will_skip=skipped)
 
 
@@ -668,20 +694,28 @@ def _plan_voiceover_step(
     config: AppConfig,
     analysis_jsons: list[Path],
     *,
-    day_label: str,
+    day_labels: list[str],
     force: bool,
 ) -> dict[str, Any]:
-    safe_day = plan_day_stem(day_label)
-    plan_json = config.plans_dir / f"{safe_day}_plan.json"
-    if not _valid_json_file(plan_json):
+    planned_labels = []
+    for scoped_day in day_labels:
+        safe_day = plan_day_stem(scoped_day)
+        if _valid_json_file(config.plans_dir / f"{safe_day}_plan.json"):
+            planned_labels.append(scoped_day)
+    if not planned_labels:
         return _warning_step("plan_voiceover", t("api.preview_missing_plan_voiceover_plan"))
     if not analysis_jsons:
         return _warning_step("plan_voiceover", t("api.preview_missing_plan_voiceover_analysis"))
 
-    out_json = config.scripts_dir / f"{safe_day}_plan_voiceover.json"
-    out_md = config.scripts_dir / f"{safe_day}_plan_voiceover.md"
-    skipped = 0 if force else int(out_md.is_file() and _valid_json_file(out_json))
-    return _step("plan_voiceover", total=1, will_run=1 - skipped, will_skip=skipped)
+    total = len(planned_labels)
+    skipped = 0
+    if not force:
+        for scoped_day in planned_labels:
+            safe_day = plan_day_stem(scoped_day)
+            out_json = config.scripts_dir / f"{safe_day}_plan_voiceover.json"
+            out_md = config.scripts_dir / f"{safe_day}_plan_voiceover.md"
+            skipped += int(out_md.is_file() and _valid_json_file(out_json))
+    return _step("plan_voiceover", total=total, will_run=total - skipped, will_skip=skipped)
 
 
 def _label_step(config: AppConfig, analysis_jsons: list[Path], *, force: bool) -> dict[str, Any]:

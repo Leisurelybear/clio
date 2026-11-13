@@ -17,6 +17,7 @@ from clio.tasks.plan import (
     _discover_day_labels,
     _plan_lineage_fingerprint,
     _source_inputs_from_clips,
+    discover_day_labels,
     plan_artifact_overwrite_required,
     run_plan_all_days,
     run_plan_vlog,
@@ -327,15 +328,19 @@ class TestDiscoverDayLabels:
     def test_collects_and_sorts(self, loaded_config: AppConfig) -> None:
         for i, day in enumerate(["day3", "day1", "day2"]):
             _write_analysis(loaded_config, _analysis(f"00{i + 1}", source=f"SRC{i}", day=day))
-        assert _discover_day_labels(loaded_config) == ["day1", "day2", "day3"]
+        assert discover_day_labels(loaded_config) == ["day1", "day2", "day3"]
 
     def test_skips_corrupt_json(self, loaded_config: AppConfig) -> None:
         loaded_config.texts_dir.mkdir(parents=True, exist_ok=True)
         (loaded_config.texts_dir / "bad.json").write_text("{corrupt", encoding="utf-8")
-        assert _discover_day_labels(loaded_config) == []
+        assert discover_day_labels(loaded_config) == []
 
     def test_empty_dir(self, loaded_config: AppConfig) -> None:
-        assert _discover_day_labels(loaded_config) == []
+        assert discover_day_labels(loaded_config) == []
+
+    def test_private_wrapper_remains_compatible(self, loaded_config: AppConfig) -> None:
+        _write_analysis(loaded_config, _analysis("001", day="day2"))
+        assert _discover_day_labels(loaded_config) == discover_day_labels(loaded_config) == ["day2"]
 
 
 class TestRunPlanVlog:
@@ -844,6 +849,28 @@ class TestRunPlanAllDays:
             result = run_plan_all_days(loaded_config)
         assert result is not None
         assert [d["day_label"] for d in result["days"]] == ["day2"]
+
+    def test_passes_artifact_confirmation_to_each_day(self, loaded_config: AppConfig) -> None:
+        _write_analysis(loaded_config, _analysis("001", day="day2"))
+        _write_analysis(loaded_config, _analysis("002", source="SRC2", day="day1"))
+        plan = {"day_title": "t", "theme": "", "total_estimated_sec": 0, "sequence": []}
+        with patch("clio.tasks.plan.run_plan_vlog", return_value=plan) as mock:
+            result = run_plan_all_days(
+                loaded_config,
+                overwrite=True,
+                confirm_artifact_overwrite=True,
+                context_override="focus",
+                task_prompts={"plan": "be concise"},
+            )
+
+        assert result is not None
+        assert [call.kwargs["day_label"] for call in mock.call_args_list] == ["day1", "day2"]
+        for call in mock.call_args_list:
+            assert call.kwargs["overwrite"] is True
+            assert call.kwargs["confirm_artifact_overwrite"] is True
+            assert call.kwargs["filter_by_day"] is True
+            assert call.kwargs["context_override"] == "focus"
+            assert call.kwargs["task_prompts"] == {"plan": "be concise"}
 
     def test_cancel_stops_loop(self, loaded_config: AppConfig) -> None:
         import threading

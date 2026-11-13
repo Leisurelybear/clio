@@ -29,7 +29,7 @@ from clio.tasks.compress import run_compress_all
 from clio.tasks.consistency import run_entity_consistency
 from clio.tasks.cut import run_cut_all  # noqa: F401
 from clio.tasks.label import run_label_videos
-from clio.tasks.plan import run_plan_all_days, run_plan_vlog  # noqa: F401
+from clio.tasks.plan import discover_day_labels, run_plan_all_days, run_plan_vlog
 from clio.tasks.refine import run_refine_scripts, run_refine_texts  # noqa: F401
 from clio.tasks.reindex import auto_reindex_if_needed
 from clio.tasks.scripts import run_generate_plan_voiceovers, run_generate_scripts
@@ -69,6 +69,7 @@ def run_pipeline_steps(
     tracker: ProgressReporter | None = None,
     cancel_event: threading.Event | None = None,
     files: list[str] | None = None,
+    all_days: bool = False,
     overwrite: bool = False,
     confirm_plan_overwrite: bool = False,
     confirm_artifact_overwrite: bool = False,
@@ -80,9 +81,12 @@ def run_pipeline_steps(
     steps 取值: analyze, consistency, voiceover, plan, label（默认全部）。
     """
     config.paths.output_dir.mkdir(parents=True, exist_ok=True)
+    if all_days and files is not None:
+        raise ValueError(t("pipeline.all_days_files_conflict"))
     auto_reindex_if_needed(config)
     if not steps:
         steps = list(_STEP_FUNCS.keys())
+    day_labels = discover_day_labels(config) if all_days else [day_label]
 
     if tracker is None:
         tracker = ProgressTracker(config.paths.output_dir)
@@ -122,7 +126,27 @@ def run_pipeline_steps(
                     kwargs["context_override"] = context_override
                 if task_prompts:
                     kwargs["task_prompts"] = task_prompts
-                if step in _STEP_DAY_ARG:
+                result: Any
+                if step == "plan" and all_days:
+                    result = run_plan_all_days(
+                        config,
+                        tracker=tracker,
+                        cancel_event=cancel_event,
+                        overwrite=overwrite,
+                        confirm_artifact_overwrite=confirm_artifact_overwrite,
+                        context_override=context_override,
+                        task_prompts=task_prompts,
+                    )
+                elif step in _STEP_DAY_ARG and all_days:
+                    results: list[Any] = []
+                    for scoped_day in day_labels:
+                        if cancel_event and cancel_event.is_set():
+                            break
+                        scoped_result = fn(config, scoped_day, tracker, **kwargs)
+                        if scoped_result is not None:
+                            results.append(scoped_result)
+                    result = results
+                elif step in _STEP_DAY_ARG:
                     result = fn(config, day_label, tracker, **kwargs)
                 else:
                     result = fn(config, tracker, **kwargs)
