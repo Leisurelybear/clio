@@ -74,6 +74,7 @@ ai:
     video_analyze:
       provider: gemini
       model: gemini-2.5-flash
+      temperature: 0.2
     voiceover:
       provider: deepseek
       model: deepseek-chat

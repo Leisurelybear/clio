@@ -593,6 +593,7 @@ class TestLoadConfig:
         assert path.name == "config.example.yaml"
         example_data = yaml.safe_load(path.read_text(encoding="utf-8"))
         assert example_data["config_version"] == "V2"
+        assert example_data["ai"]["default_tasks"]["video_analyze"]["temperature"] == 0.2
         assert "ai:" in path.read_text(encoding="utf-8")
 
     def test_example_configs_use_reasoning_model_for_vlog_plan(self):
@@ -606,6 +607,7 @@ class TestLoadConfig:
         project_example = global_example.parent / "docs" / "project.example.yaml"
         project_data = yaml.safe_load(project_example.read_text(encoding="utf-8"))
         assert project_data["ai"]["tasks"]["vlog_plan"]["model"] == "deepseek-reasoner"
+        assert project_data["ai"]["tasks"]["video_analyze"]["temperature"] == 0.2
 
     def test_auto_generates_missing_config(self, tmp_path):
         target = tmp_path / "nested" / "config.yaml"

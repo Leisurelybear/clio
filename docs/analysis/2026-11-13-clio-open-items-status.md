@@ -11,7 +11,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | Priority | Total | Fixed | Satisfied | In progress | Confirmed | Environment verification | Duplicate | Not applicable | Pending audit |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P1 | 35 | 15 | 10 | 0 | 0 | 0 | 0 | 0 | 10 |
+| P1 | 35 | 16 | 10 | 0 | 0 | 0 | 0 | 0 | 9 |
 | P2 | 59 | 0 | 12 | 0 | 0 | 0 | 0 | 0 | 47 |
 | P3 | 14 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 11 |
 
@@ -49,7 +49,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 028 | P1 | R014 | plan 输入不设上限: 全部素材的完整 timeline 一次送入, 且每条转录出现三次 (transcript、transcript_segments、<transcript> 块) | Pending audit |  |
 | 029 | P1 | OPT-012 | plan 的 clips_json 每条 timeline 都带 transcript 与 transcript_segments, 同样内容又出现在 <transcript> 块 (实测每条约 183 字符, 其中转录相关约 110) | Pending audit |  |
 | 030 | P1 | R018 | 默认绑定 deepseek-chat / deepseek-reasoner; DeepSeek 官方价目页现在只列 deepseek-flash 与 deepseek-v4-pro, 并写明 v4-flash 等旧名已退役 | Pending audit |  |
-| 031 | P1 | OPT-006 | video_analyze 默认绑定没有 temperature (config.example.yaml:71-73), 实测调用时为 None | Pending audit |  |
+| 031 | P1 | OPT-006 | video_analyze ?????? temperature (config.example.yaml:71-73), ?????? None | Fixed | Both shipped examples now bind video analysis at temperature `0.2`; the example-config regression asserts the value. Focused: 106 config tests passed. |
 | 032 | P1 | OPT-001 | 没有评测集, Q1/Q2/Q8/Q9 的效果无法量化 (F1 未开始) | Pending audit |  |
 | 033 | P1 | R007 | 三条约束互相冲突: max_clips_per_day=12 按"段"截断、总时长 180 秒 ±25% 不满足即失败、提示词要求 3-5 秒钩子与 1-3 秒 B-roll | Pending audit |  |
 | 034 | P1 | O1 | 未使用原生结构化输出 | Satisfied | Satisfied by native structured output (`446d52b`). |
