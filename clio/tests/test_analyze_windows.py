@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from itertools import pairwise
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,7 @@ from clio.analyze_windows import (
     merge_window_analyses,
     select_sparse_retry_gap,
     shift_analysis_times,
+    slice_transcript_context,
     slice_window_video,
     timeline_gaps,
 )
@@ -155,6 +157,36 @@ class TestSparseRetrySelection:
         gap = select_sparse_retry_gap({"timeline": []}, 0.0, 100.0)
 
         assert gap == TimelineGap(0.0, 100.0)
+
+
+class TestSliceTranscriptContext:
+    def test_clips_to_window_and_rebases_timestamps(self):
+        transcript = json.dumps(
+            {
+                "source_stem": "GL010695",
+                "segments": [
+                    {"start": -10.0, "end": 870.0, "text": "before"},
+                    {"start": 870.0, "end": 910.0, "text": "overlap", "avg_logprob": -0.2, "low_confidence": True},
+                    {"start": 1000.0, "end": 1005.0, "text": "middle", "avg_logprob": -0.1},
+                    {"start": 1700.0, "end": 1800.0, "text": "after"},
+                ],
+            }
+        )
+
+        sliced = json.loads(slice_transcript_context(transcript, 880.0, 1780.0))
+
+        assert sliced["source_stem"] == "GL010695"
+        assert sliced["segments"] == [
+            {"start": 0.0, "end": 30.0, "text": "overlap", "avg_logprob": -0.2, "low_confidence": True},
+            {"start": 120.0, "end": 125.0, "text": "middle", "avg_logprob": -0.1},
+            {"start": 820.0, "end": 900.0, "text": "after"},
+        ]
+
+    def test_returns_empty_without_positive_intersection_or_valid_json(self):
+        transcript = json.dumps({"segments": [{"start": 0.0, "end": 10.0, "text": "outside"}]})
+
+        assert slice_transcript_context(transcript, 10.0, 20.0) == ""
+        assert slice_transcript_context("{not json", 0.0, 20.0) == ""
 
 
 class TestShiftAndMerge:

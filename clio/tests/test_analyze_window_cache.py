@@ -15,7 +15,7 @@ from clio.analyze_windows import (
     window_cache_dir,
 )
 from clio.config import AppConfig
-from clio.tasks.analyze import run_analyze_all
+from clio.tasks.analyze import _analyze_with_optional_windows, run_analyze_all
 
 
 def _cfg(tmp_path: Path) -> AppConfig:
@@ -29,6 +29,7 @@ def _cfg(tmp_path: Path) -> AppConfig:
             ),
             compressed_dir=tmp_path / "output" / "compressed",
             texts_dir=tmp_path / "output" / "texts",
+            transcripts_dir=tmp_path / "output" / "transcripts",
             summary_csv=tmp_path / "output" / "summary.csv",
             naming=SimpleNamespace(index_width=3),
             analyze=SimpleNamespace(
@@ -50,6 +51,7 @@ def _cfg(tmp_path: Path) -> AppConfig:
     cfg.project_dir.mkdir(parents=True, exist_ok=True)
     cfg.compressed_dir.mkdir(parents=True, exist_ok=True)
     cfg.texts_dir.mkdir(parents=True, exist_ok=True)
+    cfg.transcripts_dir.mkdir(parents=True, exist_ok=True)
     return cfg
 
 
@@ -102,7 +104,7 @@ def test_window_cache_roundtrip(tmp_path: Path) -> None:
 
 
 def test_window_cache_version_is_current(tmp_path: Path) -> None:
-    assert WINDOW_CACHE_VERSION == 2
+    assert WINDOW_CACHE_VERSION == 3
     cache = window_cache_dir(tmp_path, "001_GL010695")
     window = AnalyzeWindow(0, 0.0, 900.0)
     path = save_window_cache(
@@ -243,6 +245,102 @@ def test_failed_window_run_resumes_from_cache(monkeypatch, tmp_path: Path) -> No
     assert len(summarize_calls) == 1
     assert not list(cache.glob("*.json"))
     assert len(list(cfg.texts_dir.glob("*.json"))) == 1
+
+
+def test_window_prompts_receive_only_relative_window_transcript(monkeypatch, tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    _add_original(cfg)
+    compressed = cfg.compressed_dir / "001_GL010695.mp4"
+    compressed.write_bytes(b"video")
+    (cfg.transcripts_dir / "001_GL010695_transcript.json").write_text(
+        json.dumps(
+            {
+                "source_stem": "GL010695",
+                "segments": [
+                    {"start": 10.0, "end": 20.0, "text": "first"},
+                    {"start": 890.0, "end": 910.0, "text": "overlap"},
+                    {"start": 1000.0, "end": 1005.0, "text": "second"},
+                    {"start": 1700.0, "end": 1800.0, "text": "third"},
+                    {"start": 2300.0, "end": 2350.0, "text": "fourth"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    _common_mocks(monkeypatch)
+    monkeypatch.setattr("clio.tasks.analyze.get_duration_sec", lambda *a: 2400.0)
+    monkeypatch.setattr("clio.tasks.analyze.summarize_window_analysis", lambda analysis, *a, **kw: analysis)
+
+    calls: list[tuple[float, float, list[dict]]] = []
+
+    def capture(path, *args, **kwargs):
+        context = json.loads(kwargs["transcript_context"])
+        assert context["source_stem"] == "GL010695"
+        calls.append((kwargs["video_start_sec"], kwargs["video_end_sec"], context["segments"]))
+        return {"title": "W", "summary": "s", "timeline": [], "location": "X"}
+
+    monkeypatch.setattr("clio.tasks.analyze.analyze_video", capture)
+
+    records = run_analyze_all(cfg)
+
+    assert len(records) == 1
+    assert [(start, end, [(seg["start"], seg["end"]) for seg in segments]) for start, end, segments in calls] == [
+        (0.0, 900.0, [(10.0, 20.0), (890.0, 900.0)]),
+        (880.0, 1780.0, [(10.0, 30.0), (120.0, 125.0), (820.0, 900.0)]),
+        (1760.0, 2400.0, [(0.0, 40.0), (540.0, 590.0)]),
+    ]
+    assert [[seg["text"] for seg in segments] for _, _, segments in calls] == [
+        ["first", "overlap"],
+        ["overlap", "second", "third"],
+        ["third", "fourth"],
+    ]
+
+
+def test_sparse_retry_uses_only_relative_transcript_for_gap(monkeypatch, tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    compressed = cfg.compressed_dir / "001_GL010695.mp4"
+    compressed.write_bytes(b"video")
+    transcript = json.dumps(
+        {
+            "segments": [
+                {"start": 100.0, "end": 200.0, "text": "covered"},
+                {"start": 350.0, "end": 400.0, "text": "gap"},
+            ]
+        }
+    )
+    monkeypatch.setattr("clio.tasks.analyze.detect_scene_boundaries", lambda *a, **kw: [])
+
+    calls: list[tuple[float, float, list[dict]]] = []
+
+    def capture(path, *args, **kwargs):
+        segments = json.loads(kwargs["transcript_context"])["segments"]
+        calls.append((kwargs["video_start_sec"], kwargs["video_end_sec"], segments))
+        if len(calls) == 1:
+            return {"timeline": [{"start": 0, "end": 300, "text": "covered"}]}
+        return {"timeline": [{"start": 10, "end": 20, "text": "retry"}]}
+
+    monkeypatch.setattr("clio.tasks.analyze.analyze_video", capture)
+
+    result = _analyze_with_optional_windows(
+        compressed=compressed,
+        duration_sec=600.0,
+        config=cfg,
+        token_store=None,
+        cancel_event=None,
+        effective_context=None,
+        task_prompts=None,
+        transcript_context=transcript,
+        lineage="",
+    )
+
+    assert result["timeline"]
+    assert [
+        (start, end, [(seg["start"], seg["end"], seg["text"]) for seg in segments]) for start, end, segments in calls
+    ] == [
+        (0.0, 600.0, [(100.0, 200.0, "covered"), (350.0, 400.0, "gap")]),
+        (300.0, 600.0, [(50.0, 100.0, "gap")]),
+    ]
 
 
 def test_successful_run_clears_stale_window_cache(monkeypatch, tmp_path: Path) -> None:

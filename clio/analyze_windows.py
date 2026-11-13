@@ -118,6 +118,41 @@ def _format_ts(sec: float, original: Any) -> Any:
     return sec
 
 
+def slice_transcript_context(transcript_context: str, start_sec: float, end_sec: float) -> str:
+    """Clip transcript segments to a source-time window and rebase them to zero."""
+    if not transcript_context or not isfinite(start_sec) or not isfinite(end_sec) or end_sec <= start_sec:
+        return ""
+    try:
+        data = json.loads(transcript_context)
+    except json.JSONDecodeError:
+        return ""
+    if not isinstance(data, dict) or not isinstance(data.get("segments"), list):
+        return ""
+
+    segments: list[dict[str, Any]] = []
+    for raw in data["segments"]:
+        if not isinstance(raw, dict):
+            continue
+        segment_start = _parse_ts(raw.get("start"))
+        segment_end = _parse_ts(raw.get("end"))
+        if segment_start is None or segment_end is None:
+            continue
+        clipped_start = max(start_sec, segment_start)
+        clipped_end = min(end_sec, segment_end)
+        if clipped_end <= clipped_start:
+            continue
+        segment = copy.deepcopy(raw)
+        segment["start"] = _format_ts(clipped_start - start_sec, raw.get("start"))
+        segment["end"] = _format_ts(clipped_end - start_sec, raw.get("end"))
+        segments.append(segment)
+
+    if not segments:
+        return ""
+    payload = copy.deepcopy(data)
+    payload["segments"] = segments
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
 def shift_analysis_times(analysis: dict, offset_sec: float) -> dict:
     data = copy.deepcopy(analysis)
     if not offset_sec:
@@ -499,7 +534,7 @@ def merge_window_analyses(
     return base
 
 
-WINDOW_CACHE_VERSION = 2
+WINDOW_CACHE_VERSION = 3
 
 
 def window_cache_dir(output_dir: Path, stem: str) -> Path:

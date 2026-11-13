@@ -28,6 +28,7 @@ from clio.analyze_windows import (
     save_window_cache,
     select_sparse_retry_gap,
     shift_analysis_times,
+    slice_transcript_context,
     window_cache_dir,
 )
 from clio.artifact_guard import (
@@ -183,7 +184,7 @@ def _analysis_lineage_fingerprint(
         "window_max_min": int(getattr(config.analyze, "window_max_min", 15) or 15),
         "window_overlap_sec": int(getattr(config.analyze, "window_overlap_sec", 20) or 0),
         "media_resolution": getattr(config.analyze, "media_resolution", "medium"),
-        "analysis_engine_version": 4,
+        "analysis_engine_version": 5,
         "scene_detection_version": SCENE_DETECT_VERSION,
         "video_fps": 3,
         "compress": {
@@ -410,6 +411,9 @@ def _analyze_with_optional_windows(
         fps: float | None = None,
         window_boundaries: Sequence[float] | None = None,
     ) -> dict:
+        window_transcript_context = transcript_context
+        if transcript_context and start_sec is not None and end_sec is not None:
+            window_transcript_context = slice_transcript_context(transcript_context, start_sec, end_sec)
         try:
             return analyze_video(
                 video_path,
@@ -419,7 +423,7 @@ def _analyze_with_optional_windows(
                 cancel_event=cancel_event,
                 context_override=effective_context,
                 task_prompts=task_prompts,
-                transcript_context=transcript_context,
+                transcript_context=window_transcript_context,
                 video_start_sec=start_sec,
                 video_end_sec=end_sec,
                 video_fps=fps,
