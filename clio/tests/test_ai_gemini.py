@@ -391,6 +391,22 @@ class TestGenerateText:
         assert result.block_reason == "SAFETY"
         assert result.blocked is True
 
+    @pytest.mark.parametrize("finish_reason", ["SAFETY", "RECITATION"])
+    def test_blocking_candidate_finish_reason_is_not_reported_as_empty_json(self, finish_reason):
+        self._client_mock.models.generate_content.return_value = SimpleNamespace(
+            text="",
+            usage_metadata=None,
+            candidates=[SimpleNamespace(finish_reason=finish_reason)],
+            prompt_feedback=None,
+        )
+
+        result = self._prov.generate_text("blocked prompt", "gemini-2.5-flash")
+
+        assert result.text == ""
+        assert result.finish_reason == finish_reason
+        assert result.block_reason == finish_reason
+        assert result.blocked is True
+
     def test_unspecified_block_reason_does_not_raise(self):
         self._client_mock.models.generate_content.return_value = SimpleNamespace(
             text="ok",

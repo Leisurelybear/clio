@@ -25,6 +25,16 @@ except ImportError:
     _HAS_GENAI_ERRORS = False
 
 
+_BLOCKING_FINISH_REASONS = {
+    "SAFETY",
+    "RECITATION",
+    "BLOCKLIST",
+    "PROHIBITED_CONTENT",
+    "SPII",
+    "IMAGE_SAFETY",
+}
+
+
 _MEDIA_RESOLUTION_MAP = {
     "low": types.MediaResolution.MEDIA_RESOLUTION_LOW,
     "medium": types.MediaResolution.MEDIA_RESOLUTION_MEDIUM,
@@ -61,11 +71,15 @@ def _extract_block_reason(response) -> str | None:
 
 
 def _response_from(response) -> AIResponse:
+    text = response.text or ""
+    finish_reason = _extract_finish_reason(response)
     block_reason = _extract_block_reason(response)
+    if block_reason is None and not text and finish_reason in _BLOCKING_FINISH_REASONS:
+        block_reason = finish_reason
     return AIResponse(
-        text="" if block_reason is not None else (response.text or ""),
+        text="" if block_reason is not None else text,
         token_usage=_extract_usage(response),
-        finish_reason=_extract_finish_reason(response),
+        finish_reason=finish_reason,
         block_reason=block_reason,
     )
 
