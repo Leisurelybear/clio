@@ -41,6 +41,21 @@ class TestHandleGetEnv:
         assert "GEMINI_API_KEY=********" in content
         assert "SAFE_NOTE=visible" in content
 
+    def test_masks_lowercase_provider_key_values(self, tmp_path: Path):
+        handler = MagicMock()
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text("key: val\n", encoding="utf-8")
+        dotenv = tmp_path / ".env"
+        dotenv.write_text("gemini_api_key=super-secret\n", encoding="utf-8")
+        handler.config_path = cfg
+        handler._send_json = MagicMock()
+
+        handle_get_env(handler, {})
+
+        content = handler._send_json.call_args.args[0]["content"]
+        assert "super-secret" not in content
+        assert "gemini_api_key=********" in content
+
     def test_returns_template_when_missing(self, tmp_path: Path):
         handler = MagicMock()
         cfg = tmp_path / "config.yaml"
@@ -81,17 +96,53 @@ class TestHandlePutEnv:
         handler._send_json.assert_called_once_with({"ok": False, "error": "content must be a string"}, 400)
         assert not (tmp_path / ".env").exists()
 
-    def test_rejects_unsafe_environment_variable(self, tmp_path: Path):
+    @pytest.mark.parametrize(
+        "dangerous_name",
+        ["PATH", "path", "LD_PRELOAD", "dyld_insert_libraries", "NODE_OPTIONS", "PYTHONPATH"],
+    )
+    def test_rejects_dangerous_environment_variable(self, tmp_path: Path, dangerous_name: str):
         handler = MagicMock()
         cfg = tmp_path / "config.yaml"
         cfg.write_text("key: val\n", encoding="utf-8")
         handler.config_path = cfg
         handler._send_json = MagicMock()
 
-        handle_put_env(handler, {}, {"content": "PATH=C:\\evil\n"})
+        handle_put_env(handler, {}, {"content": f"SAFE_NOTE=visible\n{dangerous_name}=evil\n"})
 
-        assert handler._send_json.call_args.args[1] == 400
+        payload, status = handler._send_json.call_args.args
+        assert status == 400
+        assert "blocked environment variable(s)" in payload["error"]
+        assert dangerous_name in payload["error"]
         assert not (tmp_path / ".env").exists()
+
+    def test_preserves_project_and_custom_environment_variables(self, tmp_path: Path, monkeypatch):
+        handler = MagicMock()
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text("key: val\n", encoding="utf-8")
+        handler.config_path = cfg
+        handler.__class__._config_cache = MagicMock()
+        handler._send_json = MagicMock()
+        content = (
+            "CLIO_LANG=en\n"
+            "CLIO_FFMPEG_DIR=C:\\tools\\ffmpeg\n"
+            "HF_ENDPOINT=https://hf-mirror.com\n"
+            "FFMPEG_HOME=C:\\tools\\ffmpeg\n"
+            "CUSTOM_NOTE=visible\n"
+        )
+        for key in ("CLIO_LANG", "CLIO_FFMPEG_DIR", "HF_ENDPOINT", "FFMPEG_HOME", "CUSTOM_NOTE"):
+            monkeypatch.delenv(key, raising=False)
+
+        with patch("clio.ui.routes.env_routes._load_dotenv"), patch("clio.ui.routes.env_routes._clear_provider_cache"):
+            handle_put_env(handler, {}, {"content": content})
+
+        dotenv = tmp_path / ".env"
+        assert dotenv.read_text(encoding="utf-8") == content
+        assert os.environ["CLIO_LANG"] == "en"
+        assert os.environ["CLIO_FFMPEG_DIR"] == r"C:\tools\ffmpeg"
+        assert os.environ["HF_ENDPOINT"] == "https://hf-mirror.com"
+        assert os.environ["FFMPEG_HOME"] == r"C:\tools\ffmpeg"
+        assert os.environ["CUSTOM_NOTE"] == "visible"
+        handler._send_json.assert_called_once_with({"ok": True, "path": str(dotenv)})
 
     def test_preserves_masked_secret_on_round_trip(self, tmp_path: Path):
         handler = MagicMock()
