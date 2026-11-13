@@ -81,12 +81,13 @@ def plan_artifact_overwrite_required(
     out_md = config.plans_dir / f"{safe_day}_plan.md"
     if not artifact_requires_overwrite_confirmation(out_json):
         return False
+    filter_by_day = _resolve_filter_by_day(config, files, None)
     if files is not None:
         clips, _, _ = _collect_plan_clips(
             config,
             day_label,
             files,
-            filter_by_day=False,
+            filter_by_day=filter_by_day,
             cancel_event=None,
             report=False,
         )
@@ -100,7 +101,7 @@ def plan_artifact_overwrite_required(
         config,
         day_label,
         None,
-        filter_by_day=False,
+        filter_by_day=filter_by_day,
         cancel_event=None,
         report=False,
     )
@@ -218,6 +219,24 @@ def _analysis_day_label(data: dict[str, Any]) -> str:
     raw = data.get("day_label") or data.get("day") or data.get("dayLabel") or "day1"
     label = str(raw).strip()
     return label or "day1"
+
+
+def _resolve_filter_by_day(
+    config: AppConfig,
+    files: list[str] | None,
+    requested: bool | None,
+) -> bool:
+    """Resolve the effective day filter without surprising explicit callers.
+
+    Project-wide planning passes ``True`` explicitly. A user-selected file set
+    bypasses automatic day filtering because selection is the scope. Otherwise
+    a multi-day project must not mix other days into the requested daily plan.
+    """
+    if requested is not None:
+        return requested
+    if files is not None:
+        return False
+    return len(_discover_day_labels(config)) > 1
 
 
 def _source_inputs_from_clips(clips: list[dict]) -> list[dict[str, Any]]:
@@ -452,10 +471,11 @@ def run_plan_vlog(
     confirm_plan_overwrite: bool = False,
     confirm_artifact_overwrite: bool = False,
     context_override: str | None = None,
-    filter_by_day: bool = False,
+    filter_by_day: bool | None = None,
     task_prompts: dict[str, str] | None = None,
 ) -> dict[str, Any] | None:
     config.plans_dir.mkdir(parents=True, exist_ok=True)
+    filter_by_day = _resolve_filter_by_day(config, files, filter_by_day)
     token_store = FileTokenUsageStore(str(config.paths.output_dir))
     safe_day = plan_day_stem(day_label)
 

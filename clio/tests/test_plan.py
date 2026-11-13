@@ -9,12 +9,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from clio.artifact_guard import mark_user_edited
 from clio.config import AppConfig
 from clio.tasks.plan import (
     _analysis_day_label,
+    _collect_plan_clips,
     _discover_day_labels,
     _plan_lineage_fingerprint,
     _source_inputs_from_clips,
+    plan_artifact_overwrite_required,
     run_plan_all_days,
     run_plan_vlog,
 )
@@ -547,14 +550,52 @@ class TestRunPlanVlog:
         assert len(clips) == 1
         assert clips[0]["index"] == "001"
 
-    def test_selected_files_filters(self, loaded_config: AppConfig) -> None:
-        _write_analysis(loaded_config, _analysis("001"))
-        _write_analysis(loaded_config, _analysis("002", source="SRC2"))
+    def test_defaults_to_day_filter_for_multi_day_project(self, loaded_config: AppConfig) -> None:
+        _write_analysis(loaded_config, _analysis("001", day="day1"))
+        _write_analysis(loaded_config, _analysis("002", source="SRC2", day="day2"))
+        with patch("clio.tasks.plan.plan_daily_vlog", return_value={"day_title": "day1", "sequence": []}) as mock:
+            run_plan_vlog(loaded_config, "day1")
+        clips = mock.call_args.args[0]
+        assert [clip["index"] for clip in clips] == ["001"]
+
+    def test_explicit_false_disables_default_day_filter(self, loaded_config: AppConfig) -> None:
+        _write_analysis(loaded_config, _analysis("001", day="day1"))
+        _write_analysis(loaded_config, _analysis("002", source="SRC2", day="day2"))
+        with patch("clio.tasks.plan.plan_daily_vlog", return_value={"day_title": "day1", "sequence": []}) as mock:
+            run_plan_vlog(loaded_config, "day1", filter_by_day=False)
+        clips = mock.call_args.args[0]
+        assert [clip["index"] for clip in clips] == ["001", "002"]
+
+    def test_selected_files_filters_and_bypasses_default_day_filter(self, loaded_config: AppConfig) -> None:
+        _write_analysis(loaded_config, _analysis("001", day="day1"))
+        _write_analysis(loaded_config, _analysis("002", source="SRC2", day="day2"))
         with patch("clio.tasks.plan.plan_daily_vlog", return_value={"day_title": "day1", "sequence": []}) as mock:
             run_plan_vlog(loaded_config, "day1", files=["002_SRC2"])
         clips = mock.call_args.args[0]
         assert len(clips) == 1
         assert clips[0]["index"] == "002"
+
+    def test_overwrite_preflight_uses_default_day_filter(self, loaded_config: AppConfig) -> None:
+        _write_analysis(loaded_config, _analysis("001", day="day1"))
+        _write_analysis(loaded_config, _analysis("002", source="SRC2", day="day2"))
+        day1_clips, _, _ = _collect_plan_clips(
+            loaded_config,
+            "day1",
+            None,
+            filter_by_day=True,
+            cancel_event=None,
+            report=False,
+        )
+        lineage = _plan_lineage_fingerprint(loaded_config, day1_clips, day_label="day1")
+        loaded_config.analyze.skip_existing = True
+        loaded_config.plans_dir.mkdir(parents=True, exist_ok=True)
+        (loaded_config.plans_dir / "day1_plan.json").write_text(
+            json.dumps(mark_user_edited({"_lineage": lineage, "sequence": []})),
+            encoding="utf-8",
+        )
+        (loaded_config.plans_dir / "day1_plan.md").write_text("edited", encoding="utf-8")
+
+        assert plan_artifact_overwrite_required(loaded_config, "day1") is False
 
     def test_invalid_index_only_fails(self, loaded_config: AppConfig) -> None:
         bad = _analysis("not-a-number", source="BAD")
