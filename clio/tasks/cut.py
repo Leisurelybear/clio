@@ -369,264 +369,270 @@ def run_cut_all(
     if overwrite:
         expected_names, preserved_positions = _cut_artifact_plan(seq)
         stale_backups = _move_stale_cut_artifacts(out_root, expected_names, preserved_positions)
-    comp_dir = config.compressed_dir
-    project_selection = _project_selection_stems(config)
-    source_label = str(comp_dir if source == "compressed" else (config.project_dir or ""))
+    try:
+        comp_dir = config.compressed_dir
+        project_selection = _project_selection_stems(config)
+        source_label = str(comp_dir if source == "compressed" else (config.project_dir or ""))
 
-    print(t("task.cut.header_plan", {"name": plan_path.name, "count": len(seq)}))
-    print(t("task.cut.header_output", {"path": out_root}))
-    print(t("task.cut.header_source", {"source": source, "label": source_label}))
+        print(t("task.cut.header_plan", {"name": plan_path.name, "count": len(seq)}))
+        print(t("task.cut.header_output", {"path": out_root}))
+        print(t("task.cut.header_source", {"source": source, "label": source_label}))
 
-    state = ProcessingState(config.paths.output_dir)
+        state = ProcessingState(config.paths.output_dir)
 
-    def _orig_stem_from_path(video_path: Path) -> str:
-        stem = video_path.stem
-        if source == "original":
-            return stem
-        if "_" in stem:
-            stem = stem.split("_", 1)[1]
-        return SEGMENT_SUFFIX_RE.sub("", stem)
-
-    def _selected_media(path: Path, *, artifact: bool = False) -> bool:
-        return project_selection is None or _matches_selected_stem(path, project_selection, artifact=artifact)
-
-    def _resolve_video_path(idx: str) -> Path | None:
-        if source == "compressed":
-            candidates = [
-                path
-                for path in _indexed_files(comp_dir, idx, index_width=config.naming.index_width)
-                if path.suffix.lower() in VIDEO_EXTS and _selected_media(path, artifact=True)
-            ]
-            return candidates[0] if candidates else None
-        else:
-            comp_candidates = [
-                path
-                for path in _indexed_files(comp_dir, idx, index_width=config.naming.index_width)
-                if path.suffix.lower() in VIDEO_EXTS and _selected_media(path, artifact=True)
-            ]
-            if not comp_candidates:
-                return None
-            compressed = comp_candidates[0]
-
-            # 优先：读 .vmeta 直接拿原始路径（O(1)，支持任意目录层级）
-            meta = VideoMeta.read(compressed)
-            if meta is not None:
-                src = meta.source_path_obj()
-                if src.is_file():
-                    return src if _selected_media(src) else None
-
-            # 降级：regex 反解 + videos.json。先按完整 stem 匹配，避免把自然文件名
-            # 末尾的 _partNN 误认为历史分段后缀。
-            suffix = compressed.stem.split("_", 1)[1].lower()
-            from clio.tasks._video_loader import source_videos
-
-            videos = source_videos(config)
-
-            def _unique_stem_hit(needle: str) -> Path | None:
-                hits = [p for p in videos if p.stem.lower() == needle]
-                return hits[0] if len(hits) == 1 else None
-
-            hit = _unique_stem_hit(suffix)
-            if hit is not None:
-                return hit
-            orig_stem = SEGMENT_SUFFIX_RE.sub("", suffix)
-            if orig_stem != suffix:
-                return _unique_stem_hit(orig_stem)
-            return None
-
-    clips: list[dict] = []
-    completed = 0
-    elapsed_total = 0.0
-
-    with timed(t("task.cut.timed_label", {"day": day_label, "count": len(seq)})):
-        for i, seg in enumerate(seq, start=1):
-            if cancel_event and cancel_event.is_set():
-                print(t("task.cut.cancelled", {"index": i}))
-                break
-            idx = seg.get("index", "")
-            title = seg.get("title", "").strip()
-            timeline = (seg.get("use_timeline") or "").strip()
-            if not idx or not timeline:
-                print(t("task.cut.skip_no_index", {"index": i}))
-                if tracker is not None:
-                    tracker.next(message=t("task.cut.skip_no_index_tracker", {"index": i}))
-                continue
-
-            video_path = _resolve_video_path(idx)
-            if video_path is None:
-                src = "compressed" if source != "original" else "original"
-                print(t("task.cut.skip_video_missing", {"index": idx, "source": src, "title": seg.get("title", "")}))
-                if tracker is not None:
-                    tracker.next(message=t("task.cut.skip_video_missing_tracker", {"index": i}))
-                continue
-
-            try:
-                start, end = parse_time_range(timeline)
-            except ValueError as e:
-                print(t("task.cut.skip_bad_time", {"timeline": timeline, "detail": e}))
-                orig_stem = _orig_stem_from_path(video_path) if video_path else ""
-                if orig_stem:
-                    state.mark(orig_stem, "cut", "skipped")
-                if tracker is not None:
-                    tracker.next(message=t("task.cut.skip_bad_time_tracker", {"index": i}))
-                continue
-            plan_start, plan_end = start, end
-
-            if end <= start:
-                print(t("task.cut.skip_invalid_range", {"start": start, "end": end, "title": seg.get("title", "")}))
-                orig_stem = _orig_stem_from_path(video_path) if video_path else ""
-                if orig_stem:
-                    state.mark(orig_stem, "cut", "skipped")
-                if tracker is not None:
-                    tracker.next(message=t("task.cut.skip_invalid_range_tracker", {"index": i}))
-                continue
-
-            try:
-                from clio.utils import get_duration_sec
-                from clio.utils import resolve_binary as _resolve_binary
-
-                probe = _resolve_binary(ffprobe or "", "ffprobe")
-                media_dur = get_duration_sec(video_path, probe)
-                if end > media_dur:
-                    print(t("task.cut.clamp_end", {"end": end, "duration": media_dur}))
-                    end = media_dur
-            except _PROBE_FAILURES:
-                pass
-            if end <= start:
-                print(t("task.cut.skip_beyond_duration", {"start": start, "end": end, "title": seg.get("title", "")}))
-                orig_stem = _orig_stem_from_path(video_path) if video_path else ""
-                if orig_stem:
-                    state.mark(orig_stem, "cut", "skipped")
-                if tracker is not None:
-                    tracker.next(message=t("task.cut.skip_beyond_duration_tracker", {"index": i}))
-                continue
-
-            # Apply segment offset for original source with legacy split videos
-            offset = 0.0
+        def _orig_stem_from_path(video_path: Path) -> str:
+            stem = video_path.stem
             if source == "original":
-                # Prefer media_identity via legacy gate (new identities always 0)
-                text_json_paths = _indexed_files(
-                    config.texts_dir, idx, index_width=config.naming.index_width, suffix=".json"
-                )
-                if text_json_paths:
-                    try:
-                        data = json.loads(text_json_paths[0].read_text(encoding="utf-8"))
-                        if isinstance(data, dict):
-                            identity = load_identity(data)
-                            offset = legacy_segment_offset_sec(identity)
-                    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-                        pass
-                # Fall back to vmeta-based computation for v1 files
-                if offset == 0.0:
-                    comp_candidates = [
-                        path
-                        for path in _indexed_files(comp_dir, idx, index_width=config.naming.index_width)
-                        if path.suffix.lower() in VIDEO_EXTS and _selected_media(path, artifact=True)
-                    ]
-                    if comp_candidates:
-                        stem = comp_candidates[0].stem
-                        offset = _compute_segment_offset(stem, comp_dir, video_path, ffprobe)
-                if offset:
-                    start += offset
-                    end += offset
+                return stem
+            if "_" in stem:
+                stem = stem.split("_", 1)[1]
+            return SEGMENT_SUFFIX_RE.sub("", stem)
 
-            clip_stem = _cut_clip_stem(idx, title, i)
-            clip_path = out_root / f"{clip_stem}.mp4"
+        def _selected_media(path: Path, *, artifact: bool = False) -> bool:
+            return project_selection is None or _matches_selected_stem(path, project_selection, artifact=artifact)
 
-            print(_eta_line(t("task.cut.eta_label"), i, len(seq), clip_stem, completed, elapsed_total))
-            t0 = time.monotonic()
-            try:
-
-                def _write_clip(
-                    dest: Path,
-                    source: Path = video_path,
-                    clip_start: float = start,
-                    clip_end: float = end,
-                ) -> None:
-                    cut_one(
-                        source,
-                        dest,
-                        clip_start,
-                        clip_end,
-                        ffmpeg,
-                        reencode=reencode,
-                        cancel_event=cancel_event,
-                    )
-
-                replace_file_safely(clip_path, _write_clip)
-                state.mark(_orig_stem_from_path(video_path), "cut", "done")
-            except Exception:
-                state.mark(_orig_stem_from_path(video_path), "cut", "error")
-                raise
-            elapsed_total += time.monotonic() - t0
-            completed += 1
-
-            # 复制对应的 texts JSON，并始终写 sidecar 标明片段来源
-            text_json = None
-            cut_info = {
-                "seg_index": i,
-                "timeline": timeline,
-                "plan_start_sec": round(plan_start, 2),
-                "plan_end_sec": round(plan_end, 2),
-                "start_sec": round(start, 2),
-                "end_sec": round(end, 2),
-            }
-            matching_texts = [
-                path
-                for path in _indexed_files(config.texts_dir, idx, index_width=config.naming.index_width, suffix=".json")
-                if _selected_media(path, artifact=True)
-            ]
-            if matching_texts:
-                text_path = matching_texts[0]
-                data = json.loads(text_path.read_text(encoding="utf-8"))
+        def _resolve_video_path(idx: str) -> Path | None:
+            if source == "compressed":
+                candidates = [
+                    path
+                    for path in _indexed_files(comp_dir, idx, index_width=config.naming.index_width)
+                    if path.suffix.lower() in VIDEO_EXTS and _selected_media(path, artifact=True)
+                ]
+                return candidates[0] if candidates else None
             else:
-                data = {}
-            data["_cut_info"] = cut_info
-            dst = out_root / f"{clip_stem}.json"
-            replace_file_safely(dst, lambda p, d=data: write_json_atomic(p, d))
-            text_json = dst.name
-            print(f"  -> texts: {dst.name}")
+                comp_candidates = [
+                    path
+                    for path in _indexed_files(comp_dir, idx, index_width=config.naming.index_width)
+                    if path.suffix.lower() in VIDEO_EXTS and _selected_media(path, artifact=True)
+                ]
+                if not comp_candidates:
+                    return None
+                compressed = comp_candidates[0]
 
-            clips.append(
-                {
+                # 优先：读 .vmeta 直接拿原始路径（O(1)，支持任意目录层级）
+                meta = VideoMeta.read(compressed)
+                if meta is not None:
+                    src = meta.source_path_obj()
+                    if src.is_file():
+                        return src if _selected_media(src) else None
+
+                # 降级：regex 反解 + videos.json。先按完整 stem 匹配，避免把自然文件名
+                # 末尾的 _partNN 误认为历史分段后缀。
+                suffix = compressed.stem.split("_", 1)[1].lower()
+                from clio.tasks._video_loader import source_videos
+
+                videos = source_videos(config)
+
+                def _unique_stem_hit(needle: str) -> Path | None:
+                    hits = [p for p in videos if p.stem.lower() == needle]
+                    return hits[0] if len(hits) == 1 else None
+
+                hit = _unique_stem_hit(suffix)
+                if hit is not None:
+                    return hit
+                orig_stem = SEGMENT_SUFFIX_RE.sub("", suffix)
+                if orig_stem != suffix:
+                    return _unique_stem_hit(orig_stem)
+                return None
+
+        clips: list[dict] = []
+        completed = 0
+        elapsed_total = 0.0
+
+        with timed(t("task.cut.timed_label", {"day": day_label, "count": len(seq)})):
+            for i, seg in enumerate(seq, start=1):
+                if cancel_event and cancel_event.is_set():
+                    print(t("task.cut.cancelled", {"index": i}))
+                    break
+                idx = seg.get("index", "")
+                title = seg.get("title", "").strip()
+                timeline = (seg.get("use_timeline") or "").strip()
+                if not idx or not timeline:
+                    print(t("task.cut.skip_no_index", {"index": i}))
+                    if tracker is not None:
+                        tracker.next(message=t("task.cut.skip_no_index_tracker", {"index": i}))
+                    continue
+
+                video_path = _resolve_video_path(idx)
+                if video_path is None:
+                    src = "compressed" if source != "original" else "original"
+                    print(
+                        t("task.cut.skip_video_missing", {"index": idx, "source": src, "title": seg.get("title", "")})
+                    )
+                    if tracker is not None:
+                        tracker.next(message=t("task.cut.skip_video_missing_tracker", {"index": i}))
+                    continue
+
+                try:
+                    start, end = parse_time_range(timeline)
+                except ValueError as e:
+                    print(t("task.cut.skip_bad_time", {"timeline": timeline, "detail": e}))
+                    orig_stem = _orig_stem_from_path(video_path) if video_path else ""
+                    if orig_stem:
+                        state.mark(orig_stem, "cut", "skipped")
+                    if tracker is not None:
+                        tracker.next(message=t("task.cut.skip_bad_time_tracker", {"index": i}))
+                    continue
+                plan_start, plan_end = start, end
+
+                if end <= start:
+                    print(t("task.cut.skip_invalid_range", {"start": start, "end": end, "title": seg.get("title", "")}))
+                    orig_stem = _orig_stem_from_path(video_path) if video_path else ""
+                    if orig_stem:
+                        state.mark(orig_stem, "cut", "skipped")
+                    if tracker is not None:
+                        tracker.next(message=t("task.cut.skip_invalid_range_tracker", {"index": i}))
+                    continue
+
+                try:
+                    from clio.utils import get_duration_sec
+                    from clio.utils import resolve_binary as _resolve_binary
+
+                    probe = _resolve_binary(ffprobe or "", "ffprobe")
+                    media_dur = get_duration_sec(video_path, probe)
+                    if end > media_dur:
+                        print(t("task.cut.clamp_end", {"end": end, "duration": media_dur}))
+                        end = media_dur
+                except _PROBE_FAILURES:
+                    pass
+                if end <= start:
+                    print(
+                        t("task.cut.skip_beyond_duration", {"start": start, "end": end, "title": seg.get("title", "")})
+                    )
+                    orig_stem = _orig_stem_from_path(video_path) if video_path else ""
+                    if orig_stem:
+                        state.mark(orig_stem, "cut", "skipped")
+                    if tracker is not None:
+                        tracker.next(message=t("task.cut.skip_beyond_duration_tracker", {"index": i}))
+                    continue
+
+                # Apply segment offset for original source with legacy split videos
+                offset = 0.0
+                if source == "original":
+                    # Prefer media_identity via legacy gate (new identities always 0)
+                    text_json_paths = _indexed_files(
+                        config.texts_dir, idx, index_width=config.naming.index_width, suffix=".json"
+                    )
+                    if text_json_paths:
+                        try:
+                            data = json.loads(text_json_paths[0].read_text(encoding="utf-8"))
+                            if isinstance(data, dict):
+                                identity = load_identity(data)
+                                offset = legacy_segment_offset_sec(identity)
+                        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                            pass
+                    # Fall back to vmeta-based computation for v1 files
+                    if offset == 0.0:
+                        comp_candidates = [
+                            path
+                            for path in _indexed_files(comp_dir, idx, index_width=config.naming.index_width)
+                            if path.suffix.lower() in VIDEO_EXTS and _selected_media(path, artifact=True)
+                        ]
+                        if comp_candidates:
+                            stem = comp_candidates[0].stem
+                            offset = _compute_segment_offset(stem, comp_dir, video_path, ffprobe)
+                    if offset:
+                        start += offset
+                        end += offset
+
+                clip_stem = _cut_clip_stem(idx, title, i)
+                clip_path = out_root / f"{clip_stem}.mp4"
+
+                print(_eta_line(t("task.cut.eta_label"), i, len(seq), clip_stem, completed, elapsed_total))
+                t0 = time.monotonic()
+                try:
+
+                    def _write_clip(
+                        dest: Path,
+                        source: Path = video_path,
+                        clip_start: float = start,
+                        clip_end: float = end,
+                    ) -> None:
+                        cut_one(
+                            source,
+                            dest,
+                            clip_start,
+                            clip_end,
+                            ffmpeg,
+                            reencode=reencode,
+                            cancel_event=cancel_event,
+                        )
+
+                    replace_file_safely(clip_path, _write_clip)
+                    state.mark(_orig_stem_from_path(video_path), "cut", "done")
+                except Exception:
+                    state.mark(_orig_stem_from_path(video_path), "cut", "error")
+                    raise
+                elapsed_total += time.monotonic() - t0
+                completed += 1
+
+                # 复制对应的 texts JSON，并始终写 sidecar 标明片段来源
+                text_json = None
+                cut_info = {
                     "seg_index": i,
-                    "video_index": idx,
-                    "title": title,
                     "timeline": timeline,
                     "plan_start_sec": round(plan_start, 2),
                     "plan_end_sec": round(plan_end, 2),
                     "start_sec": round(start, 2),
                     "end_sec": round(end, 2),
-                    "duration_sec": round(end - start, 2),
-                    "output_file": clip_path.name,
-                    "text_file": text_json or "",
                 }
-            )
-            if tracker is not None:
-                tracker.next(message=t("task.cut.segment_done", {"index": i, "total": len(seq)}))
+                matching_texts = [
+                    path
+                    for path in _indexed_files(
+                        config.texts_dir, idx, index_width=config.naming.index_width, suffix=".json"
+                    )
+                    if _selected_media(path, artifact=True)
+                ]
+                if matching_texts:
+                    text_path = matching_texts[0]
+                    data = json.loads(text_path.read_text(encoding="utf-8"))
+                else:
+                    data = {}
+                data["_cut_info"] = cut_info
+                dst = out_root / f"{clip_stem}.json"
+                replace_file_safely(dst, lambda p, d=data: write_json_atomic(p, d))
+                text_json = dst.name
+                print(f"  -> texts: {dst.name}")
 
-    if len(clips) == len(seq):
+                clips.append(
+                    {
+                        "seg_index": i,
+                        "video_index": idx,
+                        "title": title,
+                        "timeline": timeline,
+                        "plan_start_sec": round(plan_start, 2),
+                        "plan_end_sec": round(plan_end, 2),
+                        "start_sec": round(start, 2),
+                        "end_sec": round(end, 2),
+                        "duration_sec": round(end - start, 2),
+                        "output_file": clip_path.name,
+                        "text_file": text_json or "",
+                    }
+                )
+                if tracker is not None:
+                    tracker.next(message=t("task.cut.segment_done", {"index": i, "total": len(seq)}))
+
+        manifest_path = out_root / "manifest.md"
+        lines = [
+            t("cut.manifest_title", {"title": plan.get("day_title", day_label)}),
+            "",
+            t("plan.md_theme", {"theme": plan.get("theme", "")}),
+            t("plan.md_estimated", {"seconds": plan.get("total_estimated_sec", "")}),
+            t("cut.manifest_output", {"path": out_root}),
+            "",
+            t("cut.manifest_header"),
+            "|---|------|------|---------|------|---------|-------|",
+        ]
+        for c in clips:
+            lines.append(
+                f"| {c['seg_index']} | {c['video_index']} | {c['title']} "
+                f"| {c['timeline']} | {format_duration(c['duration_sec'])} "
+                f"| {c['output_file']} | {c['text_file'] or '-'} |"
+            )
+        write_text_atomic(manifest_path, "\n".join(lines) + "\n")
+        print(f"  -> manifest: {manifest_path.name}")
+        print(t("task.cut.done", {"count": len(clips), "path": out_root}))
+        return clips
+    finally:
         for backup in stale_backups:
             backup.unlink(missing_ok=True)
-
-    manifest_path = out_root / "manifest.md"
-    lines = [
-        t("cut.manifest_title", {"title": plan.get("day_title", day_label)}),
-        "",
-        t("plan.md_theme", {"theme": plan.get("theme", "")}),
-        t("plan.md_estimated", {"seconds": plan.get("total_estimated_sec", "")}),
-        t("cut.manifest_output", {"path": out_root}),
-        "",
-        t("cut.manifest_header"),
-        "|---|------|------|---------|------|---------|-------|",
-    ]
-    for c in clips:
-        lines.append(
-            f"| {c['seg_index']} | {c['video_index']} | {c['title']} "
-            f"| {c['timeline']} | {format_duration(c['duration_sec'])} "
-            f"| {c['output_file']} | {c['text_file'] or '-'} |"
-        )
-    write_text_atomic(manifest_path, "\n".join(lines) + "\n")
-    print(f"  -> manifest: {manifest_path.name}")
-    print(t("task.cut.done", {"count": len(clips), "path": out_root}))
-    return clips

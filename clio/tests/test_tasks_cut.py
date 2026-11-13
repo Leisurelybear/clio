@@ -269,7 +269,7 @@ class TestStaleCutArtifacts:
 
     @patch("clio.tasks.cut.cut_one")
     @patch("clio.tasks.cut.resolve_binary")
-    def test_failed_overwrite_keeps_stale_artifacts_recoverable(self, mock_resolve, mock_cut, cfg):
+    def test_failed_overwrite_removes_stale_artifacts(self, mock_resolve, mock_cut, cfg):
         _write_plan(cfg, seq=[{"index": "001", "title": "New", "use_timeline": "00:00-00:10"}])
         (cfg.compressed_dir / "001_src.mp4").write_bytes(b"\x00")
         out = cfg.paths.output_dir / "cuts" / "day1"
@@ -291,12 +291,12 @@ class TestStaleCutArtifacts:
 
         assert not stale_video.exists()
         assert not stale_text.exists()
-        assert stale_video.with_name(stale_video.name + ".clio_bak").read_bytes() == b"old-video"
-        assert stale_text.with_name(stale_text.name + ".clio_bak").is_file()
+        assert not stale_video.with_name(stale_video.name + ".clio_bak").exists()
+        assert not stale_text.with_name(stale_text.name + ".clio_bak").exists()
 
     @patch("clio.tasks.cut.cut_one")
     @patch("clio.tasks.cut.resolve_binary")
-    def test_cancelled_overwrite_keeps_stale_artifacts_recoverable(self, mock_resolve, mock_cut, cfg):
+    def test_cancelled_overwrite_removes_stale_artifacts(self, mock_resolve, mock_cut, cfg):
         _write_plan(cfg, seq=[{"index": "001", "title": "New", "use_timeline": "00:00-00:10"}])
         (cfg.compressed_dir / "001_src.mp4").write_bytes(b"\x00")
         out = cfg.paths.output_dir / "cuts" / "day1"
@@ -314,7 +314,7 @@ class TestStaleCutArtifacts:
         assert result == []
         mock_cut.assert_not_called()
         assert not stale_video.exists()
-        assert stale_video.with_name(stale_video.name + ".clio_bak").read_bytes() == b"old-video"
+        assert not stale_video.with_name(stale_video.name + ".clio_bak").exists()
 
     @patch("clio.tasks.cut.cut_one")
     @patch("clio.tasks.cut.resolve_binary")
@@ -345,7 +345,7 @@ class TestStaleCutArtifacts:
 
     @patch("clio.tasks.cut.cut_one")
     @patch("clio.tasks.cut.resolve_binary")
-    def test_partial_run_keeps_stale_artifacts_recoverable(self, mock_resolve, mock_cut, cfg):
+    def test_partial_run_removes_stale_artifacts(self, mock_resolve, mock_cut, cfg):
         _write_plan(cfg, seq=[{"index": "001", "title": "New", "use_timeline": "00:00-00:10"}])
         out = cfg.paths.output_dir / "cuts" / "day1"
         out.mkdir(parents=True)
@@ -360,7 +360,7 @@ class TestStaleCutArtifacts:
         assert clips == []
         mock_cut.assert_not_called()
         assert not stale_video.exists()
-        assert stale_video.with_name(stale_video.name + ".clio_bak").read_bytes() == b"old-video"
+        assert not stale_video.with_name(stale_video.name + ".clio_bak").exists()
 
     @patch("clio.tasks.cut.cut_one")
     @patch("clio.tasks.cut.resolve_binary")
