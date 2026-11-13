@@ -514,6 +514,7 @@
   "task.analyze.phase_title": "run_analyze_all ({count} files)",
   "task.analyze.sparse_retry": "  [completion] {name} window {index} has sparse timeline coverage at {start}-{end}s; retrying the missing interval...",
   "task.analyze.sparse_retry_failed": "  [warning] sparse interval completion failed for {name} window {index}; keeping the original analysis: {detail}",
+  "task.analyze.window_summary_failed": "  [warning] long-video summary failed for {name}; keeping the merged window analysis: {detail}",
   "task.analyze.skip_exists": "[skip analyze] {name} (already exists: {json})",
   "task.analyze.skip_log_analyzed": "Skipped {name} (already analyzed)",
   "task.analyze.skip_log_no_duration": "Skipped {name} (duration unreadable)",

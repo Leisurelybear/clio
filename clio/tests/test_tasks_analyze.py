@@ -1266,7 +1266,7 @@ class TestRunAnalyzeAll:
             run_analyze_all(cfg)
         assert list(cfg.texts_dir.glob("*.json")) == []
 
-    def test_window_summary_failure_writes_nothing(self, monkeypatch, tmp_path: Path):
+    def test_window_summary_failure_keeps_merged_analysis(self, monkeypatch, tmp_path: Path):
         cfg = _cfg(tmp_path)
         cfg.analyze.max_analyze_duration_min = 0
         cfg.analyze.window_max_min = 15
@@ -1289,11 +1289,14 @@ class TestRunAnalyzeAll:
 
         monkeypatch.setattr("clio.tasks.analyze.summarize_window_analysis", fail_summary)
 
-        import pytest
+        records = run_analyze_all(cfg)
 
-        with pytest.raises(RuntimeError, match="失败"):
-            run_analyze_all(cfg)
-        assert list(cfg.texts_dir.glob("*.json")) == []
+        assert len(records) == 1
+        assert records[0].analysis is not None
+        assert records[0].analysis["_summary_failed"] is True
+        saved = sorted(cfg.texts_dir.glob("*.json"))
+        assert len(saved) == 1
+        assert json.loads(saved[0].read_text(encoding="utf-8"))["_summary_failed"] is True
 
     def test_hybrid_directory_prefers_canonical_whole(self, monkeypatch, tmp_path: Path):
         cfg = _cfg(tmp_path)

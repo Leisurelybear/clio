@@ -549,14 +549,21 @@ def _analyze_with_optional_windows(
     merged = merge_window_analyses(partials, overlap)
     if cancel_event is not None and cancel_event.is_set():
         raise InterruptedError(t("analyze.cancelled"))
-    return summarize_window_analysis(
-        merged,
-        config,
-        token_store=token_store,
-        cancel_event=cancel_event,
-        context_override=effective_context,
-        task_prompts=task_prompts,
-    )
+    try:
+        return summarize_window_analysis(
+            merged,
+            config,
+            token_store=token_store,
+            cancel_event=cancel_event,
+            context_override=effective_context,
+            task_prompts=task_prompts,
+        )
+    except InterruptedError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - merged window data is still a usable analysis
+        print(t("task.analyze.window_summary_failed", {"name": compressed.name, "detail": exc}))
+        merged["_summary_failed"] = True
+        return merged
 
 
 def _process_video_item(
