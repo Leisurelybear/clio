@@ -11,9 +11,9 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | Priority | Total | Fixed | Satisfied | In progress | Confirmed | Environment verification | Duplicate | Not applicable | Pending audit |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P1 | 35 | 17 | 14 | 0 | 0 | 0 | 0 | 0 | 4 |
-| P2 | 59 | 0 | 12 | 0 | 0 | 0 | 0 | 0 | 47 |
-| P3 | 14 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 11 |
+| P1 | 35 | 17 | 15 | 0 | 0 | 0 | 0 | 0 | 3 |
+| P2 | 59 | 2 | 12 | 0 | 0 | 0 | 0 | 0 | 45 |
+| P3 | 14 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 10 |
 
 ## Item status
 
@@ -60,7 +60,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 039 | P1 | Q7 | 各素材独立分析, 实体名不一致 | Satisfied | Satisfied; same-day consistency stage implemented (`b141fb6`, `8292a0c`, `cfc3c81`, `535146b`). |
 | 040 | P1 | Q5 | 未用 fps、偏移和 media_resolution | Satisfied | Satisfied; media resolution/window metadata implemented (`304acd3`). |
 | 041 | P1 | Q4 | 拍摄时间与 GPS 默认不用 | Satisfied | Satisfied; GPMF defaults are enabled (`7189ede`). |
-| 042 | P1 | F2 | 只统计 token, 没有费用与版本 | Pending audit |  |
+| 042 | P1 | F2 | 只统计 token, 没有费用与版本 | Satisfied | Existing calls record provider, model, prompt-version hash, split token counts, and estimated USD cost; the token pane exposes provider, prompt version, and cost. Focused: 18 token-usage tests passed. |
 | 043 | P1 | OPT-018 | 单视频重跑 (clio/ui/routes/run.py:113-196) 自己维护一套步骤表, 与 pipeline_STEP_FUNCS 平行 | Pending audit |  |
 | 044 | P1 | O17 | AGENTS.md 过长 | Satisfied | Satisfied; documentation split completed. |
 | 045 | P2 | R003 | Origin/Host 校验和 JSON Content-Type 强制只在本机模式开启; LAN 模式全部关闭 | Pending audit |  |
