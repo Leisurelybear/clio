@@ -11,7 +11,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | Priority | Total | Fixed | Satisfied | Confirmed | Environment verification | Duplicate | Not applicable | Pending audit |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P1 | 35 | 5 | 10 | 0 | 0 | 0 | 0 | 20 |
+| P1 | 35 | 6 | 10 | 0 | 0 | 0 | 0 | 19 |
 | P2 | 59 | 0 | 12 | 0 | 0 | 0 | 0 | 47 |
 | P3 | 14 | 0 | 0 | 0 | 0 | 0 | 0 | 14 |
 
@@ -35,7 +35,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 014 | P1 | R002 | Provider 的 base_url 与 api_key_env 可经 API 任意改写, 随后 /api/ai/test 会把该环境变量的值作为 Bearer 发往新地址 | Fixed | `ff98198` binds each provider to its canonical `<PROVIDER>_API_KEY`, requires proof of possession before URL or credential-slot changes, strips stored keys, and rejects unsafe connection-test targets before any provider call. Focused: 89 passed, 1 skipped; full suite: 3222 passed, 12 skipped. |
 | 015 | P1 | E8 | 分析保存不打用户编辑标记; 重跑或指纹变化时旧分析被直接删除 | Fixed | `427ea6f` marks saved analysis as user-edited and gates stale replacement behind the shared artifact-overwrite confirmation. Confirmed replacements back up JSON/TXT before rewriting or cleanup; preview/start reports analysis artifacts. Focused: 216 pytest cases passed; full suite: 3227 passed, 12 skipped. |
 | 016 | P1 | R006 | 只有 run_plan_all_days 传 filter_by_day=True; run --day、plan --day、UI 运行都不过天过滤, UI 也没有 all-days 入口 | Fixed | `ed63199` makes unscoped multi-day planning default to day filtering, preserving selection-scoped plans. `ab690d1` adds all-day pipeline and UI scoping with previews; explicit file selections remain selection-scoped. Focused: 224 pytest and 34 runner Vitest cases passed; full suites: 3246 pytest (12 skipped) and 924 Vitest cases passed; typecheck, Ruff, mypy, and `main.py check` passed. |
-| 017 | P1 | E4 | 长视频每个窗口切片都注入整段转录 (绝对时间戳) | Pending audit |  |
+| 017 | P1 | E4 | 长视频每个窗口切片都注入整段转录 (绝对时间戳) | Fixed | `caaa9ad` clips each injected transcript to the current window or sparse-retry gap, rebases timestamps to zero, preserves segment confidence fields, and bumps analysis/window cache versions. Focused: 44 pytest cases passed; full suite: 3250 passed, 12 skipped; Ruff, mypy, and `git diff --check` passed. |
 | 018 | P1 | E5 | 按 creation_time 的 UTC 日期分天; dayN 每次重算, 但只在为空时写入 | Pending audit |  |
 | 019 | P1 | E9 | 多窗口合并后的摘要重写失败会让整个长视频失败 | Pending audit |  |
 | 020 | P1 | E7 | 单视频重跑不接受 confirm_artifact_overwrite, 口播被编辑过时只会失败 | Pending audit |  |
