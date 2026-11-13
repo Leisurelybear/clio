@@ -79,7 +79,20 @@ def cut_one(
         str(duration_sec),
     ]
     if reencode:
-        args.extend(["-c:v", "libx264", "-crf", "23"])
+        # Force an 8-bit 4:2:0 output: 10-bit/HDR sources otherwise produce
+        # High 10 H.264 that many editors and hardware decoders cannot open.
+        args.extend(
+            [
+                "-c:v",
+                "libx264",
+                "-preset",
+                "fast",
+                "-crf",
+                "23",
+                "-pix_fmt",
+                "yuv420p",
+            ]
+        )
     else:
         args.extend(["-c", "copy"])
     args.extend(["-y", str(output_path)])

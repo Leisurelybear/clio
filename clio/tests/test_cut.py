@@ -113,6 +113,8 @@ class TestCutOne:
         args = mock_run.call_args[0][0]
         assert "-c:v" in args
         assert "libx264" in args
+        assert args[args.index("-preset") + 1] == "fast"
+        assert args[args.index("-pix_fmt") + 1] == "yuv420p"
 
     def test_cut_one_defaults_to_reencode(self, tmp_path):
         src = tmp_path / "input.mp4"
