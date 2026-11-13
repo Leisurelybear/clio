@@ -58,6 +58,7 @@ def _parse_tasks(raw: dict) -> dict[str, TaskConfig]:
             provider=typed.get("provider", ""),
             model=typed.get("model", ""),
             temperature=typed.get("temperature"),
+            timeout_sec=typed.get("timeout_sec"),
         )
     return tasks
 

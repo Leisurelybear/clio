@@ -611,6 +611,24 @@ describe('_renderTaskBinding', () => {
     expect(div.querySelector('.task-temperature-input[data-task="voiceover"]').value).toBe('');
   });
 
+  it('renders the configured per-task timeout', () => {
+    const tasks = { vlog_plan: { provider: 'deepseek', model: 'deepseek-chat', timeout_sec: 300 } };
+    const html = _renderTaskBinding(tasks, { deepseek: OPENAI_PROVIDER });
+    const div = document.createElement('div');
+    div.innerHTML = html;
+    const timeout = div.querySelector('.task-timeout-input[data-task="vlog_plan"]');
+    expect(timeout).not.toBeNull();
+    expect(timeout.value).toBe('300');
+  });
+
+  it('leaves the timeout input empty when unset', () => {
+    const tasks = { vlog_plan: { provider: 'deepseek', model: 'deepseek-chat' } };
+    const html = _renderTaskBinding(tasks, { deepseek: OPENAI_PROVIDER });
+    const div = document.createElement('div');
+    div.innerHTML = html;
+    expect(div.querySelector('.task-timeout-input[data-task="vlog_plan"]').value).toBe('');
+  });
+
   it('shows warning when provider has no registered models', () => {
     const html = _renderTaskBinding({ video_analyze: { provider: 'nope' } }, { nope: PROVIDER_NO_MODELS });
     expect(html).toContain('该 Provider 没有注册可用模型');

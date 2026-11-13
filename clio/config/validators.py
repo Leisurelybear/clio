@@ -279,6 +279,8 @@ def _validate_config(config: AppConfig) -> None:
         _warn_unknown_model(task_name, task_cfg.provider, task_cfg.model, provider_cfg.models)
         if task_cfg.temperature is not None:
             _require_range(f"ai.tasks.{task_name}.temperature", task_cfg.temperature, 0, 2)
+        if task_cfg.timeout_sec is not None:
+            _require_positive(f"ai.tasks.{task_name}.timeout_sec", task_cfg.timeout_sec)
 
 
 def validate_global_config(config: GlobalConfig) -> None:
@@ -320,3 +322,5 @@ def validate_global_config(config: GlobalConfig) -> None:
         _warn_unknown_model(task_name, task_cfg.provider, task_cfg.model, provider_cfg.models)
         if task_cfg.temperature is not None:
             _require_range(f"ai.default_tasks.{task_name}.temperature", task_cfg.temperature, 0, 2)
+        if task_cfg.timeout_sec is not None:
+            _require_positive(f"ai.default_tasks.{task_name}.timeout_sec", task_cfg.timeout_sec)

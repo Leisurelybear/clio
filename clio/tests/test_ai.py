@@ -117,6 +117,17 @@ class TestGetTaskProvider:
         assert model == "gemini-2.5-flash"
         assert isinstance(provider, GeminiProvider)
 
+    def test_task_timeout_override_does_not_mutate_provider_config(self, loaded_config):
+        task_cfg = loaded_config.project_cfg.ai.tasks["voiceover"]
+        provider_timeout = loaded_config.ai.providers["deepseek"].timeout_sec
+        task_cfg.timeout_sec = 300
+
+        provider, _model = get_task_provider(loaded_config, TaskName.VOICEOVER)
+
+        assert isinstance(provider, OpenAICompatProvider)
+        assert provider._client.timeout.connect == 300.0
+        assert loaded_config.ai.providers["deepseek"].timeout_sec == provider_timeout
+
 
 class TestGetVideoProvider:
     def test_gemini_supports_video(self, loaded_config):

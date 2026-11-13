@@ -610,6 +610,7 @@ class TestGlobalDefaultTasks:
                                 "provider": "deepseek",
                                 "model": "deepseek-chat",
                                 "temperature": "0.5",
+                                "timeout_sec": "300",
                             },
                         },
                     },
@@ -620,6 +621,7 @@ class TestGlobalDefaultTasks:
 
         cfg = load_config(cfg_path, project_dir=tmp_path)
         assert cfg.ai.tasks["voiceover"].temperature == 0.5
+        assert cfg.ai.tasks["voiceover"].timeout_sec == 300.0
 
     def test_rejects_out_of_range_global_temperature(self):
         from clio.config.validators import validate_global_config
@@ -634,6 +636,21 @@ class TestGlobalDefaultTasks:
             ),
         )
         with pytest.raises(ValueError, match="ai.default_tasks.voiceover.temperature"):
+            validate_global_config(cfg)
+
+    def test_rejects_non_positive_global_task_timeout(self):
+        from clio.config.validators import validate_global_config
+
+        provider = ProviderConfig(name="deepseek", type="openai", api_key="k", base_url="https://api.deepseek.com/v1")
+        cfg = GlobalConfig(
+            ai=GlobalAIConfig(
+                providers={"deepseek": provider},
+                default_tasks={
+                    "vlog_plan": TaskConfig(provider="deepseek", model="deepseek-chat", timeout_sec=-1),
+                },
+            ),
+        )
+        with pytest.raises(ValueError, match="ai.default_tasks.vlog_plan.timeout_sec"):
             validate_global_config(cfg)
 
     def test_missing_task_defaults_are_not_materialized(self, tmp_path: Path):

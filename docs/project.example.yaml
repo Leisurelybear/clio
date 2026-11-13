@@ -32,6 +32,8 @@ ai:
     vlog_plan:
       provider: deepseek
       model: deepseek-v4-pro
+      # 规划输出较长；留空则沿用 provider 的 timeout_sec
+      timeout_sec: 300
 
 compress:
   target_size_mb: 5              # 0 = CRF mode using global compress.crf

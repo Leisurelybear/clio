@@ -48,6 +48,8 @@ class TaskConfig:
     provider: str = ""
     model: str = ""
     temperature: float | None = None
+    # Optional per-task HTTP timeout. None keeps the provider-level timeout.
+    timeout_sec: float | None = None
 
 
 @dataclass

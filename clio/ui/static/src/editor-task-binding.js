@@ -139,6 +139,13 @@ export function renderTaskBinding(tasks, providersObj, descs, opts = {}, renderT
       html += `<label class="task-binding-label">${t('settings.task_binding.temperature_label')}</label>`;
       html += `<input type="number" class="form-input task-temperature-input" data-task="${taskKey}" min="0" max="2" step="0.1" value="${escapeHtml(String(tempValue))}" placeholder="${t('settings.task_binding.temperature_placeholder')}">`;
       html += '</div>';
+
+      const currentTimeout = taskCfg?.timeout_sec;
+      const timeoutValue = currentTimeout === undefined || currentTimeout === null ? '' : currentTimeout;
+      html += '<div class="task-binding-row">';
+      html += `<label class="task-binding-label">${t('settings.task_binding.timeout_label')}</label>`;
+      html += `<input type="number" class="form-input task-timeout-input" data-task="${taskKey}" min="1" step="1" value="${escapeHtml(String(timeoutValue))}" placeholder="${t('settings.task_binding.timeout_placeholder')}">`;
+      html += '</div>';
     }
 
     html += '</div>';
@@ -192,6 +199,30 @@ export function attachTaskBindingHandlers(pane, cfg, opts = {}, reRender = () =>
           return;
         }
         taskCfg.temperature = num;
+      }
+      if (!cfg.ai) cfg.ai = {};
+      if (!cfg.ai[tasksField]) cfg.ai[tasksField] = {};
+      cfg.ai[tasksField][taskKey] = taskCfg;
+      markDirty();
+    };
+  });
+
+  pane.querySelectorAll('.task-timeout-input').forEach(inp => {
+    inp.onchange = () => {
+      const taskKey = inp.dataset.task;
+      const raw = inp.value.trim();
+      const inherited = (opts.defaults || {})[taskKey] || {};
+      const existing = cfg.ai?.[tasksField]?.[taskKey] || {};
+      const taskCfg = { ...inherited, ...existing };
+      if (!raw) {
+        delete taskCfg.timeout_sec;
+      } else {
+        const num = Number(raw);
+        if (!Number.isFinite(num) || num <= 0) {
+          inp.value = existing.timeout_sec ?? '';
+          return;
+        }
+        taskCfg.timeout_sec = num;
       }
       if (!cfg.ai) cfg.ai = {};
       if (!cfg.ai[tasksField]) cfg.ai[tasksField] = {};

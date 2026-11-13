@@ -361,6 +361,27 @@ class TestValidateConfig:
         with pytest.raises(ValueError, match=r"ai\.tasks\.voiceover\.temperature"):
             _validate_config(cfg)
 
+    def test_rejects_non_positive_task_timeout(self):
+        provider = ProviderConfig(
+            name="deepseek",
+            type="openai",
+            api_key="k",
+            base_url="https://api.deepseek.com/v1",
+            models=["deepseek-chat"],
+        )
+        cfg = AppConfig(
+            global_cfg=GlobalConfig(ai=GlobalAIConfig(providers={"deepseek": provider})),
+            project_cfg=ProjectConfig(
+                ai=ProjectAIConfig(
+                    tasks={
+                        "vlog_plan": TaskConfig(provider="deepseek", model="deepseek-chat", timeout_sec=0),
+                    },
+                ),
+            ),
+        )
+        with pytest.raises(ValueError, match=r"ai\.tasks\.vlog_plan\.timeout_sec"):
+            _validate_config(cfg)
+
     def test_task_model_outside_provider_models_is_warning_not_fatal(self, caplog):
         """R-040 F-2: a bound model outside the provider's declared list must not crash load."""
         provider = ProviderConfig(
@@ -604,12 +625,15 @@ class TestLoadConfig:
         global_data = yaml.safe_load(global_example.read_text(encoding="utf-8"))
         assert global_data["ai"]["default_tasks"]["voiceover"]["model"] == "deepseek-flash"
         assert global_data["ai"]["default_tasks"]["vlog_plan"]["model"] == "deepseek-v4-pro"
+        assert global_data["ai"]["default_tasks"]["vlog_plan"]["timeout_sec"] == 300
+        assert "temperature" not in global_data["ai"]["default_tasks"]["vlog_plan"]
         assert global_data["ai"]["providers"]["deepseek"]["models"] == ["deepseek-flash", "deepseek-v4-pro"]
 
         project_example = global_example.parent / "docs" / "project.example.yaml"
         project_data = yaml.safe_load(project_example.read_text(encoding="utf-8"))
         assert project_data["ai"]["tasks"]["voiceover"]["model"] == "deepseek-flash"
         assert project_data["ai"]["tasks"]["vlog_plan"]["model"] == "deepseek-v4-pro"
+        assert project_data["ai"]["tasks"]["vlog_plan"]["timeout_sec"] == 300
         assert project_data["ai"]["tasks"]["video_analyze"]["temperature"] == 0.2
 
     def test_auto_generates_missing_config(self, tmp_path):

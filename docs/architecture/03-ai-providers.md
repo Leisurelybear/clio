@@ -38,6 +38,8 @@
 3. `_build_provider` constructs (or reuses from `_provider_cache`) the provider instance. The
    cache key covers all settings that change wire behavior: provider type, api_key, base_url,
    poll interval, retries, rate-limit, timeout, max_tokens, proxy config (including proxy URL).
+   A task-level `ai.tasks.<name>.timeout_sec` overrides the provider timeout for that task only;
+   the factory builds a separate cached provider instead of mutating the shared config.
 4. Returns `(provider, model)`.
 
 TTL lifecycle (`factory.py`): entries older than `config.ai.provider_ttl_min` (0 = infinite) are

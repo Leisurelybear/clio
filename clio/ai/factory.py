@@ -5,7 +5,7 @@ import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from clio.ai.base import TaskName, TextAIProvider, VideoAIProvider, provider_supports_video
@@ -70,10 +70,18 @@ def provider_use(provider: TextAIProvider) -> Iterator[TextAIProvider]:
             _close_provider(to_close)
 
 
-def _build_provider(config: AppConfig, provider_name: str) -> TextAIProvider:
+def _build_provider(
+    config: AppConfig,
+    provider_name: str,
+    *,
+    timeout_sec: float | None = None,
+) -> TextAIProvider:
     provider_cfg = config.ai.providers.get(provider_name)
     if not provider_cfg:
         raise ValueError(t("ai.provider_undefined", {"name": provider_name}))
+    if timeout_sec is not None:
+        # A task-level timeout must not mutate the shared provider config.
+        provider_cfg = replace(provider_cfg, timeout_sec=float(timeout_sec))
     cache_key = (
         provider_name,
         provider_cfg.api_key,
@@ -147,7 +155,7 @@ def get_task_config(config: AppConfig, task: TaskName | str) -> TaskConfig:
 
 def get_task_provider(config: AppConfig, task: TaskName | str) -> tuple[TextAIProvider, str]:
     task_cfg = get_task_config(config, task)
-    provider = _build_provider(config, task_cfg.provider)
+    provider = _build_provider(config, task_cfg.provider, timeout_sec=task_cfg.timeout_sec)
     return provider, task_cfg.model
 
 
