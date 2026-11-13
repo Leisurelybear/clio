@@ -43,6 +43,7 @@ P1 items:
   - `[x]` run shot selection from the outline, then validate and review the final plan with one correction retry
   - `[x]` invalidate plan lineage when any planning-stage prompt or the outline context changes
 - `[x]` Q12 generate voiceover from the planned segments after planning (`89b9315`, `9da2483`)
+- `[x]` R006 day-scoped planning defaults and all-day Web UI entry (`ed63199`, `ab690d1`)
 - `[x]` F1 create a small scored evaluation set and scoring script (`98b4f4d`)
   - `[x]` define a versioned 12-case manifest and reference-label schema
   - `[x]` add deterministic scoring for coverage, density, fact recall, key moments, and structure
