@@ -506,6 +506,9 @@ class AppConfig:
     def global_cfg(self, val: GlobalConfig) -> None:
         self._global_cfg = val
         self._paths = None
+        self._ai = None
+        self._compress = None
+        self._whisper = None
 
     @property
     def project_cfg(self) -> ProjectConfig | None:

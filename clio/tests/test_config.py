@@ -25,6 +25,7 @@ from clio.config.models import (
     GlobalAIConfig,
     GlobalCompressConfig,
     GlobalConfig,
+    GlobalWhisperConfig,
     PlanConfig,
     ProjectAIConfig,
     ProjectCompressConfig,
@@ -508,6 +509,26 @@ class TestValidateConfig:
 
         with pytest.raises(ValueError, match=r"compress\.max_width must be a number"):
             _validate_config(cfg)
+
+
+class TestAppConfigCache:
+    def test_replacing_global_config_invalidates_combined_sections(self):
+        cfg = AppConfig(global_cfg=GlobalConfig())
+        initial_ai = cfg.ai
+        initial_compress = cfg.compress
+        initial_whisper = cfg.whisper
+
+        cfg.global_cfg = GlobalConfig(
+            ai=GlobalAIConfig(providers={"ollama": ProviderConfig(name="ollama", type="ollama")}),
+            compress=GlobalCompressConfig(crf=18),
+            whisper=GlobalWhisperConfig(hf_endpoint="https://example.invalid"),
+        )
+
+        assert cfg.ai is not initial_ai
+        assert cfg.compress is not initial_compress
+        assert cfg.whisper is not initial_whisper
+        assert cfg.compress.crf == 18
+        assert cfg.whisper.hf_endpoint == "https://example.invalid"
 
 
 class TestLoadConfig:
