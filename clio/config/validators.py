@@ -212,7 +212,7 @@ def _validate_config(config: AppConfig) -> None:
                 },
             )
         )
-    _require_min("compress.target_size_mb", config.compress.target_size_mb, 0.01)
+    _require_min("compress.target_size_mb", config.compress.target_size_mb, 0)
     _require_min("compress.max_width", config.compress.max_width, 1)
     _require_min("compress.fps", config.compress.fps, 1)
     _require_min("compress.crf", config.compress.crf, 0)

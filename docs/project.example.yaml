@@ -33,7 +33,7 @@ ai:
       model: deepseek-reasoner
 
 compress:
-  target_size_mb: 5
+  target_size_mb: 5              # 0 = CRF mode using global compress.crf
   max_width: 640                # high analysis recommends 960-1280 after re-compress
 
 analyze:

@@ -449,7 +449,7 @@ class TestValidateConfig:
         ("field_name", "mutate"),
         [
             ("analyze.max_workers", lambda cfg: setattr(cfg.project_cfg.analyze, "max_workers", 0)),
-            ("compress.target_size_mb", lambda cfg: setattr(cfg.project_cfg.compress, "target_size_mb", 0)),
+            ("compress.target_size_mb", lambda cfg: setattr(cfg.project_cfg.compress, "target_size_mb", -1)),
             ("compress.max_width", lambda cfg: setattr(cfg.project_cfg.compress, "max_width", 0)),
             ("naming.index_width", lambda cfg: setattr(cfg.global_cfg.naming, "index_width", 0)),
             ("ai.provider_ttl_min", lambda cfg: setattr(cfg.global_cfg.ai, "provider_ttl_min", -1)),
@@ -492,6 +492,17 @@ class TestValidateConfig:
 
         with pytest.raises(ValueError, match=field_name.replace(".", r"\.")):
             _validate_config(cfg)
+
+    def test_zero_target_size_selects_crf_mode(self):
+        cfg = AppConfig(
+            global_cfg=GlobalConfig(compress=GlobalCompressConfig(crf=21)),
+            project_cfg=ProjectConfig(compress=ProjectCompressConfig(target_size_mb=0)),
+        )
+
+        _validate_config(cfg)
+
+        assert cfg.compress.target_size_mb == 0
+        assert cfg.compress.crf == 21
 
     def test_rejects_unknown_analyze_media_resolution(self):
         cfg = AppConfig(
