@@ -11,7 +11,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | Priority | Total | Fixed | Satisfied | Confirmed | Environment verification | Duplicate | Not applicable | Pending audit |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P1 | 35 | 3 | 10 | 0 | 0 | 0 | 0 | 23 |
+| P1 | 35 | 4 | 10 | 0 | 0 | 0 | 0 | 21 |
 | P2 | 59 | 0 | 12 | 0 | 0 | 0 | 0 | 47 |
 | P3 | 14 | 0 | 0 | 0 | 0 | 0 | 0 | 14 |
 
@@ -33,7 +33,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 012 | P1 | OPT-029 | 关键回归被理想化 mock 掩盖 (R032、R033) | Satisfied | Existing regressions now use the real `ClipRecord` shape (`605643f`, `.txt` text path), assert validation retries preserve the original wrapped prompt (`fa9f313`), and assert duration deviation succeeds rather than retrying (`c9897f1`). The real-ffmpeg pipeline smoke (`b8d3200`) also crosses compress/analyze boundaries with only the provider faked. Focused: 5 boundary tests passed. |
 | 013 | P1 | OPT-034 | 11 月 7-11 日五天合入 75 个提交, 其中 5 个修复引入回归 | Satisfied | The remediation batch now pairs each high-severity fix with a behavioral regression (`605643f`, `fa9f313`, `c9897f1`, `ff98198`) and adds a production-path real-ffmpeg smoke (`b8d3200`) required on every CI run and PR (`e1c45e1`). This directly guards the cross-boundary regressions that previously required follow-up commits. |
 | 014 | P1 | R002 | Provider 的 base_url 与 api_key_env 可经 API 任意改写, 随后 /api/ai/test 会把该环境变量的值作为 Bearer 发往新地址 | Fixed | `ff98198` binds each provider to its canonical `<PROVIDER>_API_KEY`, requires proof of possession before URL or credential-slot changes, strips stored keys, and rejects unsafe connection-test targets before any provider call. Focused: 89 passed, 1 skipped; full suite: 3222 passed, 12 skipped. |
-| 015 | P1 | E8 | 分析保存不打用户编辑标记; 重跑或指纹变化时旧分析被直接删除 | Pending audit |  |
+| 015 | P1 | E8 | 分析保存不打用户编辑标记; 重跑或指纹变化时旧分析被直接删除 | Fixed | `427ea6f` marks saved analysis as user-edited and gates stale replacement behind the shared artifact-overwrite confirmation. Confirmed replacements back up JSON/TXT before rewriting or cleanup; preview/start reports analysis artifacts. Focused: 216 pytest cases passed; full suite: 3227 passed, 12 skipped. |
 | 016 | P1 | R006 | 只有 run_plan_all_days 传 filter_by_day=True; run --day、plan --day、UI 运行都不过天过滤, UI 也没有 all-days 入口 | Pending audit |  |
 | 017 | P1 | E4 | 长视频每个窗口切片都注入整段转录 (绝对时间戳) | Pending audit |  |
 | 018 | P1 | E5 | 按 creation_time 的 UTC 日期分天; dayN 每次重算, 但只在为空时写入 | Pending audit |  |
