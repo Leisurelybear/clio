@@ -12,7 +12,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P1 | 35 | 20 | 15 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P2 | 59 | 13 | 14 | 0 | 0 | 0 | 0 | 0 | 32 |
+| P2 | 59 | 14 | 14 | 0 | 0 | 0 | 0 | 0 | 31 |
 | P3 | 14 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 10 |
 
 ## Item status
@@ -79,7 +79,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 058 | P2 | R017 | 只记录 candidates_token_count, 不含思考 token; 官方价目表的输出价包含思考 token | Fixed | Gemini completion usage now sums candidate and thinking tokens while preserving the provider total. Focused: 67 Gemini provider tests passed. |
 | 059 | P2 | R019 | 云端转录没有置信度, avg_logprob 取默认 0.0, 在对数尺度上等于"最高置信" | Fixed | `70d887b`: `TranscriptSegment.avg_logprob` is optional; Aliyun segments omit it instead of reporting 0.0, and transcript selection samples evenly across time when no confidence scores exist. Focused: 245 ASR/analyze/transcript-route tests passed; full suite 3346 passed, 12 skipped (the only failure was an unrelated locale copy mismatch, fixed separately). |
 | 060 | P2 | R023 | 保存分析/口播时不重写配套的 .txt/.md; 分析保存不保护 _lineage、index 等字段; 口播保存不做任何校验 | Fixed | `6d5bee7` rewrites `.txt`/`.md` sidecars after successful saves, preserves server-owned analysis metadata and voiceover lineage, and validates voiceover payloads. Focused: 101 routes/helper tests passed; full Python suite: 3356 passed, 12 skipped. Ruff and focused mypy passed. |
-| 061 | P2 | R030 | 口播步骤遍历 texts 下全部 JSON, 不按 videos.json 过滤 | Pending audit |  |
+| 061 | P2 | R030 | 口播步骤遍历 texts 下全部 JSON, 不按 videos.json 过滤 | Fixed | `6e11352` filters default batch voiceover inputs through `_project_selection_stems`; explicit `files` selections and single-file runs retain their existing scope. Focused: 111 scripts/helper/pipeline tests passed; full Python suite: 3357 passed, 12 skipped. Ruff and mypy passed. |
 | 062 | P2 | O16 | 前端覆盖率低 | Satisfied | Satisfied; frontend coverage raised (`5487304`). |
 | 063 | P2 | Q13 | 切点按整秒估算 | Satisfied | Satisfied; cut snapping implemented (`0e1c9bf`). |
 | 064 | P2 | R012 | ANALYZE_PROMPT 只要求描述"实际能看到"的内容, 没有任何音频字段; Q2 保留的音轨没被用上 | Pending audit |  |
