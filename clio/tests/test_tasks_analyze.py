@@ -138,12 +138,13 @@ def test_analysis_lineage_ignores_uncompressed_setting_changes(tmp_path: Path):
     compressed.write_bytes(b"compressed")
     baseline = _analysis_lineage_fingerprint(cfg, compressed=compressed)
 
-    cfg.compress.codec = "libx265"
-    cfg.compress.fps = 30
-    cfg.compress.remove_audio = True
-    cfg.compress.crf = 28
-    cfg.compress.target_size_mb = 8
-    cfg.compress.max_width = 1280
+    compress = cast(Any, cfg.compress)
+    compress.codec = "libx265"
+    compress.fps = 30
+    compress.remove_audio = True
+    compress.crf = 28
+    compress.target_size_mb = 8
+    compress.max_width = 1280
 
     assert _analysis_lineage_fingerprint(cfg, compressed=compressed) == baseline
 
