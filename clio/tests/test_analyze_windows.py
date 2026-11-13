@@ -408,6 +408,7 @@ class TestSliceWindowVideo:
             window=AnalyzeWindow(0, 0, 60),
             dest_dir=dest,
             ffmpeg="ffmpeg",
+            max_bytes=10 * 1024 * 1024,
             run_ffmpeg=fake_run,
         )
         assert out.is_file()
@@ -432,11 +433,15 @@ class TestSliceWindowVideo:
             window=AnalyzeWindow(1, 100, 160),
             dest_dir=dest,
             ffmpeg="ffmpeg",
+            max_bytes=10 * 1024 * 1024,
             run_ffmpeg=fake_run,
         )
         assert out.is_file()
         assert len(calls) == 2
         assert "libx264" in calls[1]
+        assert "-an" not in calls[1]
+        assert calls[1][calls[1].index("-c:a") + 1] == "aac"
+        assert calls[1][calls[1].index("-ac") + 1] == "1"
 
     def test_slice_reencodes_when_copy_duration_drifts(self, monkeypatch, tmp_path: Path):
         src = tmp_path / "001_GL.mp4"
@@ -456,6 +461,7 @@ class TestSliceWindowVideo:
             window=AnalyzeWindow(0, 0, 60),
             dest_dir=dest,
             ffmpeg="ffmpeg",
+            max_bytes=10 * 1024 * 1024,
             ffprobe="ffprobe",
             run_ffmpeg=fake_run,
         )
@@ -485,13 +491,14 @@ class TestSliceWindowVideo:
                 window=AnalyzeWindow(0, 0, 60),
                 dest_dir=dest,
                 ffmpeg="ffmpeg",
+                max_bytes=10 * 1024 * 1024,
                 run_ffmpeg=fake_run,
             )
 
         assert len(calls) == 1, f"expected only copy call, got {len(calls)}: {calls}"
         assert not any(dest.glob("*.mp4")), "partial slice must be unlinked on cancel"
 
-    def test_slice_shrinks_when_over_200mb(self, tmp_path: Path):
+    def test_slice_shrinks_when_over_custom_cap(self, tmp_path: Path):
         src = tmp_path / "001_GL.mp4"
         src.write_bytes(b"\x00" * 10)
         dest = tmp_path / ".analyze_windows"
@@ -505,18 +512,23 @@ class TestSliceWindowVideo:
             if "-vf" in args or "scale=" in joined:
                 outp.write_bytes(b"small")
             else:
-                outp.write_bytes(b"x" * (201 * 1024 * 1024))
+                outp.write_bytes(b"x" * 2048)
 
         out = slice_window_video(
             source=src,
             window=AnalyzeWindow(0, 0, 60),
             dest_dir=dest,
             ffmpeg="ffmpeg",
+            max_bytes=1024,
             run_ffmpeg=fake_run,
         )
         assert out.is_file()
-        assert out.stat().st_size < 200 * 1024 * 1024
+        assert out.stat().st_size < 1024
         assert any("-vf" in c for c in calls)
+        shrink = next(c for c in calls if "-vf" in c)
+        assert "-an" not in shrink
+        assert shrink[shrink.index("-c:a") + 1] == "aac"
+        assert shrink[shrink.index("-ac") + 1] == "1"
 
     def test_cleanup_removes_window_files(self, tmp_path: Path):
         dest = tmp_path / ".analyze_windows"

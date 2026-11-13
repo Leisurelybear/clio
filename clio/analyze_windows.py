@@ -614,6 +614,7 @@ def slice_window_video(
     window: AnalyzeWindow,
     dest_dir: Path,
     ffmpeg: str,
+    max_bytes: int,
     ffprobe: str | None = None,
     run_ffmpeg: Callable[..., Any] | None = None,
     cancel_event: Any | None = None,
@@ -621,7 +622,9 @@ def slice_window_video(
     """Cut a temp slice from an already-compressed file for one analyze window.
 
     Prefer stream-copy; on failure or empty output, re-encode lightly so
-    keyframe-misaligned cuts still produce a valid Gemini upload.
+    keyframe-misaligned cuts still produce a valid Gemini upload. ``max_bytes``
+    is supplied by the caller from the provider upload limit so the slice cap
+    follows configuration instead of a module-level constant.
     """
     from clio.utils import run_ffmpeg as _default_run_ffmpeg
 
@@ -638,7 +641,8 @@ def slice_window_video(
         except TypeError:
             runner(args, ffmpeg)
 
-    max_bytes = 200 * 1024 * 1024
+    if max_bytes <= 0:
+        raise ValueError("max_bytes must be positive")
 
     def _has_output() -> bool:
         return out.is_file() and out.stat().st_size > 0
@@ -692,7 +696,12 @@ def slice_window_video(
         "ultrafast",
         "-crf",
         "28",
-        "-an",
+        "-c:a",
+        "aac",
+        "-ac",
+        "1",
+        "-b:a",
+        "64k",
         "-y",
         str(out),
     ]
@@ -716,7 +725,12 @@ def slice_window_video(
             "ultrafast",
             "-crf",
             "32",
-            "-an",
+            "-c:a",
+            "aac",
+            "-ac",
+            "1",
+            "-b:a",
+            "64k",
             "-y",
             str(out),
         ]
