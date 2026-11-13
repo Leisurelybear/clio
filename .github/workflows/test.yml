@@ -173,12 +173,11 @@ jobs:
         fail_ci_if_error: false
 
   pip-audit:
-    name: pip-audit (advisory)
+    name: pip-audit
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read
-    continue-on-error: true
     steps:
     - uses: actions/checkout@v4
     - uses: actions/setup-python@v5
@@ -190,7 +189,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements-locked.txt pip-audit
-        pip-audit -r requirements-locked.txt
+        pip-audit --strict -r requirements-locked.txt
 
   ui-test:
     name: UI tests (typecheck + Vitest)
