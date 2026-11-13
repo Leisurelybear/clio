@@ -163,6 +163,12 @@ def test_plan_prompt_enforces_short_hook_broll_and_narrative_beats():
     assert "transition" in PLAN_PROMPT
 
 
+def test_planning_prompt_examples_use_short_segments():
+    for prompt in (PLAN_PROMPT, PLAN_REVIEW_PROMPT):
+        assert "00:10-00:45" not in prompt
+        assert "00:10-00:18" in prompt
+
+
 def test_planning_prompts_separate_source_and_segment_limits():
     for prompt in (PLAN_PROMPT, PLAN_OUTLINE_PROMPT, PLAN_REVIEW_PROMPT):
         assert "{max_clips}" in prompt

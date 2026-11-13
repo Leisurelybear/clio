@@ -358,7 +358,7 @@ capture_time（拍摄时间）和 gps（经纬度）：
 - 同一素材可以拆成多个时间不重叠的 segment；需要开场 3-5 秒钩子、1-3 秒 B-roll 或反应镜头时，优先这样拆分。
 - 每个 segment 的 index 字段必须精确匹配素材列表中某个素材的 index 值，不要自行编造序号。
   index 是引用素材的键，不是输出序号。
-- 每个 segment 的 use_timeline 必须从该素材 timeline 的真实时间范围内选取（如 "00:10-00:45"），
+- 每个 segment 的 use_timeline 必须从该素材 timeline 的真实时间范围内选取（如 "00:10-00:18"），
   不得越界或编造时间轴。
 - 控制总时长：total_estimated_sec 应接近 {target_duration_sec} 秒。
   素材超过预算时，优先裁掉叙事价值最低的片段，而不是全部保留。
@@ -379,7 +379,7 @@ capture_time（拍摄时间）和 gps（经纬度）：
       "index": "{example_index}",
       "title": "...",
       "reason": "叙事作用 + 画面依据",
-      "use_timeline": "00:10-00:45",
+      "use_timeline": "00:10-00:18",
       "voiceover_hint": "结合画面内容的口播方向",
       "narrative_beat": "develop",
       "transition": "hard_cut"
@@ -496,7 +496,7 @@ PLAN_REVIEW_PROMPT = """你是旅行 vlog 的剪辑规划复审员。请检查�
         "index": "001",
         "title": "...",
         "reason": "叙事作用 + 画面依据",
-        "use_timeline": "00:10-00:45",
+        "use_timeline": "00:10-00:18",
         "voiceover_hint": "结合画面内容的口播方向",
         "narrative_beat": "develop",
         "transition": "hard_cut"

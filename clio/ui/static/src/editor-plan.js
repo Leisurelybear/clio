@@ -376,7 +376,7 @@ export function renderPlan() {
           <input class="plan-title-input" value="${escapeHtml(titleText)}" data-k="title">
         </label>
         <label class="plan-timeline-row">${t('plan.field.timeline')}
-          <input value="${escapeHtml(tlText)}" data-k="use_timeline" placeholder="00:10-00:45">
+          <input value="${escapeHtml(tlText)}" data-k="use_timeline" placeholder="00:10-00:18">
           <button type="button" class="plan-ghost-btn" data-range-pick title="${t('plan.range_pick_title')}">${t('plan.range_pick')}</button>
         </label>
         <div class="plan-seg-fields">
@@ -385,6 +385,14 @@ export function renderPlan() {
           </label>
           <label>${t('plan.field.voiceover_hint')}
             <textarea rows="3" data-k="voiceover_hint">${escapeHtml(seg.voiceover_hint || '')}</textarea>
+          </label>
+          <label>${t('plan.field.narrative_beat')}
+            <input value="${escapeHtml(seg.narrative_beat || '')}" data-k="narrative_beat"
+              placeholder="hook / context / develop / turn / payoff / close">
+          </label>
+          <label>${t('plan.field.transition')}
+            <input value="${escapeHtml(seg.transition || '')}" data-k="transition"
+              placeholder="hard_cut / match_action / b_roll / ambient_audio / dissolve">
           </label>
         </div>
         <div class="plan-seg-subtitles">
