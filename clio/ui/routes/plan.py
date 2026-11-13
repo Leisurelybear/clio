@@ -7,7 +7,7 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from clio.artifact_guard import mark_user_edited
+from clio.artifact_guard import backup_artifacts, mark_user_edited
 from clio.config import load_config
 from clio.i18n import t
 from clio.pipeline import run_cut_all
@@ -240,15 +240,26 @@ def handle_delete_plan(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     plans_dir = _plans_dir(handler, qs)
     try:
         p = validate_within_root(plans_dir / f"{day}_plan.json", plans_dir)
+        md = validate_within_root(plans_dir / f"{day}_plan.md", plans_dir)
     except (OSError, ValueError):
         return handler._send_json({"ok": False, "error": "forbidden"}, 403)
     if not p.is_file():
         return handler._send_json({"ok": False, "error": t("api.plan_missing", {"path": p})}, 404)
+    targets = [p, md]
     try:
-        p.unlink()
+        backups = backup_artifacts(targets)
+        for target in targets:
+            target.unlink(missing_ok=True)
     except OSError as exc:
         return handler._send_json({"ok": False, "error": str(exc)}, 500)
-    handler._send_json({"ok": True, "day_label": day, "path": str(p)})
+    handler._send_json(
+        {
+            "ok": True,
+            "day_label": day,
+            "path": str(p),
+            "backups": [str(backup) for backup in backups],
+        }
+    )
 
 
 def handle_post_plan_readiness(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:

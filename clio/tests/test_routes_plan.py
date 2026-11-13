@@ -159,18 +159,61 @@ class TestHandleDeletePlan:
         plans_dir = tmp_path / "output" / "plans"
         plans_dir.mkdir(parents=True)
         (plans_dir / "day1_plan.json").write_bytes(b"{}")
+        (plans_dir / "day1_plan.md").write_text("day one", encoding="utf-8")
         (plans_dir / "day2_plan.json").write_bytes(b"{}")
+        (plans_dir / "day2_plan.md").write_text("day two", encoding="utf-8")
         _mock_plans_cfg(handler, plans_dir, tmp_path)
         handler._send_json = MagicMock()
 
         handle_delete_plan(handler, {"day": ["day1"]})
 
         assert not (plans_dir / "day1_plan.json").exists()
+        assert not (plans_dir / "day1_plan.md").exists()
         assert (plans_dir / "day2_plan.json").is_file()
+        assert (plans_dir / "day2_plan.md").is_file()
         payload = handler._send_json.call_args[0][0]
         assert payload["ok"] is True
         assert payload["day_label"] == "day1"
         assert payload["path"].endswith("day1_plan.json")
+
+    def test_delete_backs_up_json_and_markdown(self, tmp_path: Path):
+        handler = MagicMock()
+        plans_dir = tmp_path / "output" / "plans"
+        plans_dir.mkdir(parents=True)
+        (plans_dir / "day1_plan.json").write_text('{"title": "edited"}', encoding="utf-8")
+        (plans_dir / "day1_plan.md").write_text("# edited", encoding="utf-8")
+        _mock_plans_cfg(handler, plans_dir, tmp_path)
+        handler._send_json = MagicMock()
+
+        handle_delete_plan(handler, {"day": ["day1"]})
+
+        json_backups = list(plans_dir.glob("day1_plan.json.bak.*"))
+        md_backups = list(plans_dir.glob("day1_plan.md.bak.*"))
+        assert len(json_backups) == 1
+        assert len(md_backups) == 1
+        assert json_backups[0].read_text(encoding="utf-8") == '{"title": "edited"}'
+        assert md_backups[0].read_text(encoding="utf-8") == "# edited"
+        payload = handler._send_json.call_args[0][0]
+        assert sorted(payload["backups"]) == sorted([str(json_backups[0]), str(md_backups[0])])
+
+    def test_delete_keeps_artifacts_when_backup_fails(self, tmp_path: Path):
+        handler = MagicMock()
+        plans_dir = tmp_path / "output" / "plans"
+        plans_dir.mkdir(parents=True)
+        plan = plans_dir / "day1_plan.json"
+        markdown = plans_dir / "day1_plan.md"
+        plan.write_bytes(b"{}")
+        markdown.write_text("# plan", encoding="utf-8")
+        _mock_plans_cfg(handler, plans_dir, tmp_path)
+        handler._send_json = MagicMock()
+
+        with patch("clio.ui.routes.plan.backup_artifacts", side_effect=OSError("disk full")):
+            handle_delete_plan(handler, {"day": ["day1"]})
+
+        assert plan.is_file()
+        assert markdown.is_file()
+        assert handler._send_json.call_args[0][1] == 500
+        assert "disk full" in handler._send_json.call_args[0][0]["error"]
 
     def test_custom_plans_subdir(self, tmp_path: Path):
         handler = MagicMock()
