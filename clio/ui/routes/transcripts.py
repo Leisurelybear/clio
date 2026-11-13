@@ -17,16 +17,26 @@ _MAX_TIME_SEC = 86400  # 24h
 
 
 def _sanitize_segment(seg: dict) -> dict:
-    """Sanitize a segment: ensure numeric fields are actually numbers."""
+    """Sanitize a segment: ensure numeric fields are actually numbers.
+
+    Unknown confidence stays unknown: an unparsable ``avg_logprob`` is dropped
+    instead of being rewritten to 0.0 (which would look like top confidence).
+    """
     if not isinstance(seg, dict):
         return seg
-    for field in ("start", "end", "avg_logprob"):
+    for field in ("start", "end"):
         val = seg.get(field)
         if val is not None and not isinstance(val, (int, float)):
             try:
                 seg[field] = float(val)
             except (TypeError, ValueError):
-                seg[field] = 0.0 if field == "avg_logprob" else 0
+                seg[field] = 0
+    val = seg.get("avg_logprob")
+    if val is not None and not isinstance(val, (int, float)):
+        try:
+            seg["avg_logprob"] = float(val)
+        except (TypeError, ValueError):
+            seg.pop("avg_logprob", None)
     return seg
 
 
@@ -244,7 +254,6 @@ def handle_post_transcripts(handler: HandlerProtocol, qs: dict[str, Any], obj: d
                         "start": round(seg_start, 2),
                         "end": round(seg_end, 2),
                         "text": seg["text"].strip(),
-                        "avg_logprob": 0.0,
                         "low_confidence": False,
                     }
                 )
@@ -296,7 +305,6 @@ def handle_post_transcripts(handler: HandlerProtocol, qs: dict[str, Any], obj: d
             "start": round(start, 2),
             "end": round(end, 2),
             "text": text,
-            "avg_logprob": 0.0,
             "low_confidence": False,
         }
 

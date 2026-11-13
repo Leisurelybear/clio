@@ -1065,6 +1065,18 @@ def test_select_transcripts_accepts_boundary_overlap_and_restores_time_order():
     assert [segment["text"] for segment in selected] == ["early", "boundary"]
 
 
+def test_select_transcripts_samples_evenly_when_confidence_is_missing():
+    transcript = {
+        "segments": [
+            {"start": float(index * 2), "end": float(index * 2 + 1), "text": f"segment-{index}"} for index in range(9)
+        ]
+    }
+
+    selected = _select_transcript_segments(transcript, [(0, 20)], offset_sec=0, limit=3)
+
+    assert [segment["text"] for segment in selected] == ["segment-0", "segment-4", "segment-8"]
+
+
 def test_build_plan_transcript_info_spreads_segments_across_timeline_entries():
     clips = [
         {

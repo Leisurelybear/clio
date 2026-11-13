@@ -759,7 +759,12 @@ def _select_transcript_segments(
     offset_sec: float,
     limit: int,
 ) -> list[dict]:
-    """Select mostly-overlapping, high-confidence ASR segments in time order."""
+    """Select mostly-overlapping ASR segments in time order.
+
+    When confidence scores exist, prefer high-confidence segments. Engines such
+    as Aliyun ASR do not expose ``avg_logprob``; in that case sample evenly
+    across the clip instead of preferring the earliest segments.
+    """
     candidates: list[dict] = []
     if not isinstance(transcript, dict):
         return candidates
@@ -788,15 +793,29 @@ def _select_transcript_segments(
         seen.add(key)
         candidates.append(segment)
 
-    def confidence_key(segment: dict) -> tuple[bool, float]:
+    def confidence_score(segment: dict) -> float | None:
+        value = segment.get("avg_logprob")
+        if value is None:
+            return None
         try:
-            confidence = float(segment.get("avg_logprob", float("-inf")))
+            confidence = float(value)
         except (TypeError, ValueError):
-            confidence = float("-inf")
-        return (not bool(segment.get("low_confidence")), confidence)
+            return None
+        return confidence if math.isfinite(confidence) else None
 
-    if limit > 0:
-        candidates = sorted(candidates, key=confidence_key, reverse=True)[:limit]
+    def confidence_key(segment: dict) -> tuple[bool, float]:
+        confidence = confidence_score(segment)
+        return (not bool(segment.get("low_confidence")), confidence if confidence is not None else float("-inf"))
+
+    if limit > 0 and len(candidates) > limit:
+        if any(confidence_score(segment) is not None for segment in candidates):
+            candidates = sorted(candidates, key=confidence_key, reverse=True)[:limit]
+        elif limit == 1:
+            candidates = [candidates[len(candidates) // 2]]
+        else:
+            last = len(candidates) - 1
+            picked = [(position * last) // (limit - 1) for position in range(limit)]
+            candidates = [candidates[position] for position in picked]
     return sorted(candidates, key=lambda segment: float(segment.get("start", 0.0)))
 
 

@@ -12,7 +12,7 @@ class TranscriptSegment:
     start: float
     end: float
     text: str
-    avg_logprob: float = 0.0
+    avg_logprob: float | None = None
     low_confidence: bool = False
 
     def to_dict(self) -> dict:
@@ -20,8 +20,9 @@ class TranscriptSegment:
             "start": round(self.start, 2),
             "end": round(self.end, 2),
             "text": self.text.strip(),
-            "avg_logprob": round(self.avg_logprob, 3),
         }
+        if self.avg_logprob is not None:
+            entry["avg_logprob"] = round(self.avg_logprob, 3)
         if self.low_confidence:
             entry["low_confidence"] = True
         return entry

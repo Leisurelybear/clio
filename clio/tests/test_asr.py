@@ -48,7 +48,7 @@ def test_register_provider_rejects_missing_capabilities():
 
 def test_transcript_segment_to_dict():
     seg = TranscriptSegment(start=0.1234, end=3.2567, text=" 你好 ")
-    assert seg.to_dict() == {"start": 0.12, "end": 3.26, "text": "你好", "avg_logprob": 0.0}
+    assert seg.to_dict() == {"start": 0.12, "end": 3.26, "text": "你好"}
 
 
 def test_transcript_segment_low_confidence_flag():
@@ -62,7 +62,7 @@ def test_engine_dispatches_to_registered_provider():
 
     with patch("clio.asr.factory._PROVIDERS", {"mock": MockProvider}):
         result = transcribe_audio(Path("fake.wav"), cfg)
-    assert result == [{"start": 0.5, "end": 3.2, "text": "大家好", "avg_logprob": 0.0}]
+    assert result == [{"start": 0.5, "end": 3.2, "text": "大家好"}]
 
 
 def test_progress_callbacks_fire():

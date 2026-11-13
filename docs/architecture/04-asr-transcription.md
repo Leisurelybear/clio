@@ -117,7 +117,12 @@ Per segment (`TranscriptSegment.to_dict`):
 
 ```json
 { "start": 12.5, "end": 18.2, "text": "…", "avg_logprob": -0.34, "low_confidence": true }
+{ "start": 20.0, "end": 24.1, "text": "…" }
 ```
+
+`avg_logprob` is optional. Local Whisper emits it; Aliyun Paraformer has no
+confidence score, so cloud segments omit the field instead of reporting `0.0`
+(which is the maximum value on the log-probability scale).
 
 Files are `<stem>_transcript.json` under `whisper.transcripts_subdir`; the batch task
 (`clio/tasks/transcribe.py`) splits the audio, runs segments through the chosen engine, merges

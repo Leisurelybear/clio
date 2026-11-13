@@ -98,15 +98,15 @@ def attach_transcript_data(config: AppConfig, analysis: dict[str, Any], transcri
             overlap = _overlap_sec(abs_start, abs_end, seg_start, seg_end)
             if overlap <= 0:
                 continue
-            matched.append(
-                {
-                    "start": seg_start,
-                    "end": seg_end,
-                    "text": str(seg.get("text", "")).strip(),
-                    "avg_logprob": seg.get("avg_logprob"),
-                    "overlap_sec": round(overlap, 3),
-                }
-            )
+            entry = {
+                "start": seg_start,
+                "end": seg_end,
+                "text": str(seg.get("text", "")).strip(),
+                "overlap_sec": round(overlap, 3),
+            }
+            if seg.get("avg_logprob") is not None:
+                entry["avg_logprob"] = seg["avg_logprob"]
+            matched.append(entry)
         if not matched:
             if "transcript" in item:
                 item.pop("transcript", None)

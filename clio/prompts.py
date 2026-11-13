@@ -625,9 +625,9 @@ TRANSCRIPT_CONTEXT = """
 ## 语音转录参考
 以下是各素材按 timeline 条目整理的语音转录摘要（有语音才列出）。可参考口播内容优化剪辑顺序和时间安排：
 - 每个素材的 timeline 数组按时间顺序排列，条目里的 start/end/description 与素材自身 timeline 对齐
-- transcript_segments 是该条目时间范围内的识别文字，每段含 start/end（秒）、text（识别文字）、
-  avg_logprob（平均对数概率，越大越可信）
-- avg_logprob 较低或标了 low_confidence 的片段识别置信度低，仅作参考，不要据此推导画面内容
+- transcript_segments 是该条目时间范围内的识别文字，每段含 start/end（秒）、text（识别文字）；
+  本地引擎还会提供 avg_logprob（平均对数概率，越大越可信），云端引擎不提供该字段
+- 有 avg_logprob 且较低，或标了 low_confidence 的片段识别置信度低，仅作参考，不要据此推导画面内容
 - low_confidence 标记优先于原始 avg_logprob；不要跨模型或跨录音直接比较 avg_logprob 数值
 - 转录只能辅助排序与衔接判断，选片和内容判断仍以画面分析（timeline/highlights）为准，不要过度依赖转录
 

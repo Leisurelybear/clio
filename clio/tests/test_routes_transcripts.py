@@ -294,6 +294,7 @@ class TestHandlePostTranscripts:
         data = json.loads(tf.read_text(encoding="utf-8"))
         assert data["_rev"] == 1
         assert data["segments"][0]["text"] == "hello"
+        assert "avg_logprob" not in data["segments"][0]
 
     def test_add_segment_rejected_on_stale_revision(self, tmp_path: Path):
         from clio.ui.routes.transcripts import handle_post_transcripts

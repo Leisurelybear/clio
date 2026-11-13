@@ -42,7 +42,7 @@ class LocalWhisperProvider:
                 start=entry["start"],
                 end=entry["end"],
                 text=entry["text"],
-                avg_logprob=entry.get("avg_logprob", 0.0),
+                avg_logprob=entry.get("avg_logprob"),
                 low_confidence=entry.get("low_confidence", False),
             )
             for entry in raw

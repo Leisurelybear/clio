@@ -174,6 +174,9 @@ class AliyunASRProvider:
                 end_ms = s.get("end_time", 0)
                 text = s.get("text", "")
                 if text.strip():
+                    # DashScope Paraformer does not expose a log-probability
+                    # score; leave avg_logprob unset instead of claiming the
+                    # maximum confidence with the old 0.0 default.
                     segments.append(
                         TranscriptSegment(
                             start=begin_ms / 1000.0,

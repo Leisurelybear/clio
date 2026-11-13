@@ -95,6 +95,7 @@ def test_full_transcribe_flow():
     assert segments[0].end == 3.2
     assert segments[0].text == "大家好"
     assert segments[1].text == "今天天气不错"
+    assert all("avg_logprob" not in segment.to_dict() for segment in segments)
     assert events[-1] == 100
 
 
