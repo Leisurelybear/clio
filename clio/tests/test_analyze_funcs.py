@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -1201,6 +1202,82 @@ def test_refine_script_uses_native_json_mode(monkeypatch):
     refine_script({"voiceover": "draft"}, None, cfg)
 
     assert seen["structured_output"] is JSON_OBJECT_OUTPUT
+
+
+def test_refine_text_forwards_cancel_event(monkeypatch):
+    from clio.analyze import refine_text
+
+    cfg = _fake_config()
+    provider = MagicMock(provider_id="mock")
+    event = threading.Event()
+    provider_seen: dict = {}
+    call_seen: dict = {}
+
+    def fake_generate(*args, **kwargs):
+        provider_seen.update(kwargs)
+        return AIResponse('{"title":"fixed","timeline":[]}')
+
+    def fake_call(label, provider_id, model, prompt, fn, **kwargs):
+        call_seen.update(kwargs)
+        fn()
+        return '{"title":"fixed","timeline":[]}'
+
+    provider.generate_text.side_effect = fake_generate
+    monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (provider, "model"))
+    monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, cfg, **kw: prompt)
+    monkeypatch.setattr("clio.analyze._call_ai", fake_call)
+
+    refine_text({"title": "draft", "timeline": []}, cfg, cancel_event=event)
+
+    assert provider_seen["cancel_event"] is event
+    assert call_seen["cancel_event"] is event
+
+
+def test_refine_script_forwards_cancel_event(monkeypatch):
+    from clio.analyze import refine_script
+
+    cfg = _fake_config()
+    provider = MagicMock(provider_id="mock")
+    event = threading.Event()
+    provider_seen: dict = {}
+    call_seen: dict = {}
+
+    def fake_generate(*args, **kwargs):
+        provider_seen.update(kwargs)
+        return AIResponse('{"voiceover":"fixed"}')
+
+    def fake_call(label, provider_id, model, prompt, fn, **kwargs):
+        call_seen.update(kwargs)
+        fn()
+        return '{"voiceover":"fixed"}'
+
+    provider.generate_text.side_effect = fake_generate
+    monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (provider, "model"))
+    monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, cfg, **kw: prompt)
+    monkeypatch.setattr("clio.analyze._call_ai", fake_call)
+
+    refine_script({"voiceover": "draft"}, None, cfg, cancel_event=event)
+
+    assert provider_seen["cancel_event"] is event
+    assert call_seen["cancel_event"] is event
+
+
+def test_refine_text_cancellation_raises_interrupted(monkeypatch):
+    from clio.analyze import refine_text
+
+    cfg = _fake_config()
+    provider = MagicMock(provider_id="mock")
+    provider.generate_text.return_value = AIResponse('{"title":"fixed"}')
+    event = threading.Event()
+    event.set()
+
+    monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (provider, "model"))
+    monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, cfg, **kw: prompt)
+
+    with pytest.raises(InterruptedError):
+        refine_text({"title": "draft"}, cfg, cancel_event=event)
+
+    provider.generate_text.assert_not_called()
 
 
 class TestPlanDailyVlog:

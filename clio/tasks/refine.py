@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 from pathlib import Path
 
@@ -51,6 +52,7 @@ def run_refine_texts(
     files: list[str] | None = None,
     overwrite: bool = False,
     task_prompts: dict[str, str] | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> int:
     """审阅并修正 texts/*.json；同步重写同名 .txt。
 
@@ -76,6 +78,8 @@ def run_refine_texts(
     elapsed_total = 0.0
     with timed(t("task.refine.timed_label", {"label": label, "count": len(target_files)})):
         for i, json_file in enumerate(target_files, start=1):
+            if cancel_event is not None and cancel_event.is_set():
+                raise InterruptedError(t("analyze.cancelled"))
             print(_eta_line("refine", i, len(target_files), json_file.name, completed, elapsed_total))
             t0 = time.monotonic()
             try:
@@ -87,7 +91,10 @@ def run_refine_texts(
                     context_override=context_override,
                     token_store=token_store,
                     task_prompts=task_prompts,
+                    cancel_event=cancel_event,
                 )
+            except InterruptedError:
+                raise
             except Exception as e:  # noqa: BLE001 - continue refining independent files after one failure
                 failed += 1
                 print(t("task.refine.failed", {"detail": e}))
@@ -114,6 +121,7 @@ def run_refine_scripts(
     files: list[str] | None = None,
     overwrite: bool = False,
     task_prompts: dict[str, str] | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> int:
     """审阅并修正 scripts/*_voiceover.json；同步重写同名 .md。
 
@@ -139,6 +147,8 @@ def run_refine_scripts(
     elapsed_total = 0.0
     with timed(t("task.refine.timed_label", {"label": label, "count": len(target_files)})):
         for i, json_file in enumerate(target_files, start=1):
+            if cancel_event is not None and cancel_event.is_set():
+                raise InterruptedError(t("analyze.cancelled"))
             print(_eta_line("refine", i, len(target_files), json_file.name, completed, elapsed_total))
             t0 = time.monotonic()
             try:
@@ -152,7 +162,10 @@ def run_refine_scripts(
                     context_override=context_override,
                     token_store=token_store,
                     task_prompts=task_prompts,
+                    cancel_event=cancel_event,
                 )
+            except InterruptedError:
+                raise
             except Exception as e:  # noqa: BLE001 - continue refining independent files after one failure
                 failed += 1
                 print(t("task.refine.failed", {"detail": e}))

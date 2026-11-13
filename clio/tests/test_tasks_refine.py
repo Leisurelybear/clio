@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 from unittest.mock import patch
 
@@ -214,6 +215,40 @@ class TestRunRefineTexts:
         assert result == 1
         mock_refine.assert_called_once()
 
+    @patch("clio.tasks.refine.refine_text")
+    def test_forwards_cancel_event(self, mock_refine, cfg):
+        event = threading.Event()
+        (cfg.texts_dir / "001.json").write_text('{"title": "t"}')
+        mock_refine.return_value = {"title": "fixed"}
+
+        from clio.tasks.refine import run_refine_texts
+
+        run_refine_texts(cfg, cancel_event=event)
+        assert mock_refine.call_args.kwargs["cancel_event"] is event
+
+    def test_preset_cancel_aborts_before_refine(self, cfg):
+        event = threading.Event()
+        event.set()
+        (cfg.texts_dir / "001.json").write_text('{"title": "t"}')
+
+        from clio.tasks.refine import run_refine_texts
+
+        with patch("clio.tasks.refine.refine_text") as mock_refine:
+            with pytest.raises(InterruptedError):
+                run_refine_texts(cfg, cancel_event=event)
+            mock_refine.assert_not_called()
+        assert not (cfg.texts_dir / "001.txt").exists()
+
+    @patch("clio.tasks.refine.refine_text")
+    def test_interrupted_error_is_not_swallowed(self, mock_refine, cfg):
+        (cfg.texts_dir / "001.json").write_text('{"title": "t"}')
+        mock_refine.side_effect = InterruptedError("cancelled")
+
+        from clio.tasks.refine import run_refine_texts
+
+        with pytest.raises(InterruptedError):
+            run_refine_texts(cfg)
+
 
 class TestRunRefineScripts:
     def test_fix_without_single_file_raises(self, cfg):
@@ -283,3 +318,36 @@ class TestRunRefineScripts:
         from clio.tasks.refine import run_refine_scripts
 
         assert run_refine_scripts(cfg) == -2
+
+    @patch("clio.tasks.refine.refine_script")
+    def test_forwards_cancel_event(self, mock_refine, cfg):
+        event = threading.Event()
+        (cfg.scripts_dir / "001_test_voiceover.json").write_text('{"voiceover": "s"}')
+        mock_refine.return_value = {"voiceover": "fixed", "_changelog": []}
+
+        from clio.tasks.refine import run_refine_scripts
+
+        run_refine_scripts(cfg, cancel_event=event)
+        assert mock_refine.call_args.kwargs["cancel_event"] is event
+
+    def test_preset_cancel_aborts_before_refine(self, cfg):
+        event = threading.Event()
+        event.set()
+        (cfg.scripts_dir / "001_test_voiceover.json").write_text('{"voiceover": "s"}')
+
+        from clio.tasks.refine import run_refine_scripts
+
+        with patch("clio.tasks.refine.refine_script") as mock_refine:
+            with pytest.raises(InterruptedError):
+                run_refine_scripts(cfg, cancel_event=event)
+            mock_refine.assert_not_called()
+
+    @patch("clio.tasks.refine.refine_script")
+    def test_interrupted_error_is_not_swallowed(self, mock_refine, cfg):
+        (cfg.scripts_dir / "001_test_voiceover.json").write_text('{"voiceover": "s"}')
+        mock_refine.side_effect = InterruptedError("cancelled")
+
+        from clio.tasks.refine import run_refine_scripts
+
+        with pytest.raises(InterruptedError):
+            run_refine_scripts(cfg)

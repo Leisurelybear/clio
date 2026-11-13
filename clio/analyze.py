@@ -1784,6 +1784,7 @@ def refine_text(
     context_override: str | None = None,
     token_store=None,
     task_prompts: dict[str, str] | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> dict:
     """审阅并修正现有的素材分析。
 
@@ -1812,25 +1813,34 @@ def refine_text(
         label = t("analyze.label.refine_text")
     system = _system_context(config)
     prompt = _wrap_with_context(base, config, context_override=context_override, include_spec=False)
-    with provider_use(provider):
-        text = _call_ai(
-            label,
-            provider.provider_id,
-            model,
-            prompt,
-            lambda: provider.generate_text(
-                prompt,
+    try:
+        with provider_use(provider):
+            text = _call_ai(
+                label,
+                provider.provider_id,
                 model,
-                temperature=_task_temperature(config, TaskName.REFINE_TEXT),
-                system=system,
-                structured_output=JSON_OBJECT_OUTPUT,
-            ),
-            debug_print=config.ai.debug_print_prompt,
-            token_store=token_store,
-            task_name=TaskName.REFINE_TEXT,
-            system_message=system,
-            **_usage_meta(config, TaskName.REFINE_TEXT),
-        )
+                prompt,
+                lambda: provider.generate_text(
+                    prompt,
+                    model,
+                    cancel_event=cancel_event,
+                    temperature=_task_temperature(config, TaskName.REFINE_TEXT),
+                    system=system,
+                    structured_output=JSON_OBJECT_OUTPUT,
+                ),
+                debug_print=config.ai.debug_print_prompt,
+                token_store=token_store,
+                task_name=TaskName.REFINE_TEXT,
+                cancel_event=cancel_event,
+                system_message=system,
+                **_usage_meta(config, TaskName.REFINE_TEXT),
+            )
+    except Exception as exc:  # translate provider failures after cancellation
+        if cancel_event is not None and cancel_event.is_set():
+            raise InterruptedError(t("analyze.cancelled")) from exc
+        raise
+    if cancel_event is not None and cancel_event.is_set():
+        raise InterruptedError(t("analyze.cancelled"))
     result = extract_json(text)
     if not isinstance(result, dict):
         print(t("analyze.refine_text_bad_structure"))
@@ -1910,6 +1920,7 @@ def refine_script(
     context_override: str | None = None,
     token_store=None,
     task_prompts: dict[str, str] | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> dict:
     """审阅并修正现有的口播文案。
 
@@ -1945,25 +1956,34 @@ def refine_script(
         label = t("analyze.label.refine_script")
     system = _system_context(config)
     prompt = _wrap_with_context(base, config, context_override=context_override, include_spec=False)
-    with provider_use(provider):
-        text = _call_ai(
-            label,
-            provider.provider_id,
-            model,
-            prompt,
-            lambda: provider.generate_text(
-                prompt,
+    try:
+        with provider_use(provider):
+            text = _call_ai(
+                label,
+                provider.provider_id,
                 model,
-                temperature=_task_temperature(config, TaskName.REFINE_TEXT),
-                system=system,
-                structured_output=JSON_OBJECT_OUTPUT,
-            ),
-            debug_print=config.ai.debug_print_prompt,
-            token_store=token_store,
-            task_name=TaskName.REFINE_TEXT,
-            system_message=system,
-            **_usage_meta(config, TaskName.REFINE_TEXT),
-        )
+                prompt,
+                lambda: provider.generate_text(
+                    prompt,
+                    model,
+                    cancel_event=cancel_event,
+                    temperature=_task_temperature(config, TaskName.REFINE_TEXT),
+                    system=system,
+                    structured_output=JSON_OBJECT_OUTPUT,
+                ),
+                debug_print=config.ai.debug_print_prompt,
+                token_store=token_store,
+                task_name=TaskName.REFINE_TEXT,
+                cancel_event=cancel_event,
+                system_message=system,
+                **_usage_meta(config, TaskName.REFINE_TEXT),
+            )
+    except Exception as exc:  # translate provider failures after cancellation
+        if cancel_event is not None and cancel_event.is_set():
+            raise InterruptedError(t("analyze.cancelled")) from exc
+        raise
+    if cancel_event is not None and cancel_event.is_set():
+        raise InterruptedError(t("analyze.cancelled"))
     result = extract_json(text)
     if not isinstance(result, dict):
         print(t("analyze.refine_script_bad_structure"))
