@@ -575,7 +575,7 @@ ai:
       model: gemini-2.5-flash
     voiceover:                  # Voiceover script
       provider: deepseek
-      model: deepseek-chat
+      model: deepseek-flash
     vlog_plan:                  # Daily vlog plan
       provider: openai
       model: gpt-4o-mini

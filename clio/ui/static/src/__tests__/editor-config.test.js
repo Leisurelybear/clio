@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { api } from '../api.js';
 import { state } from '../state.js';
 import { _attachConfigForm, _attachProviderListHandlers, _loadConfigSchema, _renderConfigForm, _renderConfigGlobal, _renderPromptManagement, _renderTagInput, _renderProviderList, _renderTaskBinding, mergeTaskBindings, providerEnvName, renderConfig } from '../editor-config.js';
+import { DEFAULT_MODELS } from '../editor-providers.js';
 
 vi.mock('../api.js', async () => {
   const actual = await vi.importActual('../api.js');
@@ -533,6 +534,12 @@ const ALL_TASKS = {
   vlog_plan: { provider: 'deepseek', model: 'deepseek-chat' },
   refine_text: { provider: 'deepseek', model: 'deepseek-chat' },
 };
+
+describe('DEFAULT_MODELS', () => {
+  it('only offers current official DeepSeek model IDs', () => {
+    expect(DEFAULT_MODELS.deepseek).toEqual(['deepseek-flash', 'deepseek-v4-pro']);
+  });
+});
 
 describe('_renderTaskBinding', () => {
   it('renders fieldset with legend', () => {

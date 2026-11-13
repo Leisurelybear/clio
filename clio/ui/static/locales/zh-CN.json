@@ -602,7 +602,7 @@
   "settings.desc.ai.providers.{name}.timeout_sec": "OpenAI 兼容接口的 HTTP 超时时间（秒），默认 120",
   "settings.desc.ai.providers.{name}.type": "AI 厂商类型：gemini（多模态视频理解）或 openai（纯文本兼容接口）",
   "settings.desc.ai.tasks": "AI 任务配置，每个步骤可指定使用哪个厂商和模型",
-  "settings.desc.ai.tasks.{name}.model": "模型名称，如 gemini-2.5-flash、deepseek-chat",
+  "settings.desc.ai.tasks.{name}.model": "模型名称，如 gemini-2.5-flash、deepseek-flash",
   "settings.desc.ai.tasks.{name}.provider": "此任务使用的 AI 厂商名称（在 providers 中定义）",
   "settings.desc.ai.tasks.{name}.temperature": "此任务的采样温度（0-2，越低越稳定）；留空使用模型默认值",
   "settings.desc.analyze.compressed_subdir": "压缩视频存放的子目录名",

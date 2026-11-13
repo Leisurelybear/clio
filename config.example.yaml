@@ -77,11 +77,11 @@ ai:
       temperature: 0.2
     voiceover:
       provider: deepseek
-      model: deepseek-chat
+      model: deepseek-flash
       temperature: 0.3
     vlog_plan:
       provider: deepseek
-      model: deepseek-reasoner
+      model: deepseek-v4-pro
       temperature: 0.3
 
   # 已缓存的 AI 提供商过期间隔（分钟），超时后自动关闭重建。
@@ -126,9 +126,7 @@ ai:
       base_url: https://api.deepseek.com/v1
       capabilities: [text]
       models:
-        - deepseek-chat
-        - deepseek-reasoner
-        - deepseek-v4-flash
+        - deepseek-flash
         - deepseek-v4-pro
       # max_tokens: 0          # 0 = 不限制（默认）；设正数如 8192 可限制输出长度
       # timeout_sec: 120

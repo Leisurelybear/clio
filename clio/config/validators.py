@@ -149,8 +149,8 @@ def _require_video_provider_compatible(task_name: str, provider_name: str, provi
 def _warn_unknown_model(task_name: str, provider_name: str, task_model: str, provider_models: list[str]) -> None:
     """Soft warning: a bound model outside the provider's declared list is not fatal.
 
-    Third-party gateways accept arbitrary model names (e.g. `deepseek-v4-flash`
-    on custom proxies), and old projects may bind models that a newer
+    Third-party gateways accept arbitrary model names, and old projects may bind
+    retired models that a newer
     config.example.yaml no longer lists. Downgraded from a hard load failure
     (R-040 F-2) so upgrades never crash; the UI still offers a curated dropdown.
     """

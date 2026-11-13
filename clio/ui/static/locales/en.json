@@ -602,7 +602,7 @@
   "settings.desc.ai.providers.{name}.timeout_sec": "HTTP timeout for OpenAI-compatible endpoints (seconds), default 120",
   "settings.desc.ai.providers.{name}.type": "Provider type: gemini (multimodal video) or openai (text-only compatible API)",
   "settings.desc.ai.tasks": "AI task bindings; each step can pick its own provider and model",
-  "settings.desc.ai.tasks.{name}.model": "Model name, for example gemini-2.5-flash or deepseek-chat",
+  "settings.desc.ai.tasks.{name}.model": "Model name, for example gemini-2.5-flash or deepseek-flash",
   "settings.desc.ai.tasks.{name}.provider": "Provider name used by this task (defined under providers)",
   "settings.desc.ai.tasks.{name}.temperature": "Sampling temperature for this task (0-2; lower is more stable); leave empty to use the model default",
   "settings.desc.analyze.compressed_subdir": "Subdirectory holding compressed videos",

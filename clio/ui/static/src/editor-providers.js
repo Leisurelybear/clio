@@ -47,7 +47,7 @@ export function providerEnvName(name) {
 export const DEFAULT_MODELS = {
   gemini: ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3-flash', 'gemini-3.1-flash-lite', 'gemini-3.5-flash'],
   openai: ['gpt-4o', 'gpt-4o-mini'],
-  deepseek: ['deepseek-chat', 'deepseek-reasoner', 'deepseek-v4-flash', 'deepseek-v4-pro'],
+  deepseek: ['deepseek-flash', 'deepseek-v4-pro'],
 };
 const DEFAULT_CAPABILITIES = {
   gemini: ['video', 'text'],

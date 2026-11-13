@@ -50,7 +50,7 @@ ai:
   tasks:
     refine_text:
       provider: deepseek
-      model: deepseek-chat
+      model: deepseek-flash
 ```
 
 For known errors (`--fix`), use a single JSON file and the targeted fix prompt. The first `_changelog` entry must always say `Modified XXX per user feedback`.

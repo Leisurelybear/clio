@@ -11,7 +11,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | Priority | Total | Fixed | Satisfied | In progress | Confirmed | Environment verification | Duplicate | Not applicable | Pending audit |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P1 | 35 | 16 | 12 | 0 | 0 | 0 | 0 | 0 | 7 |
+| P1 | 35 | 17 | 12 | 0 | 0 | 0 | 0 | 0 | 6 |
 | P2 | 59 | 0 | 12 | 0 | 0 | 0 | 0 | 0 | 47 |
 | P3 | 14 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 11 |
 
@@ -48,7 +48,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 027 | P1 | OPT-011 | 运行预览只给步骤数 (/api/run/preview), 没有调用数、token 和费用 (F2) | Pending audit |  |
 | 028 | P1 | R014 | plan ??????: ??????? timeline ????, ????????? (transcript?transcript_segments?<transcript> ?) | Satisfied | Existing `build_plan_clips()` limits timeline rows and key moments, removes inline transcripts, and uses a bounded candidate shortlist (`90e58f0`, `95da5f6`, `47703f8`). Focused: 102 planning tests passed. |
 | 029 | P1 | OPT-012 | plan ? clips_json ?? timeline ?? transcript ? transcript_segments, ???????? <transcript> ? (????? 183 ??, ??????? 110) | Satisfied | Existing projection omits top-level and timeline-level transcript fields before serialization; regression coverage asserts the removal. Focused with R014: 102 planning tests passed. |
-| 030 | P1 | R018 | 默认绑定 deepseek-chat / deepseek-reasoner; DeepSeek 官方价目页现在只列 deepseek-flash 与 deepseek-v4-pro, 并写明 v4-flash 等旧名已退役 | Pending audit |  |
+| 030 | P1 | R018 | ???? deepseek-chat / deepseek-reasoner; DeepSeek ????????? deepseek-flash ? deepseek-v4-pro, ??? v4-flash ?????? | Fixed | Examples now bind voiceover to `deepseek-flash` and vlog_plan to `deepseek-v4-pro`; provider/model suggestions, UI defaults, docs, and locale descriptions use the same official pair. Retired names still load with the existing model-list warning. Focused: 106 config tests and 78 Vitest cases passed; typecheck passed. A credentialed `/api/ai/test` call was not run because no DeepSeek API key is available locally. |
 | 031 | P1 | OPT-006 | video_analyze ?????? temperature (config.example.yaml:71-73), ?????? None | Fixed | Both shipped examples now bind video analysis at temperature `0.2`; the example-config regression asserts the value. Focused: 106 config tests passed. |
 | 032 | P1 | OPT-001 | 没有评测集, Q1/Q2/Q8/Q9 的效果无法量化 (F1 未开始) | Pending audit |  |
 | 033 | P1 | R007 | 三条约束互相冲突: max_clips_per_day=12 按"段"截断、总时长 180 秒 ±25% 不满足即失败、提示词要求 3-5 秒钩子与 1-3 秒 B-roll | Pending audit |  |

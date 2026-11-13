@@ -22,9 +22,9 @@ See `clio/compress.py`.
 
 ### 9.4 DeepSeek Model Names
 
-- Standard models: `deepseek-chat` (V3), `deepseek-reasoner` (R1)
-- Third-party API gateways may support custom names like `deepseek-v4-flash`; just fill in the actual available name
-- If you encounter `404` or `model not found`, first fall back to the official standard model name for verification
+- Official API models: `deepseek-flash` (fast text tasks) and `deepseek-v4-pro` (planning/reasoning)
+- `deepseek-chat`, `deepseek-reasoner`, and `deepseek-v4-flash` are retired official names; old configs still load with a model-list warning
+- Third-party API gateways may expose custom model IDs; always use the gateway's current documentation for connectivity checks
 
 ### 9.5 `api_key_env` Field
 

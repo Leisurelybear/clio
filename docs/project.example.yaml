@@ -28,10 +28,10 @@ ai:
       temperature: 0.2
     voiceover:
       provider: deepseek
-      model: deepseek-chat
+      model: deepseek-flash
     vlog_plan:
       provider: deepseek
-      model: deepseek-reasoner
+      model: deepseek-v4-pro
 
 compress:
   target_size_mb: 5              # 0 = CRF mode using global compress.crf
