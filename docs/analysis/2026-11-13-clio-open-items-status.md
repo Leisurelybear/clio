@@ -8,12 +8,12 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 
 ## Summary
 
-| Priority | Total | Fixed | Satisfied | Confirmed | Environment verification | Duplicate | Not applicable | Pending audit |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P1 | 35 | 8 | 10 | 0 | 0 | 0 | 0 | 17 |
-| P2 | 59 | 0 | 12 | 0 | 0 | 0 | 0 | 47 |
-| P3 | 14 | 0 | 0 | 0 | 0 | 0 | 0 | 14 |
+| Priority | Total | Fixed | Satisfied | In progress | Confirmed | Environment verification | Duplicate | Not applicable | Pending audit |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| P1 | 35 | 9 | 10 | 0 | 0 | 0 | 0 | 0 | 16 |
+| P2 | 59 | 0 | 12 | 0 | 0 | 0 | 0 | 0 | 47 |
+| P3 | 14 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 14 |
 
 ## Item status
 
@@ -38,7 +38,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 017 | P1 | E4 | 长视频每个窗口切片都注入整段转录 (绝对时间戳) | Fixed | `caaa9ad` clips each injected transcript to the current window or sparse-retry gap, rebases timestamps to zero, preserves segment confidence fields, and bumps analysis/window cache versions. Focused: 44 pytest cases passed; full suite: 3250 passed, 12 skipped; Ruff, mypy, and `git diff --check` passed. |
 | 018 | P1 | E5 | 按 creation_time 的 UTC 日期分天; dayN 每次重算, 但只在为空时写入 | Fixed | `ac81c05` converts timezone-aware container `creation_time` values to UTC before assigning day labels while preserving filename-date fallback. Project-wide relabeling and fill-only writes are covered by existing and new cache tests. Focused: 55 analyze-task tests passed. Full: 3256 passed, 12 skipped; Ruff, mypy, `main.py check`, and `git diff --check` passed. |
 | 019 | P1 | E9 | 多窗口合并后的摘要重写失败会让整个长视频失败 | Fixed | `b78a43f` keeps the merged window analysis when summary rewriting fails, marks it with `_summary_failed: true`, and emits a localized warning; cancellation still propagates. Focused: 55 analyze-task and 24 i18n tests passed. Full: 3256 passed, 12 skipped; Ruff, mypy, `main.py check`, and `git diff --check` passed. |
-| 020 | P1 | E7 | 单视频重跑不接受 confirm_artifact_overwrite, 口播被编辑过时只会失败 | Pending audit |  |
+| 020 | P1 | E7 | 单视频重跑不接受 confirm_artifact_overwrite, 口播被编辑过时只会失败 | Fixed | `ff56888` adds rerun preflight protection for edited analysis and voiceover artifacts, persists the confirmation on managed rerun tasks, and prompts before retrying. Focused: 124 pytest and 4 Vitest cases passed. Full: 3260 pytest passed, 12 skipped; 926 Vitest passed; typecheck, Ruff, mypy, `main.py check`, and `git diff --check` passed. |
 | 021 | P1 | E10 | .env 里只要有白名单外的变量就整体拒绝保存 | Pending audit |  |
 | 022 | P1 | R010 | 10-bit 原片 (HDR HEVC) 压缩后是 H.264 High 10 / yuv420p10le | Pending audit |  |
 | 023 | P1 | R008 | 示例配置没有 config_version, 首次加载被当成 V1 迁移, 经 yaml.dump 重写后注释全部丢失 | Pending audit |  |
