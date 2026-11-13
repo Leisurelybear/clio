@@ -12,7 +12,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P1 | 35 | 20 | 15 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P2 | 59 | 16 | 15 | 0 | 0 | 0 | 0 | 0 | 28 |
+| P2 | 59 | 16 | 16 | 0 | 0 | 0 | 0 | 0 | 27 |
 | P3 | 14 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 10 |
 
 ## Item status
@@ -85,7 +85,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 064 | P2 | R012 | ANALYZE_PROMPT 只要求描述"实际能看到"的内容, 没有任何音频字段; Q2 保留的音轨没被用上 | Satisfied | Existing implementation (`336824c`) adds the timeline `audio` field, its structured-output schema, and validation/normalization. The prompt explicitly asks for audible speech, ambience, music, footsteps, or silence while preserving the no-fabrication rule. Focused: 130 prompt/schema/analysis validation tests passed. |
 | 065 | P2 | E13 | 截断后用完全相同的请求重试, 视频重新上传 | Fixed | `c2daa93`: Gemini now retries truncated video generation with the same uploaded file, appends compact-output guidance, doubles the configured output budget, and sums both attempts' token usage. The analyzer delegates video truncation retry so it cannot trigger another upload. Focused: 89 analyze-func and 70 Gemini tests passed; full suite: 3359 passed, 12 skipped; Ruff, mypy, and diff check passed. |
 | 066 | P2 | E16 | 示例仍是 00:10-00:45 (35 秒); narrative_beat/transition 下游未使用 | Fixed | `e8f102e` changes planning examples to an 8-second segment, exposes editable `narrative_beat` and `transition` fields in expanded plan cards, and keeps both locale catalogs aligned. `transition` was already consumed by JianYing transition export; the new plan-card inputs make narrative metadata visible and editable. Focused: 36 prompt and 16 plan-locale/i18n tests passed; full suites: 3360 pytest and 937 Vitest cases passed; typecheck, Ruff, mypy, and diff check passed. |
-| 067 | P2 | O4 | 只发一条 user 消息 | Pending audit |  |
+| 067 | P2 | O4 | 只发一条 user 消息 | Satisfied | The OpenAI-compatible provider now emits a separate optional `system` message before the `user` message (`clio/ai/openai_compat.py:82-85`). Analyze and consistency callers send trusted specification context through `system` while task content is wrapped with `include_spec=False` (`clio/analyze.py:569-576`, `:1146-1162`; `clio/tasks/consistency.py:420-445`). `test_sends_system_message_when_provided` asserts the exact system/user sequence. Focused: 31 OpenAI-compatible provider tests passed. |
 | 068 | P2 | R013 | "5-10 秒一条"与"每窗口最多 60 条"在 15 分钟窗口下矛盾 (需要 90-180 条) | Pending audit |  |
 | 069 | P2 | R020 | 只要有 1 个视频分析失败, analyze 步骤就抛异常, 后面的口播、规划全部不执行 | Pending audit |  |
 | 070 | P2 | C16 | 原生弹窗: plan 编辑无撤销 (部分修复) | Satisfied | Satisfied; native dialog/undo work completed. |
