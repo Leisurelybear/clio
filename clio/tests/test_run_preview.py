@@ -17,7 +17,9 @@ from clio.config.models import (
     ProjectConfig,
     ProjectPathsConfig,
     ProjectWhisperConfig,
+    ProviderConfig,
     ScriptConfig,
+    TaskConfig,
 )
 from clio.tasks.analyze import (
     _analysis_lineage_components,
@@ -41,6 +43,32 @@ def _config(project_dir: Path, output_dir: Path) -> AppConfig:
         ),
         project_dir=project_dir,
     )
+
+
+def _not_applicable_usage() -> dict[str, Any]:
+    return {
+        "planned_calls": 0,
+        "estimated_prompt_tokens": 0,
+        "estimated_completion_tokens": 0,
+        "estimated_cost_usd": 0.0,
+        "estimate_status": "not_applicable",
+        "estimated_upload_bytes": 0,
+    }
+
+
+def _price_ai_tasks(config: AppConfig) -> AppConfig:
+    config.global_cfg.ai.providers = {
+        "priced": ProviderConfig(
+            name="priced",
+            type="gemini",
+            prompt_price_per_1m_usd=1.0,
+            completion_price_per_1m_usd=2.0,
+        )
+    }
+    config.global_cfg.ai.default_tasks = {
+        task: TaskConfig(provider="priced") for task in ("video_analyze", "refine_text", "voiceover", "vlog_plan")
+    }
+    return config
 
 
 def _prepare_legacy_audio_project(tmp_path: Path, *, count: int = 1) -> tuple[AppConfig, list[tuple[Path, Path]]]:
@@ -193,7 +221,13 @@ def test_preview_compress_counts_existing_output_as_skip(tmp_path: Path) -> None
     )
 
     assert preview["input"] == {"mode": "videos", "path": str(input_dir), "count": 2}
-    assert preview["totals"] == {"selected_steps": 1, "will_run": 1, "will_skip": 1, "warnings": 0}
+    assert preview["totals"] == {
+        "selected_steps": 1,
+        "will_run": 1,
+        "will_skip": 1,
+        "warnings": 0,
+        **_not_applicable_usage(),
+    }
     assert preview["steps"] == [
         {
             "name": "compress",
@@ -202,6 +236,7 @@ def test_preview_compress_counts_existing_output_as_skip(tmp_path: Path) -> None
             "will_run": 1,
             "will_skip": 1,
             "warnings": [],
+            **_not_applicable_usage(),
         }
     ]
 
@@ -967,6 +1002,7 @@ def test_preview_plan_warns_when_no_analysis_json(tmp_path: Path) -> None:
         "will_run": 0,
         "will_skip": 0,
         "warnings": ["未找到分析 JSON，规划步骤可能没有输入。"],
+        **_not_applicable_usage(),
     }
     assert preview["totals"]["warnings"] == 1
 
@@ -1257,6 +1293,7 @@ def test_preview_unknown_steps_are_reported_as_warnings(tmp_path: Path) -> None:
         "will_run": 0,
         "will_skip": 0,
         "warnings": ["未知步骤：unknown"],
+        **_not_applicable_usage(),
     }
     assert preview["totals"]["selected_steps"] == 2
     assert preview["totals"]["warnings"] == 1
@@ -1456,6 +1493,7 @@ def test_preview_consistency_warns_when_analysis_is_missing(tmp_path: Path) -> N
             "will_run": 0,
             "will_skip": 0,
             "warnings": ["未找到分析 JSON，实体一致性步骤可能没有输入。"],
+            **_not_applicable_usage(),
         }
     ]
 
@@ -1477,6 +1515,9 @@ def test_preview_consistency_skips_only_complete_valid_outputs(tmp_path: Path) -
     skipped = build_run_preview(config, steps=["consistency"], force=False, use_transcripts=True)
     assert skipped["steps"][0]["will_run"] == 0
     assert skipped["steps"][0]["will_skip"] == 1
+    assert skipped["steps"][0]["planned_calls"] == 0
+    assert skipped["steps"][0]["estimated_cost_usd"] == 0.0
+    assert skipped["steps"][0]["estimate_status"] == "not_applicable"
 
     out_json.write_text("{invalid", encoding="utf-8")
     invalid_json = build_run_preview(config, steps=["consistency"], force=False, use_transcripts=True)
@@ -1537,6 +1578,9 @@ def test_preview_plan_voiceover_skips_only_complete_valid_outputs(tmp_path: Path
 
     assert skipped["steps"][0]["will_run"] == 0
     assert skipped["steps"][0]["will_skip"] == 1
+    assert skipped["steps"][0]["planned_calls"] == 0
+    assert skipped["steps"][0]["estimated_cost_usd"] == 0.0
+    assert skipped["steps"][0]["estimate_status"] == "not_applicable"
 
     out_json.write_text("{invalid", encoding="utf-8")
     invalid_json = build_run_preview(config, steps=["plan_voiceover"], force=False, use_transcripts=True)
@@ -1724,3 +1768,85 @@ def test_preview_all_days_reports_protected_artifact_on_later_day(tmp_path: Path
         "required": True,
         "items": ["day2_plan.json", "day2_plan.md"],
     }
+
+
+def test_preview_estimates_analyze_windows_summary_and_upload(tmp_path: Path) -> None:
+    input_dir = tmp_path / "videos"
+    output_dir = tmp_path / "output"
+    compressed_dir = output_dir / "compressed"
+    input_dir.mkdir()
+    compressed_dir.mkdir(parents=True)
+    original = input_dir / "A.mp4"
+    compressed = compressed_dir / "001_A.mp4"
+    original.write_bytes(b"source")
+    compressed.write_bytes(b"x" * 1000)
+    VideoMeta.build(original, compressed, 1700.0, 1700.0).write(compressed)
+
+    from clio.tasks._video_loader import save_selected_videos
+
+    save_selected_videos(input_dir, [original])
+    config = _price_ai_tasks(_config(input_dir, output_dir))
+
+    preview = build_run_preview(config, steps=["analyze"], force=True, use_transcripts=True)
+
+    step = preview["steps"][0]
+    assert step["planned_calls"] == 3  # two 15-minute windows plus the summary call
+    assert step["estimate_status"] == "estimated"
+    assert step["estimated_cost_usd"] is not None and step["estimated_cost_usd"] > 0
+    assert step["estimated_upload_bytes"] > compressed.stat().st_size
+    assert preview["totals"]["planned_calls"] == 3
+    assert preview["totals"]["estimated_upload_bytes"] == step["estimated_upload_bytes"]
+
+
+def test_preview_aggregates_ai_usage_across_steps(tmp_path: Path) -> None:
+    input_dir = tmp_path / "videos"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+    config = _price_ai_tasks(_config(input_dir, output_dir))
+    assert config.project_cfg is not None
+    config.project_cfg.script.target_words = 50
+    _prepare_plan_voiceover_preview(config)
+    plan_path = config.plans_dir / "day1_plan.json"
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    plan["sequence"] = [
+        {"index": "001", "title": "A", "use_timeline": "00:00-00:05"},
+        {"index": "001", "title": "B", "use_timeline": "00:05-00:10"},
+    ]
+    plan_path.write_text(json.dumps(plan), encoding="utf-8")
+
+    preview = build_run_preview(
+        config,
+        steps=["consistency", "plan_voiceover"],
+        force=False,
+        use_transcripts=True,
+    )
+
+    totals = preview["totals"]
+    assert totals["planned_calls"] == 3
+    assert totals["estimated_prompt_tokens"] == 9000
+    assert totals["estimated_completion_tokens"] == 2000
+    assert totals["estimated_cost_usd"] == pytest.approx(0.013)
+    assert totals["estimate_status"] == "estimated"
+    by_name = {step["name"]: step for step in preview["steps"]}
+    assert by_name["consistency"]["planned_calls"] == 1
+    assert by_name["plan_voiceover"]["planned_calls"] == 2
+    assert by_name["plan_voiceover"]["estimated_prompt_tokens"] == 5000
+
+
+def test_preview_reports_unknown_cost_when_prices_are_unconfigured(tmp_path: Path) -> None:
+    input_dir = tmp_path / "videos"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+    config = _config(input_dir, output_dir)
+    config.texts_dir.mkdir(parents=True)
+    config.plans_dir.mkdir(parents=True)
+    _write_analysis(config, "harbor")
+
+    preview = build_run_preview(config, steps=["consistency"], force=False, use_transcripts=True)
+
+    step = preview["steps"][0]
+    assert step["planned_calls"] == 1
+    assert step["estimate_status"] == "unknown"
+    assert step["estimated_cost_usd"] is None
+    assert preview["totals"]["estimated_cost_usd"] is None
+    assert preview["totals"]["estimate_status"] == "unknown"

@@ -1,6 +1,58 @@
 import { escapeHtml } from './utils.js';
 import { t } from './i18n.js';
 
+function safeNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(0, number) : 0;
+}
+
+function formatNumber(value) {
+  return Math.trunc(safeNumber(value)).toLocaleString('en-US');
+}
+
+function formatCost(value) {
+  const cost = safeNumber(value);
+  const decimals = cost >= 1 ? 2 : cost >= 0.01 ? 4 : 6;
+  return `$${cost.toFixed(decimals)}`;
+}
+
+function formatByteSize(value) {
+  const bytes = Math.trunc(safeNumber(value));
+  if (bytes < 1024) {
+    return `${formatNumber(bytes)} B`;
+  }
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let amount = bytes / 1024;
+  let unitIndex = 0;
+  while (amount >= 1024 && unitIndex < units.length - 1) {
+    amount /= 1024;
+    unitIndex += 1;
+  }
+  const formatted = amount.toFixed(2).replace(/\.?0+$/, '');
+  return `${formatted} ${units[unitIndex]}`;
+}
+
+function renderUsageMetrics(usage) {
+  const plannedCalls = Math.trunc(safeNumber(usage?.planned_calls));
+  if (plannedCalls <= 0) {
+    return '';
+  }
+  const status = String(usage?.estimate_status || 'unknown');
+  const tokenCount = safeNumber(usage?.estimated_prompt_tokens)
+    + safeNumber(usage?.estimated_completion_tokens);
+  const cost = status === 'estimated'
+    ? formatCost(usage?.estimated_cost_usd)
+    : t('run.preview.cost_unconfigured');
+  return [
+    `<span class="run-preview-ai-calls">${escapeHtml(t('run.preview.ai_calls', { count: formatNumber(plannedCalls) }))}</span>`,
+    `<span class="run-preview-ai-tokens">${escapeHtml(t('run.preview.ai_tokens', { count: formatNumber(tokenCount) }))}</span>`,
+    `<span class="run-preview-ai-cost">${escapeHtml(t('run.preview.ai_cost', { cost: escapeHtml(cost) }))}</span>`,
+    `<span class="run-preview-ai-upload">${escapeHtml(t('run.preview.upload', {
+      size: escapeHtml(formatByteSize(usage?.estimated_upload_bytes)),
+    }))}</span>`,
+  ].join('');
+}
+
 export function needsPlanOverwriteConfirmation(preview, options) {
   return Boolean(
     options?.files
@@ -88,6 +140,7 @@ export function renderRunPreviewHtml(preview) {
         <span>${t('run.preview.total', { count: Number(step.total || 0) })}</span>
         <span>${t('run.preview.will_run', { count: Number(step.will_run || 0) })}</span>
         <span>${t('run.preview.will_skip', { count: Number(step.will_skip || 0) })}</span>
+        ${renderUsageMetrics(step)}
         ${warnings}
       </div>
     `;
@@ -103,7 +156,11 @@ export function renderRunPreviewHtml(preview) {
         <span>${t('run.preview.steps', { count: Number(totals.selected_steps || 0) })}</span>
         <span>${t('run.preview.will_run', { count: Number(totals.will_run || 0) })}</span>
         <span>${t('run.preview.will_skip', { count: Number(totals.will_skip || 0) })}</span>
+        ${renderUsageMetrics(totals)}
       </div>
+      ${Number(totals.planned_calls || 0) > 0
+        ? `<p class="muted run-preview-estimate-note">${t('run.preview.estimate_note')}</p>`
+        : ''}
       ${preflightLine}
       ${warningLine}
       ${planOverwrite}

@@ -11,7 +11,7 @@ from clio._constants import VIDEO_EXTENSIONS
 from clio.artifact_guard import artifact_requires_overwrite_confirmation
 from clio.config.models import AppConfig
 from clio.i18n import t
-from clio.identity import SEGMENT_SUFFIX_RE, prefer_canonical_compressed
+from clio.identity import SEGMENT_SUFFIX_RE, is_legacy_split_path, prefer_canonical_compressed
 from clio.index import ArtifactIndex
 from clio.tasks._helpers import (
     MediaSelection,
@@ -42,6 +42,17 @@ from clio.tasks.scripts import (
     _voiceover_lineage_fingerprint,
     plan_voiceover_artifact_overwrite_required,
     voiceover_artifact_overwrite_required,
+)
+from clio.ui.services.run_estimate import (
+    AnalyzeInput,
+    combine_usage,
+    consistency_call,
+    estimate_analyze_usage,
+    estimate_usage,
+    not_applicable_usage,
+    plan_calls,
+    plan_voiceover_call,
+    voiceover_call,
 )
 from clio.utils import get_duration_sec, plan_day_stem, resolve_binary
 from clio.vmeta import VideoMeta
@@ -123,15 +134,17 @@ def build_run_preview(
         )
         input_info = {**input_info, "hint": empty_selection_note}
 
+    totals = {
+        "selected_steps": len(selected_steps),
+        "will_run": sum(step["will_run"] for step in preview_steps),
+        "will_skip": sum(step["will_skip"] for step in preview_steps),
+        "warnings": sum(len(step["warnings"]) for step in preview_steps),
+    }
+    totals.update(combine_usage(preview_steps))
     result = {
         "input": input_info,
         "steps": preview_steps,
-        "totals": {
-            "selected_steps": len(selected_steps),
-            "will_run": sum(step["will_run"] for step in preview_steps),
-            "will_skip": sum(step["will_skip"] for step in preview_steps),
-            "warnings": sum(len(step["warnings"]) for step in preview_steps),
-        },
+        "totals": totals,
     }
     if "plan" in selected_steps and plan_overwrite_confirmation_required(config, day_label, files):
         result["plan_overwrite"] = {"required": True, "day_label": day_label}
@@ -418,6 +431,13 @@ def _legacy_audio_analysis_paths(
         if all(lineage == legacy_fingerprint for lineage in valid_lineages):
             risky.append(legacy_path)
     return risky
+
+
+def _file_size(path: Path) -> int:
+    try:
+        return max(0, path.stat().st_size)
+    except OSError:
+        return 0
 
 
 def _analysis_duration_sec(config: AppConfig, compressed: Path, original: Path) -> float:
@@ -750,11 +770,13 @@ def _analyze_step(
         selected_paths,
     )
     total = len(pairs)
-    if force:
-        return _step("analyze", total=total, will_run=total, will_skip=0)
-
     skipped = 0
+    running: list[tuple[Path, Path, float]] = []
     for compressed, original in pairs:
+        duration_sec = _analysis_duration_sec(config, compressed, original)
+        if force:
+            running.append((compressed, original, duration_sec))
+            continue
         status = analysis_cache_status(
             config,
             compressed,
@@ -763,11 +785,25 @@ def _analyze_step(
             overwrite=False,
             context_override=context_override,
             task_prompts=task_prompts,
-            duration_sec=_analysis_duration_sec(config, compressed, original),
+            duration_sec=duration_sec,
             use_transcripts=use_transcripts,
         )
-        skipped += int(status.accepted)
-    return _step("analyze", total=total, will_run=total - skipped, will_skip=skipped)
+        if status.accepted:
+            skipped += 1
+        else:
+            running.append((compressed, original, duration_sec))
+    usage = estimate_analyze_usage(
+        config,
+        (
+            AnalyzeInput(
+                duration_sec=duration_sec,
+                file_bytes=_file_size(compressed),
+                legacy_split=is_legacy_split_path(compressed),
+            )
+            for compressed, _original, duration_sec in running
+        ),
+    )
+    return _step("analyze", total=total, will_run=len(running), will_skip=skipped, usage=usage)
 
 
 def _transcribe_step(
@@ -798,12 +834,19 @@ def _consistency_step(
     if not analysis_jsons:
         return _warning_step("consistency", t("api.preview_missing_analyze_consistency"))
     total = len(day_labels)
-    skipped = 0
-    if not force:
-        for scoped_day in day_labels:
-            out_json, out_md = entity_consistency_paths(config, scoped_day)
-            skipped += int(out_md.is_file() and _valid_json_file(out_json))
-    return _step("consistency", total=total, will_run=total - skipped, will_skip=skipped)
+    running_days: list[str] = []
+    for scoped_day in day_labels:
+        out_json, out_md = entity_consistency_paths(config, scoped_day)
+        if force or not (out_md.is_file() and _valid_json_file(out_json)):
+            running_days.append(scoped_day)
+    usage = estimate_usage(config, (consistency_call() for _ in running_days))
+    return _step(
+        "consistency",
+        total=total,
+        will_run=len(running_days),
+        will_skip=total - len(running_days),
+        usage=usage,
+    )
 
 
 def _voiceover_step(
@@ -815,30 +858,35 @@ def _voiceover_step(
     total = len(analysis_jsons)
     if total == 0:
         return _warning_step("voiceover", t("api.preview_missing_analyze_voiceover"))
-    skipped = (
-        0
-        if force
-        else sum(
-            1
-            for analysis_json in analysis_jsons
-            if (config.scripts_dir / f"{analysis_json.stem}_voiceover.json").exists()
-        )
-    )
-    return _step("voiceover", total=total, will_run=total - skipped, will_skip=skipped)
+    running = [
+        analysis_json
+        for analysis_json in analysis_jsons
+        if force or not (config.scripts_dir / f"{analysis_json.stem}_voiceover.json").exists()
+    ]
+    usage = estimate_usage(config, (voiceover_call(config) for _ in running))
+    return _step("voiceover", total=total, will_run=len(running), will_skip=total - len(running), usage=usage)
 
 
 def _plan_step(config: AppConfig, analysis_jsons: list[Path], *, day_labels: list[str], force: bool) -> dict[str, Any]:
     if not analysis_jsons:
         return _warning_step("plan", t("api.preview_missing_analyze_plan"))
     total = len(day_labels)
-    skipped = 0
-    if not force:
-        for scoped_day in day_labels:
-            safe_day = plan_day_stem(scoped_day)
-            plan_json = config.plans_dir / f"{safe_day}_plan.json"
-            plan_md = config.plans_dir / f"{safe_day}_plan.md"
-            skipped += int(plan_md.is_file() and _valid_json_file(plan_json))
-    return _step("plan", total=total, will_run=total - skipped, will_skip=skipped)
+    running_days: list[str] = []
+    for scoped_day in day_labels:
+        safe_day = plan_day_stem(scoped_day)
+        plan_json = config.plans_dir / f"{safe_day}_plan.json"
+        plan_md = config.plans_dir / f"{safe_day}_plan.md"
+        if force or not (plan_md.is_file() and _valid_json_file(plan_json)):
+            running_days.append(scoped_day)
+    calls = [call for _ in running_days for call in plan_calls()]
+    usage = estimate_usage(config, calls)
+    return _step(
+        "plan",
+        total=total,
+        will_run=len(running_days),
+        will_skip=total - len(running_days),
+        usage=usage,
+    )
 
 
 def _plan_voiceover_step(
@@ -859,14 +907,25 @@ def _plan_voiceover_step(
         return _warning_step("plan_voiceover", t("api.preview_missing_plan_voiceover_analysis"))
 
     total = len(planned_labels)
-    skipped = 0
-    if not force:
-        for scoped_day in planned_labels:
-            safe_day = plan_day_stem(scoped_day)
-            out_json = config.scripts_dir / f"{safe_day}_plan_voiceover.json"
-            out_md = config.scripts_dir / f"{safe_day}_plan_voiceover.md"
-            skipped += int(out_md.is_file() and _valid_json_file(out_json))
-    return _step("plan_voiceover", total=total, will_run=total - skipped, will_skip=skipped)
+    running_days: list[str] = []
+    for scoped_day in planned_labels:
+        safe_day = plan_day_stem(scoped_day)
+        out_json = config.scripts_dir / f"{safe_day}_plan_voiceover.json"
+        out_md = config.scripts_dir / f"{safe_day}_plan_voiceover.md"
+        if force or not (out_md.is_file() and _valid_json_file(out_json)):
+            running_days.append(scoped_day)
+    planned_calls = sum(
+        _plan_sequence_length(config.plans_dir / f"{plan_day_stem(scoped_day)}_plan.json")
+        for scoped_day in running_days
+    )
+    usage = estimate_usage(config, (plan_voiceover_call(config) for _ in range(planned_calls)))
+    return _step(
+        "plan_voiceover",
+        total=total,
+        will_run=len(running_days),
+        will_skip=total - len(running_days),
+        usage=usage,
+    )
 
 
 def _label_step(config: AppConfig, analysis_jsons: list[Path], *, force: bool) -> dict[str, Any]:
@@ -897,6 +956,7 @@ def _step(
     will_run: int,
     will_skip: int,
     warnings: list[str] | None = None,
+    usage: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "name": name,
@@ -905,6 +965,8 @@ def _step(
         "will_run": will_run,
         "will_skip": will_skip,
         "warnings": warnings or [],
+        **not_applicable_usage(),
+        **(usage or {}),
     }
 
 
@@ -974,6 +1036,16 @@ def _valid_json_file(path: Path) -> bool:
     except (json.JSONDecodeError, OSError):
         return False
     return True
+
+
+def _plan_sequence_length(path: Path) -> int:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return 0
+    if not isinstance(data, dict) or not isinstance(data.get("sequence"), list):
+        return 0
+    return sum(1 for segment in data["sequence"] if isinstance(segment, dict))
 
 
 def _indexed_stem_parts(stem: str) -> tuple[str, str]:

@@ -29,10 +29,68 @@ describe('renderRunPreviewHtml', () => {
     expect(html).toContain('1');
   });
 
+  it('renders aggregate and per-step AI usage estimates', () => {
+    const usage = {
+      planned_calls: 3,
+      estimated_prompt_tokens: 9000,
+      estimated_completion_tokens: 1000,
+      estimated_cost_usd: 0.013,
+      estimate_status: 'estimated',
+      estimated_upload_bytes: 1048576,
+    };
+    const html = renderRunPreviewHtml({
+      input: { mode: 'directory', path: 'D:/trip/videos', count: 3 },
+      totals: { selected_steps: 1, will_run: 3, will_skip: 0, warnings: 0, ...usage },
+      steps: [
+        { name: 'analyze', label: 'AI 分析', total: 3, will_run: 3, will_skip: 0, warnings: [], ...usage },
+      ],
+    });
+
+    expect((html.match(/AI 调用 3/g) || []).length).toBe(2);
+    expect((html.match(/估算 Token 10,000/g) || []).length).toBe(2);
+    expect((html.match(/估算费用 \$0\.0130/g) || []).length).toBe(2);
+    expect((html.match(/预计上传 1 MB/g) || []).length).toBe(2);
+    expect(html).toContain('估算值，不代表实际用量');
+  });
+
+  it('shows unavailable cost instead of zero for unknown or partial prices', () => {
+    for (const estimateStatus of ['unknown', 'partial']) {
+      const usage = {
+        planned_calls: 2,
+        estimated_prompt_tokens: 1200,
+        estimated_completion_tokens: 300,
+        estimated_cost_usd: null,
+        estimate_status: estimateStatus,
+        estimated_upload_bytes: 0,
+      };
+      const html = renderRunPreviewHtml({
+        input: { mode: 'directory', path: 'D:/trip/videos', count: 2 },
+        totals: { selected_steps: 1, will_run: 2, will_skip: 0, warnings: 0, ...usage },
+        steps: [
+          { name: 'consistency', label: '一致性检查', total: 2, will_run: 2, will_skip: 0, warnings: [], ...usage },
+        ],
+      });
+
+      expect(html).toContain('价格未配置，无法估算费用');
+      expect(html).not.toContain('$0');
+    }
+  });
+
   it('renders warnings and escapes dynamic strings', () => {
     const html = renderRunPreviewHtml({
       input: { mode: 'directory', path: '<script>', count: 0 },
-      totals: { selected_steps: 1, will_run: 0, will_skip: 0, warnings: 1 },
+      totals: {
+        selected_steps: 1,
+        will_run: 0,
+        will_skip: 0,
+        warnings: 1,
+        planned_calls: 1,
+        estimated_prompt_tokens: '<img src=x>',
+        estimated_completion_tokens: 0,
+        estimated_cost_usd: null,
+        estimate_status: 'unknown',
+        estimated_upload_bytes: '<svg onload=x>',
+      },
       steps: [
         {
           name: 'unknown',
@@ -41,6 +99,12 @@ describe('renderRunPreviewHtml', () => {
           will_run: 0,
           will_skip: 0,
           warnings: ['未知步骤：<x>'],
+          planned_calls: 1,
+          estimated_prompt_tokens: '<img src=x>',
+          estimated_completion_tokens: 0,
+          estimated_cost_usd: null,
+          estimate_status: 'unknown',
+          estimated_upload_bytes: '<svg onload=x>',
         },
       ],
     });
@@ -50,6 +114,8 @@ describe('renderRunPreviewHtml', () => {
     expect(html).toContain('未知步骤：&lt;x&gt;');
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('<b>bad</b>');
+    expect(html).not.toContain('<img src=x>');
+    expect(html).not.toContain('<svg onload=x>');
   });
 
   it('renders a neutral state without preview data', () => {
