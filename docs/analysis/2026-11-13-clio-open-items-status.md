@@ -12,7 +12,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P1 | 35 | 20 | 15 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P2 | 59 | 3 | 12 | 0 | 0 | 0 | 0 | 0 | 44 |
+| P2 | 59 | 4 | 12 | 0 | 0 | 0 | 0 | 0 | 43 |
 | P3 | 14 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 10 |
 
 ## Item status
@@ -63,7 +63,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 042 | P1 | F2 | 只统计 token, 没有费用与版本 | Satisfied | Existing calls record provider, model, prompt-version hash, split token counts, and estimated USD cost; the token pane exposes provider, prompt version, and cost. Focused: 18 token-usage tests passed. |
 | 043 | P1 | OPT-018 | 单视频重跑 (clio/ui/routes/run.py:113-196) 自己维护一套步骤表, 与 pipeline_STEP_FUNCS 平行 | Fixed | `b1d24df` derives `SINGLE_VIDEO_RERUN_STEPS` from `PIPELINE_STEPS` and drives reruns through step runner/label maps. Focused: 107 pytest cases passed; Ruff passed. |
 | 044 | P1 | O17 | AGENTS.md 过长 | Satisfied | Satisfied; documentation split completed. |
-| 045 | P2 | R003 | Origin/Host 校验和 JSON Content-Type 强制只在本机模式开启; LAN 模式全部关闭 | Pending audit |  |
+| 045 | P2 | R003 | Origin/Host 校验和 JSON Content-Type 强制只在本机模式开启; LAN 模式全部关闭 | Fixed | `079427a` enforces Origin/Referer-to-Host consistency on every bind and requires JSON content types for all `run()` modes; only the Host allowlist remains loopback-specific. Focused: 227 pytest cases passed, 1 skipped; Ruff passed. |
 | 046 | P2 | O15 | 手工转义; 首页无安全响应头 | Satisfied | Satisfied; escaping/security headers completed (`a97bf4d`, `7390edd`). |
 | 047 | P2 | C10 | 窗口切片流复制可能带来时间偏移 | Pending audit |  |
 | 048 | P2 | D11 | 草稿不截断区间、缺 meta 文件、os 与 fps 写死 | Pending audit |  |
