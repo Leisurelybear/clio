@@ -130,7 +130,10 @@ class TestHandlePutEnv:
             "CUSTOM_NOTE=visible\n"
         )
         for key in ("CLIO_LANG", "CLIO_FFMPEG_DIR", "HF_ENDPOINT", "FFMPEG_HOME", "CUSTOM_NOTE"):
-            monkeypatch.delenv(key, raising=False)
+            # Seed the key first: pytest does not record delenv() for an absent key,
+            # so the route's later os.environ write would otherwise leak.
+            monkeypatch.setenv(key, "")
+            monkeypatch.delenv(key)
 
         with patch("clio.ui.routes.env_routes._load_dotenv"), patch("clio.ui.routes.env_routes._clear_provider_cache"):
             handle_put_env(handler, {}, {"content": content})
