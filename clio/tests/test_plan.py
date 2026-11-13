@@ -206,6 +206,13 @@ class TestPlanLineageFingerprint:
         changed = _plan_lineage_fingerprint(loaded_config, clips)
         assert base != changed
 
+    def test_changes_on_temperature(self, loaded_config: AppConfig) -> None:
+        clips = [{"index": "001", "source_stem": "GL010683", "title": "t"}]
+        base = _plan_lineage_fingerprint(loaded_config, clips)
+        loaded_config.ai.tasks["vlog_plan"].temperature = 0.8
+        changed = _plan_lineage_fingerprint(loaded_config, clips)
+        assert base != changed
+
     def test_changes_on_clip_input(self, loaded_config: AppConfig) -> None:
         clips = [{"index": "001", "source_stem": "GL010683", "title": "t"}]
         base = _plan_lineage_fingerprint(loaded_config, clips)

@@ -122,7 +122,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 101 | P2 | OPT-030 | Vitest 语句覆盖 55.78%; editor-plan.js 17%、main.js 28%、viewer.js 38% | Pending audit |  |
 | 102 | P2 | OPT-032 | AGENTS.md 411 行、ROADMAP.md 1,826 行、CHANGELOG.md 1,103 行; docs/analysis 27 份、docs/superpowers 109 份 | Pending audit |  |
 | 103 | P2 | OPT-033 | README 手写测试数量 (2409 / 720), 与实测 (2870 / 857) 不符 | Pending audit |  |
-| 104 | P3 | R036 | 任务指纹包含 provider、model、base_url、max_tokens, 但不包含 temperature | Pending audit |  |
+| 104 | P3 | R036 | 任务指纹包含 provider、model、base_url、max_tokens, 但不包含 temperature | Fixed | Task lineage settings now include the bound task temperature. Focused: 27 plan-lineage tests passed, including a temperature-change fingerprint regression. |
 | 105 | P3 | R025 | test_readonly_dir_is_handled_gracefully 以 root 运行时失败 | Pending audit |  |
 | 106 | P3 | R035 | 校验重试的修正说明取自界面语言包, 英文界面下中文提示词后面会接一段英文说明 | Pending audit |  |
 | 107 | P3 | R021 | 运行预览显示 plan "将跳过", 实际启动却返回 409 要求确认覆盖 | Pending audit |  |

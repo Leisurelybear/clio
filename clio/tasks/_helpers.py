@@ -38,6 +38,7 @@ def _task_lineage_settings(config: AppConfig, task_name: str) -> dict[str, objec
     providers = getattr(getattr(config, "ai", None), "providers", {})
     provider_config = providers.get(provider) if provider and isinstance(providers, dict) else None
     max_tokens = getattr(provider_config, "max_tokens", 0) if provider_config else 0
+    temperature = getattr(task, "temperature", None) if task else None
     provider_type = getattr(provider_config, "type", "") if provider_config else ""
     base_url = getattr(provider_config, "base_url", "") if provider_config else ""
     return {
@@ -46,6 +47,7 @@ def _task_lineage_settings(config: AppConfig, task_name: str) -> dict[str, objec
         "provider_type": provider_type,
         "base_url": base_url,
         "max_tokens": max_tokens,
+        "temperature": temperature,
     }
 
 
