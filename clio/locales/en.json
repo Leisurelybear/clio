@@ -39,6 +39,8 @@
   "analyze.label.vlog_plan_shortlist": "AI vlog candidate shortlist",
   "analyze.label.vlog_plan_review": "AI vlog plan review",
   "analyze.label.voiceover": "AI voiceover",
+  "analyze.parse_retry": "  [validation] AI output was not valid JSON; sending the parse error back for one correction: {errors}",
+  "analyze.parse_retry_prompt": "## The previous output was not valid JSON; correct it once\nOutput the complete, valid JSON object again following the original task. Do not use a markdown code block or add explanations.",
   "analyze.plan_dropped_invalid_index": "[plan] filtered out {count} segments referencing an invalid index",
   "analyze.plan_dropped_timeline": "  [plan] filtered out {count} segments outside the source timeline",
   "analyze.plan_duration_deviation": "  [plan] actual total clip duration {total}s deviates from the target {target}s; recorded the actual value",

@@ -1062,7 +1062,17 @@ def _validate_with_retry(
 ) -> dict:
     for attempt in range(2):
         issues: list[str] = []
-        result = validate(extract_json(text), source, issues=issues)
+        try:
+            parsed = extract_json(text)
+        except ValueError as exc:
+            issue_text = str(exc)
+            if attempt == 1:
+                key = "analyze.validation_failed_analysis" if analysis else "analyze.validation_failed_voiceover"
+                raise RuntimeError(t(key, {"errors": issue_text})) from exc
+            print(t("analyze.parse_retry", {"errors": issue_text}))
+            text = retry(prompt + "\n\n" + t("analyze.parse_retry_prompt"))
+            continue
+        result = validate(parsed, source, issues=issues)
         if not issues:
             return result
 

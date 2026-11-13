@@ -2038,3 +2038,50 @@ def test_call_ai_records_provider_prompt_version_and_cost():
     assert kwargs["provider"] == "deepseek"
     assert kwargs["prompt_version"] == _prompt_version("system spec", "prompt")
     assert kwargs["cost_usd"] == 4.0
+
+
+class TestValidateWithRetry:
+    def test_parse_failure_retries_with_parse_prompt(self):
+        from clio.analyze import _validate_with_retry
+
+        prompts: list[str] = []
+
+        def retry(prompt: str) -> str:
+            prompts.append(prompt)
+            return '{"title": "ok"}'
+
+        def validate(data, source, issues=None):
+            return data
+
+        result = _validate_with_retry(
+            "not json",
+            "source",
+            prompt="original prompt",
+            validate=validate,
+            retry=retry,
+            analysis=True,
+        )
+
+        assert result == {"title": "ok"}
+        assert len(prompts) == 1
+        assert prompts[0].startswith("original prompt")
+        assert "JSON" in prompts[0]
+
+    def test_parse_failure_twice_raises_without_second_retry(self):
+        from clio.analyze import _validate_with_retry
+
+        retry = MagicMock(return_value="still not json")
+        validate = MagicMock()
+
+        with pytest.raises(RuntimeError):
+            _validate_with_retry(
+                "not json",
+                "source",
+                prompt="original prompt",
+                validate=validate,
+                retry=retry,
+                analysis=False,
+            )
+
+        retry.assert_called_once()
+        validate.assert_not_called()

@@ -39,6 +39,8 @@
   "analyze.label.vlog_plan_shortlist": "AI vlog 候选筛选",
   "analyze.label.vlog_plan_review": "AI vlog 规划复审",
   "analyze.label.voiceover": "AI 口播",
+  "analyze.parse_retry": "  [校验] AI 输出不是有效的 JSON，正在反馈解析错误并请求修正一次：{errors}",
+  "analyze.parse_retry_prompt": "## 上次输出不是有效的 JSON，请修正一次\n请按原任务要求重新输出完整、有效的 JSON 对象；不要使用 markdown 代码块，也不要添加解释。",
   "analyze.plan_dropped_invalid_index": "[规划] 已过滤 {count} 个引用无效 index 的 segment",
   "analyze.plan_dropped_timeline": "  [规划] 已过滤 {count} 个超出素材 timeline 的 segment",
   "analyze.plan_duration_deviation": "  [规划] 实际片段总时长 {total}s 与目标 {target}s 偏差较大，已按实际值记录",
