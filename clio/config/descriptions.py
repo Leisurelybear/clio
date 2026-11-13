@@ -43,7 +43,9 @@ CONFIG_DESCRIPTIONS: dict[str, str] = {
     "ai.tasks.{name}.provider": "此任务使用的 AI 厂商名称（在 providers 中定义）",
     "ai.tasks.{name}.model": "模型名称，如 gemini-2.5-flash、deepseek-flash",
     "ai.tasks.{name}.temperature": "此任务的采样温度（0-2，越低越稳定）；留空使用模型默认值",
-    "ai.tasks.{name}.timeout_sec": "此任务的 HTTP 超时（秒）；留空沿用 provider 设置。长输出任务可单独放宽",
+    "ai.tasks.{name}.timeout_sec": (
+        "此任务的 HTTP 超时时间（秒）；留空沿用 provider 的超时设置。规划等长输出任务建议单独放宽"
+    ),
     "ai.debug_print_prompt": "调试用：设为 true 时在每次 AI 调用前打印完整 prompt 到控制台（含上下文注入）",
     "ai.provider_ttl_min": "已缓存的 AI 提供商过期间隔（分钟），超时后自动关闭重建。0 为永不过期",
     # compress
