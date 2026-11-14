@@ -8,6 +8,14 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 
 ## Summary
 
+Follow-up audit (2026-11-14): [recent commits review](2026-11-14-recent-commits-review.md)
+records five additional open findings: preview/runtime reuse disagreement, stale
+all-day discovery, disabled-transcription stage blocking, missing analysis
+transcript-option propagation, and missing planning-review failure fallback.
+These findings are tracked separately in ROADMAP and are not included in the
+original 117-row summary below. Full verification: 3390 pytest passed, 12 skipped;
+945 Vitest passed; frontend typecheck passed. Production fixes remain pending.
+
 Run interaction refresh (2026-11-14): implemented four presentation stages and next-stage actions
 within the Run pane. Custom steps and advanced options remain available; previews distinguish
 reusable outputs from missing inputs and expose warnings automatically. Completion stays in Run

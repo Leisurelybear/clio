@@ -10,6 +10,16 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
 
 ## Active backlog (2026-11-13)
 
+### Follow-up review (2026-11-14)
+
+Evidence and reproductions: [recent commits review](docs/analysis/2026-11-14-recent-commits-review.md).
+
+- `[ ]` Share cache-reuse predicates between guided previews and runtime execution.
+- `[ ]` Rediscover day labels after analysis before each all-day scoped step.
+- `[ ]` Allow disabled optional transcription without blocking guided progression.
+- `[ ]` Forward the effective transcript option to pipeline analysis.
+- `[ ]` Preserve a locally valid planning draft when optional review fails.
+
 ### Run interaction refresh (2026-11-14)
 
 - `[x]` Group the eight existing steps into four guided stages, with one-stage next actions.
