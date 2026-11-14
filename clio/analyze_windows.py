@@ -415,33 +415,29 @@ def _merge_duplicate_item(left: dict, right: dict) -> dict:
     return merged
 
 
-def merge_window_analyses(
-    windows: list[tuple[AnalyzeWindow, dict]],
-    overlap_sec: int,
-) -> dict:
-    if not windows:
-        return {"title": "", "summary": "", "timeline": []}
-    if len(windows) == 1:
-        out = copy.deepcopy(windows[0][1])
-        w = windows[0][0]
-        out["analyze_windows"] = [
-            {
-                "i": w.index,
-                "start_sec": w.start_sec,
-                "end_sec": w.end_sec,
-                "overlap_sec": overlap_sec,
-                "status": "ok",
-            }
-        ]
-        return out
+def _single_window_result(window: tuple[AnalyzeWindow, dict], overlap_sec: int) -> dict:
+    out = copy.deepcopy(window[1])
+    w = window[0]
+    out["analyze_windows"] = [
+        {
+            "i": w.index,
+            "start_sec": w.start_sec,
+            "end_sec": w.end_sec,
+            "overlap_sec": overlap_sec,
+            "status": "ok",
+        }
+    ]
+    return out
 
-    base = copy.deepcopy(windows[0][1])
+
+def _collect_window_sections(
+    windows: list[tuple[AnalyzeWindow, dict]],
+) -> tuple[list[str], list[Any], list[str], list[dict], list[dict]]:
     summaries: list[str] = []
     highlights: list[Any] = []
     locations: list[str] = []
     timeline: list[dict] = []
     key_moments: list[dict] = []
-
     for _w, raw in windows:
         if isinstance(raw.get("summary"), str) and raw["summary"]:
             summaries.append(raw["summary"])
@@ -456,23 +452,25 @@ def merge_window_analyses(
         raw_moments = raw.get("key_moments")
         if isinstance(raw_moments, list):
             key_moments.extend(copy.deepcopy(item) for item in raw_moments if isinstance(item, dict))
+    return summaries, highlights, locations, timeline, key_moments
 
-    timeline.sort(key=_item_start)
 
-    # Only dedupe inside adjacent-window overlap bands (spec), not globally.
+def _overlap_zones(windows: list[tuple[AnalyzeWindow, dict]]) -> list[tuple[float, float]]:
     zones: list[tuple[float, float]] = []
-    ordered_ws = [w for w, _ in windows]
-    for a, b in pairwise(ordered_ws):
+    for a, b in pairwise(w for w, _ in windows):
         lo = max(a.start_sec, b.start_sec)
         hi = min(a.end_sec, b.end_sec)
         if hi > lo:
             zones.append((lo, hi))
+    return zones
 
+
+def _dedupe_overlapping_items(items: list[dict], zones: list[tuple[float, float]]) -> list[dict]:
     def _in_overlap(t: float) -> bool:
         return any(lo <= t <= hi for lo, hi in zones)
 
     deduped: list[dict] = []
-    for item in timeline:
+    for item in items:
         t_item = _item_start(item)
         duplicate_index = None
         for index in range(len(deduped) - 1, -1, -1):
@@ -487,41 +485,23 @@ def merge_window_analyses(
             deduped[duplicate_index] = _merge_duplicate_item(deduped[duplicate_index], item)
             continue
         deduped.append(item)
+    return deduped
 
-    key_moments.sort(key=_item_start)
-    deduped_moments: list[dict] = []
-    for moment in key_moments:
-        t_item = _item_start(moment)
-        duplicate_index = None
-        for index in range(len(deduped_moments) - 1, -1, -1):
-            previous = deduped_moments[index]
-            t_previous = _item_start(previous)
-            if t_item - t_previous > 5:
-                break
-            if _in_overlap(t_item) and _in_overlap(t_previous) and _similar_item_text(moment, previous):
-                duplicate_index = index
-                break
-        if duplicate_index is not None:
-            deduped_moments[duplicate_index] = _merge_duplicate_item(deduped_moments[duplicate_index], moment)
-            continue
-        deduped_moments.append(moment)
 
-    base["timeline"] = deduped
-    base["key_moments"] = deduped_moments
-    base["summary"] = "\n".join(summaries)
+def _unique_highlights(highlights: list[Any]) -> list[Any]:
     seen: set[Any] = set()
-    uniq_h: list[Any] = []
-    for h in highlights:
-        key = h if not isinstance(h, dict) else str(h)
+    unique: list[Any] = []
+    for highlight in highlights:
+        key = highlight if not isinstance(highlight, dict) else str(highlight)
         if key in seen:
             continue
         seen.add(key)
-        uniq_h.append(h)
-    base["highlights"] = uniq_h
-    if locations:
-        uniq_loc = list(dict.fromkeys(locations))
-        base["location"] = uniq_loc[0] if len(uniq_loc) == 1 else " / ".join(uniq_loc)
-    base["analyze_windows"] = [
+        unique.append(highlight)
+    return unique
+
+
+def _window_metadata(windows: list[tuple[AnalyzeWindow, dict]], overlap_sec: int) -> list[dict]:
+    return [
         {
             "i": w.index,
             "start_sec": w.start_sec,
@@ -531,6 +511,32 @@ def merge_window_analyses(
         }
         for w, _ in windows
     ]
+
+
+def merge_window_analyses(
+    windows: list[tuple[AnalyzeWindow, dict]],
+    overlap_sec: int,
+) -> dict:
+    if not windows:
+        return {"title": "", "summary": "", "timeline": []}
+    if len(windows) == 1:
+        return _single_window_result(windows[0], overlap_sec)
+
+    base = copy.deepcopy(windows[0][1])
+    summaries, highlights, locations, timeline, key_moments = _collect_window_sections(windows)
+    timeline.sort(key=_item_start)
+    zones = _overlap_zones(windows)
+
+    # Only dedupe inside adjacent-window overlap bands (spec), not globally.
+    base["timeline"] = _dedupe_overlapping_items(timeline, zones)
+    key_moments.sort(key=_item_start)
+    base["key_moments"] = _dedupe_overlapping_items(key_moments, zones)
+    base["summary"] = "\n".join(summaries)
+    base["highlights"] = _unique_highlights(highlights)
+    if locations:
+        uniq_loc = list(dict.fromkeys(locations))
+        base["location"] = uniq_loc[0] if len(uniq_loc) == 1 else " / ".join(uniq_loc)
+    base["analyze_windows"] = _window_metadata(windows, overlap_sec)
     return base
 
 
