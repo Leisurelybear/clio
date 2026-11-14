@@ -1478,6 +1478,40 @@ def _prepare_plan_voiceover_preview(config: AppConfig, *, with_plan: bool = True
         (config.plans_dir / "day1_plan.json").write_text(json.dumps(plan), encoding="utf-8")
 
 
+def _write_current_consistency(config: AppConfig, day: str = "day1") -> None:
+    from clio.schema import ARTIFACT_SCHEMA_VERSION
+    from clio.tasks.consistency import entity_consistency_lineage_fingerprint, entity_consistency_paths
+    from clio.tasks.plan import _collect_plan_clips
+
+    clips, _, _ = _collect_plan_clips(config, day, None, filter_by_day=True, cancel_event=None, report=False)
+    out, md = entity_consistency_paths(config, day)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(
+        json.dumps(
+            {
+                "entities": [],
+                "duplicate_scenes": [],
+                "day_label": day,
+                "_schema_version": ARTIFACT_SCHEMA_VERSION,
+                "_lineage": entity_consistency_lineage_fingerprint(config, clips),
+            }
+        ),
+        encoding="utf-8",
+    )
+    md.write_text("# consistency", encoding="utf-8")
+
+
+def _write_current_planned_voiceover(config: AppConfig, day: str = "day1") -> None:
+    from clio.tasks.scripts import _load_plan_voiceover_inputs, _plan_voiceover_lineage_fingerprint
+
+    plan = json.loads((config.plans_dir / f"{day}_plan.json").read_text(encoding="utf-8"))
+    _, _, inputs = _load_plan_voiceover_inputs(config, plan)
+    lineage = _plan_voiceover_lineage_fingerprint(config, plan, inputs, _load_script_template(config))
+    config.scripts_dir.mkdir(parents=True, exist_ok=True)
+    (config.scripts_dir / f"{day}_plan_voiceover.json").write_text(json.dumps({"_lineage": lineage}), encoding="utf-8")
+    (config.scripts_dir / f"{day}_plan_voiceover.md").write_text("# voiceover", encoding="utf-8")
+
+
 def test_preview_consistency_warns_when_analysis_is_missing(tmp_path: Path) -> None:
     input_dir = tmp_path / "videos"
     output_dir = tmp_path / "output"
@@ -1514,6 +1548,7 @@ def test_preview_consistency_skips_only_complete_valid_outputs(tmp_path: Path) -
     out_json.write_text("{}", encoding="utf-8")
     out_md.write_text("# consistency", encoding="utf-8")
 
+    _write_current_consistency(config)
     skipped = build_run_preview(config, steps=["consistency"], force=False, use_transcripts=True)
     assert skipped["steps"][0]["will_run"] == 0
     assert skipped["steps"][0]["will_skip"] == 1
@@ -1576,6 +1611,7 @@ def test_preview_plan_voiceover_skips_only_complete_valid_outputs(tmp_path: Path
     out_json.write_text("{}", encoding="utf-8")
     out_md.write_text("# voiceover", encoding="utf-8")
 
+    _write_current_planned_voiceover(config)
     skipped = build_run_preview(config, steps=["plan_voiceover"], force=False, use_transcripts=True)
 
     assert skipped["steps"][0]["will_run"] == 0
@@ -1691,6 +1727,7 @@ def test_preview_all_days_counts_consistency_per_day(tmp_path: Path) -> None:
     out_json.write_text("{}", encoding="utf-8")
     out_md.write_text("# consistency", encoding="utf-8")
 
+    _write_current_consistency(config)
     preview = build_run_preview(
         config,
         steps=["consistency"],
@@ -1718,6 +1755,7 @@ def test_preview_all_days_plan_voiceover_uses_only_planned_days(tmp_path: Path) 
     (config.scripts_dir / "day1_plan_voiceover.json").write_text("{}", encoding="utf-8")
     (config.scripts_dir / "day1_plan_voiceover.md").write_text("# voiceover", encoding="utf-8")
 
+    _write_current_planned_voiceover(config)
     preview = build_run_preview(
         config,
         steps=["plan_voiceover"],
@@ -1852,3 +1890,39 @@ def test_preview_reports_unknown_cost_when_prices_are_unconfigured(tmp_path: Pat
     assert step["estimated_cost_usd"] is None
     assert preview["totals"]["estimated_cost_usd"] is None
     assert preview["totals"]["estimate_status"] == "unknown"
+
+
+@pytest.mark.parametrize("step", ["plan", "consistency", "voiceover", "plan_voiceover"])
+def test_preview_cache_matches_runtime_lineage_and_is_read_only(tmp_path: Path, step: str) -> None:
+    from clio.tasks.plan import _collect_plan_clips, _plan_lineage_fingerprint
+
+    config = _config(tmp_path, tmp_path / "output")
+    _prepare_plan_voiceover_preview(config)
+    _write_current_consistency(config)
+    clips, _, _ = _collect_plan_clips(config, "day1", None, filter_by_day=False, cancel_event=None, report=False)
+    plan_path = config.plans_dir / "day1_plan.json"
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    plan["_lineage"] = _plan_lineage_fingerprint(config, clips, day_label="day1")
+    plan_path.write_text(json.dumps(plan), encoding="utf-8")
+    plan_path.with_suffix(".md").write_text("# plan", encoding="utf-8")
+    for analysis_path in config.texts_dir.glob("*.json"):
+        data = json.loads(analysis_path.read_text(encoding="utf-8"))
+        data["index"] = data.get("index", analysis_path.stem[:3])
+        out = config.scripts_dir / f"{analysis_path.stem}_voiceover.json"
+        out.write_text(json.dumps({"_lineage": _current_voiceover_lineage(config, data)}), encoding="utf-8")
+    # Voiceover text is part of planning inputs; stamp the plan after creating it.
+    clips, _, _ = _collect_plan_clips(config, "day1", None, filter_by_day=False, cancel_event=None, report=False)
+    plan["_lineage"] = _plan_lineage_fingerprint(config, clips, day_label="day1")
+    plan_path.write_text(json.dumps(plan), encoding="utf-8")
+    _write_current_consistency(config)
+    _write_current_planned_voiceover(config)
+    before = {p: p.read_bytes() for p in config.paths.output_dir.rglob("*") if p.is_file()}
+    current = build_run_preview(config, [step], force=False, use_transcripts=True)
+    assert current["steps"][0]["will_skip"] == 1
+    changed = build_run_preview(config, [step], force=False, use_transcripts=True, context_override="new trip context")
+    assert changed["steps"][0]["will_run"] == 1
+    assert changed["steps"][0]["planned_calls"] > 0
+    config.analyze.skip_existing = False
+    forced = build_run_preview(config, [step], force=False, use_transcripts=True)
+    assert forced["steps"][0]["will_run"] == 1
+    assert before == {p: p.read_bytes() for p in config.paths.output_dir.rglob("*") if p.is_file()}

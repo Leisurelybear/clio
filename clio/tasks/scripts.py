@@ -17,6 +17,7 @@ from clio.artifact_guard import (
     backup_artifacts,
     clear_user_edited,
     is_user_edited,
+    read_reusable_artifact,
 )
 from clio.config import AppConfig
 from clio.i18n import t
@@ -172,17 +173,8 @@ def _process_one_script(
     orig_stem = Path(data.get("source_file") or json_file.stem).stem
     out, md_out = _voiceover_output_paths(json_file, config)
     if not overwrite and config.analyze.skip_existing and out.exists():
-        try:
-            existing = json.loads(out.read_text(encoding="utf-8"))
-            if not isinstance(existing, dict):
-                existing = None
-            current = (
-                _voiceover_lineage_fingerprint(config, data, template, task_prompts, context_override)
-                if existing is not None
-                else None
-            )
-        except (json.JSONDecodeError, OSError, UnicodeError):
-            existing, current = None, None
+        current = _voiceover_lineage_fingerprint(config, data, template, task_prompts, context_override)
+        existing = read_reusable_artifact(out, current, allow_legacy=True)
         if isinstance(existing, dict):
             if existing.get("_lineage") == current:
                 state.mark(orig_stem, "voiceover", "skipped")
@@ -780,11 +772,8 @@ def _skip_plan_voiceover_if_unchanged(
 ) -> dict[str, Any] | None:
     if overwrite or not config.analyze.skip_existing or not (out_json.is_file() and out_md.is_file()):
         return None
-    try:
-        existing = json.loads(out_json.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError, UnicodeError):
-        return None
-    if not isinstance(existing, dict) or existing.get("_lineage") != current_lineage:
+    existing = read_reusable_artifact(out_json, current_lineage)
+    if existing is None:
         return None
     state = ProcessingState(config.paths.output_dir)
     for stem in state_stems:

@@ -17,6 +17,7 @@ from clio.artifact_guard import (
     artifact_requires_overwrite_confirmation,
     backup_artifacts,
     clear_user_edited,
+    read_reusable_artifact,
 )
 from clio.config import AppConfig
 from clio.cut_snap import snap_plan_ranges
@@ -485,15 +486,6 @@ def _try_reuse_existing_plan(
         return None
     if not (out_json.exists() and out_md.exists()):
         return None
-    try:
-        existing = json.loads(out_json.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError, UnicodeError):
-        print(t("task.plan.replan_corrupt", {"day": day_label}))
-        return None
-    if not isinstance(existing, dict):
-        print(t("task.plan.replan_corrupt", {"day": day_label}))
-        return None
-    stored = existing.get("_lineage")
     current = _plan_lineage_fingerprint(
         config,
         clips,
@@ -501,18 +493,16 @@ def _try_reuse_existing_plan(
         task_prompts=task_prompts,
         context_override=context_override,
     )
-    if stored == current:
+    existing = read_reusable_artifact(out_json, current, allow_legacy=True)
+    if existing is not None:
+        # Legacy cache without lineage: accept it (best effort) by stamping
+        # a fresh marker so only genuinely-new inputs invalidate it.
+        if existing.get("_lineage") is None:
+            existing["_lineage"] = current
+            write_json_atomic(out_json, existing)
         print(t("task.plan.skip_existing", {"day": day_label}))
         return existing
     print(t("task.plan.replan_lineage", {"day": day_label}))
-    if stored is None:
-        # Legacy cache without lineage: accept it (best effort) by stamping
-        # a fresh marker so only genuinely-new inputs invalidate it.
-        existing["_lineage"] = current
-        write_json_atomic(out_json, existing)
-        print(t("task.plan.skip_existing", {"day": day_label}))
-        return existing
-    # Mismatched/newer lineage: recompute below.
     return None
 
 

@@ -155,3 +155,8 @@ passed. No live AI pipeline was started during verification.
 | 115 | P3 | OPT-010 | 分析输出是散文描述 (Q6), 景别、运镜写在 description 里 | Satisfied | `ANALYZE_PROMPT` already requires per-shot `shot_size`, `camera`, `camera_direction`, `first_frame`, `last_frame`, `energy`, audio, quality, and tags. `AnalysisTimelineItem` in `clio/ai/structured.py` enforces the enums/ranges, and `_normalize_timeline_item()` strips invalid optional values. Focused: structured-schema and normalization tests passed within 195 analyze/plan tests. |
 | 116 | P3 | OPT-022 | 前端 58 个文件 16,164 行无类型 JS, editor-config.js 2,414 行 | Confirmed | Re-measured 79 production JS files (15,919 lines); only 10 carry `// @ts-check` and are included by `tsconfig.json`, which keeps `checkJs`, `strict`, and `noImplicitAny` disabled. `editor-config.js` has already been reduced to a 56-line facade, so that size detail is stale, but most frontend modules remain unchecked JavaScript. |
 | 117 | P3 | OPT-023 | 产物文件名含 AI 生成的标题 ({index}_{title}), 标题一变就产生孤儿文件 (封面、口播、标号视频) | Confirmed | `_build_stem()` still returns `{index}_{sanitize_name(title)}` and drives analysis JSON/TXT names; voiceover, label, cover, and cut artifacts inherit that stem. Cut overwrite cleanup recovers stale cut files only, so a title change can still orphan analysis, voiceover, label, and cover artifacts. No compatibility-safe rename or migration strategy exists yet. |
+
+Follow-up fix 1: preview now uses runtime lineage calculations and a shared read-only
+artifact reuse predicate for plan and voiceover caches; consistency uses its validated
+loader. Context, prompts, scope, and skip mode are respected without writing cache
+markers. Focused verification: 156 pytest passed; Ruff passed.

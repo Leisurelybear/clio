@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from clio._constants import VIDEO_EXTENSIONS
-from clio.artifact_guard import artifact_requires_overwrite_confirmation
+from clio.artifact_guard import artifact_requires_overwrite_confirmation, read_reusable_artifact
 from clio.config.models import AppConfig
 from clio.i18n import t
 from clio.identity import SEGMENT_SUFFIX_RE, is_legacy_split_path, prefer_canonical_compressed
@@ -31,14 +31,19 @@ from clio.tasks.analyze import (
     analysis_artifact_overwrite_required,
     analysis_cache_status,
 )
-from clio.tasks.consistency import entity_consistency_paths
+from clio.tasks.consistency import entity_consistency_paths, load_entity_consistency
 from clio.tasks.plan import (
+    _collect_plan_clips,
+    _plan_lineage_fingerprint,
+    _resolve_filter_by_day,
     discover_day_labels,
     plan_artifact_overwrite_required,
     plan_overwrite_confirmation_required,
 )
 from clio.tasks.scripts import (
+    _load_plan_voiceover_inputs,
     _load_script_template,
+    _plan_voiceover_lineage_fingerprint,
     _voiceover_lineage_fingerprint,
     plan_voiceover_artifact_overwrite_required,
     voiceover_artifact_overwrite_required,
@@ -75,6 +80,9 @@ def build_run_preview(
     context_override: str | None = None,
     task_prompts: dict[str, str] | None = None,
 ) -> dict[str, Any]:
+    config = copy.deepcopy(config)
+    config.plan.use_transcripts = use_transcripts
+    force = force or not config.analyze.skip_existing
     selected_steps = list(steps)
     selected = _selection_from_files(files) if files is not None else None
     preview_day_labels = _preview_day_labels(config, day_label, all_days)
@@ -725,17 +733,37 @@ def _step_preview(
             return _warning_step(step, t("api.preview_transcribe_disabled"))
         return _transcribe_step(config, compressed_videos, all_recursive_source_videos, force=force, index=index)
     if step == "consistency":
-        return _consistency_step(config, all_analysis_jsons, day_labels=day_labels, force=force)
+        return _consistency_step(
+            config,
+            all_analysis_jsons,
+            day_labels=day_labels,
+            force=force,
+            files=files,
+            context_override=context_override,
+            task_prompts=task_prompts,
+        )
     if step == "voiceover":
-        return _voiceover_step(config, analysis_jsons, force=force)
+        return _voiceover_step(
+            config, analysis_jsons, force=force, context_override=context_override, task_prompts=task_prompts
+        )
     if step == "plan":
-        return _plan_step(config, all_analysis_jsons, day_labels=day_labels, files=files, force=force)
+        return _plan_step(
+            config,
+            all_analysis_jsons,
+            day_labels=day_labels,
+            files=files,
+            force=force,
+            context_override=context_override,
+            task_prompts=task_prompts,
+        )
     if step == "plan_voiceover":
         return _plan_voiceover_step(
             config,
             all_analysis_jsons,
             day_labels=day_labels,
             force=force,
+            context_override=context_override,
+            task_prompts=task_prompts,
         )
     if step == "label":
         return _label_step(config, analysis_jsons, force=force)
@@ -832,6 +860,9 @@ def _consistency_step(
     *,
     day_labels: list[str],
     force: bool,
+    context_override: str | None,
+    task_prompts: dict[str, str] | None,
+    files: list[str] | None,
 ) -> dict[str, Any]:
     if not analysis_jsons:
         return _warning_step("consistency", t("api.preview_missing_analyze_consistency"))
@@ -839,7 +870,14 @@ def _consistency_step(
     running_days: list[str] = []
     for scoped_day in day_labels:
         out_json, out_md = entity_consistency_paths(config, scoped_day)
-        if force or not (out_md.is_file() and _valid_json_file(out_json)):
+        clips, _, _ = _collect_plan_clips(
+            config, scoped_day, files, filter_by_day=True, cancel_event=None, report=False
+        )
+        if (
+            force
+            or files is not None
+            or load_entity_consistency(config, scoped_day, clips, task_prompts, context_override) is None
+        ):
             running_days.append(scoped_day)
     usage = estimate_usage(config, (consistency_call() for _ in running_days))
     return _step(
@@ -856,15 +894,26 @@ def _voiceover_step(
     analysis_jsons: list[Path],
     *,
     force: bool,
+    context_override: str | None,
+    task_prompts: dict[str, str] | None,
 ) -> dict[str, Any]:
     total = len(analysis_jsons)
     if total == 0:
         return _warning_step("voiceover", t("api.preview_missing_analyze_voiceover"))
-    running = [
-        analysis_json
-        for analysis_json in analysis_jsons
-        if force or not (config.scripts_dir / f"{analysis_json.stem}_voiceover.json").exists()
-    ]
+    running = []
+    template = _load_script_template(config)
+    for analysis_json in analysis_jsons:
+        try:
+            data = json.loads(analysis_json.read_text(encoding="utf-8"))
+            data["index"] = data.get("index", analysis_json.stem[:3])
+            lineage = _voiceover_lineage_fingerprint(config, data, template, task_prompts, context_override)
+            reusable = read_reusable_artifact(
+                config.scripts_dir / f"{analysis_json.stem}_voiceover.json", lineage, allow_legacy=True
+            )
+        except (OSError, UnicodeError, ValueError, TypeError, AttributeError):
+            reusable = None
+        if force or reusable is None:
+            running.append(analysis_json)
     usage = estimate_usage(config, (voiceover_call(config) for _ in running))
     return _step("voiceover", total=total, will_run=len(running), will_skip=total - len(running), usage=usage)
 
@@ -876,6 +925,8 @@ def _plan_step(
     day_labels: list[str],
     files: list[str] | None,
     force: bool,
+    context_override: str | None,
+    task_prompts: dict[str, str] | None,
 ) -> dict[str, Any]:
     if not analysis_jsons:
         return _warning_step("plan", t("api.preview_missing_analyze_plan"))
@@ -885,10 +936,22 @@ def _plan_step(
         safe_day = plan_day_stem(scoped_day)
         plan_json = config.plans_dir / f"{safe_day}_plan.json"
         plan_md = config.plans_dir / f"{safe_day}_plan.md"
+        clips, _, _ = _collect_plan_clips(
+            config,
+            scoped_day,
+            files,
+            filter_by_day=_resolve_filter_by_day(config, files, None),
+            cancel_event=None,
+            report=False,
+        )
+        lineage = _plan_lineage_fingerprint(
+            config, clips, day_label=scoped_day, task_prompts=task_prompts, context_override=context_override
+        )
         if (
             force
-            or plan_overwrite_confirmation_required(config, scoped_day, files)
-            or not (plan_md.is_file() and _valid_json_file(plan_json))
+            or files is not None
+            or not plan_md.is_file()
+            or read_reusable_artifact(plan_json, lineage, allow_legacy=True) is None
         ):
             running_days.append(scoped_day)
     calls = [call for _ in running_days for call in plan_calls()]
@@ -908,6 +971,8 @@ def _plan_voiceover_step(
     *,
     day_labels: list[str],
     force: bool,
+    context_override: str | None,
+    task_prompts: dict[str, str] | None,
 ) -> dict[str, Any]:
     planned_labels = []
     for scoped_day in day_labels:
@@ -925,7 +990,12 @@ def _plan_voiceover_step(
         safe_day = plan_day_stem(scoped_day)
         out_json = config.scripts_dir / f"{safe_day}_plan_voiceover.json"
         out_md = config.scripts_dir / f"{safe_day}_plan_voiceover.md"
-        if force or not (out_md.is_file() and _valid_json_file(out_json)):
+        plan = json.loads((config.plans_dir / f"{safe_day}_plan.json").read_text(encoding="utf-8"))
+        _, _, inputs = _load_plan_voiceover_inputs(config, plan)
+        lineage = _plan_voiceover_lineage_fingerprint(
+            config, plan, inputs, _load_script_template(config), task_prompts, context_override
+        )
+        if force or not out_md.is_file() or read_reusable_artifact(out_json, lineage) is None:
             running_days.append(scoped_day)
     planned_calls = sum(
         _plan_sequence_length(config.plans_dir / f"{plan_day_stem(scoped_day)}_plan.json")

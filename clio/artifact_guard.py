@@ -52,6 +52,20 @@ def read_user_edited(path: Path) -> bool:
     return is_user_edited(data)
 
 
+def read_reusable_artifact(path: Path, lineage: str, *, allow_legacy: bool = False) -> dict[str, Any] | None:
+    """Read a matching cache without stamping legacy files or changing state."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    stored = data.get("_lineage")
+    if stored == lineage or allow_legacy and stored is None:
+        return data
+    return None
+
+
 def artifact_requires_overwrite_confirmation(path: Path) -> bool:
     """Return True when an existing artifact is edited or cannot be parsed safely.
 
