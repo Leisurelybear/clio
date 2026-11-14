@@ -222,6 +222,20 @@ class _RequestHandler(BaseHTTPRequestHandler, HandlerProtocol):
         super().end_headers()
 
     def send_error(self, code: int, message: str | None = None, explain: str | None = None) -> None:
+        path = getattr(self, "path", "") or ""
+        if path == "/api" or path.startswith("/api/"):
+            if code == HTTPStatus.FORBIDDEN:
+                self._send_json(
+                    {"ok": False, "code": "forbidden", "error": t("api.forbidden")},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+            if code == HTTPStatus.NOT_FOUND:
+                self._send_json(
+                    {"ok": False, "code": "not_found", "error": t("api.not_found")},
+                    HTTPStatus.NOT_FOUND,
+                )
+                return
         self._http_response_started = True
         super().send_error(code, message, explain)
 

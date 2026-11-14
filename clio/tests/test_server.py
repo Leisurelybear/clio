@@ -363,6 +363,46 @@ class TestSendJson:
         handler.end_headers.assert_called_once()
 
 
+class TestApiErrorResponses:
+    def test_api_forbidden_is_json(self, handler_cls):
+        from clio.i18n import t
+
+        handler = _build_response_handler(handler_cls)
+        handler.path = "/api/private"
+
+        handler.send_error(HTTPStatus.FORBIDDEN)
+
+        raw = handler.wfile.getvalue()
+        head, body = raw.split(b"\r\n\r\n", 1)
+        assert b"Content-Type: application/json; charset=utf-8" in head
+        payload = json.loads(body)
+        assert payload == {"ok": False, "code": "forbidden", "error": t("api.forbidden")}
+
+    def test_api_not_found_is_json(self, handler_cls):
+        from clio.i18n import t
+
+        handler = _build_response_handler(handler_cls)
+        handler.path = "/api/missing"
+
+        handler.send_error(HTTPStatus.NOT_FOUND)
+
+        raw = handler.wfile.getvalue()
+        head, body = raw.split(b"\r\n\r\n", 1)
+        assert b"Content-Type: application/json; charset=utf-8" in head
+        payload = json.loads(body)
+        assert payload == {"ok": False, "code": "not_found", "error": t("api.not_found")}
+
+    def test_non_api_not_found_remains_html(self, handler_cls):
+        handler = _build_response_handler(handler_cls)
+        handler.path = "/static/missing.css"
+
+        handler.send_error(HTTPStatus.NOT_FOUND)
+
+        raw = handler.wfile.getvalue()
+        head, _body = raw.split(b"\r\n\r\n", 1)
+        assert b"Content-Type: text/html" in head
+
+
 class TestSecurityHeaders:
     def test_every_response_gets_default_security_headers(self, handler_cls):
         handler = _build_response_handler(handler_cls)
