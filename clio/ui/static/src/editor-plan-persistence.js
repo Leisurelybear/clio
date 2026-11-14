@@ -1,6 +1,7 @@
 /** Plan artifact save, delete, and config persistence actions. */
 
 import { api, apiWithMeta } from './api.js';
+import { confirmDialog } from './confirm.js';
 import { addToast } from './toast.js';
 import {
   artifactIfMatchHeader,
@@ -38,8 +39,8 @@ export function applySavedConfigLanguage(config = state.configGlobal) {
 export async function deletePlanArtifact(day = state.currentDay, options = {}) {
   const label = String(day || '');
   if (!label) return false;
-  const ask = options.confirm || globalThis.confirm;
-  if (!ask(t('plan.delete_plan_confirm', { day: label }))) return false;
+  const ask = options.confirm || confirmDialog;
+  if (!(await ask(t('plan.delete_plan_confirm', { day: label }), { danger: true }))) return false;
   const request = options.api || api;
   try {
     await request('DELETE', `/api/plan?day=${encodeURIComponent(label)}`);
