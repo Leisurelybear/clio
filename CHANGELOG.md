@@ -13,7 +13,9 @@ worker from writing an access log into a pytest capture stream after teardown.
 
 Verification: focused task/notification/SSE/server suite passes 105 tests; full pytest
 passes 3389 tests with 12 skipped; Ruff check/format, mypy over 287 source files,
-`main.py check`, and `git diff --check` pass. Commit: `4865d83`.
+`main.py check`, and `git diff --check` pass. CI run 43586436038 passes all
+13 jobs, including the Ubuntu Python 3.11 job that previously segfaulted and
+both Windows test jobs. Commit: `4865d83`.
 
 ## 2026-11-14
 
