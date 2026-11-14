@@ -19,6 +19,7 @@ from clio.log import format_duration, timed
 from clio.plan_readiness import expand_index_keys
 from clio.processing_state import ProcessingState
 from clio.tasks._helpers import (
+    MediaSelection,
     _eta_line,
     _matches_selected_stem,
     _project_selection_stems,
@@ -339,7 +340,7 @@ def _cut_source_stem(video_path: Path, source: str) -> str:
 
 def _selected_cut_media(
     path: Path,
-    project_selection: set[str] | None,
+    project_selection: MediaSelection | None,
     *,
     artifact: bool = False,
 ) -> bool:
@@ -351,7 +352,7 @@ def _resolve_cut_video_path(
     comp_dir: Path,
     idx: str,
     source: str,
-    project_selection: set[str] | None,
+    project_selection: MediaSelection | None,
 ) -> Path | None:
     if source == "compressed":
         candidates = [
@@ -479,7 +480,7 @@ def _apply_cut_offset(
     video_path: Path,
     ffprobe: str,
     source: str,
-    project_selection: set[str] | None,
+    project_selection: MediaSelection | None,
     start: float,
     end: float,
 ) -> tuple[float, float]:
@@ -520,7 +521,7 @@ def _write_cut_sidecar(
     plan_end: float,
     start: float,
     end: float,
-    project_selection: set[str] | None,
+    project_selection: MediaSelection | None,
 ) -> str:
     matching_texts = [
         path
@@ -553,7 +554,7 @@ def _process_cut_segment(
     cancel_event: threading.Event | None,
     state: ProcessingState,
     tracker: Any | None,
-    project_selection: set[str] | None,
+    project_selection: MediaSelection | None,
     seg: dict,
     segment_number: int,
     total: int,
