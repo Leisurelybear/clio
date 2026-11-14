@@ -278,67 +278,73 @@ def _migrate_one(old_dir: Path, config_path: Path, registry_file: Path) -> tuple
     )
 
 
-def _update_registry(registry_file: Path, old_dir: Path, new_dir: Path, name: str) -> None:
-    reg: dict[str, Any] = {"projects": []}
-    if registry_file.is_file():
-        try:
-            loaded = json.loads(registry_file.read_text(encoding="utf-8"))
-            reg = loaded if isinstance(loaded, dict) else {"projects": []}
-        except (json.JSONDecodeError, OSError, UnicodeDecodeError):
-            reg = {"projects": []}
+def _load_registry(registry_file: Path) -> dict[str, Any]:
+    if not registry_file.is_file():
+        return {"projects": []}
+    try:
+        loaded = json.loads(registry_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+        return {"projects": []}
+    return loaded if isinstance(loaded, dict) else {"projects": []}
 
-    old_s = str(old_dir.resolve())
-    new_s = str(new_dir.resolve())
 
-    def _resolve_entry(entry: Any) -> str:
-        if isinstance(entry, dict):
-            p = entry.get("project_dir") or entry.get("input_dir") or ""
-        else:
-            p = str(entry) if entry else ""
-        if not p:
-            return ""
-        try:
-            return str(Path(p).resolve())
-        except _PATH_RESOLVE_ERRORS:
-            return p
+def _resolve_registry_entry(entry: Any) -> str:
+    if isinstance(entry, dict):
+        path = entry.get("project_dir") or entry.get("input_dir") or ""
+    else:
+        path = str(entry) if entry else ""
+    if not path:
+        return ""
+    try:
+        return str(Path(path).resolve())
+    except _PATH_RESOLVE_ERRORS:
+        return path
 
-    projects: list[str] = []
-    for entry in reg.get("projects", []):
-        resolved = _resolve_entry(entry)
-        if not resolved or resolved in (old_s, new_s):
-            continue
-        if isinstance(entry, dict):
-            projects.append(entry.get("project_dir") or entry.get("input_dir") or resolved)
-        else:
-            projects.append(str(entry))
 
-    if new_s not in {_resolve_entry(p) for p in projects}:
-        projects.append(new_s)
-    projects = [p for p in projects if p]
+def _registry_entry_value(entry: Any, resolved: str) -> str:
+    if isinstance(entry, dict):
+        return entry.get("project_dir") or entry.get("input_dir") or resolved
+    return str(entry)
 
-    last = reg.get("last_project")
-    should_update_last = False
+
+def _should_update_last_project(last: Any, name: str, old_s: str) -> bool:
     if isinstance(last, dict):
         last_dir = last.get("project_dir") or last.get("input_dir")
         if last_dir:
             try:
                 if str(Path(last_dir).resolve()) == old_s:
-                    should_update_last = True
+                    return True
             except _PATH_RESOLVE_ERRORS:
                 pass
-        if last.get("name") == name:
-            should_update_last = True
-    elif isinstance(last, str):
+        return last.get("name") == name
+    if isinstance(last, str):
         if last == name:
-            should_update_last = True
-        else:
-            try:
-                if str(Path(last).resolve()) == old_s:
-                    should_update_last = True
-            except _PATH_RESOLVE_ERRORS:
-                pass
+            return True
+        try:
+            return str(Path(last).resolve()) == old_s
+        except _PATH_RESOLVE_ERRORS:
+            return False
+    return False
 
-    if should_update_last or last is None:
+
+def _update_registry(registry_file: Path, old_dir: Path, new_dir: Path, name: str) -> None:
+    reg = _load_registry(registry_file)
+    old_s = str(old_dir.resolve())
+    new_s = str(new_dir.resolve())
+
+    projects: list[str] = []
+    for entry in reg.get("projects", []):
+        resolved = _resolve_registry_entry(entry)
+        if not resolved or resolved in (old_s, new_s):
+            continue
+        projects.append(_registry_entry_value(entry, resolved))
+
+    if new_s not in {_resolve_registry_entry(p) for p in projects}:
+        projects.append(new_s)
+    projects = [p for p in projects if p]
+
+    last = reg.get("last_project")
+    if _should_update_last_project(last, name, old_s) or last is None:
         last = {"name": name, "project_dir": new_s}
 
     out: dict[str, Any] = {"projects": projects, "last_project": last}
