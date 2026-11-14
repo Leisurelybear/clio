@@ -24,6 +24,7 @@ import {
 import { buildSkippedDiagnostics, renderProcessingState, renderSkippedDiagnosticsHtml, STEP_KEYS, stepShortLabel } from './runner-diagnostics.js';
 
 import { buildRunStageModel, nextIncompleteStage, renderStageBoard, renderCompletionActions } from './runner-stages.js';
+import { resolveRunPhase } from './runner-stage-model.js';
 
 let _lastRunPreview = null;
 let _customRun = false;
@@ -500,6 +501,7 @@ async function startRun(stageSteps) {
       _managedTaskId = r.task_id || r.task?.id || null;
       renderManagedTaskLink();
       _runActive = true;
+      _activePhase = '';
       _runLogs = [];
       _completedSteps = [];
       if ($('run-completion-actions')) $('run-completion-actions').innerHTML = '';
@@ -698,7 +700,7 @@ export async function _handleRunStatus(s) {
     }
     if (s.status === 'running') {
       _runActive = !!s.running;
-      _activePhase = s.phase || '';
+      _activePhase = resolveRunPhase(s.phase, s.steps || _lastRunSteps, _activePhase);
       updateRunGuide();
       const stale = !s.running;
       if (stale) {

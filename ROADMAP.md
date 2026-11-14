@@ -26,6 +26,8 @@ Commit-level evidence and remaining scope limits are recorded in the review repo
 
 ### Run interaction refresh (2026-11-14)
 
+- `[x]` Resolve shared voiceover runtime phases against active task steps (2026-11-15).
+
 - `[x]` Group the eight existing steps into four guided stages, with one-stage next actions.
 - `[x]` Keep custom selections, scope, overwrite confirmations, and detailed estimates available.
 - `[x]` Show live stage progress and retain the Run page after completion with explicit result actions.

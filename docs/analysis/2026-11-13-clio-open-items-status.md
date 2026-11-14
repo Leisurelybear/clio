@@ -8,6 +8,10 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 
 ## Summary
 
+Run interaction follow-up (2026-11-15): planned voiceover now highlights delivery even when
+runtime reports the shared `voiceover` phase. Full custom pipelines retain the transition
+from clip scripts to planned voiceover. Focused runner tests verify both paths.
+
 Follow-up audit (2026-11-14): [recent commits review](2026-11-14-recent-commits-review.md)
 records five additional findings, now fixed: preview/runtime reuse disagreement, stale
 all-day discovery, disabled-transcription stage blocking, missing analysis

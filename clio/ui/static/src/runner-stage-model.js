@@ -10,6 +10,15 @@ export function stageForStep(step) {
   return RUN_STAGES.find(stage => stage.steps.includes(step)) || null;
 }
 
+/** Runtime uses voiceover for both script tasks; disambiguate using task context. */
+export function resolveRunPhase(phase, steps = [], previousPhase = '') {
+  if (phase === 'voiceover' && steps.includes('plan_voiceover')
+    && (!steps.includes('voiceover') || previousPhase === 'plan_voiceover')) {
+    return 'plan_voiceover';
+  }
+  return phase || '';
+}
+
 export function buildRunStageModel({ selectedSteps, preview, activePhase = '', completedSteps = [] }) {
   const selected = new Set(selectedSteps);
   const completed = new Set(completedSteps);

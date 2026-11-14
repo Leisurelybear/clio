@@ -116,6 +116,27 @@ describe('guided run stages', () => {
     expect(document.getElementById('run-progress').textContent).toContain('37%');
     expect(document.getElementById('run-progress').textContent).not.toContain('预计剩余');
   });
+
+  it('keeps delivery highlighted when planned voiceover emits a shared runtime phase', async () => {
+    document.body.innerHTML = '<div id="tab-run"></div>';
+    renderRun();
+    await vi.waitFor(() => expect(document.getElementById('btn-run-start').disabled).toBe(false));
+    for (const phase of ['plan_voiceover', 'voiceover', 'voiceover']) {
+      await _handleRunStatus({ status: 'running', running: true, steps: ['plan_voiceover', 'label'], phase });
+      expect(document.querySelector('[aria-current="step"]').dataset.stage).toBe('voiceover_delivery');
+    }
+  });
+
+  it('distinguishes both voiceover tasks within a custom full pipeline', async () => {
+    document.body.innerHTML = '<div id="tab-run"></div>';
+    renderRun();
+    await vi.waitFor(() => expect(document.getElementById('btn-run-start').disabled).toBe(false));
+    for (const [phase, expected] of [['voiceover', 'plan_alignment'], ['plan', 'plan_alignment'],
+      ['plan_voiceover', 'voiceover_delivery'], ['voiceover', 'voiceover_delivery']]) {
+      await _handleRunStatus({ status: 'running', running: true, steps: allSteps, phase });
+      expect(document.querySelector('[aria-current="step"]').dataset.stage).toBe(expected);
+    }
+  });
 });
 
 
