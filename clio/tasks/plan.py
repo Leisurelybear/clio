@@ -468,6 +468,175 @@ def _collect_plan_clips(
     return clips, skipped_inputs, False
 
 
+def _try_reuse_existing_plan(
+    config: AppConfig,
+    day_label: str,
+    clips: list[dict[str, Any]],
+    out_json: Path,
+    out_md: Path,
+    *,
+    files: list[str] | None,
+    overwrite: bool,
+    task_prompts: dict[str, str] | None,
+    context_override: str | None,
+) -> dict[str, Any] | None:
+    # files= means a selection-scoped plan; never short-circuit with a prior full plan (I1).
+    if files is not None or overwrite or not config.analyze.skip_existing:
+        return None
+    if not (out_json.exists() and out_md.exists()):
+        return None
+    try:
+        existing = json.loads(out_json.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeError):
+        print(t("task.plan.replan_corrupt", {"day": day_label}))
+        return None
+    if not isinstance(existing, dict):
+        print(t("task.plan.replan_corrupt", {"day": day_label}))
+        return None
+    stored = existing.get("_lineage")
+    current = _plan_lineage_fingerprint(
+        config,
+        clips,
+        day_label=day_label,
+        task_prompts=task_prompts,
+        context_override=context_override,
+    )
+    if stored == current:
+        print(t("task.plan.skip_existing", {"day": day_label}))
+        return existing
+    print(t("task.plan.replan_lineage", {"day": day_label}))
+    if stored is None:
+        # Legacy cache without lineage: accept it (best effort) by stamping
+        # a fresh marker so only genuinely-new inputs invalidate it.
+        existing["_lineage"] = current
+        write_json_atomic(out_json, existing)
+        print(t("task.plan.skip_existing", {"day": day_label}))
+        return existing
+    # Mismatched/newer lineage: recompute below.
+    return None
+
+
+def _load_plan_transcripts(config: AppConfig) -> dict[str, dict]:
+    transcripts_map: dict[str, dict] = {}
+    trans_dir = config.transcripts_dir
+    if trans_dir.is_dir() and config.whisper.enabled and config.plan.use_transcripts:
+        project_selection = _project_selection_stems(config)
+        for tf in sorted(trans_dir.glob("*_transcript.json")):
+            if project_selection is not None and not _matches_selected_artifact(tf, project_selection):
+                continue
+            data, error = _read_json_object(tf)
+            if error is not None or data is None:
+                continue
+            identity = load_identity(data)
+            if identity is not None:
+                stem = identity.compressed_stem
+            else:
+                stem = data.get("source_stem", "")
+                if not isinstance(stem, str):
+                    continue
+                if "_" in stem:
+                    stem = stem.split("_", 1)[1]
+                stem = SEGMENT_SUFFIX_RE.sub("", stem)
+            if stem:
+                transcripts_map[stem.lower()] = data
+    if config.plan.use_transcripts and not transcripts_map:
+        print(t("task.plan.transcripts_missing"))
+        print(t("task.plan.transcripts_missing_hint"))
+    return transcripts_map
+
+
+def _build_plan_markdown(plan: dict[str, Any], day_label: str) -> list[str]:
+    lines = [
+        f"# {plan.get('day_title', day_label)}",
+        "",
+        t("plan.md_theme", {"theme": plan.get("theme", "")}),
+        t("plan.md_estimated", {"seconds": plan.get("total_estimated_sec", "")}),
+        "",
+    ]
+    source_inputs = plan.get("source_inputs") or []
+    if source_inputs:
+        lines.append(t("plan.md_source_section"))
+        lines.append("")
+        for entry in source_inputs:
+            idx = entry.get("index", "?")
+            stem = entry.get("source_stem", "")
+            lines.append(f"- `{idx}` {stem}")
+        lines.append("")
+    lines.append(t("plan.md_sequence_section"))
+    for item in plan.get("sequence", []):
+        lines.extend(
+            [
+                f"### {item.get('index', '?')} {item.get('title', '')}",
+                t("plan.md_reason", {"reason": item.get("reason", "")}),
+                t("plan.md_timeline", {"timeline": item.get("use_timeline", "")}),
+                t("plan.md_voiceover", {"hint": item.get("voiceover_hint", "")}),
+                "",
+            ]
+        )
+    lines.extend(
+        [
+            t("plan.md_opening_section"),
+            plan.get("opening_tip", ""),
+            "",
+            t("plan.md_ending_section"),
+            plan.get("ending_tip", ""),
+        ]
+    )
+    return lines
+
+
+def _finalize_plan(
+    config: AppConfig,
+    plan: dict[str, Any],
+    clips: list[dict[str, Any]],
+    out_json: Path,
+    out_md: Path,
+    *,
+    day_label: str,
+    snapped_count: int,
+    protected_overwrite: bool,
+    task_prompts: dict[str, str] | None,
+    context_override: str | None,
+    consistency_report: dict[str, Any] | None,
+    transcripts_map: dict[str, dict],
+    tracker: ProgressReporter | None,
+) -> dict[str, Any]:
+    from clio.plan_model import Plan
+
+    plan_obj = Plan.from_dict(plan)
+    if snapped_count:
+        plan_obj.recalculate_total_estimated_sec()
+    plan = plan_obj.to_dict()
+    plan["source_inputs"] = _source_inputs_from_clips(clips)
+    if config.plan.use_transcripts:
+        plan["_transcripts_missing"] = not transcripts_map
+    plan = add_schema_version(plan)
+    clear_user_edited(plan)
+    plan["_lineage"] = _plan_lineage_fingerprint(
+        config,
+        clips,
+        day_label=day_label,
+        task_prompts=task_prompts,
+        context_override=context_override,
+        consistency_report=consistency_report,
+    )
+    if protected_overwrite:
+        backup_artifacts([out_json, out_md])
+    write_json_atomic(out_json, plan)
+    if tracker:
+        tracker.log(t("task.plan.log_done", {"day": day_label}))
+
+    write_text_atomic(out_md, "\n".join(_build_plan_markdown(plan, day_label)))
+    print(f"  -> {out_md.name}")
+
+    state = ProcessingState(config.paths.output_dir)
+    for clip in clips:
+        source_stem = clip.get("source_stem", "")
+        if source_stem:
+            state.mark(source_stem, "plan", "done")
+    return plan
+
+
 def run_plan_vlog(
     config: AppConfig,
     day_label: str = "day1",
@@ -516,37 +685,19 @@ def run_plan_vlog(
         task_prompts,
         context_override,
     )
-
-    # files= means a selection-scoped plan; never short-circuit with a prior full plan (I1).
-    if files is None and not overwrite and config.analyze.skip_existing and out_json.exists() and out_md.exists():
-        try:
-            existing = json.loads(out_json.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError, UnicodeError):
-            print(t("task.plan.replan_corrupt", {"day": day_label}))
-        else:
-            if not isinstance(existing, dict):
-                print(t("task.plan.replan_corrupt", {"day": day_label}))
-            else:
-                stored = existing.get("_lineage")
-                current = _plan_lineage_fingerprint(
-                    config,
-                    clips,
-                    day_label=day_label,
-                    task_prompts=task_prompts,
-                    context_override=context_override,
-                )
-                if stored == current:
-                    print(t("task.plan.skip_existing", {"day": day_label}))
-                    return existing
-                print(t("task.plan.replan_lineage", {"day": day_label}))
-                if stored is None:
-                    # Legacy cache without lineage: accept it (best effort) by stamping
-                    # a fresh marker so only genuinely-new inputs invalidate it.
-                    existing["_lineage"] = current
-                    write_json_atomic(out_json, existing)
-                    print(t("task.plan.skip_existing", {"day": day_label}))
-                    return existing
-                # Mismatched/newer lineage: recompute below.
+    existing = _try_reuse_existing_plan(
+        config,
+        day_label,
+        clips,
+        out_json,
+        out_md,
+        files=files,
+        overwrite=overwrite,
+        task_prompts=task_prompts,
+        context_override=context_override,
+    )
+    if existing is not None:
+        return existing
 
     protected_overwrite = artifact_requires_overwrite_confirmation(out_json)
     if protected_overwrite and not confirm_artifact_overwrite:
@@ -555,32 +706,7 @@ def run_plan_vlog(
             [out_json, out_md],
         )
 
-    project_selection = _project_selection_stems(config)
-    transcripts_map: dict[str, dict] = {}
-    trans_dir = config.transcripts_dir
-    if trans_dir.is_dir() and config.whisper.enabled and config.plan.use_transcripts:
-        for tf in sorted(trans_dir.glob("*_transcript.json")):
-            if project_selection is not None and not _matches_selected_artifact(tf, project_selection):
-                continue
-            data, error = _read_json_object(tf)
-            if error is not None or data is None:
-                continue
-            identity = load_identity(data)
-            if identity is not None:
-                stem = identity.compressed_stem
-            else:
-                stem = data.get("source_stem", "")
-                if not isinstance(stem, str):
-                    continue
-                if "_" in stem:
-                    stem = stem.split("_", 1)[1]
-                stem = SEGMENT_SUFFIX_RE.sub("", stem)
-            if stem:
-                transcripts_map[stem.lower()] = data
-    if config.plan.use_transcripts and not transcripts_map:
-        print(t("task.plan.transcripts_missing"))
-        print(t("task.plan.transcripts_missing_hint"))
-
+    transcripts_map = _load_plan_transcripts(config)
     plan_clips = build_plan_clips(clips, config)
     timeline_rows = sum(len(clip.get("timeline", [])) for clip in plan_clips)
     projected_chars = len(json.dumps(plan_clips, ensure_ascii=False, separators=(",", ":")))
@@ -615,76 +741,21 @@ def run_plan_vlog(
     snapped_count = snap_plan_ranges(plan, clips, transcripts_map)
     if snapped_count:
         print(t("task.plan.snap_summary", {"count": snapped_count}))
-    from clio.plan_model import Plan
-
-    plan_obj = Plan.from_dict(plan)
-    if snapped_count:
-        plan_obj.recalculate_total_estimated_sec()
-    plan = plan_obj.to_dict()
-    plan["source_inputs"] = _source_inputs_from_clips(clips)
-    if config.plan.use_transcripts:
-        plan["_transcripts_missing"] = not transcripts_map
-    plan = add_schema_version(plan)
-    clear_user_edited(plan)
-    plan["_lineage"] = _plan_lineage_fingerprint(
+    return _finalize_plan(
         config,
+        plan,
         clips,
+        out_json,
+        out_md,
         day_label=day_label,
+        snapped_count=snapped_count,
+        protected_overwrite=protected_overwrite,
         task_prompts=task_prompts,
         context_override=context_override,
         consistency_report=consistency_report,
+        transcripts_map=transcripts_map,
+        tracker=tracker,
     )
-    if protected_overwrite:
-        backup_artifacts([out_json, out_md])
-    write_json_atomic(out_json, plan)
-    if tracker:
-        tracker.log(t("task.plan.log_done", {"day": day_label}))
-
-    lines = [
-        f"# {plan.get('day_title', day_label)}",
-        "",
-        t("plan.md_theme", {"theme": plan.get("theme", "")}),
-        t("plan.md_estimated", {"seconds": plan.get("total_estimated_sec", "")}),
-        "",
-    ]
-    source_inputs = plan.get("source_inputs") or []
-    if source_inputs:
-        lines.append(t("plan.md_source_section"))
-        lines.append("")
-        for entry in source_inputs:
-            idx = entry.get("index", "?")
-            stem = entry.get("source_stem", "")
-            lines.append(f"- `{idx}` {stem}")
-        lines.append("")
-    lines.append(t("plan.md_sequence_section"))
-    for item in plan.get("sequence", []):
-        lines.extend(
-            [
-                f"### {item.get('index', '?')} {item.get('title', '')}",
-                t("plan.md_reason", {"reason": item.get("reason", "")}),
-                t("plan.md_timeline", {"timeline": item.get("use_timeline", "")}),
-                t("plan.md_voiceover", {"hint": item.get("voiceover_hint", "")}),
-                "",
-            ]
-        )
-    lines.extend(
-        [
-            t("plan.md_opening_section"),
-            plan.get("opening_tip", ""),
-            "",
-            t("plan.md_ending_section"),
-            plan.get("ending_tip", ""),
-        ]
-    )
-    write_text_atomic(out_md, "\n".join(lines))
-    print(f"  -> {out_md.name}")
-
-    state = ProcessingState(config.paths.output_dir)
-    for clip in clips:
-        source_stem = clip.get("source_stem", "")
-        if source_stem:
-            state.mark(source_stem, "plan", "done")
-    return plan
 
 
 def run_plan_all_days(
