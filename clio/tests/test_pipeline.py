@@ -524,3 +524,20 @@ def test_all_days_discovers_outputs_created_by_prior_steps(tmp_path: Path):
         ("plan_voiceover", "day1"),
         ("plan_voiceover", "day2"),
     ]
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_pipeline_forwards_transcript_option_only_to_analysis(tmp_path: Path, enabled: bool):
+    from clio.tests.test_run_preview import _config
+
+    config = _config(tmp_path, tmp_path / "output")
+    config.plan.use_transcripts = enabled
+    analyze = MagicMock(return_value=[])
+    other = MagicMock(return_value=None)
+    with (
+        patch("clio.pipeline.auto_reindex_if_needed"),
+        patch("clio.pipeline._STEP_FUNCS", {"analyze": analyze, "voiceover": other}),
+    ):
+        run_pipeline_steps(config, steps=["analyze", "voiceover"], tracker=MagicMock())
+    assert analyze.call_args.kwargs["use_transcripts"] is enabled
+    assert "use_transcripts" not in other.call_args.kwargs

@@ -164,3 +164,7 @@ markers. Focused verification: 156 pytest passed; Ruff passed.
 Follow-up fix 2: all-day execution discovers current analysis days immediately before
 each day-scoped step. A production discovery regression creates two days during the
 analysis callback and verifies both downstream day steps execute. Pipeline: 19 passed.
+
+Follow-up fix 3: pipeline analysis receives the effective transcript option explicitly.
+Both enabled and disabled values are covered; unrelated steps do not receive the
+argument. Focused pipeline, route, and analysis verification: 168 passed.

@@ -17,7 +17,7 @@ Evidence and reproductions: [recent commits review](docs/analysis/2026-11-14-rec
 - `[x]` Share cache-reuse predicates between guided previews and runtime execution.
 - `[x]` Rediscover day labels after analysis before each all-day scoped step.
 - `[ ]` Allow disabled optional transcription without blocking guided progression.
-- `[ ]` Forward the effective transcript option to pipeline analysis.
+- `[x]` Forward the effective transcript option to pipeline analysis.
 - `[ ]` Preserve a locally valid planning draft when optional review fails.
 
 ### Run interaction refresh (2026-11-14)

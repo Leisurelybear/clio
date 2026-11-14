@@ -220,6 +220,8 @@ def run_pipeline_steps(
                     context_override=context_override,
                     task_prompts=task_prompts,
                 )
+                if step == "analyze":
+                    kwargs["use_transcripts"] = config.plan.use_transcripts
                 result = _run_step(
                     step,
                     config,
