@@ -12,7 +12,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P1 | 35 | 20 | 15 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P2 | 59 | 22 | 23 | 0 | 0 | 0 | 0 | 0 | 14 |
+| P2 | 59 | 23 | 23 | 0 | 0 | 0 | 0 | 0 | 13 |
 | P3 | 14 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 10 |
 
 ## Item status
@@ -106,7 +106,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 085 | P2 | OPT-004 | 长视频按窗口切片后逐片上传 (clio/tasks/analyze.py:358-381), N 个窗口上传 N 次, 切片带关键帧预卷 (C10) | Fixed | `a73a7ec` uploads the original compressed video once and reuses the remote file across windows and validation/truncation retries, keyed by path/size/mtime and released after one clip session. Gemini windows use `VideoMetadata` offsets/fps rather than creating pre-rolled slice files. Focused: 275 analyzer/provider tests passed. |
 | 086 | P2 | OPT-005 | 不设 media_resolution 与 fps (clio/ai/gemini.py:337-348)。官方文档: 每帧 258 token (低分辨率 66), 音频 32 token/秒, 1 fps 采样 | Satisfied | Existing window analysis sends `media_resolution` from `config.analyze.media_resolution` (default `medium`, validated as low/medium/high) and `VideoMetadata.fps=3` for every window. Gemini maps the resolution to `GenerateContentConfig.media_resolution`; tests assert both values reach the request. Config/docs expose the tuning knobs. Focused: 116 Gemini/window tests passed. |
 | 087 | P2 | OPT-008 | 口播在规划前按整段素材生成 (Q12), 不知道最终用了哪几秒 | Satisfied | Existing `plan_voiceover` pipeline step runs after planning and generates per-segment voiceover from the selected `use_timeline`, aligned transcript slices, and adjacent-segment context. It writes `scripts/<day>_plan_voiceover.json/.md` and participates in preview, overwrite confirmation, and backup handling. Focused: 74 plan-voiceover/preview tests passed. |
-| 088 | P2 | OPT-009 | analyze.use_gpmf 默认 false; 分天用 UTC 日期 (E5) | Pending audit |  |
+| 088 | P2 | OPT-009 | analyze.use_gpmf 默认 false; 分天用 UTC 日期 (E5) | Fixed | `56b9c02` defaults `analyze.use_gpmf` to true, localizes aware capture timestamps before day grouping and planning input, and keeps naive/unknown values unchanged. Focused: 326 pytest cases passed; Ruff, `main.py check`, locale JSON parse, and `git diff --check` passed. |
 | 089 | P2 | OPT-013 | 校验重试与截断重试都会重新上传视频 (clio/analyze.py:855-886、clio/ai/gemini.py:287-356) | Fixed | `a73a7ec` separates upload from generation for cached window calls. Truncation retries already reused the uploaded file; validation retries now reuse it too because window analysis passes `reuse_upload=True` and the provider retains the remote file until the clip session ends. Focused: 275 analyzer/provider tests passed. |
 | 090 | P2 | OPT-014 | analyze.max_workers 默认 1, 20 段素材串行 | Pending audit |  |
 | 091 | P2 | OPT-015 | SSE 每个连接每 250 ms 查询一次 SQLite (clio/ui/routes/tasks.py:146-167), 每个标签页 2 条流 | Pending audit |  |
