@@ -12,7 +12,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P1 | 35 | 20 | 15 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P2 | 59 | 28 | 26 | 0 | 0 | 0 | 0 | 0 | 5 |
+| P2 | 59 | 28 | 27 | 0 | 0 | 0 | 0 | 0 | 4 |
 | P3 | 14 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 10 |
 
 ## Item status
@@ -115,7 +115,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 094 | P2 | OPT-019 | mypy 全量 470 个错误。非测试代码 82 个, 集中在 tasks/plan.py (16)、ui/routes/videos.py (13) | Fixed | Latest full mypy passes with no issues across 287 source files. `ba7a467` aligns cut selection annotations, `2b044d0` aligns Gemini image content typing with the SDK, and `ad7cacb` resolves the remaining test-side errors. Focused: 98 cut, 72 Gemini, and 123 affected-test cases passed; Ruff and diff check passed. |
 | 095 | P2 | OPT-020 | ruff 只开 E/F/I/W/UP; 非测试代码有 172 处 except Exception | Satisfied | `BLE001` is enabled and `ruff check clio main.py --select BLE001 --output-format concise` passes. No bare `except Exception: pass` remains; the remaining broad handlers either re-raise or carry an explicit `noqa: BLE001` rationale. The full `S` family is intentionally not enabled in this item because it reports 6110 pre-existing warnings, mostly pytest `S101`; that requires a separate security-lint migration. |
 | 096 | P2 | OPT-021 | clio/config/models.py 末尾保留 4 个标注为过渡用途的旧 dataclass; _plan_index_key 的逻辑在 analyze.py 里另有两处内联副本 (731-734, 743-746) | Fixed | Deprecated merged config dataclasses and package exports were removed; `_parse_whisper` and tests now use the split project/global models. Both inline plan-index normalizers call `_plan_index_key`. Focused: 325 config, transcription, and analysis tests passed; Ruff and diff check passed. |
-| 097 | P2 | OPT-024 | 步骤函数返回值各不相同 (list / int / dict / None), pipeline.py:126-130 靠类型猜结果, failed 恒为 0 | Pending audit |  |
+| 097 | P2 | OPT-024 | 步骤函数返回值各不相同 (list / int / dict / None), pipeline.py:126-130 靠类型猜结果, failed 恒为 0 | Satisfied | `_record_step_result` is now the documented step-result adapter: a non-zero `int` is a step exit code (`transcribe`), a `list` subclass reports its processed count, and `AnalyzeResult.failed` feeds `error_count` and strict-mode aborts. Partial voiceover failures already raise `task.scripts.incomplete`. `test_pipeline.py` covers failure propagation and strict short-circuiting; `test_e2e_ffmpeg_smoke.py` pins the summary shape. Full `StepResult` unification was not applied because these return values are public CLI/UI contracts. |
 | 098 | P2 | OPT-025 | 配置升级靠"缺字段就写默认值" (R009) | Satisfied | The referenced `__upgrade_config_file` no longer exists. `clio/config/loader.py::_migrate_if_needed` now gates migration on `config_version` and delegates V1 to the explicit `_migrate_v1_to_v2` split (backup, global/project filtering, per-project rewrite), covered by `clio/tests/test_config_v2.py`. Newly added fields continue to use dataclass defaults, which is the intended backward-compatible schema behavior. |
 | 099 | P2 | OPT-026 | 34 处 confirm() 与 1 处 alert(); pywebview 下原生弹窗样式与行为不一致 | Pending audit |  |
 | 100 | P2 | OPT-027 | 分析失败时统一提示"请检查 API Key 和网络连接" (task.analyze.incomplete), 即使原因是 JSON 结构或安全拦截 | Fixed | `analyze` now records per-video failure details and appends them to the strict `task.analyze.incomplete` error via `task.analyze.incomplete_reasons` (truncated to five entries). Focused: 84 analysis/i18n tests passed; Ruff and mypy clean. |
