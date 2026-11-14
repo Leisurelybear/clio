@@ -977,7 +977,7 @@ def _plan_voiceover_step(
     planned_labels = []
     for scoped_day in day_labels:
         safe_day = plan_day_stem(scoped_day)
-        if _valid_json_file(config.plans_dir / f"{safe_day}_plan.json"):
+        if _valid_plan_object(config.plans_dir / f"{safe_day}_plan.json"):
             planned_labels.append(scoped_day)
     if not planned_labels:
         return _warning_step("plan_voiceover", t("api.preview_missing_plan_voiceover_plan"))
@@ -1119,6 +1119,13 @@ def _valid_json_file(path: Path) -> bool:
     except (json.JSONDecodeError, OSError):
         return False
     return True
+
+
+def _valid_plan_object(path: Path) -> bool:
+    try:
+        return isinstance(json.loads(path.read_text(encoding="utf-8")), dict)
+    except (OSError, UnicodeError, ValueError):
+        return False
 
 
 def _plan_sequence_length(path: Path) -> int:

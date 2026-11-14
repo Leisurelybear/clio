@@ -1927,3 +1927,13 @@ def test_preview_cache_matches_runtime_lineage_and_is_read_only(tmp_path: Path, 
     forced = build_run_preview(config, [step], force=False, use_transcripts=True)
     assert forced["steps"][0]["will_run"] == 1
     assert before == {p: p.read_bytes() for p in config.paths.output_dir.rglob("*") if p.is_file()}
+
+
+@pytest.mark.parametrize("payload", ["[]", "null", "123"])
+def test_plan_voiceover_preview_rejects_non_object_plan(tmp_path: Path, payload: str):
+    config = _config(tmp_path, tmp_path / "output")
+    _prepare_plan_voiceover_preview(config)
+    (config.plans_dir / "day1_plan.json").write_text(payload, encoding="utf-8")
+    step = build_run_preview(config, ["plan_voiceover"], force=False, use_transcripts=True)["steps"][0]
+    assert step["will_run"] == 0
+    assert step["warnings"]

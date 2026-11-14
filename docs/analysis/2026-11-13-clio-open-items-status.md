@@ -177,3 +177,6 @@ execution skips disabled transcription. Focused: 89 pytest and 69 runner Vitest 
 Follow-up fix 5: failed optional review or exhausted invalid corrections fall back
 to the locally valid draft. Invalid drafts still fail; InterruptedError and a set
 cancellation event propagate. Focused planning verification: 130 passed.
+
+Cache-preview hardening: non-object plan JSON is treated as missing input instead
+of raising during lineage calculation. Preview regressions: 70 passed.
