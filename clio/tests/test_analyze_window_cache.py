@@ -199,6 +199,7 @@ def test_failed_window_run_resumes_from_cache(monkeypatch, tmp_path: Path) -> No
                 kwargs["video_end_sec"],
                 kwargs["video_fps"],
                 kwargs["media_resolution"],
+                kwargs.get("reuse_upload"),
             )
         )
         if len(analyze_calls) >= 2:
@@ -223,6 +224,7 @@ def test_failed_window_run_resumes_from_cache(monkeypatch, tmp_path: Path) -> No
                 kwargs["video_end_sec"],
                 kwargs["video_fps"],
                 kwargs["media_resolution"],
+                kwargs.get("reuse_upload"),
             )
         )
         return {
@@ -238,8 +240,8 @@ def test_failed_window_run_resumes_from_cache(monkeypatch, tmp_path: Path) -> No
 
     assert len(records) == 1
     assert analyze_calls == [
-        (str(compressed), 880.0, 1780.0, 3.0, "medium"),
-        (str(compressed), 1760.0, 2400.0, 3.0, "medium"),
+        (str(compressed), 880.0, 1780.0, 3.0, "medium", True),
+        (str(compressed), 1760.0, 2400.0, 3.0, "medium", True),
     ]
     assert len(summarize_calls) == 1
     assert not list(cache.glob("*.json"))

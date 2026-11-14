@@ -131,6 +131,8 @@ class GeminiProvider:
         self._retry_attempts = max(1, cfg.retry_attempts + 1)
         self._max_tokens = int(cfg.max_tokens)
         self._video_upload_max_mb = int(cfg.video_upload_max_mb)
+        self._video_upload_lock = threading.Lock()
+        self._video_uploads: dict[str, tuple[int, int, types.File]] = {}
         self._generation_config = (
             types.GenerateContentConfig(max_output_tokens=self._max_tokens) if self._max_tokens > 0 else None
         )
@@ -305,9 +307,56 @@ class GeminiProvider:
         return uploaded
 
     def close(self) -> None:
+        with self._video_upload_lock:
+            cached = list(self._video_uploads.values())
+            self._video_uploads.clear()
+        for _, _, uploaded in cached:
+            self._delete_upload(uploaded)
         if self._client is not None:
             with contextlib.suppress(Exception):  # SDK client cleanup is best effort
                 self._client.close()
+
+    def _delete_upload(self, uploaded: types.File) -> None:
+        name = getattr(uploaded, "name", None)
+        if name:
+            with contextlib.suppress(Exception):  # remote cleanup must not mask the result
+                self._client.files.delete(name=name)
+
+    @staticmethod
+    def _video_upload_key(path: Path) -> tuple[str, int, int] | None:
+        try:
+            stat = path.stat()
+        except OSError:
+            return None
+        return (str(path.resolve()), stat.st_size, stat.st_mtime_ns)
+
+    def _cached_upload(self, key: tuple[str, int, int]) -> types.File | None:
+        path_key, size, mtime_ns = key
+        with self._video_upload_lock:
+            entry = self._video_uploads.get(path_key)
+            if entry is None:
+                return None
+            if entry[0] == size and entry[1] == mtime_ns:
+                return entry[2]
+            stale = self._video_uploads.pop(path_key)
+        self._delete_upload(stale[2])
+        return None
+
+    def _store_upload(self, key: tuple[str, int, int], uploaded: types.File) -> None:
+        path_key, size, mtime_ns = key
+        with self._video_upload_lock:
+            stale = self._video_uploads.get(path_key)
+            self._video_uploads[path_key] = (size, mtime_ns, uploaded)
+        if stale is not None and stale[2] is not uploaded:
+            self._delete_upload(stale[2])
+
+    def release_video_upload(self, video_path: str) -> None:
+        """Delete a cached remote upload for one local video."""
+        path_key = str(Path(video_path).resolve())
+        with self._video_upload_lock:
+            entry = self._video_uploads.pop(path_key, None)
+        if entry is not None:
+            self._delete_upload(entry[2])
 
     def generate_text(
         self,
@@ -379,6 +428,7 @@ class GeminiProvider:
         video_end_sec: float | None = None,
         video_fps: float | None = None,
         media_resolution: str | None = None,
+        reuse_upload: bool = False,
     ) -> AIResponse:
         if (video_start_sec is None) != (video_end_sec is None):
             raise ValueError("video_start_sec and video_end_sec must be provided together")
@@ -387,9 +437,8 @@ class GeminiProvider:
         if video_start_sec is not None and video_end_sec is not None and video_end_sec < video_start_sec:
             raise ValueError("video_end_sec must be greater than or equal to video_start_sec")
         uploaded = None
+        keep_upload = False
         try:
-            if progress_callback:
-                progress_callback(t("ai.progress_uploading"))
             # 用二进制流避免 google-genai 2.8.0 的 bug：
             # 非 ASCII 文件名会作为 HTTP header 值发送，导致
             # UnicodeEncodeError: 'ascii' codec can't encode character
@@ -406,32 +455,42 @@ class GeminiProvider:
                     )
                 )
             mime_type, _ = mimetypes.guess_type(str(p))
+            cache_key = self._video_upload_key(p) if reuse_upload else None
+            if cache_key is not None:
+                uploaded = self._cached_upload(cache_key)
+                keep_upload = uploaded is not None
+            if uploaded is None:
+                if progress_callback:
+                    progress_callback(t("ai.progress_uploading"))
 
-            def _upload():
-                if cancel_event and cancel_event.is_set():
-                    raise RuntimeError(t("ai.video_analysis_cancelled"))
-                wait_for_rate_limit(self._rl, cancel_event, what=self.provider_id)
-                with open(video_path, "rb") as f:
-                    return self._client.files.upload(
-                        file=f,
-                        config=types.UploadFileConfig(mime_type=mime_type or "video/mp4"),
-                    )
+                def _upload():
+                    if cancel_event and cancel_event.is_set():
+                        raise RuntimeError(t("ai.video_analysis_cancelled"))
+                    wait_for_rate_limit(self._rl, cancel_event, what=self.provider_id)
+                    with open(video_path, "rb") as f:
+                        return self._client.files.upload(
+                            file=f,
+                            config=types.UploadFileConfig(mime_type=mime_type or "video/mp4"),
+                        )
 
-            uploaded = with_retry(
-                _upload,
-                attempts=self._retry_attempts,
-                base_delay=2.0,
-                max_delay=60.0,
-                retry_on=self._retryable_types(),
-                what=t("ai.retry_what_upload"),
-                should_retry=self._is_retryable,
-                delay_for=retry_after_seconds,
-                cancel_event=cancel_event,
-            )
-            if progress_callback:
-                progress_callback(t("ai.progress_waiting"))
-            # Pass cancel_event to _wait_for_file
-            uploaded = self._wait_for_file(uploaded, on_progress=progress_callback, cancel_event=cancel_event)
+                uploaded = with_retry(
+                    _upload,
+                    attempts=self._retry_attempts,
+                    base_delay=2.0,
+                    max_delay=60.0,
+                    retry_on=self._retryable_types(),
+                    what=t("ai.retry_what_upload"),
+                    should_retry=self._is_retryable,
+                    delay_for=retry_after_seconds,
+                    cancel_event=cancel_event,
+                )
+                if progress_callback:
+                    progress_callback(t("ai.progress_waiting"))
+                # Pass cancel_event to _wait_for_file
+                uploaded = self._wait_for_file(uploaded, on_progress=progress_callback, cancel_event=cancel_event)
+                if cache_key is not None:
+                    self._store_upload(cache_key, uploaded)
+                    keep_upload = True
 
             if progress_callback:
                 progress_callback(t("ai.progress_analyzing"))
@@ -488,6 +547,5 @@ class GeminiProvider:
                 block_reason=second.block_reason,
             )
         finally:
-            if uploaded is not None and uploaded.name is not None:
-                with contextlib.suppress(Exception):  # remote cleanup must not mask the analysis result
-                    self._client.files.delete(name=uploaded.name)
+            if uploaded is not None and not keep_upload:
+                self._delete_upload(uploaded)

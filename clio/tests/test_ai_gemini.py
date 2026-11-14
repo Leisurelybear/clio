@@ -735,6 +735,75 @@ class TestAnalyzeVideo:
         assert "上一次输出因长度限制被截断" in second_call.kwargs["contents"][-1]
         self._client_mock.files.delete.assert_called_once_with(name="files/test123")
 
+    def test_reused_upload_is_shared_across_window_calls_and_released(self):
+        from google.genai import types
+
+        uploaded = MagicMock(spec=types.File)
+        uploaded.name = "files/test123"
+        uploaded.uri = "https://example.test/files/test123"
+        uploaded.state = types.FileState.ACTIVE
+        self._client_mock.files.upload.return_value = uploaded
+        self._client_mock.files.get.return_value = uploaded
+        self._client_mock.models.generate_content.return_value = MagicMock(text="ok", usage_metadata=None)
+
+        self._prov.analyze_video(
+            str(self._video),
+            "window one",
+            "gemini-2.5-flash",
+            video_start_sec=0,
+            video_end_sec=10,
+            video_fps=3,
+            reuse_upload=True,
+        )
+        self._prov.analyze_video(
+            str(self._video),
+            "window two",
+            "gemini-2.5-flash",
+            video_start_sec=10,
+            video_end_sec=20,
+            video_fps=3,
+            reuse_upload=True,
+        )
+
+        self._client_mock.files.upload.assert_called_once()
+        self._client_mock.files.delete.assert_not_called()
+        self._prov.release_video_upload(str(self._video))
+        self._client_mock.files.delete.assert_called_once_with(name="files/test123")
+
+    def test_reused_upload_is_invalidated_when_file_changes(self):
+        from google.genai import types
+
+        uploaded = MagicMock(spec=types.File)
+        uploaded.name = "files/test123"
+        uploaded.uri = "https://example.test/files/test123"
+        uploaded.state = types.FileState.ACTIVE
+        self._client_mock.files.upload.return_value = uploaded
+        self._client_mock.files.get.return_value = uploaded
+        self._client_mock.models.generate_content.return_value = MagicMock(text="ok", usage_metadata=None)
+
+        self._prov.analyze_video(
+            str(self._video),
+            "first",
+            "gemini-2.5-flash",
+            video_start_sec=0,
+            video_end_sec=10,
+            video_fps=3,
+            reuse_upload=True,
+        )
+        self._video.write_bytes(b"" * 2048)
+        self._prov.analyze_video(
+            str(self._video),
+            "second",
+            "gemini-2.5-flash",
+            video_start_sec=0,
+            video_end_sec=10,
+            video_fps=3,
+            reuse_upload=True,
+        )
+
+        assert self._client_mock.files.upload.call_count == 2
+        self._client_mock.files.delete.assert_called_once_with(name="files/test123")
+
     def test_video_metadata_and_media_resolution_are_sent(self):
         from google.genai import types
 

@@ -1132,6 +1132,7 @@ def analyze_video(
     video_fps: float | None = None,
     media_resolution: str | None = None,
     scene_boundaries: Sequence[float] | None = None,
+    reuse_upload: bool = False,
 ) -> dict:
     provider, model = get_video_provider(config, TaskName.VIDEO_ANALYZE)
     base = resolve_prompt_template("video_analyze", ANALYZE_PROMPT, config, task_prompts=task_prompts)
@@ -1165,6 +1166,7 @@ def analyze_video(
                 video_end_sec=video_end_sec,
                 video_fps=video_fps,
                 media_resolution=media_resolution,
+                reuse_upload=reuse_upload,
             ),
             debug_print=config.ai.debug_print_prompt,
             token_store=token_store,
@@ -1189,6 +1191,17 @@ def analyze_video(
             analysis=True,
         )
         return align_shots_to_boundaries(result, scene_boundaries or [])
+
+
+def release_video_upload(config: AppConfig, video_path: str) -> None:
+    """Release a cached remote upload after one video's analysis session."""
+    try:
+        provider, _ = get_video_provider(config, TaskName.VIDEO_ANALYZE)
+    except Exception:  # noqa: BLE001 - upload cleanup is best effort and must not mask analysis
+        return
+    release = getattr(provider, "release_video_upload", None)
+    if callable(release):
+        release(video_path)
 
 
 def generate_voiceover(

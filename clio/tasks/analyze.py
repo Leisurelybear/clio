@@ -17,7 +17,12 @@ from typing import Any, TypedDict
 
 from clio._constants import VIDEO_EXTS
 from clio.ai.token_usage import FileTokenUsageStore
-from clio.analyze import _prompt_context_parts, analyze_video, summarize_window_analysis
+from clio.analyze import (
+    _prompt_context_parts,
+    analyze_video,
+    release_video_upload,
+    summarize_window_analysis,
+)
 from clio.analyze_windows import (
     AnalyzeWindow,
     build_analyze_windows,
@@ -691,6 +696,7 @@ def _analyze_with_optional_windows(
                 video_fps=fps,
                 media_resolution=getattr(config.analyze, "media_resolution", "medium"),
                 scene_boundaries=window_boundaries,
+                reuse_upload=True,
             )
         except Exception as exc:
             if cancel_event is not None and cancel_event.is_set():
@@ -997,6 +1003,8 @@ def _process_video_item(
             tracker.next(message=t("task.analyze.fail_message", {"name": compressed.name}))
             tracker.log(t("task.analyze.fail_log", {"name": compressed.name, "detail": e}))
         return None
+    finally:
+        release_video_upload(config, str(compressed))
 
     analysis["index"] = idx_val
     analysis["source_file"] = original.name

@@ -138,6 +138,7 @@ class VideoAIProvider(TextAIProvider, Protocol):
         video_end_sec: float | None = None,
         video_fps: float | None = None,
         media_resolution: str | None = None,
+        reuse_upload: bool = False,
     ) -> AIResponse: ...
 
 
