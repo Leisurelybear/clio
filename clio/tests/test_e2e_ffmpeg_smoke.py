@@ -82,20 +82,22 @@ class _FakeVideoProvider:
 def test_real_ffmpeg_compresses_and_analyzes_with_fake_provider(
     tmp_config: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    ffmpeg = discover_ffmpeg_bin("ffmpeg")
-    ffprobe = discover_ffmpeg_bin("ffprobe")
-    if not ffmpeg or not ffprobe:
+    ffmpeg_path = discover_ffmpeg_bin("ffmpeg")
+    ffprobe_path = discover_ffmpeg_bin("ffprobe")
+    if not ffmpeg_path or not ffprobe_path:
         if os.environ.get("CLIO_REQUIRE_FFMPEG_E2E") == "1":
             pytest.fail("ffmpeg/ffprobe are required for the CI end-to-end smoke test")
         pytest.skip("ffmpeg/ffprobe are not installed")
 
+    assert ffmpeg_path is not None
+    assert ffprobe_path is not None
     raw = tmp_config / "raw" / "20261113_120000.mp4"
-    _make_video(ffmpeg, raw)
+    _make_video(ffmpeg_path, raw)
     save_selected_videos(tmp_config, [raw])
 
     config = load_config(tmp_config / "config.yaml", project_dir=tmp_config)
-    config.paths._global.ffmpeg = ffmpeg
-    config.paths._global.ffprobe = ffprobe
+    config.paths._global.ffmpeg = ffmpeg_path
+    config.paths._global.ffprobe = ffprobe_path
     config.analyze.skip_existing = False
     config.analyze.max_workers = 1
     provider = _FakeVideoProvider()
