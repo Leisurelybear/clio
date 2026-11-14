@@ -268,16 +268,7 @@ def run_generate_scripts(
     state = ProcessingState(config.paths.output_dir)
     template = _load_script_template(config)
 
-    input_files = [single_file] if single_file else sorted(config.texts_dir.glob("*.json"))
-    selected: MediaSelection | None
-    if files is not None:
-        selected = _selection_from_files(files)
-    elif single_file is None:
-        selected = _project_selection_stems(config)
-    else:
-        selected = None
-    if selected is not None:
-        input_files = [f for f in input_files if _matches_selected_artifact(f, selected)]
+    input_files = _resolve_script_input_files(config, single_file, files)
     if not input_files:
         return
     risky_artifacts = voiceover_artifact_overwrite_required(
@@ -303,96 +294,170 @@ def run_generate_scripts(
         )
 
     max_workers = config.analyze.max_workers
-    failures = 0
     with timed(t("task.scripts.timed_label", {"count": len(input_files), "workers": max_workers})):
         if max_workers <= 1:
-            sequential_error_count = 0
-            for json_file in input_files:
-                if cancel_event and cancel_event.is_set():
-                    print(t("task.scripts.cancelled"))
-                    break
-                json_file = Path(json_file)
-                print(t("task.scripts.start", {"name": json_file.stem}))
-                t0 = time.monotonic()
-                try:
-                    result = _process_one_script(
-                        json_file,
-                        config,
-                        template,
-                        token_store,
-                        cancel_event,
-                        overwrite,
-                        state,
-                        tracker,
-                        context_override,
-                        task_prompts,
-                        confirm_artifact_overwrite,
-                    )
-                except Exception as e:  # noqa: BLE001 - isolate one failed script without aborting the batch
-                    print(t("task.scripts.error", {"name": json_file.stem, "detail": e}))
-                    sequential_error_count += 1
-                    continue
-                elapsed = time.monotonic() - t0
+            failures = _run_scripts_sequential(
+                input_files,
+                config=config,
+                template=template,
+                token_store=token_store,
+                state=state,
+                tracker=tracker,
+                cancel_event=cancel_event,
+                overwrite=overwrite,
+                context_override=context_override,
+                task_prompts=task_prompts,
+                confirm_artifact_overwrite=confirm_artifact_overwrite,
+            )
+        else:
+            failures = _run_scripts_parallel(
+                input_files,
+                max_workers=max_workers,
+                config=config,
+                template=template,
+                token_store=token_store,
+                state=state,
+                tracker=tracker,
+                cancel_event=cancel_event,
+                overwrite=overwrite,
+                context_override=context_override,
+                task_prompts=task_prompts,
+                confirm_artifact_overwrite=confirm_artifact_overwrite,
+            )
+    if failures:
+        raise RuntimeError(t("task.scripts.incomplete", {"count": failures}))
+
+
+def _resolve_script_input_files(
+    config: AppConfig,
+    single_file: Path | None,
+    files: list[str] | None,
+) -> list[Path]:
+    input_files = [Path(single_file)] if single_file else sorted(config.texts_dir.glob("*.json"))
+    selected: MediaSelection | None
+    if files is not None:
+        selected = _selection_from_files(files)
+    elif single_file is None:
+        selected = _project_selection_stems(config)
+    else:
+        selected = None
+    if selected is not None:
+        input_files = [f for f in input_files if _matches_selected_artifact(f, selected)]
+    return input_files
+
+
+def _run_scripts_sequential(
+    input_files: list[Path],
+    *,
+    config: AppConfig,
+    template: str,
+    token_store: FileTokenUsageStore,
+    state: ProcessingState,
+    tracker: ProgressReporter | None,
+    cancel_event: threading.Event | None,
+    overwrite: bool,
+    context_override: str | None,
+    task_prompts: dict[str, str] | None,
+    confirm_artifact_overwrite: bool,
+) -> int:
+    error_count = 0
+    for json_file in input_files:
+        if cancel_event and cancel_event.is_set():
+            print(t("task.scripts.cancelled"))
+            break
+        print(t("task.scripts.start", {"name": json_file.stem}))
+        t0 = time.monotonic()
+        try:
+            result = _process_one_script(
+                json_file,
+                config,
+                template,
+                token_store,
+                cancel_event,
+                overwrite,
+                state,
+                tracker,
+                context_override,
+                task_prompts,
+                confirm_artifact_overwrite,
+            )
+        except Exception as e:  # noqa: BLE001 - isolate one failed script without aborting the batch
+            print(t("task.scripts.error", {"name": json_file.stem, "detail": e}))
+            error_count += 1
+            continue
+        elapsed = time.monotonic() - t0
+        if isinstance(result, str) and result == "cancelled":
+            break
+        if isinstance(result, str):
+            print(t("task.scripts.error", {"name": json_file.stem, "detail": result}))
+            error_count += 1
+        elif result is True:
+            print(f"  ✓ {elapsed:.1f}s")
+    if error_count:
+        print(t("task.scripts.error_summary", {"count": error_count}))
+    return error_count
+
+
+def _run_scripts_parallel(
+    input_files: list[Path],
+    *,
+    max_workers: int,
+    config: AppConfig,
+    template: str,
+    token_store: FileTokenUsageStore,
+    state: ProcessingState,
+    tracker: ProgressReporter | None,
+    cancel_event: threading.Event | None,
+    overwrite: bool,
+    context_override: str | None,
+    task_prompts: dict[str, str] | None,
+    confirm_artifact_overwrite: bool,
+) -> int:
+    error_count = 0
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {}
+        for json_file in input_files:
+            if cancel_event and cancel_event.is_set():
+                print(t("task.scripts.cancel_submit"))
+                break
+            future = pool.submit(
+                _process_one_script,
+                json_file,
+                config,
+                template,
+                token_store,
+                cancel_event,
+                overwrite,
+                state,
+                tracker,
+                context_override,
+                task_prompts,
+                confirm_artifact_overwrite,
+            )
+            futures[future] = json_file
+
+        for future in as_completed(futures):
+            json_file = futures[future]
+            try:
+                result = future.result()
                 if isinstance(result, str) and result == "cancelled":
+                    print(t("task.scripts.cancel_parallel"))
                     break
                 if isinstance(result, str):
                     print(t("task.scripts.error", {"name": json_file.stem, "detail": result}))
-                    sequential_error_count += 1
-                elif result is True:
-                    print(f"  ✓ {elapsed:.1f}s")
-            if sequential_error_count:
-                print(t("task.scripts.error_summary", {"count": sequential_error_count}))
-            failures = sequential_error_count
-        else:
-            parallel_error_count: list[int] = [0]
-            with ThreadPoolExecutor(max_workers=max_workers) as pool:
-                futures = {}
-                for json_file in input_files:
-                    if cancel_event and cancel_event.is_set():
-                        print(t("task.scripts.cancel_submit"))
-                        break
-                    json_file = Path(json_file)
-                    f = pool.submit(
-                        _process_one_script,
-                        json_file,
-                        config,
-                        template,
-                        token_store,
-                        cancel_event,
-                        overwrite,
-                        state,
-                        tracker,
-                        context_override,
-                        task_prompts,
-                        confirm_artifact_overwrite,
-                    )
-                    futures[f] = json_file
+                    error_count += 1
+            except Exception as e:  # noqa: BLE001 - isolate one failed script without aborting the batch
+                print(t("task.scripts.error", {"name": json_file.stem, "detail": e}))
+                error_count += 1
 
-                for future in as_completed(futures):
-                    json_file = futures[future]
-                    try:
-                        result = future.result()
-                        if isinstance(result, str) and result == "cancelled":
-                            print(t("task.scripts.cancel_parallel"))
-                            break
-                        if isinstance(result, str):
-                            print(t("task.scripts.error", {"name": json_file.stem, "detail": result}))
-                            parallel_error_count[0] += 1
-                    except Exception as e:  # noqa: BLE001 - isolate one failed script without aborting the batch
-                        print(t("task.scripts.error", {"name": json_file.stem, "detail": e}))
-                        parallel_error_count[0] += 1
-
-                if cancel_event and cancel_event.is_set():
-                    print(t("task.scripts.cancel_pending"))
-                    for f in futures:
-                        if not f.done():
-                            f.cancel()
-
-            if parallel_error_count[0]:
-                print(t("task.scripts.error_summary", {"count": parallel_error_count[0]}))
-            failures = parallel_error_count[0]
-    if failures:
-        raise RuntimeError(t("task.scripts.incomplete", {"count": failures}))
+        if cancel_event and cancel_event.is_set():
+            print(t("task.scripts.cancel_pending"))
+            for pending in futures:
+                if not pending.done():
+                    pending.cancel()
+    if error_count:
+        print(t("task.scripts.error_summary", {"count": error_count}))
+    return error_count
 
 
 def _plan_voiceover_output_paths(config: AppConfig, day_label: str) -> tuple[Path, Path]:
@@ -583,18 +648,10 @@ def run_generate_plan_voiceovers(
     """Generate one voiceover artifact for every segment in a daily plan."""
     del files, kwargs
     config.scripts_dir.mkdir(parents=True, exist_ok=True)
-    safe_day = plan_day_stem(day_label)
-    plan_json = config.plans_dir / f"{safe_day}_plan.json"
-    out_json, out_md = _plan_voiceover_output_paths(config, day_label)
-    if not plan_json.is_file():
-        print(t("task.plan_voiceover.no_plan", {"day": day_label, "path": plan_json.name}))
+    loaded = _load_plan_voiceover_plan(config, day_label)
+    if loaded is None:
         return None
-    try:
-        plan = json.loads(plan_json.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError, UnicodeError) as exc:
-        raise RuntimeError(t("task.plan_voiceover.plan_unreadable", {"day": day_label, "detail": exc})) from exc
-    if not isinstance(plan, dict):
-        raise RuntimeError(t("task.plan_voiceover.plan_unreadable", {"day": day_label, "detail": "not an object"}))
+    plan, out_json, out_md = loaded
     sequence = plan.get("sequence", [])
     if not isinstance(sequence, list) or not sequence:
         print(t("task.plan_voiceover.no_segments", {"day": day_label}))
@@ -605,26 +662,19 @@ def run_generate_plan_voiceovers(
     current_lineage = _plan_voiceover_lineage_fingerprint(
         config, plan, lineage_inputs, template, task_prompts, context_override
     )
-    source_inputs = plan.get("source_inputs", [])
-    if not isinstance(source_inputs, list):
-        source_inputs = []
-    state_stems = {
-        str(source.get("source_stem") or "").strip()
-        for source in source_inputs
-        if isinstance(source, dict) and str(source.get("source_stem") or "").strip()
-    }
-
-    if not overwrite and config.analyze.skip_existing and out_json.is_file() and out_md.is_file():
-        try:
-            existing = json.loads(out_json.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError, UnicodeError):
-            existing = None
-        if isinstance(existing, dict) and existing.get("_lineage") == current_lineage:
-            state = ProcessingState(config.paths.output_dir)
-            for stem in state_stems:
-                state.mark(stem, "voiceover", "skipped")
-            print(t("task.plan_voiceover.skip_existing", {"day": day_label}))
-            return existing
+    source_inputs = _plan_voiceover_source_inputs(plan)
+    state_stems = _plan_voiceover_state_stems(source_inputs)
+    skipped = _skip_plan_voiceover_if_unchanged(
+        config,
+        day_label,
+        out_json,
+        out_md,
+        current_lineage,
+        state_stems,
+        overwrite=overwrite,
+    )
+    if skipped is not None:
+        return skipped
 
     protected_overwrite = _plan_voiceover_needs_overwrite(
         config,
@@ -642,17 +692,132 @@ def run_generate_plan_voiceovers(
             [path for path in (out_json, out_md) if path.is_file()],
         )
 
-    source_by_index = {_index_key(source.get("index")): source for source in source_inputs if isinstance(source, dict)}
+    source_by_index = {_index_key(source.get("index")): source for source in source_inputs}
+    result_segments = _generate_plan_voiceover_segments(
+        plan,
+        sequence,
+        day_label,
+        config,
+        template,
+        analyses,
+        transcripts,
+        source_by_index,
+        tracker,
+        cancel_event,
+        context_override,
+        task_prompts,
+    )
+    if result_segments is None:
+        return None
+
+    result: dict[str, Any] = {
+        "_schema_version": 2,
+        "_lineage": current_lineage,
+        "day_label": day_label,
+        "segments": result_segments,
+    }
+    if protected_overwrite:
+        backup_artifacts([out_json, out_md])
+    _write_plan_voiceover_artifacts(
+        config,
+        plan,
+        day_label,
+        result,
+        out_json,
+        out_md,
+        state_stems,
+        tracker,
+    )
+    print(f"  -> {out_json.name}")
+    print(f"  -> {out_md.name}")
+    return result
+
+
+def _load_plan_voiceover_plan(
+    config: AppConfig,
+    day_label: str,
+) -> tuple[dict[str, Any], Path, Path] | None:
+    safe_day = plan_day_stem(day_label)
+    plan_json = config.plans_dir / f"{safe_day}_plan.json"
+    out_json, out_md = _plan_voiceover_output_paths(config, day_label)
+    if not plan_json.is_file():
+        print(t("task.plan_voiceover.no_plan", {"day": day_label, "path": plan_json.name}))
+        return None
+    try:
+        plan = json.loads(plan_json.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeError) as exc:
+        raise RuntimeError(t("task.plan_voiceover.plan_unreadable", {"day": day_label, "detail": exc})) from exc
+    if not isinstance(plan, dict):
+        raise RuntimeError(t("task.plan_voiceover.plan_unreadable", {"day": day_label, "detail": "not an object"}))
+    return plan, out_json, out_md
+
+
+def _plan_voiceover_source_inputs(plan: dict[str, Any]) -> list[dict[str, Any]]:
+    source_inputs = plan.get("source_inputs", [])
+    if not isinstance(source_inputs, list):
+        return []
+    return [source for source in source_inputs if isinstance(source, dict)]
+
+
+def _plan_voiceover_state_stems(source_inputs: list[dict[str, Any]]) -> set[str]:
+    stems: set[str] = set()
+    for source in source_inputs:
+        stem = str(source.get("source_stem") or "").strip()
+        if stem:
+            stems.add(stem)
+    return stems
+
+
+def _skip_plan_voiceover_if_unchanged(
+    config: AppConfig,
+    day_label: str,
+    out_json: Path,
+    out_md: Path,
+    current_lineage: str,
+    state_stems: set[str],
+    *,
+    overwrite: bool,
+) -> dict[str, Any] | None:
+    if overwrite or not config.analyze.skip_existing or not (out_json.is_file() and out_md.is_file()):
+        return None
+    try:
+        existing = json.loads(out_json.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeError):
+        return None
+    if not isinstance(existing, dict) or existing.get("_lineage") != current_lineage:
+        return None
+    state = ProcessingState(config.paths.output_dir)
+    for stem in state_stems:
+        state.mark(stem, "voiceover", "skipped")
+    print(t("task.plan_voiceover.skip_existing", {"day": day_label}))
+    return existing
+
+
+def _generate_plan_voiceover_segments(
+    plan: dict[str, Any],
+    sequence: list[Any],
+    day_label: str,
+    config: AppConfig,
+    template: str,
+    analyses: dict[str, dict[str, Any]],
+    transcripts: dict[str, dict[str, Any]],
+    source_by_index: dict[str, dict[str, Any]],
+    tracker: ProgressReporter | None,
+    cancel_event: threading.Event | None,
+    context_override: str | None,
+    task_prompts: dict[str, str] | None,
+) -> list[dict[str, Any]] | None:
     token_store = FileTokenUsageStore(str(config.paths.output_dir))
     result_segments: list[dict[str, Any]] = []
+    total = len(sequence)
     if tracker:
         tracker.update(
             phase="voiceover",
-            total=len(sequence),
+            total=total,
             current=0,
-            message=t("task.plan_voiceover.progress", {"day": day_label, "current": 0, "total": len(sequence)}),
+            message=t("task.plan_voiceover.progress", {"day": day_label, "current": 0, "total": total}),
         )
-    with timed(t("task.plan_voiceover.timed_label", {"day": day_label, "count": len(sequence)})):
+    with timed(t("task.plan_voiceover.timed_label", {"day": day_label, "count": total})):
         for position, planned_segment in enumerate(sequence):
             if cancel_event and cancel_event.is_set():
                 print(t("task.plan_voiceover.cancelled", {"day": day_label}))
@@ -669,33 +834,15 @@ def run_generate_plan_voiceovers(
                     )
                 )
             source = source_by_index.get(key, {})
-            match_stem = str(source.get("match_stem") or "").strip()
-            source_stem = str(source.get("source_stem") or "").strip()
-            transcript = transcripts.get(match_stem.lower()) if match_stem else None
-            if transcript is None and source_stem:
-                transcript = transcripts.get(source_stem.lower())
-            working_clip = dict(clip_data)
-            try:
-                working_clip["segment_offset_sec"] = float(source.get("segment_offset_sec", 0.0) or 0.0)
-            except (TypeError, ValueError):
-                working_clip["segment_offset_sec"] = 0.0
-            if tracker:
-                tracker.update(
-                    phase="voiceover",
-                    total=len(sequence),
-                    current=position,
-                    message=t(
-                        "task.plan_voiceover.progress",
-                        {"day": day_label, "current": position + 1, "total": len(sequence)},
-                    ),
-                )
+            working_clip, transcript = _plan_voiceover_clip_inputs(clip_data, source, transcripts)
+            _update_plan_voiceover_progress(tracker, day_label, position, total)
             print(
                 t(
                     "task.plan_voiceover.start_segment",
                     {
                         "day": day_label,
                         "position": position + 1,
-                        "total": len(sequence),
+                        "total": total,
                         "title": planned_segment.get("title", ""),
                     },
                 )
@@ -719,18 +866,56 @@ def run_generate_plan_voiceovers(
                 tracker.next(
                     message=t(
                         "task.plan_voiceover.segment_done",
-                        {"position": position + 1, "total": len(sequence)},
+                        {"position": position + 1, "total": total},
                     )
                 )
+    return result_segments
 
-    result: dict[str, Any] = {
-        "_schema_version": 2,
-        "_lineage": current_lineage,
-        "day_label": day_label,
-        "segments": result_segments,
-    }
-    if protected_overwrite:
-        backup_artifacts([out_json, out_md])
+
+def _plan_voiceover_clip_inputs(
+    clip_data: dict[str, Any],
+    source: dict[str, Any],
+    transcripts: dict[str, dict[str, Any]],
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    match_stem = str(source.get("match_stem") or "").strip()
+    source_stem = str(source.get("source_stem") or "").strip()
+    transcript = transcripts.get(match_stem.lower()) if match_stem else None
+    if transcript is None and source_stem:
+        transcript = transcripts.get(source_stem.lower())
+    working_clip = dict(clip_data)
+    try:
+        working_clip["segment_offset_sec"] = float(source.get("segment_offset_sec", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        working_clip["segment_offset_sec"] = 0.0
+    return working_clip, transcript
+
+
+def _update_plan_voiceover_progress(
+    tracker: ProgressReporter | None,
+    day_label: str,
+    position: int,
+    total: int,
+) -> None:
+    if not tracker:
+        return
+    tracker.update(
+        phase="voiceover",
+        total=total,
+        current=position,
+        message=t("task.plan_voiceover.progress", {"day": day_label, "current": position + 1, "total": total}),
+    )
+
+
+def _write_plan_voiceover_artifacts(
+    config: AppConfig,
+    plan: dict[str, Any],
+    day_label: str,
+    result: dict[str, Any],
+    out_json: Path,
+    out_md: Path,
+    state_stems: set[str],
+    tracker: ProgressReporter | None,
+) -> None:
     clear_user_edited(result)
     write_json_atomic(out_json, result)
     md_lines = [
@@ -739,7 +924,7 @@ def run_generate_plan_voiceovers(
         t("md.plan_voiceover_theme", {"theme": plan.get("theme", "")}),
         "",
     ]
-    for segment in result_segments:
+    for segment in result.get("segments", []):
         md_lines.extend(
             [
                 f"## {segment.get('position', 0) + 1}. {segment.get('title', '')}",
@@ -755,7 +940,4 @@ def run_generate_plan_voiceovers(
     for stem in state_stems:
         state.mark(stem, "voiceover", "done")
     if tracker:
-        tracker.log(t("task.plan_voiceover.done", {"day": day_label, "count": len(result_segments)}))
-    print(f"  -> {out_json.name}")
-    print(f"  -> {out_md.name}")
-    return result
+        tracker.log(t("task.plan_voiceover.done", {"day": day_label, "count": len(result.get("segments", []))}))
