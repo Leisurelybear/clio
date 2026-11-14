@@ -14,7 +14,12 @@ from clio.cut import parse_time_range
 from clio.i18n import t
 from clio.identity import load_identity
 from clio.plan_model import Plan, PlanIssue
-from clio.tasks._helpers import _matches_selected_artifact, _matches_selected_stem, _project_selection_stems
+from clio.tasks._helpers import (
+    MediaSelection,
+    _matches_selected_artifact,
+    _matches_selected_stem,
+    _project_selection_stems,
+)
 from clio.utils import format_index, get_duration_sec, resolve_binary
 from clio.vmeta import VideoMeta
 
@@ -215,6 +220,257 @@ def collect_project_analysis_timelines(cfg: Any) -> dict[str, list[tuple[float, 
     return {key: _merge_timeline_intervals(intervals) for key, intervals in collected.items()}
 
 
+def _expand_index_set(values: Iterable[Any] | None, index_width: int) -> set[str]:
+    expanded: set[str] = set()
+    if values:
+        for value in values:
+            expanded.update(expand_index_keys(value, index_width=index_width))
+    return expanded
+
+
+def _append_duration_window_warnings(result: ReadinessResult, tes: float) -> None:
+    if tes < 30:
+        result.warnings.append(
+            PlanIssue(
+                level="warning", code="duration_short", message=t("plan.readiness.duration_short", {"seconds": tes})
+            )
+        )
+    if tes > 1800:
+        result.warnings.append(
+            PlanIssue(
+                level="warning", code="duration_long", message=t("plan.readiness.duration_long", {"seconds": tes})
+            )
+        )
+
+
+def _append_source_issues(
+    result: ReadinessResult,
+    position: int,
+    idx: str,
+    *,
+    known: set[str] | None,
+    offline: set[str],
+    source: str,
+    index_width: int,
+) -> None:
+    if not idx:
+        result.errors.append(
+            PlanIssue(
+                level="error",
+                code="index_empty",
+                message=t("plan.readiness.index_empty", {"index": position}),
+                segment_index=position - 1,
+            )
+        )
+        return
+    if known is not None and not index_in_set(idx, known, index_width=index_width):
+        result.errors.append(
+            PlanIssue(
+                level="error",
+                code="index_missing",
+                message=t("plan.readiness.index_missing", {"index": position, "media": idx}),
+                segment_index=position - 1,
+            )
+        )
+        return
+    if not index_in_set(idx, offline, index_width=index_width):
+        return
+    offline_level = "error" if source == "original" else "warning"
+    issue = PlanIssue(
+        level=offline_level,
+        code="video_offline",
+        message=t("plan.readiness.video_offline", {"index": position, "media": idx}),
+        segment_index=position - 1,
+    )
+    if offline_level == "error":
+        result.errors.append(issue)
+    else:
+        result.warnings.append(issue)
+
+
+def _append_source_warning(
+    result: ReadinessResult,
+    reported: set[tuple[str, str]],
+    issue_code: str,
+    media_key: str,
+    issue: PlanIssue,
+) -> None:
+    marker = (issue_code, media_key)
+    if marker in reported:
+        return
+    reported.add(marker)
+    result.warnings.append(issue)
+
+
+def _append_analysis_warnings(
+    result: ReadinessResult,
+    reported: set[tuple[str, str]],
+    *,
+    position: int,
+    idx: str,
+    media_key: str,
+    intervals: list[tuple[float, float]] | None,
+    start: float,
+    end: float,
+    duration: float | None,
+) -> None:
+    segment_index = position - 1
+    if intervals is None:
+        _append_source_warning(
+            result,
+            reported,
+            "analysis_timeline_missing",
+            media_key,
+            PlanIssue(
+                level="warning",
+                code="analysis_timeline_missing",
+                message=t("plan.readiness.analysis_timeline_missing", {"index": position, "media": idx}),
+                segment_index=segment_index,
+            ),
+        )
+        return
+    if not intervals:
+        _append_source_warning(
+            result,
+            reported,
+            "analysis_timeline_empty",
+            media_key,
+            PlanIssue(
+                level="warning",
+                code="analysis_timeline_empty",
+                message=t("plan.readiness.analysis_timeline_empty", {"index": position, "media": idx}),
+                segment_index=segment_index,
+            ),
+        )
+        return
+
+    analysis_end = max(interval_end for _, interval_end in intervals)
+    if duration is not None and analysis_end > duration + 0.05:
+        _append_source_warning(
+            result,
+            reported,
+            "analysis_timeline_out_of_bounds",
+            media_key,
+            PlanIssue(
+                level="warning",
+                code="analysis_timeline_out_of_bounds",
+                message=t(
+                    "plan.readiness.analysis_timeline_out_of_bounds",
+                    {"media": idx, "end": round(analysis_end, 2), "duration": duration},
+                ),
+                segment_index=segment_index,
+            ),
+        )
+    gap = _largest_timeline_gap(intervals)
+    if gap > 60:
+        _append_source_warning(
+            result,
+            reported,
+            "analysis_timeline_gap",
+            media_key,
+            PlanIssue(
+                level="warning",
+                code="analysis_timeline_gap",
+                message=t("plan.readiness.analysis_timeline_gap", {"media": idx, "gap": round(gap, 2)}),
+                segment_index=segment_index,
+            ),
+        )
+    if not _range_covered(intervals, start, end):
+        result.warnings.append(
+            PlanIssue(
+                level="warning",
+                code="timeline_outside_analysis",
+                message=t(
+                    "plan.readiness.timeline_outside_analysis",
+                    {"index": position, "media": idx, "start": round(start, 2), "end": round(end, 2)},
+                ),
+                segment_index=segment_index,
+            )
+        )
+
+
+def _append_overlap_warnings(
+    result: ReadinessResult,
+    ranges: dict[str, list[tuple[int, float, float]]],
+    media_key: str,
+    *,
+    position: int,
+    idx: str,
+    start: float,
+    end: float,
+) -> None:
+    for previous_position, previous_start, previous_end in ranges.get(media_key, []):
+        if start < previous_end - 0.05 and end > previous_start + 0.05:
+            result.warnings.append(
+                PlanIssue(
+                    level="warning",
+                    code="timeline_overlap",
+                    message=t(
+                        "plan.readiness.timeline_overlap",
+                        {"index": position, "previous": previous_position + 1, "media": idx},
+                    ),
+                    segment_index=position - 1,
+                )
+            )
+    ranges.setdefault(media_key, []).append((position - 1, start, end))
+
+
+def _append_text_warnings(result: ReadinessResult, position: int, seg: Any, *, quality_checks: bool) -> None:
+    if not (seg.title or "").strip():
+        result.warnings.append(
+            PlanIssue(
+                level="warning",
+                code="title_empty",
+                message=t("plan.readiness.title_empty", {"index": position}),
+                segment_index=position - 1,
+            )
+        )
+    if not (seg.reason or "").strip():
+        result.warnings.append(
+            PlanIssue(
+                level="warning",
+                code="reason_empty",
+                message=t("plan.readiness.reason_empty", {"index": position}),
+                segment_index=position - 1,
+            )
+        )
+    if quality_checks and not (seg.voiceover_hint or "").strip():
+        result.warnings.append(
+            PlanIssue(
+                level="warning",
+                code="voiceover_hint_empty",
+                message=t("plan.readiness.voiceover_hint_empty", {"index": position}),
+                segment_index=position - 1,
+            )
+        )
+
+
+def _append_duration_mismatch(
+    result: ReadinessResult,
+    *,
+    quality_checks: bool,
+    valid_selected_ranges: int,
+    tes: float,
+    selected_seconds: float,
+) -> None:
+    if not quality_checks or not valid_selected_ranges:
+        return
+    difference = abs(tes - selected_seconds)
+    allowed_difference = max(10.0, selected_seconds * 0.25)
+    if difference <= allowed_difference:
+        return
+    result.warnings.append(
+        PlanIssue(
+            level="warning",
+            code="duration_mismatch",
+            message=t(
+                "plan.readiness.duration_mismatch",
+                {"estimated": tes, "selected": round(selected_seconds, 2)},
+            ),
+        )
+    )
+
+
 def check_plan_export_readiness(
     plan: Plan,
     *,
@@ -237,35 +493,11 @@ def check_plan_export_readiness(
         tes = float(plan.total_estimated_sec)
     except (TypeError, ValueError):
         tes = 180
-    if tes < 30:
-        result.warnings.append(
-            PlanIssue(
-                level="warning", code="duration_short", message=t("plan.readiness.duration_short", {"seconds": tes})
-            )
-        )
-    if tes > 1800:
-        result.warnings.append(
-            PlanIssue(
-                level="warning", code="duration_long", message=t("plan.readiness.duration_long", {"seconds": tes})
-            )
-        )
+    _append_duration_window_warnings(result, tes)
 
-    # Distinguish "not scanned" (None) from "scanned and found nothing" (empty
-    # set). An empty discovery means every referenced index is missing media; a
-    # None discovery means we simply don't know yet and must not guess.
-    known: set[str] | None
-    if known_indices is None:
-        known = None
-    else:
-        known = set()
-        for x in known_indices:
-            known.update(expand_index_keys(x, index_width=index_width))
-
-    offline: set[str] = set()
-    if offline_indices:
-        for x in offline_indices:
-            offline.update(expand_index_keys(x, index_width=index_width))
-
+    # None means discovery has not run; an empty set means it ran and found nothing.
+    known = None if known_indices is None else _expand_index_set(known_indices, index_width)
+    offline = _expand_index_set(offline_indices, index_width)
     ranges: dict[str, list[tuple[int, float, float]]] = {}
     selected_seconds = 0.0
     valid_selected_ranges = 0
@@ -277,45 +509,18 @@ def check_plan_export_readiness(
     )
     reported_source_warnings: set[tuple[str, str]] = set()
 
-    def append_source_warning(issue_code: str, media_key: str, issue: PlanIssue) -> None:
-        marker = (issue_code, media_key)
-        if marker in reported_source_warnings:
-            return
-        reported_source_warnings.add(marker)
-        result.warnings.append(issue)
-
     for i, seg in enumerate(plan.sequence):
+        position = i + 1
         idx = (seg.index or "").strip()
-        if not idx:
-            result.errors.append(
-                PlanIssue(
-                    level="error",
-                    code="index_empty",
-                    message=t("plan.readiness.index_empty", {"index": i + 1}),
-                    segment_index=i,
-                )
-            )
-        elif known is not None and not index_in_set(idx, known, index_width=index_width):
-            result.errors.append(
-                PlanIssue(
-                    level="error",
-                    code="index_missing",
-                    message=t("plan.readiness.index_missing", {"index": i + 1, "media": idx}),
-                    segment_index=i,
-                )
-            )
-        elif index_in_set(idx, offline, index_width=index_width):
-            offline_level = "error" if source == "original" else "warning"
-            issue = PlanIssue(
-                level=offline_level,
-                code="video_offline",
-                message=t("plan.readiness.video_offline", {"index": i + 1, "media": idx}),
-                segment_index=i,
-            )
-            if offline_level == "error":
-                result.errors.append(issue)
-            else:
-                result.warnings.append(issue)
+        _append_source_issues(
+            result,
+            position,
+            idx,
+            known=known,
+            offline=offline,
+            source=source,
+            index_width=index_width,
+        )
 
         tl = (seg.use_timeline or "").strip()
         if not tl:
@@ -323,7 +528,7 @@ def check_plan_export_readiness(
                 PlanIssue(
                     level="warning",
                     code="timeline_empty",
-                    message=t("plan.readiness.timeline_empty", {"index": i + 1}),
+                    message=t("plan.readiness.timeline_empty", {"index": position}),
                     segment_index=i,
                 )
             )
@@ -335,7 +540,7 @@ def check_plan_export_readiness(
                     PlanIssue(
                         level="error",
                         code="timeline_invalid",
-                        message=t("plan.readiness.timeline_invalid", {"index": i + 1, "detail": e}),
+                        message=t("plan.readiness.timeline_invalid", {"index": position, "detail": e}),
                         segment_index=i,
                     )
                 )
@@ -350,7 +555,7 @@ def check_plan_export_readiness(
                             code="timeline_out_of_bounds",
                             message=t(
                                 "plan.readiness.timeline_out_of_bounds",
-                                {"index": i + 1, "end": end, "duration": duration},
+                                {"index": position, "end": end, "duration": duration},
                             ),
                             segment_index=i,
                         )
@@ -358,142 +563,36 @@ def check_plan_export_readiness(
 
                 media_key = _normalized_media_key(idx)
                 if quality_checks and media_key:
-                    intervals = analysis_by_key.get(media_key)
-                    if intervals is None:
-                        append_source_warning(
-                            "analysis_timeline_missing",
-                            media_key,
-                            PlanIssue(
-                                level="warning",
-                                code="analysis_timeline_missing",
-                                message=t(
-                                    "plan.readiness.analysis_timeline_missing",
-                                    {"index": i + 1, "media": idx},
-                                ),
-                                segment_index=i,
-                            ),
-                        )
-                    elif not intervals:
-                        append_source_warning(
-                            "analysis_timeline_empty",
-                            media_key,
-                            PlanIssue(
-                                level="warning",
-                                code="analysis_timeline_empty",
-                                message=t(
-                                    "plan.readiness.analysis_timeline_empty",
-                                    {"index": i + 1, "media": idx},
-                                ),
-                                segment_index=i,
-                            ),
-                        )
-                    else:
-                        analysis_end = max(interval_end for _, interval_end in intervals)
-                        if duration is not None and analysis_end > duration + 0.05:
-                            append_source_warning(
-                                "analysis_timeline_out_of_bounds",
-                                media_key,
-                                PlanIssue(
-                                    level="warning",
-                                    code="analysis_timeline_out_of_bounds",
-                                    message=t(
-                                        "plan.readiness.analysis_timeline_out_of_bounds",
-                                        {"media": idx, "end": round(analysis_end, 2), "duration": duration},
-                                    ),
-                                    segment_index=i,
-                                ),
-                            )
-                        gap = _largest_timeline_gap(intervals)
-                        if gap > 60:
-                            append_source_warning(
-                                "analysis_timeline_gap",
-                                media_key,
-                                PlanIssue(
-                                    level="warning",
-                                    code="analysis_timeline_gap",
-                                    message=t(
-                                        "plan.readiness.analysis_timeline_gap",
-                                        {"media": idx, "gap": round(gap, 2)},
-                                    ),
-                                    segment_index=i,
-                                ),
-                            )
-                        if not _range_covered(intervals, start, end):
-                            result.warnings.append(
-                                PlanIssue(
-                                    level="warning",
-                                    code="timeline_outside_analysis",
-                                    message=t(
-                                        "plan.readiness.timeline_outside_analysis",
-                                        {
-                                            "index": i + 1,
-                                            "media": idx,
-                                            "start": round(start, 2),
-                                            "end": round(end, 2),
-                                        },
-                                    ),
-                                    segment_index=i,
-                                )
-                            )
-
-                for previous_position, previous_start, previous_end in ranges.get(media_key, []):
-                    if start < previous_end - 0.05 and end > previous_start + 0.05:
-                        result.warnings.append(
-                            PlanIssue(
-                                level="warning",
-                                code="timeline_overlap",
-                                message=t(
-                                    "plan.readiness.timeline_overlap",
-                                    {"index": i + 1, "previous": previous_position + 1, "media": idx},
-                                ),
-                                segment_index=i,
-                            )
-                        )
-                ranges.setdefault(media_key, []).append((i, start, end))
-
-        if not (seg.title or "").strip():
-            result.warnings.append(
-                PlanIssue(
-                    level="warning",
-                    code="title_empty",
-                    message=t("plan.readiness.title_empty", {"index": i + 1}),
-                    segment_index=i,
+                    _append_analysis_warnings(
+                        result,
+                        reported_source_warnings,
+                        position=position,
+                        idx=idx,
+                        media_key=media_key,
+                        intervals=analysis_by_key.get(media_key),
+                        start=start,
+                        end=end,
+                        duration=duration,
+                    )
+                _append_overlap_warnings(
+                    result,
+                    ranges,
+                    media_key,
+                    position=position,
+                    idx=idx,
+                    start=start,
+                    end=end,
                 )
-            )
-        if not (seg.reason or "").strip():
-            result.warnings.append(
-                PlanIssue(
-                    level="warning",
-                    code="reason_empty",
-                    message=t("plan.readiness.reason_empty", {"index": i + 1}),
-                    segment_index=i,
-                )
-            )
-        if quality_checks and not (seg.voiceover_hint or "").strip():
-            result.warnings.append(
-                PlanIssue(
-                    level="warning",
-                    code="voiceover_hint_empty",
-                    message=t("plan.readiness.voiceover_hint_empty", {"index": i + 1}),
-                    segment_index=i,
-                )
-            )
 
-    if quality_checks and valid_selected_ranges:
-        difference = abs(tes - selected_seconds)
-        allowed_difference = max(10.0, selected_seconds * 0.25)
-        if difference > allowed_difference:
-            result.warnings.append(
-                PlanIssue(
-                    level="warning",
-                    code="duration_mismatch",
-                    message=t(
-                        "plan.readiness.duration_mismatch",
-                        {"estimated": tes, "selected": round(selected_seconds, 2)},
-                    ),
-                )
-            )
+        _append_text_warnings(result, position, seg, quality_checks=quality_checks)
 
+    _append_duration_mismatch(
+        result,
+        quality_checks=quality_checks,
+        valid_selected_ranges=valid_selected_ranges,
+        tes=tes,
+        selected_seconds=selected_seconds,
+    )
     return result
 
 
@@ -510,6 +609,98 @@ def _register_stem_indices(
     stem_to_indices.setdefault(key, set()).update(idx_keys)
 
 
+def _strip_legacy_clip_suffix(rest: str) -> str:
+    base = rest
+    for marker in ("_seg", "_part", "_pt", "_chunk"):
+        pos = base.lower().rfind(marker)
+        if pos > 0 and base[pos + len(marker) :].isdigit():
+            return base[:pos]
+    return base
+
+
+def _collect_compressed_indices(
+    comp: Any,
+    *,
+    selection: MediaSelection | None,
+    index_width: int,
+    known: set[str],
+    stem_to_indices: dict[str, set[str]],
+) -> None:
+    if not isinstance(comp, Path) or not comp.is_dir():
+        return
+    try:
+        for p in comp.iterdir():
+            if not p.is_file() or p.suffix.lower() not in VIDEO_EXTS:
+                continue
+            if selection is not None and not _matches_selected_stem(p, selection, artifact=True):
+                continue
+            stem = p.stem
+            idx = stem.split("_", 1)[0]
+            if not idx:
+                continue
+            keys = expand_index_keys(idx, index_width=index_width)
+            known.update(keys)
+            rest = stem.split("_", 1)[1] if "_" in stem else ""
+            if rest:
+                _register_stem_indices(stem_to_indices, _strip_legacy_clip_suffix(rest), keys)
+    except OSError:
+        pass
+
+
+def _collect_text_indices(
+    texts: Any,
+    *,
+    selection: MediaSelection | None,
+    index_width: int,
+    known: set[str],
+    stem_to_indices: dict[str, set[str]],
+) -> None:
+    if not isinstance(texts, Path) or not texts.is_dir():
+        return
+    try:
+        for jf in texts.glob("*.json"):
+            if selection is not None and not _matches_selected_artifact(jf, selection):
+                continue
+            try:
+                data = json.loads(jf.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue
+            raw_idx = data.get("index")
+            if raw_idx is None:
+                continue
+            keys = expand_index_keys(raw_idx, index_width=index_width)
+            known.update(keys)
+            identity = load_identity(data)
+            if identity is not None:
+                _register_stem_indices(stem_to_indices, identity.original_stem, keys)
+                _register_stem_indices(stem_to_indices, identity.compressed_stem, keys)
+                if identity.index:
+                    known.update(expand_index_keys(identity.index, index_width=index_width))
+            source = data.get("source_file") or data.get("compressed_file")
+            if source:
+                _register_stem_indices(stem_to_indices, Path(str(source)).stem, keys)
+    except OSError:
+        pass
+
+
+def _collect_offline_indices(project_dir: Any, stem_to_indices: dict[str, set[str]], offline: set[str]) -> None:
+    if project_dir is None:
+        return
+    try:
+        from clio.tasks._video_loader import load_selected_videos
+
+        for p in load_selected_videos(project_dir):
+            if p.is_file():
+                continue
+            for stem_candidate in (p.stem, Path(str(p)).stem):
+                mapped = stem_to_indices.get(stem_candidate.lower())
+                if mapped:
+                    offline.update(mapped)
+                    break
+    except OSError:
+        pass
+
+
 def collect_project_indices(cfg: Any) -> tuple[set[str], set[str]]:
     """Build (known_indices, offline_indices) from compressed + texts + videos.json.
 
@@ -524,75 +715,21 @@ def collect_project_indices(cfg: Any) -> tuple[set[str], set[str]]:
     offline: set[str] = set()
     stem_to_indices: dict[str, set[str]] = {}
 
-    comp = getattr(cfg, "compressed_dir", None)
-    if isinstance(comp, Path) and comp.is_dir():
-        try:
-            for p in comp.iterdir():
-                if p.is_file() and p.suffix.lower() in VIDEO_EXTS:
-                    if selection is not None and not _matches_selected_stem(p, selection, artifact=True):
-                        continue
-                    stem = p.stem
-                    idx = stem.split("_", 1)[0]
-                    if idx:
-                        keys = expand_index_keys(idx, index_width=width)
-                        known.update(keys)
-                        # Map original-like suffix after index prefix: 001_GL010683 → GL010683
-                        rest = stem.split("_", 1)[1] if "_" in stem else ""
-                        if rest:
-                            # Drop legacy _segNN tail for stem matching
-                            base = rest
-                            for marker in ("_seg", "_part", "_pt", "_chunk"):
-                                pos = base.lower().rfind(marker)
-                                if pos > 0 and base[pos + len(marker) :].isdigit():
-                                    base = base[:pos]
-                                    break
-                            _register_stem_indices(stem_to_indices, base, keys)
-        except OSError:
-            pass
-
-    texts = getattr(cfg, "texts_dir", None)
-    if isinstance(texts, Path) and texts.is_dir():
-        try:
-            for jf in texts.glob("*.json"):
-                if selection is not None and not _matches_selected_artifact(jf, selection):
-                    continue
-                try:
-                    data = json.loads(jf.read_text(encoding="utf-8"))
-                except (json.JSONDecodeError, OSError):
-                    continue
-                raw_idx = data.get("index")
-                if raw_idx is None:
-                    continue
-                keys = expand_index_keys(raw_idx, index_width=width)
-                known.update(keys)
-                identity = load_identity(data)
-                if identity is not None:
-                    _register_stem_indices(stem_to_indices, identity.original_stem, keys)
-                    _register_stem_indices(stem_to_indices, identity.compressed_stem, keys)
-                    if identity.index:
-                        known.update(expand_index_keys(identity.index, index_width=width))
-                source = data.get("source_file") or data.get("compressed_file")
-                if source:
-                    _register_stem_indices(stem_to_indices, Path(str(source)).stem, keys)
-        except OSError:
-            pass
-
-    project_dir = getattr(cfg, "project_dir", None)
-    if project_dir is not None:
-        try:
-            from clio.tasks._video_loader import load_selected_videos
-
-            for p in load_selected_videos(project_dir):
-                if p.is_file():
-                    continue
-                # Offline: map path stem → plan indices
-                for stem_candidate in (p.stem, Path(str(p)).stem):
-                    mapped = stem_to_indices.get(stem_candidate.lower())
-                    if mapped:
-                        offline.update(mapped)
-                        break
-        except OSError:
-            pass
+    _collect_compressed_indices(
+        getattr(cfg, "compressed_dir", None),
+        selection=selection,
+        index_width=width,
+        known=known,
+        stem_to_indices=stem_to_indices,
+    )
+    _collect_text_indices(
+        getattr(cfg, "texts_dir", None),
+        selection=selection,
+        index_width=width,
+        known=known,
+        stem_to_indices=stem_to_indices,
+    )
+    _collect_offline_indices(getattr(cfg, "project_dir", None), stem_to_indices, offline)
 
     return known, offline
 
