@@ -13,7 +13,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P1 | 35 | 20 | 15 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P2 | 59 | 30 | 28 | 0 | 0 | 0 | 0 | 0 | 1 |
-| P3 | 14 | 8 | 0 | 0 | 0 | 0 | 0 | 0 | 6 |
+| P3 | 14 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 5 |
 
 ## Item status
 
@@ -127,7 +127,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 106 | P3 | R035 | 校验重试的修正说明取自界面语言包, 英文界面下中文提示词后面会接一段英文说明 | Fixed | `7f1885c` moves parse and structure-correction instructions into `clio/prompts.py`, formats their placeholders in code, and removes the unused `plan_validation_prompt` plus three superseded locale keys. English UI selection can no longer inject English correction text after a Chinese task prompt. Focused: 118 analysis/i18n tests passed; Ruff and format check clean. |
 | 107 | P3 | R021 | 运行预览显示 plan "将跳过", 实际启动却返回 409 要求确认覆盖 | Fixed | `0bda6ef` makes the plan preview treat a selection-scoped overwrite as a run rather than a skip, using the same `plan_overwrite_confirmation_required()` gate as `/api/run/start`. The existing overwrite warning test now also asserts `will_run=1` and `will_skip=0`. Focused: 63 run-preview and 91 run-route tests passed; Ruff, format, and diff checks clean. |
 | 108 | P3 | R022 | 同为 API, 部分 403/404 返回 HTML 错误页, 部分返回 JSON | Fixed | `e0c77f8` centralizes API 403/404 handling in the request handler, returning `{"ok": false, "code": ..., "error": ...}` JSON while non-API static errors remain HTML. Focused: 286 pytest cases passed, 1 skipped; Ruff, format, and diff checks clean. |
-| 109 | P3 | R026 | 锁文件里 69 个包的地址指向 registry.npmmirror.com, 78 个指向 registry.npmjs.org | Pending audit |  |
+| 109 | P3 | R026 | 锁文件里 69 个包的地址指向 registry.npmmirror.com, 99 个指向 registry.npmjs.org | Fixed | `2d9332c` standardizes all 168 resolved package URLs on `registry.npmjs.org`. Verification: `npm ci --ignore-scripts`, 937 Vitest tests, `npm run typecheck`, JSON parsing, and `git diff --check` passed. |
 | 110 | P3 | R027 | "锁定"文件只固定了 4 个顶层包, 没有传递依赖和哈希; pip-audit 是 continue-on-error | Pending audit |  |
 | 111 | P3 | R028 | 替换 global_cfg 时只清 _paths 缓存, _ai/_compress/_whisper 仍指向旧对象 | Fixed | Replacing `global_cfg` now invalidates every combined-section cache, not only paths. Focused: 105 config tests passed, including AI/compress/whisper cache replacement. |
 | 112 | P3 | R029 | analyze_video 签名与协议不一致, 但 isinstance(provider, VideoAIProvider) 只看方法名, 检查恒为真 | Fixed | Removed the unsupported placeholder from the OpenAI-compatible provider, so a text-only provider no longer satisfies `VideoAIProvider`. Focused: 15 factory and 31 OpenAI-compatible tests passed. |
