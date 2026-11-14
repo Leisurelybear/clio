@@ -13,7 +13,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P1 | 35 | 20 | 15 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P2 | 59 | 28 | 27 | 0 | 0 | 0 | 0 | 0 | 4 |
-| P3 | 14 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 10 |
+| P3 | 14 | 5 | 0 | 0 | 0 | 0 | 0 | 9 |
 
 ## Item status
 
@@ -123,7 +123,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 102 | P2 | OPT-032 | AGENTS.md 411 行、ROADMAP.md 1,826 行、CHANGELOG.md 1,103 行; docs/analysis 27 份、docs/superpowers 109 份 | Pending audit |  |
 | 103 | P2 | OPT-033 | README 手写测试数量 (2409 / 720), 与实测 (2870 / 857) 不符 | Fixed | `f3e27b7` removes the handwritten `tests-2000+` badges, per-module count table, and `2000+` project-tree labels from both READMEs; CI remains the authoritative count. Documentation-only verification: `git diff --check` passed. |
 | 104 | P3 | R036 | 任务指纹包含 provider、model、base_url、max_tokens, 但不包含 temperature | Fixed | Task lineage settings now include the bound task temperature. Focused: 27 plan-lineage tests passed, including a temperature-change fingerprint regression. |
-| 105 | P3 | R025 | test_readonly_dir_is_handled_gracefully 以 root 运行时失败 | Pending audit |  |
+| 105 | P3 | R025 | test_readonly_dir_is_handled_gracefully 以 root 运行时失败 | Fixed | `cfa5058` extends the existing POSIX skip with `os.geteuid() == 0`, so the permission-bit check is skipped when running as root. Focused: `clio/tests/test_log.py` 37 passed, 1 skipped; Ruff and diff check passed. |
 | 106 | P3 | R035 | 校验重试的修正说明取自界面语言包, 英文界面下中文提示词后面会接一段英文说明 | Pending audit |  |
 | 107 | P3 | R021 | 运行预览显示 plan "将跳过", 实际启动却返回 409 要求确认覆盖 | Pending audit |  |
 | 108 | P3 | R022 | 同为 API, 部分 403/404 返回 HTML 错误页, 部分返回 JSON | Pending audit |  |
