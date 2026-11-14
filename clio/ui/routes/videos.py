@@ -383,6 +383,303 @@ def _cover_for_text_json(
     return None
 
 
+def _build_artifact_index(
+    proj_dir: Path,
+    proj_out: Path,
+    comp_dir: Path,
+    cfg: Any,
+) -> tuple[ArtifactIndex, dict[str, str], dict[str, str]]:
+    texts_dir, scripts_dir, transcripts_dir = _artifact_dirs(cfg, proj_out)
+    index = ArtifactIndex(
+        output_dir=proj_out,
+        project_dir=proj_dir,
+        compressed_dir=comp_dir,
+        texts_dir=texts_dir,
+        scripts_dir=scripts_dir,
+        transcripts_dir=transcripts_dir,
+    )
+    index.build()
+    text_titles = {g.compressed.index: g.texts[0].title for g in index.all_groups() if g.texts}
+    return index, text_titles, _cover_map(proj_out)
+
+
+def _compressed_match(orig: str | None, proj_dir: Path) -> dict[str, Any] | None:
+    if not orig:
+        return None
+    op = Path(orig)
+    abs_match: str | None = None
+    match_missing = False
+    try:
+        if op.is_absolute() or op.is_file():
+            resolved = op.resolve() if op.exists() else op
+            abs_match = str(resolved)
+            match_missing = not op.exists() and not Path(abs_match).exists()
+        else:
+            cand = (proj_dir / op).resolve()
+            abs_match = str(cand)
+            match_missing = not cand.exists()
+    except OSError:
+        abs_match = str(op)
+        match_missing = True
+    return {
+        "source": "original",
+        "file": op.name,
+        "abs_path": abs_match,
+        "missing": match_missing,
+    }
+
+
+def _compressed_video_entry(
+    p: Path,
+    idx: str,
+    group: Any,
+    orig: str | None,
+    proj_dir: Path,
+    text_titles: dict[str, str],
+    cover_map: dict[str, str],
+) -> tuple[dict[str, Any], str | None, int | None]:
+    meta = VideoMeta.read(p)
+    group_key, seg_num = (
+        (None, None)
+        if meta is not None and meta.split_info is None and not meta.is_split_segment
+        else _parse_segment_info(p.stem)
+    )
+    text_json = group.texts[0].path.name if group and group.texts else None
+    cover_file = group.cover.path.name if group and group.cover else _cover_for_text_json(text_json, cover_map, idx)
+    video: dict[str, Any] = {
+        "file": p.name,
+        "source": "compressed",
+        "index": idx,
+        "title": group.texts[0].title if group and group.texts else text_titles.get(idx, ""),
+        "text_json": text_json,
+        "cover_file": cover_file,
+        "script_json": group.script.path.name if group and group.script else None,
+        "transcript_file": group.transcript.stem if group and group.transcript else None,
+        "match": _compressed_match(orig, proj_dir),
+        "group_key": group_key,
+        "segment_label": None,
+    }
+    return video, group_key, seg_num
+
+
+def _fill_compressed_group_metadata(
+    videos: list[dict[str, Any]],
+    group_members: dict[str, list[tuple[str, int, str]]],
+    comp_dir: Path,
+    proj_dir: Path,
+    cfg: Any,
+) -> dict[str, dict[str, Any]]:
+    groups: dict[str, dict[str, Any]] = {}
+    try:
+        ffprobe = resolve_binary(cfg.paths.ffprobe, "ffprobe")
+    except _MEDIA_PROBE_ERRORS:
+        ffprobe = None
+    by_file = {video["file"]: video for video in videos}
+    for group_key, members in group_members.items():
+        members.sort(key=lambda item: item[1])
+        total = len(members)
+        groups[group_key] = {
+            "original_stem": group_key,
+            "indices": [member[0] for member in members],
+            "total": total,
+        }
+        offsets: dict[str, float] = {}
+        durations: dict[str, float] = {}
+        for member_idx, _seg_num, fname in members:
+            meta = VideoMeta.read(comp_dir / fname)
+            if meta and meta.split_info:
+                offsets[member_idx] = meta.split_info.offset_sec
+                durations[member_idx] = meta.split_info.segment_duration_sec
+        missing = [member for member in members if member[0] not in offsets]
+        if missing and total > 1 and ffprobe:
+            found = _find_original_for_compressed(f"000_{group_key}", proj_dir, comp_dir, project_dir=proj_dir)
+            if found:
+                try:
+                    duration = get_duration_sec(Path(found), ffprobe)
+                    segment_duration = duration / total
+                    for member_idx, seg_num, _fname in missing:
+                        offsets[member_idx] = round((seg_num - 1) * segment_duration, 1)
+                        durations[member_idx] = round(segment_duration, 1)
+                except _MEDIA_PROBE_ERRORS:
+                    pass
+        for member_idx, seg_num, fname in members:
+            video = by_file.get(fname)
+            if video is not None:
+                video["segment_label"] = f"{seg_num}/{total}"
+                video["offset_sec"] = offsets.get(member_idx, 0.0)
+                video["duration_sec"] = durations.get(member_idx, 0.0)
+    return groups
+
+
+def _build_compressed_payload(
+    proj_dir: Path,
+    comp_dir: Path,
+    cfg: Any,
+    index: ArtifactIndex,
+    text_titles: dict[str, str],
+    cover_map: dict[str, str],
+    selected_set: set[Path] | None,
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+    videos: list[dict[str, Any]] = []
+    group_members: dict[str, list[tuple[str, int, str]]] = {}
+    if not comp_dir.is_dir():
+        return videos, {}
+    compressed_paths = prefer_canonical_compressed(
+        sorted(p for p in comp_dir.iterdir() if p.is_file() and p.suffix.lower() in VIDEO_EXTS)
+    )
+    for p in compressed_paths:
+        stem = p.stem
+        idx = stem.split("_", 1)[0] if "_" in stem else ""
+        group = index.lookup(compressed_stem=stem)
+        orig = _find_original_for_compressed(stem, proj_dir, comp_dir, project_dir=proj_dir)
+        if selected_set and not _compressed_matches_selection(p, stem, selected_set, orig):
+            continue
+        video, group_key, seg_num = _compressed_video_entry(p, idx, group, orig, proj_dir, text_titles, cover_map)
+        if group_key is not None and seg_num is not None:
+            group_members.setdefault(group_key, []).append((idx, seg_num, p.name))
+        videos.append(video)
+    groups = _fill_compressed_group_metadata(videos, group_members, comp_dir, proj_dir, cfg)
+    return videos, groups
+
+
+def _original_video_paths(
+    selected_ordered: list[Path] | None,
+    selected_set: set[Path] | None,
+) -> tuple[list[Path], bool]:
+    if selected_ordered is not None:
+        return list(selected_ordered), True
+    if selected_set is not None:
+        return sorted(selected_set, key=lambda p: p.name.lower()), False
+    return [], False
+
+
+def _offline_original_entry(p: Path) -> dict[str, Any]:
+    try:
+        abs_shown = str(p.resolve())
+    except OSError:
+        abs_shown = str(p)
+    return {
+        "file": p.name,
+        "source": "original",
+        "index": None,
+        "match": None,
+        "abs_path": abs_shown,
+        "missing": True,
+    }
+
+
+def _original_segment_offsets(p: Path, comp: list[tuple[str, str]], ffprobe: str | None) -> dict[str, float]:
+    offsets: dict[str, float] = {}
+    if len(comp) <= 1 or not ffprobe:
+        return offsets
+    try:
+        duration = get_duration_sec(p, ffprobe)
+        segment_duration = duration / len(comp)
+        for i, (_, idx) in enumerate(comp):
+            offsets[idx] = round(i * segment_duration, 1)
+    except _MEDIA_PROBE_ERRORS:
+        pass
+    return offsets
+
+
+def _original_segment_entry(
+    c_file: str,
+    c_idx: str,
+    rel_name: str,
+    abs_path: str,
+    seg_offsets: dict[str, float],
+    segment_matches: list[dict[str, str]],
+    index: ArtifactIndex,
+    text_titles: dict[str, str],
+    cover_map: dict[str, str],
+) -> dict[str, Any]:
+    group = index.lookup(compressed_stem=Path(c_file).stem)
+    text_json = group.texts[0].path.name if group and group.texts else None
+    cover_file = group.cover.path.name if group and group.cover else _cover_for_text_json(text_json, cover_map, c_idx)
+    entry: dict[str, Any] = {
+        "file": f"{c_idx}_{rel_name}",
+        "source": "original",
+        "index": c_idx,
+        "title": text_titles.get(c_idx, ""),
+        "offset_sec": seg_offsets.get(c_idx, 0.0),
+        "text_json": text_json,
+        "cover_file": cover_file,
+        "script_json": group.script.path.name if group and group.script else None,
+        "transcript_file": group.transcript.stem if group and group.transcript else None,
+        "match": {"source": "compressed", "file": c_file, "index": c_idx},
+    }
+    if abs_path:
+        entry["abs_path"] = abs_path
+    if len(segment_matches) > 1:
+        entry["segment_matches"] = segment_matches
+    return entry
+
+
+def _build_original_payload(
+    handler: HandlerProtocol,
+    proj_dir: Path,
+    comp_dir: Path,
+    index: ArtifactIndex,
+    text_titles: dict[str, str],
+    cover_map: dict[str, str],
+    selected_set: set[Path] | None,
+    selected_ordered: list[Path] | None,
+) -> tuple[list[dict[str, Any]], bool]:
+    try:
+        cfg = handler._get_config(proj_dir)
+        ffprobe = resolve_binary(cfg.paths.ffprobe, "ffprobe")
+    except _MEDIA_PROBE_ERRORS:
+        ffprobe = None
+    video_paths, preserve_registration_order = _original_video_paths(selected_ordered, selected_set)
+    videos: list[dict[str, Any]] = []
+    proj_abs = proj_dir.resolve()
+    for p in video_paths:
+        try:
+            online = p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS
+        except OSError:
+            online = False
+        if not online:
+            videos.append(_offline_original_entry(p))
+            continue
+        abs_path = str(p.resolve())
+        try:
+            rel_name = p.relative_to(proj_abs).as_posix()
+        except ValueError:
+            rel_name = p.name
+        comp = _find_compressed_for_original(p.stem, comp_dir)
+        if not comp:
+            orig_groups = index.lookup(original_stem=p.stem)
+            has_transcript = any(g.transcript is not None for g in (orig_groups or []))
+            video: dict[str, Any] = {
+                "file": rel_name,
+                "source": "original",
+                "index": None,
+                "match": None,
+                "transcript_file": p.stem if has_transcript else None,
+            }
+            if abs_path:
+                video["abs_path"] = abs_path
+            videos.append(video)
+            continue
+        seg_offsets = _original_segment_offsets(p, comp, ffprobe)
+        segment_matches = [{"source": "compressed", "file": cf, "index": ci} for cf, ci in comp]
+        for c_file, c_idx in comp:
+            videos.append(
+                _original_segment_entry(
+                    c_file,
+                    c_idx,
+                    rel_name,
+                    abs_path,
+                    seg_offsets,
+                    segment_matches,
+                    index,
+                    text_titles,
+                    cover_map,
+                )
+            )
+    return videos, preserve_registration_order
+
+
 def _build_videos_payload(
     handler: HandlerProtocol,
     proj_dir: Path,
@@ -394,244 +691,22 @@ def _build_videos_payload(
     selected_set: set[Path] | None = None,
     selected_ordered: list[Path] | None = None,
 ) -> dict[str, Any]:
-    # -- Build artifact index ------------------------------------------------
-    texts_dir, scripts_dir, transcripts_dir = _artifact_dirs(cfg, proj_out)
-    index = ArtifactIndex(
-        output_dir=proj_out,
-        project_dir=proj_dir,
-        compressed_dir=comp_dir,
-        texts_dir=texts_dir,
-        scripts_dir=scripts_dir,
-        transcripts_dir=transcripts_dir,
-    )
-    index.build()
-
-    # Keep text_titles by index for original source view
-    text_titles: dict[str, str] = {}
-    for g in index.all_groups():
-        if g.texts:
-            text_titles[g.compressed.index] = g.texts[0].title
-
-    cover_map = _cover_map(proj_out)
-
-    videos: list[dict] = []
-    groups: dict[str, dict] = {}
-    preserve_registration_order = False
-
+    index, text_titles, cover_map = _build_artifact_index(proj_dir, proj_out, comp_dir, cfg)
     if source == "compressed":
-        if comp_dir.is_dir():
-            # Pass 1: build flat video list + collect group members
-            group_members: dict[str, list[tuple[str, int, str]]] = {}
-            compressed_paths = prefer_canonical_compressed(
-                sorted(p for p in comp_dir.iterdir() if p.is_file() and p.suffix.lower() in VIDEO_EXTS)
-            )
-            for p in compressed_paths:
-                stem = p.stem
-                idx = stem.split("_", 1)[0] if "_" in stem else ""
-                meta = VideoMeta.read(p)
-                group_key, seg_num = (
-                    (None, None)
-                    if meta is not None and meta.split_info is None and not meta.is_split_segment
-                    else _parse_segment_info(stem)
-                )
-                group = index.lookup(compressed_stem=stem)
-                orig = _find_original_for_compressed(stem, proj_dir, comp_dir, project_dir=proj_dir)
-                # Only filter when selection is non-empty. Empty videos.json still
-                # allows browsing existing compressed artifacts.
-                if selected_set and not _compressed_matches_selection(p, stem, selected_set, orig):
-                    continue
-                match_file = None
-                abs_match = None
-                match_missing = False
-                if orig:
-                    op = Path(orig)
-                    match_file = op.name
-                    try:
-                        if op.is_absolute() or op.is_file():
-                            resolved = op.resolve() if op.exists() else op
-                            abs_match = str(resolved)
-                            match_missing = not op.exists() and not Path(abs_match).exists()
-                        else:
-                            cand = (proj_dir / op).resolve()
-                            abs_match = str(cand)
-                            match_missing = not cand.exists()
-                    except OSError:
-                        abs_match = str(op)
-                        match_missing = True
-                text_json = group.texts[0].path.name if group and group.texts else None
-                cover_file = (
-                    group.cover.path.name if group and group.cover else _cover_for_text_json(text_json, cover_map, idx)
-                )
-                v: dict[str, Any] = {
-                    "file": p.name,
-                    "source": "compressed",
-                    "index": idx,
-                    "title": group.texts[0].title if group and group.texts else text_titles.get(idx, ""),
-                    "text_json": text_json,
-                    "cover_file": cover_file,
-                    "script_json": group.script.path.name if group and group.script else None,
-                    "transcript_file": group.transcript.stem if group and group.transcript else None,
-                    "match": (
-                        {
-                            "source": "original",
-                            "file": match_file,
-                            "abs_path": abs_match,
-                            "missing": match_missing,
-                        }
-                        if orig
-                        else None
-                    ),
-                    "group_key": group_key,
-                    "segment_label": None,
-                }
-                if group_key is not None and seg_num is not None:
-                    group_members.setdefault(group_key, []).append((idx, seg_num, p.name))
-                videos.append(v)
-
-            # Pass 2: compute totals, fill segment labels and offsets
-            # resolve ffprobe once for segment offset computation
-            try:
-                _ffprobe = resolve_binary(cfg.paths.ffprobe, "ffprobe")
-            except _MEDIA_PROBE_ERRORS:
-                _ffprobe = None
-            for gk, members in group_members.items():
-                members.sort(key=lambda x: x[1])
-                total = len(members)
-                groups[gk] = {
-                    "original_stem": gk,
-                    "indices": [m[0] for m in members],
-                    "total": total,
-                }
-                offsets: dict[str, float] = {}
-                durations: dict[str, float] = {}
-                for member_idx, _seg_num, fname in members:
-                    for v in videos:
-                        if v["file"] == fname:
-                            comp_file = comp_dir / v["file"]
-                            meta = VideoMeta.read(comp_file)
-                            if meta and meta.split_info:
-                                offsets[member_idx] = meta.split_info.offset_sec
-                                durations[member_idx] = meta.split_info.segment_duration_sec
-                            break
-                missing = [m for m in members if m[0] not in offsets]
-                if missing and total > 1 and _ffprobe:
-                    orig_video: Path | None = None
-                    found = _find_original_for_compressed(f"000_{gk}", proj_dir, comp_dir, project_dir=proj_dir)
-                    if found:
-                        orig_video = Path(found)
-                    if orig_video is not None:
-                        try:
-                            dur = get_duration_sec(orig_video, _ffprobe)
-                            seg_dur = dur / total
-                            for member_idx, seg_num, _fname in missing:
-                                offsets[member_idx] = round((seg_num - 1) * seg_dur, 1)
-                                durations[member_idx] = round(seg_dur, 1)
-                        except _MEDIA_PROBE_ERRORS:
-                            pass
-                for member_idx, seg_num, fname in members:
-                    for v in videos:
-                        if v["file"] == fname:
-                            v["segment_label"] = f"{seg_num}/{total}"
-                            v["offset_sec"] = offsets.get(member_idx, 0.0)
-                            v["duration_sec"] = durations.get(member_idx, 0.0)
-                            break
-    else:  # original
-        # resolve ffprobe once for segment offset computation
-        try:
-            cfg = handler._get_config(proj_dir)
-            _ffprobe = resolve_binary(cfg.paths.ffprobe, "ffprobe")
-        except _MEDIA_PROBE_ERRORS:
-            _ffprobe = None
-
-        if selected_ordered is not None:
-            # Preserve videos.json registration order (head/tail inclusive).
-            video_paths = list(selected_ordered)
-            preserve_registration_order = True
-        elif selected_set is not None:
-            video_paths = sorted(selected_set, key=lambda p: p.name.lower())
-        else:
-            # No videos.json → empty list (do not scan project_dir)
-            video_paths = []
-        for p in video_paths:
-            try:
-                online = p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS
-            except OSError:
-                online = False
-            if not online:
-                # Offline or non-video entry: still surface so UI can relink/remove.
-                try:
-                    abs_shown = str(p.resolve())
-                except OSError:
-                    abs_shown = str(p)
-                videos.append(
-                    {
-                        "file": p.name,
-                        "source": "original",
-                        "index": None,
-                        "match": None,
-                        "abs_path": abs_shown,
-                        "missing": True,
-                    }
-                )
-                continue
-            abs_path = str(p.resolve())
-            rel_name = p.name
-            proj_abs = proj_dir.resolve()
-            try:
-                rel_name = p.relative_to(proj_abs).as_posix()
-            except ValueError:
-                rel_name = p.name
-            comp = _find_compressed_for_original(p.stem, comp_dir)
-            if not comp:
-                orig_groups = index.lookup(original_stem=p.stem)
-                has_transcript = any(g.transcript is not None for g in (orig_groups or []))
-                v = {
-                    "file": rel_name,
-                    "source": "original",
-                    "index": None,
-                    "match": None,
-                    "transcript_file": p.stem if has_transcript else None,
-                }
-                if abs_path:
-                    v["abs_path"] = abs_path
-                videos.append(v)
-                continue
-            # Compute per-segment offsets (equal split by ordered segment position).
-            seg_offsets: dict[str, float] = {}
-            if len(comp) > 1 and _ffprobe:
-                try:
-                    dur = get_duration_sec(p, _ffprobe)
-                    seg_dur = dur / len(comp)
-                    for i, (_, idx) in enumerate(comp):
-                        seg_offsets[idx] = round(i * seg_dur, 1)
-                except _MEDIA_PROBE_ERRORS:
-                    pass
-            segment_matches = [{"source": "compressed", "file": cf, "index": ci} for cf, ci in comp]
-            for c_file, c_idx in comp:
-                group = index.lookup(compressed_stem=Path(c_file).stem)
-                text_json = group.texts[0].path.name if group and group.texts else None
-                cover_file = (
-                    group.cover.path.name
-                    if group and group.cover
-                    else _cover_for_text_json(text_json, cover_map, c_idx)
-                )
-                seg_v: dict[str, Any] = {
-                    "file": f"{c_idx}_{rel_name}",
-                    "source": "original",
-                    "index": c_idx,
-                    "title": text_titles.get(c_idx, ""),
-                    "offset_sec": seg_offsets.get(c_idx, 0.0),
-                    "text_json": text_json,
-                    "cover_file": cover_file,
-                    "script_json": group.script.path.name if group and group.script else None,
-                    "transcript_file": group.transcript.stem if group and group.transcript else None,
-                    "match": {"source": "compressed", "file": c_file, "index": c_idx},
-                }
-                if abs_path:
-                    seg_v["abs_path"] = abs_path
-                if len(segment_matches) > 1:
-                    seg_v["segment_matches"] = segment_matches
-                videos.append(seg_v)
+        videos, groups = _build_compressed_payload(proj_dir, comp_dir, cfg, index, text_titles, cover_map, selected_set)
+        preserve_registration_order = False
+    else:
+        videos, preserve_registration_order = _build_original_payload(
+            handler,
+            proj_dir,
+            comp_dir,
+            index,
+            text_titles,
+            cover_map,
+            selected_set,
+            selected_ordered,
+        )
+        groups = {}
     if not preserve_registration_order:
         videos.sort(key=_video_sort_key)
     return {"videos": videos, "source": source, "groups": groups}
