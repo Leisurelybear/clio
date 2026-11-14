@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-11-14
+
+CI now passes on the full Linux, Windows, and macOS Python matrix with current tooling.
+The discovered ffmpeg paths are narrowed for mypy 2.4.1, macOS installs use the
+cross-platform requirements file because the Windows-generated hash lock omits pyobjc,
+pip-audit installs separately from hashed requirements, and test dependencies install
+through OS-specific steps so Windows PowerShell never receives Bash conditionals.
+
+- fix(test): narrow discovered ffmpeg paths for mypy 2.4.1
+- fix(ci): install macOS dependencies without the Windows hash lock
+- fix(ci): install test dependencies per runner OS
+
+Verification: CI run 43581923829 passes all 11 jobs. Focused real-ffmpeg e2e passes 1 test;
+mypy 2.4.1 passes 287 source files; Ruff check/format, workflow YAML parsing,
+`pip-audit --strict`, and `git diff --check` pass. Commits: `4fa18c4`, `8d6c96f`, `0a1b62c`.
+
 ## 2026-11-13
 
 The analyze-window regression test now compares timeline gaps as individual coordinate pairs,
