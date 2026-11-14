@@ -27,6 +27,7 @@ def _mock_config(tmp_path: Path):
     cfg.compress.codec = "libx264"
     cfg.compress.remove_audio = True
     cfg.compress.crf = 23
+    cfg.plan.use_transcripts = True
     cfg.whisper.enabled = False
     return cfg
 
@@ -476,7 +477,7 @@ class TestAllDayScoping:
         ):
             result = run_pipeline_steps(config, steps=["analyze"], tracker=tracker, all_days=True)
 
-        analyze.assert_called_once_with(config, tracker)
+        analyze.assert_called_once_with(config, tracker, use_transcripts=True)
         assert result["processed"] == 1
 
     def test_rejects_all_days_with_selected_files(self, tmp_path: Path):

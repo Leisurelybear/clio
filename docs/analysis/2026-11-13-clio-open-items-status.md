@@ -167,4 +167,5 @@ analysis callback and verifies both downstream day steps execute. Pipeline: 19 p
 
 Follow-up fix 3: pipeline analysis receives the effective transcript option explicitly.
 Both enabled and disabled values are covered; unrelated steps do not receive the
-argument. Focused pipeline, route, and analysis verification: 168 passed.
+argument. Initial verification exposed one stale exact-call assertion (167 passed,
+1 failed); the fixture and assertion now include the effective option.
