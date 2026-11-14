@@ -187,7 +187,8 @@ jobs:
       - name: Install build dependencies
         run: |
           python3 -m pip install --upgrade pip
-          python3 -m pip install -r requirements-locked.txt
+          # The hash lock is generated on Windows and omits macOS-only pyobjc wheels.
+          python3 -m pip install -r requirements.txt
           python3 -m pip install pyinstaller
           # macOS GUI backend: Cocoa/WebKit via pyobjc (universal2 wheels).
           python3 -m pip install "pywebview" "pyobjc-core" "pyobjc-framework-Cocoa" "pyobjc-framework-WebKit" "pyobjc-framework-Quartz" "pyobjc-framework-Security"
