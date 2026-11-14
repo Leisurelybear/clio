@@ -13,7 +13,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P1 | 35 | 20 | 15 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P2 | 59 | 31 | 28 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P3 | 14 | 10 | 0 | 0 | 0 | 0 | 0 | 0 | 4 |
+| P3 | 14 | 10 | 2 | 0 | 0 | 0 | 0 | 0 | 2 |
 
 ## Item status
 
@@ -132,7 +132,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 111 | P3 | R028 | 替换 global_cfg 时只清 _paths 缓存, _ai/_compress/_whisper 仍指向旧对象 | Fixed | Replacing `global_cfg` now invalidates every combined-section cache, not only paths. Focused: 105 config tests passed, including AI/compress/whisper cache replacement. |
 | 112 | P3 | R029 | analyze_video 签名与协议不一致, 但 isinstance(provider, VideoAIProvider) 只看方法名, 检查恒为真 | Fixed | Removed the unsupported placeholder from the OpenAI-compatible provider, so a text-only provider no longer satisfies `VideoAIProvider`. Focused: 15 factory and 31 OpenAI-compatible tests passed. |
 | 113 | P3 | R034 | compress.target_size_mb 的校验下限是 0.01, 因此 -crf 分支永远走不到, compress.crf 配置不生效 | Fixed | `target_size_mb: 0` is now valid and selects the CRF path; negative values remain rejected. The project example documents the mode. Focused: 106 config and 27 compression tests passed. |
-| 114 | P3 | OPT-007 | 规划一次生成 (Q11), 输入是全部素材的完整 timeline | Pending audit |  |
-| 115 | P3 | OPT-010 | 分析输出是散文描述 (Q6), 景别、运镜写在 description 里 | Pending audit |  |
+| 114 | P3 | OPT-007 | 规划一次生成 (Q11), 输入是全部素材的完整 timeline | Satisfied | `plan_daily_vlog()` already runs bounded candidate selection, outline, shot selection, and review as typed stages inside the single `vlog_plan` binding. `clio/plan_input.py` caps planning input at `max_candidate_clips` (default 60), sends compact cards for the shortlist, and deterministically falls back on invalid selections; `clio/analyze.py:1674-1873` wires the stages. Focused: 195 analyze/plan-input/plan tests passed. |
+| 115 | P3 | OPT-010 | 分析输出是散文描述 (Q6), 景别、运镜写在 description 里 | Satisfied | `ANALYZE_PROMPT` already requires per-shot `shot_size`, `camera`, `camera_direction`, `first_frame`, `last_frame`, `energy`, audio, quality, and tags. `AnalysisTimelineItem` in `clio/ai/structured.py` enforces the enums/ranges, and `_normalize_timeline_item()` strips invalid optional values. Focused: structured-schema and normalization tests passed within 195 analyze/plan tests. |
 | 116 | P3 | OPT-022 | 前端 58 个文件 16,164 行无类型 JS, editor-config.js 2,414 行 | Pending audit |  |
 | 117 | P3 | OPT-023 | 产物文件名含 AI 生成的标题 ({index}_{title}), 标题一变就产生孤儿文件 (封面、口播、标号视频) | Pending audit |  |
