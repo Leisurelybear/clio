@@ -170,7 +170,7 @@ def cmd_tokens(args):
     print(json.dumps(stats, indent=2, ensure_ascii=False))
 
 
-def main(argv: list[str] | None = None) -> int:
+def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=t("cli.description"),
     )
@@ -366,9 +366,10 @@ def main(argv: list[str] | None = None) -> int:
     whisper_sub.add_parser("install", help=t("cli.help.whisper.install"))
     whisper_sub.add_parser("check", help=t("cli.help.whisper.check"))
 
-    args = parser.parse_args(argv)
-    config_path = Path(args.config)
+    return parser
 
+
+def _run_pre_config_command(args: argparse.Namespace, config_path: Path) -> int | None:
     if args.command == "evaluate-analysis":
         from clio.evaluation import run_evaluation
 
@@ -394,65 +395,74 @@ def main(argv: list[str] | None = None) -> int:
         from clio.desktop.app import main as run_desktop
 
         return run_desktop(config_path=config_path)
+    return None
 
-    # serve: timed startup breadcrumbs (cold import cost is before main())
-    _serve_t0: float | None = None
-    if args.command == "serve":
-        import time as _time
 
-        _serve_t0 = _time.perf_counter()
-        print("[startup] python main.py serve — loading config…")
+def _start_serve_timer(args: argparse.Namespace) -> float | None:
+    if args.command != "serve":
+        return None
+    import time as _time
 
-    base_config = load_config(config_path)
-    set_active_locale(base_config.ui.language)
-    if args.command == "serve" and args.port > 0:
-        probe_host = args.host or "127.0.0.1"
-        if probe_host in {"0.0.0.0", "::", "[::]"}:
-            probe_host = "127.0.0.1"
-        running = probe_web_ui(probe_host, args.port)
-        if running == "clio":
-            print(
-                t(
-                    "cli.serve.already_running",
-                    {"url": f"http://{probe_host}:{args.port}/"},
-                )
+    serve_t0 = _time.perf_counter()
+    print("[startup] python main.py serve — loading config…")
+    return serve_t0
+
+
+def _probe_serve_port(args: argparse.Namespace) -> int | None:
+    if args.command != "serve" or args.port <= 0:
+        return None
+    probe_host = args.host or "127.0.0.1"
+    if probe_host in {"0.0.0.0", "::", "[::]"}:
+        probe_host = "127.0.0.1"
+    running = probe_web_ui(probe_host, args.port)
+    if running == "clio":
+        print(
+            t(
+                "cli.serve.already_running",
+                {"url": f"http://{probe_host}:{args.port}/"},
             )
-            return 0
-        if running == "other":
-            print(t("cli.serve.port_in_use", {"port": args.port}), file=sys.stderr)
-            return 1
-    if _serve_t0 is not None:
-        import time as _time
+        )
+        return 0
+    if running == "other":
+        print(t("cli.serve.port_in_use", {"port": args.port}), file=sys.stderr)
+        return 1
+    return None
 
-        print(f"[startup] config loaded ({(_time.perf_counter() - _serve_t0) * 1000:.0f}ms)")
-        t_log = _time.perf_counter()
+
+def _setup_runtime_logging(base_config, serve_t0: float | None) -> None:
+    if serve_t0 is None:
         setup_logging(base_config.paths.logs_dir, retention_days=base_config.server.log_retention_days)
         install_hooks()
-        print(f"[startup] logging + hooks ({(_time.perf_counter() - t_log) * 1000:.0f}ms)")
-    else:
-        setup_logging(base_config.paths.logs_dir, retention_days=base_config.server.log_retention_days)
-        install_hooks()
+        return
+    import time as _time
 
+    print(f"[startup] config loaded ({(_time.perf_counter() - serve_t0) * 1000:.0f}ms)")
+    t_log = _time.perf_counter()
+    setup_logging(base_config.paths.logs_dir, retention_days=base_config.server.log_retention_days)
+    install_hooks()
+    print(f"[startup] logging + hooks ({(_time.perf_counter() - t_log) * 1000:.0f}ms)")
+
+
+def _run_unprepared_command(args: argparse.Namespace, config_path: Path) -> int | None:
     if args.command == "check":
         project = getattr(args, "project", None) or getattr(args, "input", None)
         return run_check(config_path, project)
 
-    elif args.command == "transcribe":
+    if args.command == "transcribe":
         from clio.tasks.transcribe import run_transcribe_all
 
         config = _prepare_config(config_path, args)
         config.analyze.skip_existing = not getattr(args, "force", False)
         return run_transcribe_all(config)
 
-    elif args.command == "whisper":
+    if args.command == "whisper":
         from clio.whisper_cli import run_whisper_check, run_whisper_install
 
         if args.whisper_command == "install":
             return run_whisper_install(config_path)
-        elif args.whisper_command == "check":
-            return run_whisper_check(config_path)
+        return run_whisper_check(config_path)
 
-    elif args.command == "compare-models":
+    if args.command == "compare-models":
         from clio.tasks.compare_models import run_compare_models
 
         config = load_config(config_path)
@@ -464,223 +474,298 @@ def main(argv: list[str] | None = None) -> int:
             output_dir=args.out_dir,
             context_override=context_override,
         )
+    return None
 
-    # ── Single-file detection ────────────────────────────────────────
+
+def _detect_single_file(args: argparse.Namespace) -> Path | None:
     # If -i points to a single file for compress/analyze/scripts,
-    # don't let _prepare_config set it as input_dir (refine already handles -i correctly)
-    single_file: Path | None = None
-    if args.command in ("compress", "analyze", "scripts"):
-        raw_input = getattr(args, "input", None)
-        if raw_input is not None and raw_input.is_file():
-            single_file = raw_input
-            args.input = None  # null out so _prepare_config doesn't use it
+    # don't let _prepare_config set it as input_dir (refine already handles -i correctly).
+    if args.command not in ("compress", "analyze", "scripts"):
+        return None
+    raw_input = getattr(args, "input", None)
+    if raw_input is None or not raw_input.is_file():
+        return None
+    args.input = None
+    return raw_input
 
+
+def _run_pipeline_command(args: argparse.Namespace, config, single_file: Path | None) -> int | None:
+    if args.command == "verify":
+        from clio.tasks.verify import run_verify
+
+        return run_verify(config)
+    if args.command == "reindex":
+        from clio.tasks.reindex import run_reindex
+
+        return run_reindex(config)
+    if args.command == "compress":
+        from clio.pipeline import run_compress_all
+        from clio.tasks.reindex import auto_reindex_if_needed
+
+        auto_reindex_if_needed(config)
+        run_compress_all(config, single_file=single_file, overwrite=args.force)
+        return 0
+    if args.command == "analyze":
+        from clio.pipeline import run_analyze_all
+        from clio.tasks.reindex import auto_reindex_if_needed
+
+        auto_reindex_if_needed(config)
+        run_analyze_all(config, single_file=single_file, strict=args.strict)
+        return 0
+    if args.command == "scripts":
+        from clio.pipeline import run_generate_scripts
+
+        run_generate_scripts(config, single_file=single_file)
+        return 0
+    if args.command == "label":
+        from clio.pipeline import run_label_videos
+        from clio.tasks.reindex import auto_reindex_if_needed
+
+        auto_reindex_if_needed(config)
+        run_label_videos(config)
+        return 0
+    if args.command == "plan":
+        from clio.pipeline import run_plan_all_days, run_plan_vlog
+        from clio.tasks.reindex import auto_reindex_if_needed
+
+        auto_reindex_if_needed(config)
+        config.plan.use_transcripts = not getattr(args, "no_transcripts", False)
+        if getattr(args, "all_days", False):
+            run_plan_all_days(config)
+        else:
+            run_plan_vlog(config, args.day)
+        return 0
+    if args.command == "run":
+        from clio.pipeline import run_full_pipeline
+
+        run_full_pipeline(config, args.day, strict=args.strict)
+        return 0
+    return None
+
+
+def _run_refine_command(args: argparse.Namespace, config, context_override: str | None) -> int:
+    from clio.pipeline import run_refine_scripts, run_refine_texts
+
+    if not config.ai.context and not context_override:
+        print(t("cli.refine.no_context"), file=sys.stderr)
+    fix = (getattr(args, "fix", "") or "").strip() or None
+    target_path = getattr(args, "input", None)
+    if fix and (target_path is None or target_path.is_dir()):
+        print(t("cli.refine.fix_requires_file"), file=sys.stderr)
+        return 1
+    try:
+        failed = 0
+        if args.target in ("texts", "all"):
+            result = run_refine_texts(config, target_path, fix=fix, context_override=context_override)
+            failed += -result if result < 0 else 0
+        if args.target in ("scripts", "all"):
+            scripts_path = None if args.target == "all" and target_path is not None else target_path
+            result = run_refine_scripts(config, scripts_path, fix=fix, context_override=context_override)
+            failed += -result if result < 0 else 0
+        if failed:
+            print(t("cli.refine.failed", {"count": failed}), file=sys.stderr)
+            return 1
+    except ValueError as e:
+        print(t("cli.error", {"detail": e}), file=sys.stderr)
+        return 1
+    return 0
+
+
+def _run_cut_command(args: argparse.Namespace, config) -> int:
+    from clio.pipeline import run_cut_all
+    from clio.plan_model import Plan
+    from clio.plan_readiness import (
+        check_plan_export_readiness,
+        collect_project_analysis_timelines,
+        collect_project_indices,
+        collect_project_media_durations,
+        readiness_block_payload,
+    )
+    from clio.tasks.reindex import auto_reindex_if_needed
+
+    auto_reindex_if_needed(config)
+    plan_path = config.plans_dir / f"{plan_day_stem(args.day)}_plan.json"
+    if not plan_path.is_file():
+        print(t("cli.error", {"detail": t("cli.plan.not_found", {"path": plan_path})}), file=sys.stderr)
+        return 1
+    plan = Plan.from_dict(json.loads(plan_path.read_text(encoding="utf-8")))
+    known, offline = collect_project_indices(config)
+    ready = check_plan_export_readiness(
+        plan,
+        known_indices=known,
+        offline_indices=offline,
+        media_durations=collect_project_media_durations(config),
+        analysis_timelines=collect_project_analysis_timelines(config),
+        source=args.source,
+    )
+    blocked = readiness_block_payload(ready, force=bool(getattr(args, "force", False)))
+    if blocked is not None:
+        print(t("cli.error", {"detail": blocked["error"]}), file=sys.stderr)
+        for issue in ready.errors + (ready.warnings if not getattr(args, "force", False) else []):
+            print(f"  [{issue.level}] {issue.message}", file=sys.stderr)
+        return 1
+    run_cut_all(
+        config,
+        day_label=args.day,
+        output_dir=args.out_dir,
+        reencode=args.reencode,
+        source=args.source,
+    )
+    return 0
+
+
+def _run_export_command(args: argparse.Namespace, config) -> int:
+    from clio.export import export_plan
+    from clio.plan_model import Plan
+    from clio.plan_readiness import (
+        check_plan_export_readiness,
+        collect_project_analysis_timelines,
+        collect_project_indices,
+        collect_project_media_durations,
+        readiness_block_payload,
+    )
+
+    plan_path = config.plans_dir / f"{plan_day_stem(args.day)}_plan.json"
+    if not plan_path.is_file():
+        print(t("cli.error", {"detail": t("cli.plan.not_found", {"path": plan_path})}), file=sys.stderr)
+        return 1
+    plan = Plan.from_dict(json.loads(plan_path.read_text(encoding="utf-8")))
+    known, offline = collect_project_indices(config)
+    ready = check_plan_export_readiness(
+        plan,
+        known_indices=known,
+        offline_indices=offline,
+        media_durations=collect_project_media_durations(config),
+        analysis_timelines=collect_project_analysis_timelines(config),
+        source="original",
+    )
+    blocked = readiness_block_payload(ready, force=bool(getattr(args, "force", False)))
+    if blocked is not None:
+        print(t("cli.error", {"detail": blocked["error"]}), file=sys.stderr)
+        for issue in ready.errors + (ready.warnings if not getattr(args, "force", False) else []):
+            print(f"  [{issue.level}] {issue.message}", file=sys.stderr)
+        return 1
+    out_dir = (
+        getattr(args, "export_out_dir", None)
+        or getattr(args, "output", None)
+        or config.paths.output_dir / "export" / f"{args.day}_{args.format}"
+    )
+    export_plan(
+        args.format,
+        plan_path,
+        out_dir,
+        day_label=args.day,
+        project_dir=config.project_dir,
+        ffprobe=resolve_binary(config.paths.ffprobe, "ffprobe"),
+        texts_dir=config.texts_dir,
+        canvas_ratio=config.export.canvas_ratio,
+        index_width=config.naming.index_width,
+    )
+    return 0
+
+
+def _run_maintenance_command(args: argparse.Namespace, config, config_path: Path) -> int | None:
+    if args.command == "migrate-config":
+        from clio.ui.services.file_service import _migrate_project_configs
+
+        root = args.projects_root or (config.project_dir or config_path.parent)
+        updated, errors = _migrate_project_configs(root)
+        print(t("cli.migrate_config.updated", {"count": updated}))
+        if errors:
+            print(t("cli.errors_header"))
+            for err in errors:
+                print(t("cli.list_error", {"error": err}))
+        return 1 if errors else 0
+    if args.command == "migrate":
+        from clio.tasks.migrate import run_migrate
+
+        updated, errors = run_migrate(config_path, getattr(args, "from_path", None))
+        print(t("cli.migrate.updated", {"count": updated}))
+        for err in errors:
+            print(t("cli.indented_error", {"error": err}))
+        return 1 if errors else 0
+    if args.command == "tokens":
+        cmd_tokens(args)
+        return 0
+    return None
+
+
+def _run_serve_command(args: argparse.Namespace, config, config_path: Path) -> int:
+    import time as _time
+
+    t_ui = _time.perf_counter()
+    print("[startup] importing UI modules…")
+    from clio.ui import run as run_ui
+
+    print(f"[startup] UI modules ready ({(_time.perf_counter() - t_ui) * 1000:.0f}ms)")
+    return run_ui(
+        config,
+        config_path=config_path,
+        host=args.host,
+        port=args.port,
+        open_browser=not args.no_browser,
+        api_token=args.token or config.server.api_token or None,
+    )
+
+
+def _dispatch_configured_command(
+    args: argparse.Namespace,
+    config,
+    config_path: Path,
+    single_file: Path | None,
+    context_override: str | None,
+) -> int:
+    result = _run_pipeline_command(args, config, single_file)
+    if result is not None:
+        return result
+    if args.command == "refine":
+        return _run_refine_command(args, config, context_override)
+    if args.command == "cut":
+        return _run_cut_command(args, config)
+    if args.command == "export":
+        return _run_export_command(args, config)
+    result = _run_maintenance_command(args, config, config_path)
+    if result is not None:
+        return result
+    if args.command == "serve":
+        return _run_serve_command(args, config, config_path)
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _build_arg_parser()
+    args = parser.parse_args(argv)
+    config_path = Path(args.config)
+
+    result = _run_pre_config_command(args, config_path)
+    if result is not None:
+        return result
+
+    serve_t0 = _start_serve_timer(args)
+    base_config = load_config(config_path)
+    set_active_locale(base_config.ui.language)
+    result = _probe_serve_port(args)
+    if result is not None:
+        return result
+    _setup_runtime_logging(base_config, serve_t0)
+
+    result = _run_unprepared_command(args, config_path)
+    if result is not None:
+        return result
+
+    single_file = _detect_single_file(args)
     config = _prepare_config(config_path, args)
-    if _serve_t0 is not None:
+    if serve_t0 is not None:
         import time as _time
 
-        print(f"[startup] project config prepared ({(_time.perf_counter() - _serve_t0) * 1000:.0f}ms from serve start)")
+        print(f"[startup] project config prepared ({(_time.perf_counter() - serve_t0) * 1000:.0f}ms from serve start)")
     if args.force:
         config.analyze.skip_existing = False
 
     context_override = (getattr(args, "context", "") or "").strip() or None
 
     try:
-        if args.command == "verify":
-            from clio.tasks.verify import run_verify
-
-            return run_verify(config)
-        elif args.command == "reindex":
-            from clio.tasks.reindex import run_reindex
-
-            return run_reindex(config)
-        elif args.command == "compress":
-            from clio.pipeline import run_compress_all
-            from clio.tasks.reindex import auto_reindex_if_needed
-
-            auto_reindex_if_needed(config)
-            run_compress_all(config, single_file=single_file, overwrite=args.force)
-        elif args.command == "analyze":
-            from clio.pipeline import run_analyze_all
-            from clio.tasks.reindex import auto_reindex_if_needed
-
-            auto_reindex_if_needed(config)
-            run_analyze_all(config, single_file=single_file, strict=args.strict)
-        elif args.command == "scripts":
-            from clio.pipeline import run_generate_scripts
-
-            run_generate_scripts(config, single_file=single_file)
-        elif args.command == "label":
-            from clio.pipeline import run_label_videos
-            from clio.tasks.reindex import auto_reindex_if_needed
-
-            auto_reindex_if_needed(config)
-            run_label_videos(config)
-        elif args.command == "plan":
-            from clio.pipeline import run_plan_all_days, run_plan_vlog
-            from clio.tasks.reindex import auto_reindex_if_needed
-
-            auto_reindex_if_needed(config)
-            config.plan.use_transcripts = not getattr(args, "no_transcripts", False)
-            if getattr(args, "all_days", False):
-                run_plan_all_days(config)
-            else:
-                run_plan_vlog(config, args.day)
-        elif args.command == "run":
-            from clio.pipeline import run_full_pipeline
-
-            run_full_pipeline(config, args.day, strict=args.strict)
-        elif args.command == "refine":
-            from clio.pipeline import run_refine_scripts, run_refine_texts
-
-            if not config.ai.context and not context_override:
-                print(t("cli.refine.no_context"), file=sys.stderr)
-            fix = (getattr(args, "fix", "") or "").strip() or None
-            target_path = getattr(args, "input", None)
-            if fix and (target_path is None or target_path.is_dir()):
-                print(t("cli.refine.fix_requires_file"), file=sys.stderr)
-                return 1
-            try:
-                failed = 0
-                if args.target in ("texts", "all"):
-                    result = run_refine_texts(config, target_path, fix=fix, context_override=context_override)
-                    failed += -result if result < 0 else 0
-                if args.target in ("scripts", "all"):
-                    scripts_path = None if args.target == "all" and target_path is not None else target_path
-                    result = run_refine_scripts(config, scripts_path, fix=fix, context_override=context_override)
-                    failed += -result if result < 0 else 0
-                if failed:
-                    print(t("cli.refine.failed", {"count": failed}), file=sys.stderr)
-                    return 1
-            except ValueError as e:
-                print(t("cli.error", {"detail": e}), file=sys.stderr)
-                return 1
-        elif args.command == "cut":
-            from clio.pipeline import run_cut_all
-            from clio.plan_model import Plan
-            from clio.plan_readiness import (
-                check_plan_export_readiness,
-                collect_project_analysis_timelines,
-                collect_project_indices,
-                collect_project_media_durations,
-                readiness_block_payload,
-            )
-            from clio.tasks.reindex import auto_reindex_if_needed
-
-            auto_reindex_if_needed(config)
-            plan_path = config.plans_dir / f"{plan_day_stem(args.day)}_plan.json"
-            if not plan_path.is_file():
-                print(t("cli.error", {"detail": t("cli.plan.not_found", {"path": plan_path})}), file=sys.stderr)
-                return 1
-            plan = Plan.from_dict(json.loads(plan_path.read_text(encoding="utf-8")))
-            known, offline = collect_project_indices(config)
-            ready = check_plan_export_readiness(
-                plan,
-                known_indices=known,
-                offline_indices=offline,
-                media_durations=collect_project_media_durations(config),
-                analysis_timelines=collect_project_analysis_timelines(config),
-                source=args.source,
-            )
-            blocked = readiness_block_payload(ready, force=bool(getattr(args, "force", False)))
-            if blocked is not None:
-                print(t("cli.error", {"detail": blocked["error"]}), file=sys.stderr)
-                for issue in ready.errors + (ready.warnings if not getattr(args, "force", False) else []):
-                    print(f"  [{issue.level}] {issue.message}", file=sys.stderr)
-                return 1
-            run_cut_all(
-                config,
-                day_label=args.day,
-                output_dir=args.out_dir,
-                reencode=args.reencode,
-                source=args.source,
-            )
-        elif args.command == "migrate-config":
-            from clio.ui.services.file_service import _migrate_project_configs
-
-            root = args.projects_root or (config.project_dir or config_path.parent)
-            updated, errors = _migrate_project_configs(root)
-            print(t("cli.migrate_config.updated", {"count": updated}))
-            if errors:
-                print(t("cli.errors_header"))
-                for err in errors:
-                    print(t("cli.list_error", {"error": err}))
-            return 1 if errors else 0
-        elif args.command == "migrate":
-            from clio.tasks.migrate import run_migrate
-
-            updated, errors = run_migrate(config_path, getattr(args, "from_path", None))
-            print(t("cli.migrate.updated", {"count": updated}))
-            for err in errors:
-                print(t("cli.indented_error", {"error": err}))
-            return 1 if errors else 0
-        elif args.command == "serve":
-            import time as _time
-
-            t_ui = _time.perf_counter()
-            print("[startup] importing UI modules…")
-            from clio.ui import run as run_ui
-
-            print(f"[startup] UI modules ready ({(_time.perf_counter() - t_ui) * 1000:.0f}ms)")
-            return run_ui(
-                config,
-                config_path=config_path,
-                host=args.host,
-                port=args.port,
-                open_browser=not args.no_browser,
-                api_token=args.token or config.server.api_token or None,
-            )
-        elif args.command == "tokens":
-            cmd_tokens(args)
-            return 0
-        elif args.command == "export":
-            from clio.export import export_plan
-            from clio.plan_model import Plan
-            from clio.plan_readiness import (
-                check_plan_export_readiness,
-                collect_project_analysis_timelines,
-                collect_project_indices,
-                collect_project_media_durations,
-                readiness_block_payload,
-            )
-
-            plan_path = config.plans_dir / f"{plan_day_stem(args.day)}_plan.json"
-            if not plan_path.is_file():
-                print(t("cli.error", {"detail": t("cli.plan.not_found", {"path": plan_path})}), file=sys.stderr)
-                return 1
-            plan = Plan.from_dict(json.loads(plan_path.read_text(encoding="utf-8")))
-            known, offline = collect_project_indices(config)
-            ready = check_plan_export_readiness(
-                plan,
-                known_indices=known,
-                offline_indices=offline,
-                media_durations=collect_project_media_durations(config),
-                analysis_timelines=collect_project_analysis_timelines(config),
-                source="original",
-            )
-            blocked = readiness_block_payload(ready, force=bool(getattr(args, "force", False)))
-            if blocked is not None:
-                print(t("cli.error", {"detail": blocked["error"]}), file=sys.stderr)
-                for issue in ready.errors + (ready.warnings if not getattr(args, "force", False) else []):
-                    print(f"  [{issue.level}] {issue.message}", file=sys.stderr)
-                return 1
-            out_dir = (
-                getattr(args, "export_out_dir", None)
-                or getattr(args, "output", None)
-                or config.paths.output_dir / "export" / f"{args.day}_{args.format}"
-            )
-            export_plan(
-                args.format,
-                plan_path,
-                out_dir,
-                day_label=args.day,
-                project_dir=config.project_dir,
-                ffprobe=resolve_binary(config.paths.ffprobe, "ffprobe"),
-                texts_dir=config.texts_dir,
-                canvas_ratio=config.export.canvas_ratio,
-                index_width=config.naming.index_width,
-            )
-            return 0
+        return _dispatch_configured_command(args, config, config_path, single_file, context_override)
     except FileNotFoundError as e:
         print(t("cli.error", {"detail": e}), file=sys.stderr)
         return 1
@@ -689,8 +774,6 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     finally:
         before_stop()
-
-    return 0
 
 
 if __name__ == "__main__":
