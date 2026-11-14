@@ -293,8 +293,8 @@ class TestHourlyFileHandlerFailure:
         assert "限额" in protected.getvalue()
 
     @pytest.mark.skipif(
-        os.name == "nt",
-        reason="POSIX permission bit semantics not enforced on Windows",
+        os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+        reason="POSIX permission bit semantics not enforced on Windows or when running as root",
     )
     def test_readonly_dir_is_handled_gracefully(self, tmp_path, monkeypatch):
         protected = io.StringIO()
