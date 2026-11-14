@@ -12,7 +12,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P1 | 35 | 20 | 15 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P2 | 59 | 16 | 17 | 0 | 0 | 0 | 0 | 0 | 26 |
+| P2 | 59 | 17 | 17 | 0 | 0 | 0 | 0 | 0 | 25 |
 | P3 | 14 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 10 |
 
 ## Item status
@@ -87,7 +87,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 066 | P2 | E16 | 示例仍是 00:10-00:45 (35 秒); narrative_beat/transition 下游未使用 | Fixed | `e8f102e` changes planning examples to an 8-second segment, exposes editable `narrative_beat` and `transition` fields in expanded plan cards, and keeps both locale catalogs aligned. `transition` was already consumed by JianYing transition export; the new plan-card inputs make narrative metadata visible and editable. Focused: 36 prompt and 16 plan-locale/i18n tests passed; full suites: 3360 pytest and 937 Vitest cases passed; typecheck, Ruff, mypy, and diff check passed. |
 | 067 | P2 | O4 | 只发一条 user 消息 | Satisfied | The OpenAI-compatible provider now emits a separate optional `system` message before the `user` message (`clio/ai/openai_compat.py:82-85`). Analyze and consistency callers send trusted specification context through `system` while task content is wrapped with `include_spec=False` (`clio/analyze.py:569-576`, `:1146-1162`; `clio/tasks/consistency.py:420-445`). `test_sends_system_message_when_provided` asserts the exact system/user sequence. Focused: 31 OpenAI-compatible provider tests passed. |
 | 068 | P2 | R013 | "5-10 秒一条"与"每窗口最多 60 条"在 15 分钟窗口下矛盾 (需要 90-180 条) | Satisfied | Existing implementation (`2fefba8`) replaces the fixed 60-row cap with duration-based targets and maxima: <=5 minutes 25-40/60, 5-10 minutes 50-80/120, and 10-15 minutes 75-120/180. The prompt also uses 8-12 seconds per active row and up to 20 seconds for static footage, so a 15-minute window no longer conflicts with the density target (`clio/prompts.py:122-130`). Focused: 36 prompt tests passed. |
-| 069 | P2 | R020 | 只要有 1 个视频分析失败, analyze 步骤就抛异常, 后面的口播、规划全部不执行 | Pending audit |  |
+| 069 | P2 | R020 | 只要有 1 个视频分析失败, analyze 步骤就抛异常, 后面的口播、规划全部不执行 | Fixed | `30c9bc8` makes analyze return successful records plus a failed count by default, records failures in the pipeline summary while continuing later steps, and adds `--strict` to `analyze`/`run` for legacy fail-fast behavior. Artifact overwrite confirmations remain fatal. Focused: 130 tests passed; full Python suite: 3366 passed, 12 skipped; Ruff and diff check passed. Mypy reports only the two pre-existing `test_routes_run.py` append errors. |
 | 070 | P2 | C16 | 原生弹窗: plan 编辑无撤销 (部分修复) | Satisfied | Satisfied; native dialog/undo work completed. |
 | 071 | P2 | B10 | README 数字与流程过时 | Pending audit |  |
 | 072 | P2 | O18 | ROADMAP 过长 | Satisfied | Satisfied; roadmap archival completed. |
