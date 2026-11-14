@@ -12,7 +12,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P1 | 35 | 20 | 15 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P2 | 59 | 28 | 27 | 0 | 0 | 0 | 0 | 0 | 4 |
+| P2 | 59 | 29 | 27 | 0 | 0 | 0 | 0 | 0 | 3 |
 | P3 | 14 | 5 | 0 | 0 | 0 | 0 | 0 | 9 |
 
 ## Item status
@@ -117,7 +117,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 096 | P2 | OPT-021 | clio/config/models.py 末尾保留 4 个标注为过渡用途的旧 dataclass; _plan_index_key 的逻辑在 analyze.py 里另有两处内联副本 (731-734, 743-746) | Fixed | Deprecated merged config dataclasses and package exports were removed; `_parse_whisper` and tests now use the split project/global models. Both inline plan-index normalizers call `_plan_index_key`. Focused: 325 config, transcription, and analysis tests passed; Ruff and diff check passed. |
 | 097 | P2 | OPT-024 | 步骤函数返回值各不相同 (list / int / dict / None), pipeline.py:126-130 靠类型猜结果, failed 恒为 0 | Satisfied | `_record_step_result` is now the documented step-result adapter: a non-zero `int` is a step exit code (`transcribe`), a `list` subclass reports its processed count, and `AnalyzeResult.failed` feeds `error_count` and strict-mode aborts. Partial voiceover failures already raise `task.scripts.incomplete`. `test_pipeline.py` covers failure propagation and strict short-circuiting; `test_e2e_ffmpeg_smoke.py` pins the summary shape. Full `StepResult` unification was not applied because these return values are public CLI/UI contracts. |
 | 098 | P2 | OPT-025 | 配置升级靠"缺字段就写默认值" (R009) | Satisfied | The referenced `__upgrade_config_file` no longer exists. `clio/config/loader.py::_migrate_if_needed` now gates migration on `config_version` and delegates V1 to the explicit `_migrate_v1_to_v2` split (backup, global/project filtering, per-project rewrite), covered by `clio/tests/test_config_v2.py`. Newly added fields continue to use dataclass defaults, which is the intended backward-compatible schema behavior. |
-| 099 | P2 | OPT-026 | 34 处 confirm() 与 1 处 alert(); pywebview 下原生弹窗样式与行为不一致 | Pending audit |  |
+| 099 | P2 | OPT-026 | 34 处 confirm() 与 1 处 alert(); pywebview 下原生弹窗样式与行为不一致 | Fixed | `eb3e0f6` introduced the promise-based `confirmDialog`/`alertDialog`/`promptDialog` module and migrated the frontend call sites; `12190c3` removes the last native `globalThis.confirm` fallback in plan deletion. No native `confirm(`/`alert(` calls remain in `clio/ui/static/src`. Focused: plan-delete and confirm Vitest files 16 passed; `npm run typecheck` clean. |
 | 100 | P2 | OPT-027 | 分析失败时统一提示"请检查 API Key 和网络连接" (task.analyze.incomplete), 即使原因是 JSON 结构或安全拦截 | Fixed | `analyze` now records per-video failure details and appends them to the strict `task.analyze.incomplete` error via `task.analyze.incomplete_reasons` (truncated to five entries). Focused: 84 analysis/i18n tests passed; Ruff and mypy clean. |
 | 101 | P2 | OPT-030 | Vitest 语句覆盖 55.78%; editor-plan.js 17%、main.js 28%、viewer.js 38% | Pending audit |  |
 | 102 | P2 | OPT-032 | AGENTS.md 411 行、ROADMAP.md 1,826 行、CHANGELOG.md 1,103 行; docs/analysis 27 份、docs/superpowers 109 份 | Pending audit |  |
