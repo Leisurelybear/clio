@@ -12,7 +12,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P1 | 35 | 20 | 15 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P2 | 59 | 30 | 28 | 0 | 0 | 0 | 0 | 0 | 1 |
+| P2 | 59 | 31 | 28 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P3 | 14 | 10 | 0 | 0 | 0 | 0 | 0 | 0 | 4 |
 
 ## Item status
@@ -120,7 +120,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 099 | P2 | OPT-026 | 34 处 confirm() 与 1 处 alert(); pywebview 下原生弹窗样式与行为不一致 | Fixed | `eb3e0f6` introduced the promise-based `confirmDialog`/`alertDialog`/`promptDialog` module and migrated the frontend call sites; `12190c3` removes the last native `globalThis.confirm` fallback in plan deletion. No native `confirm(`/`alert(` calls remain in `clio/ui/static/src`. Focused: plan-delete and confirm Vitest files 16 passed; `npm run typecheck` clean. |
 | 100 | P2 | OPT-027 | 分析失败时统一提示"请检查 API Key 和网络连接" (task.analyze.incomplete), 即使原因是 JSON 结构或安全拦截 | Fixed | `analyze` now records per-video failure details and appends them to the strict `task.analyze.incomplete` error via `task.analyze.incomplete_reasons` (truncated to five entries). Focused: 84 analysis/i18n tests passed; Ruff and mypy clean. |
 | 101 | P2 | OPT-030 | Vitest 语句覆盖 55.78%; editor-plan.js 17%、main.js 28%、viewer.js 38% | Satisfied | The review-recommended save and dirty-state regressions are covered: `editor-artifact-save.test.js` verifies successful `If-Match` saves, 409 conflicts, server errors, config routing, and unexpected failures while preserving dirty state; `editor-save.test.js` and `main-tab-switch.test.js` cover clean/dirty tab switching. Latest `npm run test:coverage` measured 60.13% statements, 54.01% branches, 64.46% functions, and 63.09% lines. Focused verification: 22 Vitest cases passed. The remaining low per-file coverage in `editor-plan.js`, `main.js`, and `viewer.js` is broader test debt rather than this specific save-flow finding. |
-| 102 | P2 | OPT-032 | AGENTS.md 411 行、ROADMAP.md 1,826 行、CHANGELOG.md 1,103 行; docs/analysis 27 份、docs/superpowers 109 份 | Pending audit |  |
+| 102 | P2 | OPT-032 | AGENTS.md 411 行、ROADMAP.md 1,826 行、CHANGELOG.md 1,103 行; docs/analysis 27 份、docs/superpowers 109 份 | Fixed | `12b18dd` points the active-review link at the current tracker. The maintenance manual is now 125 lines and the roadmap 150 lines; completed roadmap history already lives under `docs/archive/`. Remaining historical review files stay in place because moving them would not reduce the active reading path. Documentation-only verification: `git diff --check` passed. |
 | 103 | P2 | OPT-033 | README 手写测试数量 (2409 / 720), 与实测 (2870 / 857) 不符 | Fixed | `f3e27b7` removes the handwritten `tests-2000+` badges, per-module count table, and `2000+` project-tree labels from both READMEs; CI remains the authoritative count. Documentation-only verification: `git diff --check` passed. |
 | 104 | P3 | R036 | 任务指纹包含 provider、model、base_url、max_tokens, 但不包含 temperature | Fixed | Task lineage settings now include the bound task temperature. Focused: 27 plan-lineage tests passed, including a temperature-change fingerprint regression. |
 | 105 | P3 | R025 | test_readonly_dir_is_handled_gracefully 以 root 运行时失败 | Fixed | `cfa5058` extends the existing POSIX skip with `os.geteuid() == 0`, so the permission-bit check is skipped when running as root. Focused: `clio/tests/test_log.py` 37 passed, 1 skipped; Ruff and diff check passed. |
