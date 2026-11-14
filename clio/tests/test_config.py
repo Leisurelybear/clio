@@ -43,6 +43,10 @@ from clio.config.models import (
 # ── deep_merge ──────────────────────────────────────────────────────
 
 
+def test_analyze_config_enables_gpmf_by_default():
+    assert AnalyzeConfig().use_gpmf is True
+
+
 def test_server_task_retention_defaults_and_validation():
     server = ServerConfig()
     assert server.task_retention_days == 30

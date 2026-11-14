@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
@@ -17,6 +17,7 @@ from clio.tasks._helpers import (
     _eta_line,
     _filename_capture_time,
     _get_video_info,
+    _localize_capture_time_text,
     _matches_selected_artifact,
     _matches_selected_stem,
     _media_capture_time,
@@ -589,6 +590,15 @@ class TestCaptureTimeParsing:
     def test_invalid_timestamp_returns_none(self):
         assert _parse_capture_time_text("not a time") is None
         assert _parse_capture_time_text("") is None
+
+    def test_aware_timestamp_is_rendered_in_local_timezone(self):
+        local_tz = timezone(timedelta(hours=8))
+
+        assert _localize_capture_time_text("2024-01-15T06:30:00Z", local_tz) == "2024-01-15T14:30:00+08:00"
+
+    def test_naive_or_unrecognized_timestamp_is_preserved(self):
+        assert _localize_capture_time_text("2024-01-15T14:30:00") == "2024-01-15T14:30:00"
+        assert _localize_capture_time_text("unknown") == "unknown"
 
     def test_media_capture_time_falls_back_to_container_tag(self, monkeypatch, tmp_path: Path):
         video = tmp_path / "GH010123.mp4"

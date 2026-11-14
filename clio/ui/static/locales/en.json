@@ -620,7 +620,7 @@
   "settings.desc.analyze.media_resolution": "Gemini video analysis resolution: low / medium / high; defaults to medium, with a 5-minute window recommended for long clips",
   "settings.desc.analyze.skip_existing": "Global skip switch: skip already processed files (affects every step)",
   "settings.desc.analyze.texts_subdir": "Subdirectory holding AI analysis output",
-  "settings.desc.analyze.use_gpmf": "Optional: inject the .gpmf.json / GPMF probe summary next to the source clip into the AI context (default off; silently skipped without GPS)",
+  "settings.desc.analyze.use_gpmf": "Inject the .gpmf.json / GPMF probe summary next to the source clip into the AI context (default on; silently skipped without GPS)",
   "settings.desc.analyze.window_max_min": "Longest single AI analysis window (minutes); longer input uses Gemini time windows and is merged",
   "settings.desc.analyze.window_overlap_sec": "Overlap between adjacent analysis windows (seconds), used to dedupe boundaries",
   "settings.desc.compress.codec": "Video codec, defaults to libx264",

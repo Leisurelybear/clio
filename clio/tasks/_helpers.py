@@ -10,7 +10,7 @@ import re
 import subprocess
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, tzinfo
 from pathlib import Path
 
 from clio.config import AppConfig
@@ -72,11 +72,12 @@ _CAPTURE_TIME_RE = re.compile(r"(?<!\d)(20\d{2}[01]\d[0-3]\d)[_-]?([0-2]\d[0-5]\
 _CAPTURE_TIME_FORMATS = ("%Y%m%d%H%M%S", "%Y-%m-%d %H:%M:%S", "%Y:%m:%d %H:%M:%S")
 
 
-def _parse_capture_time_text(value: str) -> datetime | None:
+def _parse_capture_time_text(value: str, tz: tzinfo | None = None) -> datetime | None:
     """Parse an ISO-8601 or compact capture timestamp into a naive sort key.
 
     Aware timestamps are converted to the machine's wall clock so they line up
-    with the local time cameras usually encode in filenames.
+    with the local time cameras usually encode in filenames. ``tz`` lets tests
+    pin that wall clock without depending on the host timezone.
     """
     text = str(value).strip()
     if not text:
@@ -95,8 +96,28 @@ def _parse_capture_time_text(value: str) -> datetime | None:
     if parsed is None:
         return None
     if parsed.tzinfo is not None:
-        parsed = parsed.astimezone().replace(tzinfo=None)
+        parsed = parsed.astimezone(tz).replace(tzinfo=None)
     return parsed
+
+
+def _localize_capture_time_text(value: str, tz: tzinfo | None = None) -> str:
+    """Return an aware ISO timestamp rendered in the local timezone.
+
+    Naive timestamps and unrecognized strings are already local or opaque, so
+    they are returned unchanged. This keeps camera filenames and user-edited
+    analysis metadata from being reinterpreted.
+    """
+    text = str(value).strip()
+    if not text:
+        return ""
+    iso_text = f"{text[:-1]}+00:00" if text[-1] in "Zz" else text
+    try:
+        parsed = datetime.fromisoformat(iso_text)
+    except ValueError:
+        return text
+    if parsed.tzinfo is None:
+        return text
+    return parsed.astimezone(tz).isoformat(timespec="seconds")
 
 
 def _filename_capture_time(stem: str) -> datetime | None:

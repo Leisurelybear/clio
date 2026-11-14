@@ -11,7 +11,7 @@ import time
 from collections.abc import Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, tzinfo
 from pathlib import Path
 from typing import Any, TypedDict
 
@@ -68,6 +68,7 @@ from clio.tasks._helpers import (
     _clip_records_from_csv,
     _matches_selected_stem,
     _merge_summary_records,
+    _parse_capture_time_text,
     _path_key,
     _project_selection_stems,
     _selection_from_files,
@@ -99,19 +100,10 @@ def _capture_date_key(value: str) -> str:
         return ""
 
 
-def _creation_time_utc_date_key(value: str) -> str:
-    """Return the UTC calendar date encoded by a container creation_time."""
-    text = str(value).strip()
-    if not text:
-        return ""
-    iso_text = f"{text[:-1]}+00:00" if text[-1] in "Zz" else text
-    try:
-        parsed = datetime.fromisoformat(iso_text)
-    except ValueError:
-        return ""
-    if parsed.tzinfo is not None:
-        parsed = parsed.astimezone(UTC)
-    return parsed.date().isoformat()
+def _creation_time_local_date_key(value: str, tz: tzinfo | None = None) -> str:
+    """Return the machine-local calendar date for a container creation_time."""
+    parsed = _parse_capture_time_text(value, tz)
+    return parsed.date().isoformat() if parsed is not None else ""
 
 
 def _original_capture_date(original: Path, ffprobe: str) -> str:
@@ -135,7 +127,7 @@ def _original_capture_date(original: Path, ffprobe: str) -> str:
             if isinstance(format_tags, dict):
                 for key, value in format_tags.items():
                     if key.lower() == "creation_time":
-                        date_key = _creation_time_utc_date_key(str(value))
+                        date_key = _creation_time_local_date_key(str(value))
                         if date_key:
                             return date_key
             for stream in probe_data.get("streams") or []:
@@ -143,7 +135,7 @@ def _original_capture_date(original: Path, ffprobe: str) -> str:
                 if isinstance(tags, dict):
                     for key, value in tags.items():
                         if key.lower() == "creation_time":
-                            date_key = _creation_time_utc_date_key(str(value))
+                            date_key = _creation_time_local_date_key(str(value))
                             if date_key:
                                 return date_key
         except (OSError, RuntimeError, subprocess.SubprocessError, ValueError, TypeError, json.JSONDecodeError):

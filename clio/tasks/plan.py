@@ -41,6 +41,7 @@ from clio.prompts import (
 from clio.schema import add_schema_version
 from clio.tasks._helpers import (
     _filename_capture_time,
+    _localize_capture_time_text,
     _matches_selected_artifact,
     _probe_creation_time_text,
     _project_selection_stems,
@@ -165,15 +166,15 @@ def _capture_time(
         for values in (data, metadata):
             value = values.get(key)
             if isinstance(value, str) and value.strip():
-                return value.strip()
+                return _localize_capture_time_text(value)
 
     if gpmf_capture_time and gpmf_capture_time.strip():
-        return gpmf_capture_time.strip()
+        return _localize_capture_time_text(gpmf_capture_time)
 
     if source_path and ffprobe and Path(source_path).is_file():
         probed = _probe_creation_time_text(Path(source_path), ffprobe)
         if probed:
-            return probed
+            return _localize_capture_time_text(probed)
 
     captured = _filename_capture_time(source_stem)
     if captured is not None:

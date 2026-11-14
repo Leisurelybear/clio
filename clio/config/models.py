@@ -62,9 +62,9 @@ class AnalyzeConfig:
     window_overlap_sec: int = 20
     media_resolution: str = "medium"
     max_workers: int = 1
-    # Opt-in: inject GoPro GPMF/sidecar summary into analyze context (R-024b).
-    # Default false — most clips have no GPS; missing telemetry is always a no-op.
-    use_gpmf: bool = False
+    # Inject GoPro GPMF/sidecar summary into analyze context (R-024b).
+    # Default true; clips without telemetry remain a silent no-op.
+    use_gpmf: bool = True
 
 
 @dataclass

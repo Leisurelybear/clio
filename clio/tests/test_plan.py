@@ -11,6 +11,7 @@ import pytest
 
 from clio.artifact_guard import mark_user_edited
 from clio.config import AppConfig
+from clio.tasks._helpers import _localize_capture_time_text
 from clio.tasks.plan import (
     _analysis_day_label,
     _collect_plan_clips,
@@ -424,7 +425,7 @@ class TestRunPlanVlog:
         assert result is not None
         clip = mock.call_args.args[0][0]
         assert clip["duration_sec"] == 42.5
-        assert clip["capture_time"] == "2026-11-08T09:30:00Z"
+        assert clip["capture_time"] == _localize_capture_time_text("2026-11-08T09:30:00Z")
         assert "gps" not in clip
         assert clip["mood"] == "calm"
         assert clip["voiceover"] == "A quiet morning by the sea."
@@ -469,7 +470,7 @@ class TestRunPlanVlog:
 
         assert result is not None
         clip = mock.call_args.args[0][0]
-        assert clip["capture_time"] == "2026-11-08T09:30:00Z"
+        assert clip["capture_time"] == _localize_capture_time_text("2026-11-08T09:30:00Z")
         assert clip["gps"] == {"latitude": pytest.approx(48.8566), "longitude": pytest.approx(2.3522)}
 
     def test_corrupt_gpmf_sidecar_is_silent_noop(self, loaded_config: AppConfig, tmp_path: Path) -> None:

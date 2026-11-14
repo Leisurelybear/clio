@@ -50,9 +50,9 @@ analyze:
   window_overlap_sec: 20        # overlap between windows for boundary dedupe
   media_resolution: medium      # low | medium | high; medium + window_max_min: 5 is recommended for long clips
   max_workers: 1
-  # Optional: inject GoPro GPMF / sidecar summary into AI analyze context.
-  # Default false. Missing GPS/GPMF is always a silent no-op.
-  use_gpmf: false
+  # Inject GoPro GPMF / sidecar summary into AI analyze context.
+  # Default true. Missing GPS/GPMF is always a silent no-op.
+  use_gpmf: true
 
 script:
   scripts_subdir: scripts

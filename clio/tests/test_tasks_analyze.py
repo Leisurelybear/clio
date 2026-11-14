@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
+from datetime import timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -317,29 +318,30 @@ def test_build_day_labels_uses_capture_dates_and_filename_fallback(monkeypatch, 
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
-        ("2026-11-08T23:30:00Z", "2026-11-08"),
-        ("2026-11-09T01:30:00+08:00", "2026-11-08"),
+        ("2026-11-08T23:30:00Z", "2026-11-09"),
+        ("2026-11-09T01:30:00+08:00", "2026-11-09"),
         ("2026-11-09T23:30:00-05:00", "2026-11-10"),
         ("2026-11-09T01:30:00", "2026-11-09"),
     ],
 )
-def test_creation_time_utc_date_key(value: str, expected: str):
-    from clio.tasks.analyze import _creation_time_utc_date_key
+def test_creation_time_local_date_key(value: str, expected: str):
+    from clio.tasks.analyze import _creation_time_local_date_key
 
-    assert _creation_time_utc_date_key(value) == expected
+    local_tz = timezone(timedelta(hours=8))
+    assert _creation_time_local_date_key(value, local_tz) == expected
 
 
-def test_build_day_labels_uses_utc_creation_date(monkeypatch, tmp_path: Path):
+def test_build_day_labels_uses_local_creation_date(monkeypatch, tmp_path: Path):
     from clio.tasks.analyze import _build_day_labels
 
     cfg = _cfg(tmp_path)
-    first = tmp_path / "local-nov-9.mp4"
-    second = tmp_path / "utc-nov-9.mp4"
+    first = tmp_path / "nov-8.mp4"
+    second = tmp_path / "nov-10.mp4"
     for path in (first, second):
         path.write_bytes(b"video")
 
     def fake_probe(cmd, **kwargs):
-        value = "2026-11-09T01:30:00+08:00" if Path(cmd[-1]) == first else "2026-11-09T12:00:00Z"
+        value = "2026-11-08T01:30:00Z" if Path(cmd[-1]) == first else "2026-11-10T12:00:00Z"
         return type("ProbeResult", (), {"stdout": json.dumps({"format": {"tags": {"creation_time": value}}})})()
 
     monkeypatch.setattr("clio.tasks.analyze.resolve_binary", lambda *args: "ffprobe")

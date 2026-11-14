@@ -1,7 +1,7 @@
 # Design: GoPro GPMF telemetry as highlight signal (R-024)
 
 **Date**: 2026-07-16  
-**Status**: MVP + R-024b opt-in analyze injection (`analyze.use_gpmf`, default false) + Q4 default planning metadata (`7189ede`).
+**Status**: MVP + analyze injection (`analyze.use_gpmf`, default true) + Q4 default planning metadata (`7189ede`).
 
 ## Problem
 
@@ -85,7 +85,7 @@ Planning always attempts to read the sidecar next to the original clip, independ
 
 - `clio/gpmf.py` — pure functions: load sidecar, probe marker, summarize, format
 - `clio/tests/test_gpmf.py` — TDD coverage
-- Config flag: `analyze.use_gpmf` default false until validated; when true, `merge_telemetry_into_context` appends the block to analyze `context_override`
+- Config flag: `analyze.use_gpmf` defaults to true; when enabled, `merge_telemetry_into_context` appends the block to analyze `context_override`
 
 ## Acceptance (MVP)
 
