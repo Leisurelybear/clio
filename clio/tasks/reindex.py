@@ -182,6 +182,108 @@ def auto_reindex_if_needed(config: AppConfig, ffprobe: str | None = None) -> boo
     return True
 
 
+def _collect_compressed_groups(compressed_dir: Path, project_dir: Path | None) -> dict[str, list[Path]]:
+    groups: dict[str, list[Path]] = defaultdict(list)
+    for p in sorted(compressed_dir.iterdir()):
+        if not p.is_file() or p.suffix.lower() not in VIDEO_EXTS:
+            continue
+        if "_" not in p.stem:
+            continue
+        prefix = p.stem.split("_", 1)[0]
+        if not prefix.isdigit():
+            continue
+        groups[_group_stem(p, project_dir)].append(p)
+    return groups
+
+
+def _find_group_source(
+    orig_stem: str, comp_files: list[Path], project_dir: Path | None
+) -> tuple[Path | None, Path | None]:
+    source_path = None
+    known_source = None
+    for p in comp_files:
+        meta = VideoMeta.read(p)
+        if meta is None:
+            continue
+        src = meta.source_path_obj()
+        if known_source is None:
+            known_source = src
+        if src.is_file():
+            source_path = src
+            break
+    if source_path is None:
+        candidate = _find_original_for_stem(orig_stem, project_dir)
+        if candidate is not None:
+            if known_source is None:
+                known_source = candidate
+            if candidate.is_file():
+                source_path = candidate
+    return source_path, known_source
+
+
+def _build_segment_entries(
+    comp_files: list[Path], source_path: Path, source_dur: float, ffprobe: str
+) -> list[SegmentEntry]:
+    comp_files.sort(key=lambda p: int(p.stem.split("_", 1)[0]))
+    seg_entries: list[SegmentEntry] = []
+    for cp in comp_files:
+        idx_str = cp.stem.split("_", 1)[0]
+        meta = VideoMeta.read(cp)
+        if meta is not None and not (
+            source_path.resolve() == meta.source_path_obj().resolve() and not meta.is_stale(source_path, cp)
+        ):
+            meta = None
+        if meta is not None and meta.split_info:
+            si = meta.split_info
+            seg_entries.append(
+                SegmentEntry(
+                    index=idx_str,
+                    filename=cp.name,
+                    offset_sec=si.offset_sec,
+                    duration_sec=meta.target_duration_sec,
+                    segment_number=si.segment_index,
+                    total_segments=si.total_segments,
+                )
+            )
+            continue
+        tgt_dur = meta.target_duration_sec if meta is not None else 0.0
+        if meta is None:
+            with contextlib.suppress(*_PROBE_ERRORS):
+                tgt_dur = get_duration_sec(cp, ffprobe)
+            meta = VideoMeta.build(
+                source=source_path,
+                target=cp,
+                source_duration=source_dur,
+                target_duration=tgt_dur,
+            )
+            meta.write(cp)
+        seg_entries.append(
+            SegmentEntry(
+                index=idx_str,
+                filename=cp.name,
+                offset_sec=0.0,
+                duration_sec=tgt_dur,
+                segment_number=1,
+                total_segments=1,
+            )
+        )
+    return seg_entries
+
+
+def _write_group_index(
+    orig_stem: str,
+    compressed_dir: Path,
+    source_path: Path,
+    source_dur: float,
+    comp_files: list[Path],
+    ffprobe: str,
+) -> None:
+    seg_entries = _build_segment_entries(comp_files, source_path, source_dur, ffprobe)
+    vindex = VideoIndex.build(source=source_path, source_duration=source_dur, segments=seg_entries)
+    vindex.write(compressed_dir)
+    print(t("task.reindex.ok", {"name": orig_stem, "count": len(comp_files)}))
+
+
 def run_reindex(config: AppConfig, ffprobe: str | None = None, stems: set[str] | None = None) -> int:
     """Scan compressed_dir and rebuild .vindex files.
 
@@ -198,47 +300,14 @@ def run_reindex(config: AppConfig, ffprobe: str | None = None, stems: set[str] |
         print(t("task.reindex.compressed_dir_missing", {"path": compressed_dir}))
         return 0
 
-    # Group compressed files by original stem (strip _segNN suffix)
-    groups: dict[str, list[Path]] = defaultdict(list)
-
-    for p in sorted(compressed_dir.iterdir()):
-        if not p.is_file() or p.suffix.lower() not in VIDEO_EXTS:
-            continue
-        if "_" not in p.stem:
-            continue
-        prefix, stem_part = p.stem.split("_", 1)
-        if not prefix.isdigit():
-            continue
-        orig_stem = _group_stem(p, config.project_dir)
-        groups[orig_stem].append(p)
-
+    groups = _collect_compressed_groups(compressed_dir, config.project_dir)
     offline_cache = {stem: entry for stem, entry in _load_offline_cache(compressed_dir).items() if stem in groups}
     written_index = 0
 
     for orig_stem, comp_files in groups.items():
         if stems is not None and orig_stem not in stems:
             continue
-        # Try to find original source path
-        source_path = None
-        known_source = None
-        for p in comp_files:
-            meta = VideoMeta.read(p)
-            if meta is not None:
-                src = meta.source_path_obj()
-                if known_source is None:
-                    known_source = src
-                if src.is_file():
-                    source_path = src
-                    break
-
-        if source_path is None:
-            candidate = _find_original_for_stem(orig_stem, config.project_dir)
-            if candidate is not None:
-                if known_source is None:
-                    known_source = candidate
-                if candidate.is_file():
-                    source_path = candidate
-
+        source_path, known_source = _find_group_source(orig_stem, comp_files, config.project_dir)
         if source_path is None:
             offline_cache[orig_stem] = {
                 "fingerprint": _file_set_fingerprint(comp_files, config.project_dir),
@@ -248,69 +317,12 @@ def run_reindex(config: AppConfig, ffprobe: str | None = None, stems: set[str] |
             continue
         offline_cache.pop(orig_stem, None)
 
-        # Sort compressed files by prefix index
-        comp_files.sort(key=lambda p: int(p.stem.split("_", 1)[0]))
-
-        seg_entries: list[SegmentEntry] = []
         source_dur = 0.0
         with contextlib.suppress(*_PROBE_ERRORS):
             source_dur = get_duration_sec(source_path, ffprobe)
 
-        for cp in comp_files:
-            idx_str = cp.stem.split("_", 1)[0]
-            meta = VideoMeta.read(cp)
-            if meta is not None and not (
-                source_path.resolve() == meta.source_path_obj().resolve() and not meta.is_stale(source_path, cp)
-            ):
-                # Stale or mismatched sidecar: rebuild it from scratch below.
-                meta = None
-            if meta is not None and meta.split_info:
-                # Verified legacy split slice (same source, fresh metadata):
-                # trust its declared offsets, do not re-derive from position.
-                si = meta.split_info
-                seg_entries.append(
-                    SegmentEntry(
-                        index=idx_str,
-                        filename=cp.name,
-                        offset_sec=si.offset_sec,
-                        duration_sec=meta.target_duration_sec,
-                        segment_number=si.segment_index,
-                        total_segments=si.total_segments,
-                    )
-                )
-                continue
-            # No verified split identity: a whole-file (or unverifiable) clip.
-            # Never fabricate average offsets across same-stem files.
-            tgt_dur = meta.target_duration_sec if meta is not None else 0.0
-            if meta is None:
-                with contextlib.suppress(*_PROBE_ERRORS):
-                    tgt_dur = get_duration_sec(cp, ffprobe)
-                meta = VideoMeta.build(
-                    source=source_path,
-                    target=cp,
-                    source_duration=source_dur,
-                    target_duration=tgt_dur,
-                )
-                meta.write(cp)
-            seg_entries.append(
-                SegmentEntry(
-                    index=idx_str,
-                    filename=cp.name,
-                    offset_sec=0.0,
-                    duration_sec=tgt_dur,
-                    segment_number=1,
-                    total_segments=1,
-                )
-            )
-
-        vindex = VideoIndex.build(
-            source=source_path,
-            source_duration=source_dur,
-            segments=seg_entries,
-        )
-        vindex.write(compressed_dir)
+        _write_group_index(orig_stem, compressed_dir, source_path, source_dur, comp_files, ffprobe)
         written_index += 1
-        print(t("task.reindex.ok", {"name": orig_stem, "count": len(comp_files)}))
 
     _save_offline_cache(compressed_dir, offline_cache)
     print(t("task.reindex.done", {"count": written_index}))
