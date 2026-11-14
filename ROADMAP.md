@@ -28,6 +28,7 @@ Commit-level evidence and remaining scope limits are recorded in the review repo
 
 - `[x]` Resolve shared voiceover runtime phases against active task steps (2026-11-15).
 - `[x]` Apply overwrite to one submission and refresh normal cache state after success (2026-11-15).
+- `[x]` Offer an explicit optional-transcription skip when ASR cannot produce transcripts (2026-11-15).
 
 - `[x]` Group the eight existing steps into four guided stages, with one-stage next actions.
 - `[x]` Keep custom selections, scope, overwrite confirmations, and detailed estimates available.

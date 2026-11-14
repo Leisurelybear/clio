@@ -148,6 +148,7 @@ function renderRun() {
       <p id="run-next-estimate" class="hint"></p>
       <button id="btn-run-start" class="btn-primary">${getRunButtonText()}</button>
       <button id="btn-run-retry-preview" class="btn-secondary" hidden>${t('run.guide.retry_preview')}</button>
+      <button id="btn-run-skip-transcribe" class="btn-secondary" hidden>${t('run.guide.skip_transcribe')}</button>
       <span id="run-files-badge" class="run-files-badge" style="display:none"></span>
       <button id="btn-run-cancel" class="btn-secondary" style="display:none">${t('common.cancel')}</button>
     </section>
@@ -179,6 +180,16 @@ function renderRun() {
   const dayScope = pane.querySelector('.run-step-day-sub');
   if (dayScope) $('run-scope').appendChild(dayScope);
   $('btn-run-retry-preview').onclick = () => refreshRunPreview();
+  $('btn-run-skip-transcribe').onclick = () => {
+    if (_runActive) return;
+    const transcribe = pane.querySelector('.run-step-cb[data-step="transcribe"]');
+    if (!transcribe) return;
+    transcribe.checked = false;
+    const checks = {};
+    pane.querySelectorAll('.run-step-cb').forEach(cb => { checks[cb.dataset.step] = cb.checked; });
+    saveStepSelection(checks, $('run-use-transcripts')?.checked ?? true);
+    return refreshRunPreview({ silent: true });
+  };
 
   // wire step checkbox change → persist + refresh preview
   document.querySelectorAll('.run-step-cb').forEach(cb => {
@@ -302,6 +313,14 @@ function updateRunGuide() {
   const model = currentStageModel();
   renderStageBoard(board, model);
   const next = nextIncompleteStage(model);
+  const skipTranscribe = $('btn-run-skip-transcribe');
+  if (skipTranscribe) {
+    const row = _lastRunPreview?.steps?.find(step => step.name === 'transcribe');
+    skipTranscribe.hidden = _customRun || next?.key !== 'source_prep' || !next.steps.includes('transcribe')
+      || !row || row.disabled || !(Number(row.will_run) > 0 || Number(row.total) === 0);
+    skipTranscribe.disabled = _runActive;
+    skipTranscribe.title = t('run.guide.skip_transcribe_hint');
+  }
   const retry = $('btn-run-retry-preview');
   if (retry) retry.hidden = !_previewFailed;
   const estimate = $('run-next-estimate');

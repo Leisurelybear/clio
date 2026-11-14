@@ -14,6 +14,9 @@ from clip scripts to planned voiceover. Focused runner tests verify both paths.
 Overwrite now applies to one submitted action, resets after success, and refreshes the
 non-forced preview before choosing the next stage. A sequential UI regression verifies
 the outgoing overwrite payload and the subsequent analysis action.
+Unavailable ASR now has an explicit Run-only skip action. It deselects transcript generation
+without disabling reuse of existing transcripts and keeps guided progression active. The
+explicitly disabled-preview path continues automatically, with UI tests for both cases.
 
 Follow-up audit (2026-11-14): [recent commits review](2026-11-14-recent-commits-review.md)
 records five additional findings, now fixed: preview/runtime reuse disagreement, stale

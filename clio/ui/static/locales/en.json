@@ -1403,5 +1403,7 @@
   "run.guide.open_output": "Open output folder",
   "run.guide.retry_preview": "Retry preview",
   "run.guide.preview_failed": "Preview unavailable; retry",
-  "run.guide.overwrite_once": "Overwrite applies to this submission only and turns off after success; it remains enabled after failure or cancellation for retry."
+  "run.guide.overwrite_once": "Overwrite applies to this submission only and turns off after success; it remains enabled after failure or cancellation for retry.",
+  "run.guide.skip_transcribe": "Skip transcription and continue",
+  "run.guide.skip_transcribe_hint": "Do not generate new transcripts; keep existing transcripts available. Re-enable transcription in custom steps when needed."
 }

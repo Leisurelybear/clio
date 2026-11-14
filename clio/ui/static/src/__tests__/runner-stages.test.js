@@ -164,6 +164,37 @@ describe('guided run stages', () => {
       expect(document.querySelector('[aria-current="step"]').dataset.stage).toBe(expected);
     }
   });
+
+  it('lets unavailable ASR be skipped after preparation completes without a transcript', async () => {
+    vi.mocked(api).mockImplementation(async (method, url, options) => {
+      if (url !== '/api/run/preview') return { files: {} };
+      const p = preview();
+      p.steps[0] = { name: 'compress', total: 2, will_run: 0, will_skip: 2 };
+      p.steps = p.steps.filter(row => options.steps.includes(row.name));
+      return { preview: p };
+    });
+    document.body.innerHTML = '<div id="tab-run"></div>';
+    renderRun();
+    await _handleRunStatus({ status: 'done', steps: ['compress', 'transcribe'] });
+    await vi.waitFor(() => expect(document.getElementById('btn-run-skip-transcribe').hidden).toBe(false));
+    await document.getElementById('btn-run-skip-transcribe').onclick();
+    expect(document.getElementById('btn-run-start').textContent).toContain('AI 看素材');
+    expect(document.querySelector('.run-step-cb[data-step="transcribe"]').checked).toBe(false);
+    expect(document.getElementById('run-use-transcripts').checked).toBe(true);
+    expect(JSON.parse(localStorage.getItem('vlog_ui_run_steps')).steps.transcribe).toBe(false);
+  });
+
+  it('advances automatically when preview explicitly disables optional transcription', async () => {
+    const p = preview();
+    p.steps[0] = { name: 'compress', total: 2, will_run: 0, will_skip: 2 };
+    p.steps[1] = { name: 'transcribe', total: 0, disabled: true, warnings: ['Disabled by option'] };
+    vi.mocked(api).mockResolvedValue({ preview: p });
+    document.body.innerHTML = '<div id="tab-run"></div>';
+    renderRun();
+    await vi.waitFor(() => expect(document.getElementById('btn-run-start').textContent).toContain('AI 看素材'));
+    expect(document.getElementById('btn-run-start').disabled).toBe(false);
+    expect(document.getElementById('btn-run-skip-transcribe').hidden).toBe(true);
+  });
 });
 
 
