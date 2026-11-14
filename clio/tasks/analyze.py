@@ -8,7 +8,7 @@ import re
 import subprocess
 import threading
 import time
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from datetime import datetime, tzinfo
@@ -64,6 +64,7 @@ from clio.scene import SCENE_DETECT_VERSION, detect_scene_boundaries, slice_scen
 from clio.schema import add_schema_version
 from clio.tasks._helpers import (
     ClipRecord,
+    MediaSelection,
     _artifact_source_path,
     _build_stem,
     _clip_records_from_csv,
@@ -1316,6 +1317,239 @@ def _process_video_item(
     )
 
 
+def _list_compressed_videos(directory: Path) -> list[Path]:
+    paths = sorted(p for p in directory.iterdir() if p.suffix.lower() in VIDEO_EXTS and p.is_file())
+    return prefer_canonical_compressed(paths)
+
+
+def _collect_single_file_items(
+    single_file: Path,
+    config: AppConfig,
+) -> list[tuple[Path, Path, str]] | None:
+    items: list[tuple[Path, Path, str]] = []
+    # Prefer the .vindex sidecar: O(1) split discovery for multi-segment originals.
+    vindex = VideoIndex.read(single_file.stem, config.compressed_dir)
+    if vindex is not None:
+        comp_paths = vindex.compressed_paths(config.compressed_dir)
+        if not comp_paths:
+            print(t("task.analyze.vindex_missing_compressed", {"name": single_file.name}))
+            return None
+    else:
+        # Fall back to original-stem matching so every matching segment is analyzed.
+        comp_paths = [
+            p for p in _list_compressed_videos(config.compressed_dir) if single_file.stem.lower() in p.stem.lower()
+        ]
+        if not comp_paths:
+            print(t("task.analyze.compressed_missing", {"name": single_file.name}))
+            return None
+    for comp in comp_paths:
+        idx_str = comp.stem.split("_", 1)[0]
+        items.append((comp, single_file, idx_str))
+    return items
+
+
+def _collect_project_items(
+    config: AppConfig,
+    stem_cache: dict[str, Path | None],
+    selected_paths: frozenset[str] | None,
+    *,
+    warn_missing: bool,
+) -> list[tuple[Path, Path, str]]:
+    items: list[tuple[Path, Path, str]] = []
+    for compressed in _list_compressed_videos(config.compressed_dir):
+        parts = compressed.stem.split("_", 1)
+        if len(parts) != 2 or not parts[0].isdigit():
+            continue
+        original = _resolve_original(
+            compressed.stem,
+            stem_cache,
+            config.project_dir,
+            compressed,
+            selected_paths,
+        )
+        if original is None:
+            if warn_missing:
+                print(t("task.analyze.original_missing", {"name": compressed.name}))
+            continue
+        items.append((compressed, original, parts[0]))
+    return items
+
+
+def _filter_selected_items(
+    items: list[tuple[Path, Path, str]],
+    selected: MediaSelection,
+) -> list[tuple[Path, Path, str]]:
+    return [
+        item
+        for item in items
+        if _matches_selected_stem(item[0], selected, artifact=True) or _matches_selected_stem(item[1], selected)
+    ]
+
+
+def _check_analysis_overwrite_gate(
+    config: AppConfig,
+    items: list[tuple[Path, Path, str]],
+    *,
+    overwrite: bool,
+    context_override: str | None,
+    task_prompts: dict[str, str] | None,
+    use_transcripts: bool,
+    confirm_artifact_overwrite: bool,
+) -> None:
+    if confirm_artifact_overwrite:
+        return
+    protected_indices = {
+        candidate.stem.split("_", 1)[0]
+        for candidate in config.texts_dir.glob("*.json")
+        if candidate.stem.split("_", 1)[0].isdigit() and artifact_requires_overwrite_confirmation(candidate)
+    }
+    protected_artifacts: list[Path] = []
+    for compressed, original, idx_str in items:
+        if idx_str not in protected_indices:
+            continue
+        protected_artifacts.extend(
+            analysis_artifact_overwrite_required(
+                config,
+                compressed,
+                original,
+                idx_str,
+                overwrite=overwrite,
+                context_override=context_override,
+                task_prompts=task_prompts,
+                duration_sec=_analysis_duration_sec(config, compressed, original),
+                use_transcripts=use_transcripts,
+            )
+        )
+    unique_artifacts: dict[Path, Path] = {}
+    for artifact in protected_artifacts:
+        unique_artifacts.setdefault(artifact.resolve(), artifact)
+    if unique_artifacts:
+        names = ", ".join(path.name for path in unique_artifacts.values())
+        raise ArtifactOverwriteConfirmationRequired(
+            t("task.artifact.overwrite_confirmation_required", {"items": names}),
+            unique_artifacts.values(),
+        )
+
+
+def _warn_compress_advice(config: AppConfig, tracker: ProgressReporter | None) -> None:
+    for advice in analysis_compress_advice(
+        media_resolution=str(getattr(config.analyze, "media_resolution", "medium") or "medium"),
+        max_width=getattr(config.compress, "max_width", 0),
+        fps=getattr(config.compress, "fps", 0),
+    ):
+        if advice.field == "max_width":
+            warning = t(
+                "task.analyze.high_resolution_low_compress_width",
+                {
+                    "width": advice.current,
+                    "recommended_min": advice.recommended_min,
+                    "recommended_max": advice.recommended_max,
+                },
+            )
+        else:
+            warning = t("task.analyze.low_compress_fps", {"fps": advice.current})
+        print(warning)
+        if tracker:
+            tracker.log(warning)
+
+
+@dataclass(frozen=True)
+class _AnalyzeRunContext:
+    config: AppConfig
+    token_store: FileTokenUsageStore
+    tracker: ProgressReporter | None
+    state: ProcessingState
+    failure_counter: _FailureCounter
+    overwrite: bool
+    cancel_event: threading.Event | None
+    context_override: str | None
+    task_prompts: dict[str, str] | None
+    confirm_artifact_overwrite: bool
+    use_transcripts: bool
+    day_labels: dict[str, str]
+
+
+def _submit_next_analysis(
+    pool: ThreadPoolExecutor,
+    item_iter: Iterator[tuple[Path, Path, str]],
+    pending: dict[Future, None],
+    ctx: _AnalyzeRunContext,
+) -> bool:
+    try:
+        compressed, original, idx_str = next(item_iter)
+    except StopIteration:
+        return False
+    future = pool.submit(
+        _process_video_item,
+        compressed,
+        original,
+        idx_str,
+        ctx.config,
+        ctx.token_store,
+        ctx.overwrite,
+        ctx.tracker,
+        ctx.state,
+        ctx.failure_counter,
+        ctx.day_labels.get(str(original.resolve()), "day1"),
+        ctx.cancel_event,
+        ctx.context_override,
+        ctx.task_prompts,
+        ctx.confirm_artifact_overwrite,
+        ctx.use_transcripts,
+    )
+    pending[future] = None
+    return True
+
+
+def _cancel_pending_analyses(pending: dict[Future, None]) -> None:
+    print(t("task.analyze.cancel_pending"))
+    for future in pending:
+        if not future.done():
+            future.cancel()
+
+
+def _run_analysis_worker_pool(
+    items: list[tuple[Path, Path, str]],
+    records: AnalyzeResult,
+    ctx: _AnalyzeRunContext,
+    max_workers: int,
+) -> None:
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        # Check cancel_event before submitting any tasks.
+        if ctx.cancel_event and ctx.cancel_event.is_set():
+            print(t("task.analyze.cancelled_step"))
+            return
+        item_iter = iter(items)
+        pending: dict[Future, None] = {}
+        for _ in range(min(max_workers, len(items))):
+            _submit_next_analysis(pool, item_iter, pending, ctx)
+
+        while pending:
+            if ctx.cancel_event and ctx.cancel_event.is_set():
+                _cancel_pending_analyses(pending)
+                break
+            done, _ = wait(pending, return_when=FIRST_COMPLETED)
+            for future in done:
+                pending.pop(future, None)
+                try:
+                    result = future.result()
+                    if result is not None:
+                        records.append(result)
+                except ArtifactOverwriteConfirmationRequired:
+                    raise
+                except Exception as e:  # noqa: BLE001 - a worker failure must be counted without aborting analysis
+                    print(t("task.analyze.task_failed", {"detail": e}))
+                    ctx.failure_counter.increment()
+
+                if ctx.cancel_event and ctx.cancel_event.is_set():
+                    break
+                _submit_next_analysis(pool, item_iter, pending, ctx)
+
+            if ctx.cancel_event and ctx.cancel_event.is_set():
+                _cancel_pending_analyses(pending)
+                break
+
+
 def run_analyze_all(
     config: AppConfig,
     tracker: ProgressReporter | None = None,
@@ -1339,215 +1573,67 @@ def run_analyze_all(
     token_store = FileTokenUsageStore(str(config.paths.output_dir))
     records: AnalyzeResult = AnalyzeResult()
 
-    # Build one-time stem→path cache to avoid per-video rglob
+    # Build one-time stem->path cache to avoid per-video rglob.
     stem_cache = _build_stem_to_path(config.project_dir)
     project_selection = _project_selection_stems(config)
     selected_paths = project_selection.paths if project_selection is not None else None
 
-    def _list_compressed(d: Path) -> list[Path]:
-        paths = sorted(p for p in d.iterdir() if p.suffix.lower() in VIDEO_EXTS and p.is_file())
-        return prefer_canonical_compressed(paths)
-
     if single_file:
-        items: list[tuple[Path, Path, str]] = []
-
-        # 优先读 .vindex（O(1)，含所有分段）
-        vindex = VideoIndex.read(single_file.stem, config.compressed_dir)
-        if vindex is not None:
-            comp_paths = vindex.compressed_paths(config.compressed_dir)
-            if not comp_paths:
-                print(t("task.analyze.vindex_missing_compressed", {"name": single_file.name}))
-                return AnalyzeResult()
-            for comp in comp_paths:
-                idx_str = comp.stem.split("_", 1)[0]
-                items.append((comp, single_file, idx_str))
-        else:
-            # 降级：原有 stem 匹配，修复只取 candidates[0] 的 bug
-            candidates = [
-                p for p in _list_compressed(config.compressed_dir) if single_file.stem.lower() in p.stem.lower()
-            ]
-            if not candidates:
-                print(t("task.analyze.compressed_missing", {"name": single_file.name}))
-                return AnalyzeResult()
-            for comp in candidates:
-                idx_str = comp.stem.split("_", 1)[0]
-                items.append((comp, single_file, idx_str))
+        items = _collect_single_file_items(single_file, config)
+        if items is None:
+            return AnalyzeResult()
     else:
-        items = []
-        for p in _list_compressed(config.compressed_dir):
-            parts = p.stem.split("_", 1)
-            if len(parts) != 2 or not parts[0].isdigit():
-                continue
-            orig_path = _resolve_original(p.stem, stem_cache, config.project_dir, p, selected_paths)
-            if orig_path is None:
-                print(t("task.analyze.original_missing", {"name": p.name}))
-                continue
-            idx_str = parts[0]
-            items.append((p, orig_path, idx_str))
+        items = _collect_project_items(config, stem_cache, selected_paths, warn_missing=True)
 
     # Keep the complete project item set for day assignment. A selected-file
     # run must retain the same dayN mapping as a full analysis run.
     all_items = list(items)
     if single_file or files is not None:
-        all_items = []
-        for p in _list_compressed(config.compressed_dir):
-            parts = p.stem.split("_", 1)
-            if len(parts) != 2 or not parts[0].isdigit():
-                continue
-            orig_path = _resolve_original(p.stem, stem_cache, config.project_dir, p, selected_paths)
-            if orig_path is not None:
-                all_items.append((p, orig_path, parts[0]))
+        all_items = _collect_project_items(config, stem_cache, selected_paths, warn_missing=False)
 
     if files is not None:
-        selected = _selection_from_files(files)
-        items = [
-            it
-            for it in items
-            if _matches_selected_stem(it[0], selected, artifact=True) or _matches_selected_stem(it[1], selected)
-        ]
+        items = _filter_selected_items(items, _selection_from_files(files))
 
     if not items:
         print(t("task.analyze.compressed_dir_empty", {"path": config.compressed_dir}))
         return AnalyzeResult()
 
-    if not confirm_artifact_overwrite:
-        protected_indices = {
-            candidate.stem.split("_", 1)[0]
-            for candidate in config.texts_dir.glob("*.json")
-            if candidate.stem.split("_", 1)[0].isdigit() and artifact_requires_overwrite_confirmation(candidate)
-        }
-        protected_artifacts: list[Path] = []
-        for compressed, original, idx_str in items:
-            if idx_str not in protected_indices:
-                continue
-            protected_artifacts.extend(
-                analysis_artifact_overwrite_required(
-                    config,
-                    compressed,
-                    original,
-                    idx_str,
-                    overwrite=overwrite,
-                    context_override=context_override,
-                    task_prompts=task_prompts,
-                    duration_sec=_analysis_duration_sec(config, compressed, original),
-                    use_transcripts=use_transcripts,
-                )
-            )
-        unique_artifacts: dict[Path, Path] = {}
-        for artifact in protected_artifacts:
-            unique_artifacts.setdefault(artifact.resolve(), artifact)
-        if unique_artifacts:
-            names = ", ".join(path.name for path in unique_artifacts.values())
-            raise ArtifactOverwriteConfirmationRequired(
-                t("task.artifact.overwrite_confirmation_required", {"items": names}),
-                unique_artifacts.values(),
-            )
-
-    compress_fps = getattr(config.compress, "fps", 0)
-    compress_width = getattr(config.compress, "max_width", 0)
-    media_resolution = str(getattr(config.analyze, "media_resolution", "medium") or "medium")
-    for advice in analysis_compress_advice(
-        media_resolution=media_resolution,
-        max_width=compress_width,
-        fps=compress_fps,
-    ):
-        if advice.field == "max_width":
-            warning = t(
-                "task.analyze.high_resolution_low_compress_width",
-                {
-                    "width": advice.current,
-                    "recommended_min": advice.recommended_min,
-                    "recommended_max": advice.recommended_max,
-                },
-            )
-        else:
-            warning = t("task.analyze.low_compress_fps", {"fps": advice.current})
-        print(warning)
-        if tracker:
-            tracker.log(warning)
-
+    _check_analysis_overwrite_gate(
+        config,
+        items,
+        overwrite=overwrite,
+        context_override=context_override,
+        task_prompts=task_prompts,
+        use_transcripts=use_transcripts,
+        confirm_artifact_overwrite=confirm_artifact_overwrite,
+    )
+    _warn_compress_advice(config, tracker)
     day_labels = _build_day_labels(config, all_items)
 
     total = len(items)
     print(t("task.analyze.pending", {"total": total, "path": config.compressed_dir}))
     state = ProcessingState(config.paths.output_dir)
+    failure_counter = _FailureCounter()
 
     with timed(t("task.analyze.phase_title", {"count": total})):
-        failure_counter = _FailureCounter()
         max_workers = config.analyze.max_workers
-
         if tracker:
             tracker.update(phase="analyze", total=total, current=0)
-
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            # Check cancel_event before submitting any tasks
-            if cancel_event and cancel_event.is_set():
-                print(t("task.analyze.cancelled_step"))
-                return records
-
-            item_iter = iter(items)
-            pending: dict[Future, None] = {}
-
-            def _submit_next() -> bool:
-                try:
-                    compressed, original, idx_str = next(item_iter)
-                except StopIteration:
-                    return False
-                future = pool.submit(
-                    _process_video_item,
-                    compressed,
-                    original,
-                    idx_str,
-                    config,
-                    token_store,
-                    overwrite,
-                    tracker,
-                    state,
-                    failure_counter,
-                    day_labels.get(str(original.resolve()), "day1"),
-                    cancel_event,
-                    context_override,
-                    task_prompts,
-                    confirm_artifact_overwrite,
-                    use_transcripts,
-                )
-                pending[future] = None
-                return True
-
-            for _ in range(min(max_workers, len(items))):
-                _submit_next()
-
-            while pending:
-                if cancel_event and cancel_event.is_set():
-                    print(t("task.analyze.cancel_pending"))
-                    for future in pending:
-                        if not future.done():
-                            future.cancel()
-                    break
-
-                done, _ = wait(pending, return_when=FIRST_COMPLETED)
-                for future in done:
-                    pending.pop(future, None)
-                    try:
-                        result = future.result()
-                        if result is not None:
-                            records.append(result)
-                    except ArtifactOverwriteConfirmationRequired:
-                        raise
-                    except Exception as e:  # noqa: BLE001 - a worker failure must be counted without aborting analysis
-                        print(t("task.analyze.task_failed", {"detail": e}))
-                        failure_counter.increment()
-
-                    if cancel_event and cancel_event.is_set():
-                        break
-                    _submit_next()
-
-                if cancel_event and cancel_event.is_set():
-                    print(t("task.analyze.cancel_pending"))
-                    for future in pending:
-                        if not future.done():
-                            future.cancel()
-                    break
+        ctx = _AnalyzeRunContext(
+            config=config,
+            token_store=token_store,
+            tracker=tracker,
+            state=state,
+            failure_counter=failure_counter,
+            overwrite=overwrite,
+            cancel_event=cancel_event,
+            context_override=context_override,
+            task_prompts=task_prompts,
+            confirm_artifact_overwrite=confirm_artifact_overwrite,
+            use_transcripts=use_transcripts,
+            day_labels=day_labels,
+        )
+        _run_analysis_worker_pool(items, records, ctx, max_workers)
 
     records.sort(key=lambda r: r.index)
     existing = _clip_records_from_csv(config.summary_csv)
