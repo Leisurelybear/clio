@@ -168,6 +168,21 @@ TRUNCATED_RETRY_PROMPT = """上一次输出因长度限制被截断。请重新�
 - 删除重复、空泛和可省略的描述，使用更紧凑的表达
 - 不要解释重试过程，只输出最终要求的格式"""
 
+PARSE_RETRY_PROMPT = """## 上次输出不是有效的 JSON，请修正一次
+请按原任务要求重新输出完整、有效的 JSON 对象；不要使用 markdown 代码块，也不要添加解释。"""
+
+ANALYSIS_VALIDATION_RETRY_PROMPT = """## 上次分析输出未通过结构校验，请修正一次
+校验问题：{errors}
+上次输出 JSON：{previous_json}
+请重新观看视频，严格按原任务要求输出完整、有效的 JSON；
+必须包含 title、summary、timeline，字段类型必须正确，不要使用 markdown 代码块。"""
+
+VOICEOVER_VALIDATION_RETRY_PROMPT = """## 上次口播输出未通过结构校验，请修正一次
+校验问题：{errors}
+上次输出 JSON：{previous_json}
+请按原任务要求重新输出完整、有效的 JSON；
+必须包含 title 和 voiceover，字段类型必须正确，不要使用 markdown 代码块。"""
+
 
 SCENE_BOUNDARY_RANGE = "- 镜头 {index}: {start}-{end}"
 

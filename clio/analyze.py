@@ -35,8 +35,10 @@ from clio.plan_input import (
 )
 from clio.prompt_overrides import format_prompt_template, resolve_prompt_template
 from clio.prompts import (
+    ANALYSIS_VALIDATION_RETRY_PROMPT,
     ANALYZE_PROMPT,
     ENTITY_CONSISTENCY_CONTEXT,
+    PARSE_RETRY_PROMPT,
     PLAN_OUTLINE_CONTEXT,
     PLAN_OUTLINE_PROMPT,
     PLAN_PROMPT,
@@ -57,6 +59,7 @@ from clio.prompts import (
     SCENE_BOUNDARY_RANGE,
     SCRIPT_PROMPT,
     TRANSCRIPT_CONTEXT,
+    VOICEOVER_VALIDATION_RETRY_PROMPT,
     WINDOW_SUMMARY_PROMPT,
 )
 from clio.scene import align_shots_to_boundaries, format_scene_timestamp, scene_ranges
@@ -1041,16 +1044,13 @@ def _validation_retry_prompt(
     *,
     analysis: bool,
 ) -> str:
-    key = "analyze.validation_prompt_analysis" if analysis else "analyze.validation_prompt_voiceover"
+    correction = ANALYSIS_VALIDATION_RETRY_PROMPT if analysis else VOICEOVER_VALIDATION_RETRY_PROMPT
     return (
         prompt
         + "\n\n"
-        + t(
-            key,
-            {
-                "errors": "；".join(issues),
-                "previous_json": json.dumps(result, ensure_ascii=False),
-            },
+        + correction.format(
+            errors="；".join(issues),
+            previous_json=json.dumps(result, ensure_ascii=False),
         )
     )
 
@@ -1074,7 +1074,7 @@ def _validate_with_retry(
                 key = "analyze.validation_failed_analysis" if analysis else "analyze.validation_failed_voiceover"
                 raise RuntimeError(t(key, {"errors": issue_text})) from exc
             print(t("analyze.parse_retry", {"errors": issue_text}))
-            text = retry(prompt + "\n\n" + t("analyze.parse_retry_prompt"))
+            text = retry(prompt + "\n\n" + PARSE_RETRY_PROMPT)
             continue
         result = validate(parsed, source, issues=issues)
         if not issues:

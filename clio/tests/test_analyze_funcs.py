@@ -2095,6 +2095,56 @@ class TestValidateWithRetry:
         assert prompts[0].startswith("original prompt")
         assert "JSON" in prompts[0]
 
+    def test_parse_retry_prompt_is_not_localized(self, monkeypatch):
+        from clio.analyze import _validate_with_retry
+        from clio.prompts import PARSE_RETRY_PROMPT
+
+        monkeypatch.setenv("CLIO_LANG", "en")
+        prompts: list[str] = []
+
+        def retry(prompt: str) -> str:
+            prompts.append(prompt)
+            return '{"title": "ok"}'
+
+        result = _validate_with_retry(
+            "not json",
+            "source",
+            prompt="original prompt",
+            validate=lambda data, source, issues=None: data,
+            retry=retry,
+            analysis=True,
+        )
+
+        assert result == {"title": "ok"}
+        assert prompts == ["original prompt\n\n" + PARSE_RETRY_PROMPT]
+
+    @pytest.mark.parametrize(
+        ("analysis", "constant_name"),
+        [
+            (True, "ANALYSIS_VALIDATION_RETRY_PROMPT"),
+            (False, "VOICEOVER_VALIDATION_RETRY_PROMPT"),
+        ],
+    )
+    def test_validation_retry_prompt_is_not_localized(self, monkeypatch, analysis, constant_name):
+        import clio.prompts as prompts
+        from clio.analyze import _validation_retry_prompt
+
+        monkeypatch.setenv("CLIO_LANG", "en")
+        correction = getattr(prompts, constant_name)
+
+        result = _validation_retry_prompt(
+            "original prompt",
+            {"title": "draft"},
+            ["field error"],
+            analysis=analysis,
+        )
+
+        assert result == "original prompt\n\n" + correction.format(
+            errors="field error",
+            previous_json='{"title": "draft"}',
+        )
+        assert "The previous" not in result
+
     def test_parse_failure_twice_raises_without_second_retry(self):
         from clio.analyze import _validate_with_retry
 
