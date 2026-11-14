@@ -294,6 +294,7 @@
   "cli.help.reindex": "Rebuild .vmeta / .vindex sidecar files",
   "cli.help.reindex.name": "Match by project name (optional; -p/--project takes precedence)",
   "cli.help.run": "Run the full pipeline in one command",
+  "cli.help.strict": "Stop after any per-video analysis failure instead of continuing",
   "cli.help.scripts": "Generate voiceover scripts from analysis results",
   "cli.help.serve": "Start the local web UI for visual editing of AI output",
   "cli.help.serve.host": "Listen address (default: 127.0.0.1; not exposed to the LAN)",

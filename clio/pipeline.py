@@ -36,9 +36,9 @@ from clio.tasks.scripts import run_generate_plan_voiceovers, run_generate_script
 from clio.tasks.transcribe import run_transcribe_all
 
 
-def run_full_pipeline(config: AppConfig, day_label: str = "day1") -> None:
+def run_full_pipeline(config: AppConfig, day_label: str = "day1", strict: bool = False) -> None:
     """Run every pipeline step with the same failure semantics as the Web UI."""
-    run_pipeline_steps(config, day_label=day_label, steps=list(_STEP_FUNCS))
+    run_pipeline_steps(config, day_label=day_label, steps=list(_STEP_FUNCS), strict=strict)
 
 
 def _step_label(name: str) -> str:
@@ -82,6 +82,7 @@ def run_pipeline_steps(
     confirm_artifact_overwrite: bool = False,
     context_override: str | None = None,
     task_prompts: dict[str, str] | None = None,
+    strict: bool = False,
 ) -> dict[str, Any]:
     """运行指定步骤列表（可选的进度跟踪）。
 
@@ -160,8 +161,14 @@ def run_pipeline_steps(
                 if isinstance(result, int) and not isinstance(result, bool) and result != 0:
                     raise RuntimeError(t("pipeline.step_failed", {"label": label, "code": result}))
                 processed = len(result) if isinstance(result, list) else int(result is not None)
-                summary["steps"].append({"name": step, "processed": processed, "failed": 0})
+                failed = getattr(result, "failed", 0)
+                if not isinstance(failed, int) or isinstance(failed, bool):
+                    failed = 0
+                summary["steps"].append({"name": step, "processed": processed, "failed": failed})
                 summary["processed"] += processed
+                summary["error_count"] += failed
+                if strict and failed > 0:
+                    raise RuntimeError(t("task.analyze.incomplete", {"completed": processed, "failed": failed}))
         if not (cancel_event and cancel_event.is_set()):
             tracker.done(t("pipeline.done", {"output_dir": config.paths.output_dir}))
     except Exception as e:

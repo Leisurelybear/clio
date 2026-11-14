@@ -160,6 +160,14 @@ def _build_day_labels(config: AppConfig, items: list[tuple[Path, Path, str]]) ->
     return {path: labels.get(date, "day1") for path, date in dates.items()}
 
 
+class AnalyzeResult(list[ClipRecord]):
+    """Successful analysis records with a count of clips that failed."""
+
+    def __init__(self, records: list[ClipRecord] | None = None, *, failed: int = 0) -> None:
+        super().__init__(records or [])
+        self.failed = failed
+
+
 class _FailureCounter:
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -973,6 +981,8 @@ def _process_video_item(
             tracker.next(message=t("task.analyze.cancel_message", {"name": compressed.name}))
             tracker.log(t("task.analyze.cancel_log", {"name": compressed.name}))
         return None
+    except ArtifactOverwriteConfirmationRequired:
+        raise
     except Exception as e:  # noqa: BLE001 - one failed clip must be recorded without aborting the batch
         elapsed_total = time.monotonic() - t0
         print(
@@ -1077,8 +1087,9 @@ def run_analyze_all(
     task_prompts: dict[str, str] | None = None,
     confirm_artifact_overwrite: bool = False,
     use_transcripts: bool = True,
+    strict: bool = False,
     **kwargs: Any,
-) -> list[ClipRecord]:
+) -> AnalyzeResult:
     """Analyze already-compressed videos using AI (compress step must precede this).
 
     Scans compressed_dir for existing *.mp4 files and analyzes each.
@@ -1086,7 +1097,7 @@ def run_analyze_all(
     """
     config.texts_dir.mkdir(parents=True, exist_ok=True)
     token_store = FileTokenUsageStore(str(config.paths.output_dir))
-    records: list[ClipRecord] = []
+    records: AnalyzeResult = AnalyzeResult()
 
     # Build one-time stem→path cache to avoid per-video rglob
     stem_cache = _build_stem_to_path(config.project_dir)
@@ -1106,7 +1117,7 @@ def run_analyze_all(
             comp_paths = vindex.compressed_paths(config.compressed_dir)
             if not comp_paths:
                 print(t("task.analyze.vindex_missing_compressed", {"name": single_file.name}))
-                return []
+                return AnalyzeResult()
             for comp in comp_paths:
                 idx_str = comp.stem.split("_", 1)[0]
                 items.append((comp, single_file, idx_str))
@@ -1117,7 +1128,7 @@ def run_analyze_all(
             ]
             if not candidates:
                 print(t("task.analyze.compressed_missing", {"name": single_file.name}))
-                return []
+                return AnalyzeResult()
             for comp in candidates:
                 idx_str = comp.stem.split("_", 1)[0]
                 items.append((comp, single_file, idx_str))
@@ -1157,7 +1168,7 @@ def run_analyze_all(
 
     if not items:
         print(t("task.analyze.compressed_dir_empty", {"path": config.compressed_dir}))
-        return []
+        return AnalyzeResult()
 
     if not confirm_artifact_overwrite:
         protected_indices = {
@@ -1281,6 +1292,8 @@ def run_analyze_all(
                         result = future.result()
                         if result is not None:
                             records.append(result)
+                    except ArtifactOverwriteConfirmationRequired:
+                        raise
                     except Exception as e:  # noqa: BLE001 - a worker failure must be counted without aborting analysis
                         print(t("task.analyze.task_failed", {"detail": e}))
                         failure_counter.increment()
@@ -1304,6 +1317,7 @@ def run_analyze_all(
 
     completed = len(records)
     failed = failure_counter.value
-    if failed > 0:
+    records.failed = failed
+    if strict and failed > 0:
         raise RuntimeError(t("task.analyze.incomplete", {"completed": completed, "failed": failed}))
     return records

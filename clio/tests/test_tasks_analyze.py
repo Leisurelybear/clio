@@ -460,6 +460,56 @@ class TestRunAnalyzeAll:
         assert len(records) == 1
         assert records[0].index == 1
 
+    def test_partial_failure_continues_and_writes_successful_results(self, monkeypatch, tmp_path: Path):
+        cfg = _cfg(tmp_path)
+        for name in ("GL010695.mp4", "GL010696.mp4"):
+            _add_original(cfg, name)
+        (cfg.compressed_dir / "001_GL010695.mp4").write_bytes(b"video")
+        (cfg.compressed_dir / "002_GL010696.mp4").write_bytes(b"video")
+
+        _common_mocks(monkeypatch)
+        monkeypatch.setattr("clio.tasks.analyze.get_duration_sec", lambda *a: 60.0)
+
+        def _analyze(path, *args, **kwargs):
+            if Path(path).name.startswith("001_"):
+                raise RuntimeError("provider failed")
+            return {"title": "Success", "summary": "usable", "location": "Paris"}
+
+        monkeypatch.setattr("clio.tasks.analyze.analyze_video", _analyze)
+
+        records = run_analyze_all(cfg)
+
+        assert len(records) == 1
+        assert records[0].index == 2
+        assert records.failed == 1
+        assert len(list(cfg.texts_dir.glob("*.json"))) == 1
+        assert cfg.summary_csv.exists()
+
+    def test_partial_failure_strict_raises_after_processing(self, monkeypatch, tmp_path: Path):
+        from clio.i18n import t
+
+        cfg = _cfg(tmp_path)
+        for name in ("GL010695.mp4", "GL010696.mp4"):
+            _add_original(cfg, name)
+        (cfg.compressed_dir / "001_GL010695.mp4").write_bytes(b"video")
+        (cfg.compressed_dir / "002_GL010696.mp4").write_bytes(b"video")
+
+        _common_mocks(monkeypatch)
+        monkeypatch.setattr("clio.tasks.analyze.get_duration_sec", lambda *a: 60.0)
+
+        def _analyze(path, *args, **kwargs):
+            if Path(path).name.startswith("001_"):
+                raise RuntimeError("provider failed")
+            return {"title": "Success", "summary": "usable", "location": "Paris"}
+
+        monkeypatch.setattr("clio.tasks.analyze.analyze_video", _analyze)
+
+        with pytest.raises(RuntimeError) as exc_info:
+            run_analyze_all(cfg, strict=True)
+
+        assert t("task.analyze.incomplete", {"completed": 1, "failed": 1}) in str(exc_info.value)
+        assert len(list(cfg.texts_dir.glob("*.json"))) == 1
+
     def test_low_compress_fps_warns_once_per_batch(self, monkeypatch, tmp_path: Path, capsys):
         from clio.i18n import t
         from clio.progress import ProgressTracker
@@ -1020,8 +1070,14 @@ class TestRunAnalyzeAll:
             "clio.tasks.analyze.analyze_video", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("failed"))
         )
 
+        records = run_analyze_all(cfg, overwrite=True)
+
+        assert len(records) == 0
+        assert records.failed == 1
+        assert existing.exists()
+
         with pytest.raises(RuntimeError):
-            run_analyze_all(cfg, overwrite=True)
+            run_analyze_all(cfg, overwrite=True, strict=True)
 
         assert existing.exists()
 
@@ -1401,8 +1457,15 @@ class TestRunAnalyzeAll:
 
         import pytest
 
-        with pytest.raises(RuntimeError, match="失败"):
-            run_analyze_all(cfg)
+        records = run_analyze_all(cfg)
+
+        assert records == []
+        assert records.failed == 1
+        assert list(cfg.texts_dir.glob("*.json")) == []
+
+        with pytest.raises(RuntimeError):
+            run_analyze_all(cfg, strict=True)
+
         assert list(cfg.texts_dir.glob("*.json")) == []
 
     def test_window_summary_failure_keeps_merged_analysis(self, monkeypatch, tmp_path: Path):
@@ -1487,4 +1550,5 @@ class TestRunAnalyzeAll:
         records = run_analyze_all(cfg, cancel_event=cancel_event)
 
         assert records == []
+        assert records.failed == 0
         assert calls == 1

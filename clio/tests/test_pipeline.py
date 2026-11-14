@@ -8,7 +8,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from clio.i18n import t
 from clio.pipeline import run_full_pipeline, run_pipeline_steps
+from clio.tasks.analyze import AnalyzeResult
 
 
 def _mock_config(tmp_path: Path):
@@ -333,6 +335,59 @@ class TestRunPipelineStepsCancel:
             "warning_count": 0,
             "error_count": 0,
         }
+
+    def test_partial_analyze_failure_continues_pipeline(self, tmp_path: Path):
+        config = _mock_config(tmp_path)
+        tracker = MagicMock()
+        calls: list[str] = []
+
+        def _analyze(*args, **kwargs):
+            calls.append("analyze")
+            return AnalyzeResult(failed=1)
+
+        def _voiceover(*args, **kwargs):
+            calls.append("voiceover")
+            return ["script"]
+
+        with (
+            patch("clio.pipeline.auto_reindex_if_needed"),
+            patch("clio.pipeline._STEP_FUNCS", {"analyze": _analyze, "voiceover": _voiceover}),
+        ):
+            result = run_pipeline_steps(config, steps=["analyze", "voiceover"], tracker=tracker)
+
+        assert calls == ["analyze", "voiceover"]
+        assert result["steps"] == [
+            {"name": "analyze", "processed": 0, "failed": 1},
+            {"name": "voiceover", "processed": 1, "failed": 0},
+        ]
+        assert result["processed"] == 1
+        assert result["error_count"] == 1
+        tracker.done.assert_called_once()
+
+    def test_strict_partial_analyze_failure_stops_pipeline(self, tmp_path: Path):
+        config = _mock_config(tmp_path)
+        tracker = MagicMock()
+        calls: list[str] = []
+
+        def _analyze(*args, **kwargs):
+            calls.append("analyze")
+            return AnalyzeResult(failed=1)
+
+        def _voiceover(*args, **kwargs):
+            calls.append("voiceover")
+            return ["script"]
+
+        with (
+            patch("clio.pipeline.auto_reindex_if_needed"),
+            patch("clio.pipeline._STEP_FUNCS", {"analyze": _analyze, "voiceover": _voiceover}),
+            pytest.raises(RuntimeError) as exc_info,
+        ):
+            run_pipeline_steps(config, steps=["analyze", "voiceover"], tracker=tracker, strict=True)
+
+        assert t("task.analyze.incomplete", {"completed": 0, "failed": 1}) in str(exc_info.value)
+        assert calls == ["analyze"]
+        tracker.error.assert_called_once()
+        tracker.done.assert_not_called()
 
     def test_full_pipeline_propagates_transcribe_failure(self, tmp_path: Path):
         config = _mock_config(tmp_path)

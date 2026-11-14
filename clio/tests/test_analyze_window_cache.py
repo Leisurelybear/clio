@@ -5,8 +5,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
-import pytest
-
 from clio.analyze_windows import (
     WINDOW_CACHE_VERSION,
     AnalyzeWindow,
@@ -210,8 +208,9 @@ def test_failed_window_run_resumes_from_cache(monkeypatch, tmp_path: Path) -> No
     monkeypatch.setattr("clio.tasks.analyze.analyze_video", fail_second)
 
     cache = window_cache_dir(cfg.paths.output_dir, compressed.stem)
-    with pytest.raises(RuntimeError):
-        run_analyze_all(cfg)
+    failed_run = run_analyze_all(cfg)
+    assert failed_run == []
+    assert failed_run.failed == 1
     assert len(list(cache.glob("*.json"))) == 1
 
     analyze_calls.clear()

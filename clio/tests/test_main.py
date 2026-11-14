@@ -316,6 +316,16 @@ def test_force_flag_after_subcommand(mock_reindex, mock_analyze, cli_runner, con
     assert cfg_arg.analyze.skip_existing is False
 
 
+@patch("clio.pipeline.run_analyze_all")
+@patch("clio.tasks.reindex.auto_reindex_if_needed")
+def test_analyze_strict_flag(mock_reindex, mock_analyze, cli_runner, config_path):
+    result = cli_runner(["--config", str(config_path), "analyze", "--strict"])
+
+    assert result == 0
+    mock_reindex.assert_called_once()
+    assert mock_analyze.call_args.kwargs["strict"] is True
+
+
 @patch("clio.pipeline.run_refine_scripts")
 @patch("clio.pipeline.run_refine_texts")
 def test_refine_accepts_project_directory(mock_texts, mock_scripts, cli_runner, config_path, tmp_path):
@@ -364,6 +374,14 @@ def test_full_run_failure_returns_nonzero(mock_run_full, cli_runner, config_path
 
     assert result == 1
     mock_run_full.assert_called_once()
+
+
+@patch("clio.pipeline.run_full_pipeline")
+def test_run_strict_flag(mock_run_full, cli_runner, config_path):
+    result = cli_runner(["--config", str(config_path), "run", "--strict"])
+
+    assert result == 0
+    assert mock_run_full.call_args.kwargs["strict"] is True
 
 
 def test_check_reports_missing_binaries(cli_runner, config_path, tmp_path, capsys, monkeypatch):

@@ -294,6 +294,7 @@
   "cli.help.reindex": "重建 .vmeta / .vindex sidecar 文件",
   "cli.help.reindex.name": "按项目名匹配（可选；优先使用 -p/--project 目录）",
   "cli.help.run": "一键执行完整流程",
+  "cli.help.strict": "任一视频分析失败时立即中断，不继续后续步骤",
   "cli.help.scripts": "根据分析结果生成口播文案",
   "cli.help.serve": "启动本地 web UI（浏览器里可视化编辑 AI 输出）",
   "cli.help.serve.host": "监听地址（默认 127.0.0.1，不暴露到局域网）",

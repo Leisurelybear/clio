@@ -193,6 +193,7 @@ def main(argv: list[str] | None = None) -> int:
 
     p_analyze = sub.add_parser("analyze", help=t("cli.help.analyze"))
     _add_io_args(p_analyze)
+    p_analyze.add_argument("--strict", action="store_true", help=t("cli.help.strict"))
 
     p_scripts = sub.add_parser("scripts", help=t("cli.help.scripts"))
     _add_io_args(p_scripts)
@@ -217,6 +218,7 @@ def main(argv: list[str] | None = None) -> int:
     p_run = sub.add_parser("run", help=t("cli.help.run"))
     _add_io_args(p_run)
     p_run.add_argument("--day", default="day1", help=t("cli.help.plan.day"))
+    p_run.add_argument("--strict", action="store_true", help=t("cli.help.strict"))
 
     p_cut = sub.add_parser("cut", help=t("cli.help.cut"))
     _add_io_args(p_cut, force_help=t("cli.help.cut.force"))
@@ -503,7 +505,7 @@ def main(argv: list[str] | None = None) -> int:
             from clio.tasks.reindex import auto_reindex_if_needed
 
             auto_reindex_if_needed(config)
-            run_analyze_all(config, single_file=single_file)
+            run_analyze_all(config, single_file=single_file, strict=args.strict)
         elif args.command == "scripts":
             from clio.pipeline import run_generate_scripts
 
@@ -527,7 +529,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "run":
             from clio.pipeline import run_full_pipeline
 
-            run_full_pipeline(config, args.day)
+            run_full_pipeline(config, args.day, strict=args.strict)
         elif args.command == "refine":
             from clio.pipeline import run_refine_scripts, run_refine_texts
 
