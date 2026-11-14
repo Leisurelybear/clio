@@ -12,7 +12,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P1 | 35 | 20 | 15 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P2 | 59 | 20 | 21 | 0 | 0 | 0 | 0 | 0 | 18 |
+| P2 | 59 | 20 | 22 | 0 | 0 | 0 | 0 | 0 | 17 |
 | P3 | 14 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 10 |
 
 ## Item status
@@ -105,7 +105,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 084 | P2 | OPT-003 | 只发一条 user 消息 (clio/ai/openai_compat.py:60-63), 模板、规范和数据混在一起 | Satisfied | Existing providers send the role/instruction context as a separate `system` message and keep task data in the user prompt. `OpenAICompatProvider` builds `system` then `user` messages, and analysis, voiceover, planning, refinement, and consistency paths all pass `system=` with `include_spec=False`. Focused: 213 provider/analysis/plan/prompt tests passed. |
 | 085 | P2 | OPT-004 | 长视频按窗口切片后逐片上传 (clio/tasks/analyze.py:358-381), N 个窗口上传 N 次, 切片带关键帧预卷 (C10) | Pending audit |  |
 | 086 | P2 | OPT-005 | 不设 media_resolution 与 fps (clio/ai/gemini.py:337-348)。官方文档: 每帧 258 token (低分辨率 66), 音频 32 token/秒, 1 fps 采样 | Pending audit |  |
-| 087 | P2 | OPT-008 | 口播在规划前按整段素材生成 (Q12), 不知道最终用了哪几秒 | Pending audit |  |
+| 087 | P2 | OPT-008 | 口播在规划前按整段素材生成 (Q12), 不知道最终用了哪几秒 | Satisfied | Existing `plan_voiceover` pipeline step runs after planning and generates per-segment voiceover from the selected `use_timeline`, aligned transcript slices, and adjacent-segment context. It writes `scripts/<day>_plan_voiceover.json/.md` and participates in preview, overwrite confirmation, and backup handling. Focused: 74 plan-voiceover/preview tests passed. |
 | 088 | P2 | OPT-009 | analyze.use_gpmf 默认 false; 分天用 UTC 日期 (E5) | Pending audit |  |
 | 089 | P2 | OPT-013 | 校验重试与截断重试都会重新上传视频 (clio/analyze.py:855-886、clio/ai/gemini.py:287-356) | Pending audit |  |
 | 090 | P2 | OPT-014 | analyze.max_workers 默认 1, 20 段素材串行 | Pending audit |  |
