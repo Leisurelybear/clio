@@ -13,7 +13,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P1 | 35 | 20 | 15 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P2 | 59 | 30 | 28 | 0 | 0 | 0 | 0 | 0 | 1 |
-| P3 | 14 | 6 | 0 | 0 | 0 | 0 | 0 | 0 | 8 |
+| P3 | 14 | 7 | 0 | 0 | 0 | 0 | 0 | 0 | 7 |
 
 ## Item status
 
@@ -125,7 +125,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 104 | P3 | R036 | 任务指纹包含 provider、model、base_url、max_tokens, 但不包含 temperature | Fixed | Task lineage settings now include the bound task temperature. Focused: 27 plan-lineage tests passed, including a temperature-change fingerprint regression. |
 | 105 | P3 | R025 | test_readonly_dir_is_handled_gracefully 以 root 运行时失败 | Fixed | `cfa5058` extends the existing POSIX skip with `os.geteuid() == 0`, so the permission-bit check is skipped when running as root. Focused: `clio/tests/test_log.py` 37 passed, 1 skipped; Ruff and diff check passed. |
 | 106 | P3 | R035 | 校验重试的修正说明取自界面语言包, 英文界面下中文提示词后面会接一段英文说明 | Fixed | `7f1885c` moves parse and structure-correction instructions into `clio/prompts.py`, formats their placeholders in code, and removes the unused `plan_validation_prompt` plus three superseded locale keys. English UI selection can no longer inject English correction text after a Chinese task prompt. Focused: 118 analysis/i18n tests passed; Ruff and format check clean. |
-| 107 | P3 | R021 | 运行预览显示 plan "将跳过", 实际启动却返回 409 要求确认覆盖 | Pending audit |  |
+| 107 | P3 | R021 | 运行预览显示 plan "将跳过", 实际启动却返回 409 要求确认覆盖 | Fixed | `0bda6ef` makes the plan preview treat a selection-scoped overwrite as a run rather than a skip, using the same `plan_overwrite_confirmation_required()` gate as `/api/run/start`. The existing overwrite warning test now also asserts `will_run=1` and `will_skip=0`. Focused: 63 run-preview and 91 run-route tests passed; Ruff, format, and diff checks clean. |
 | 108 | P3 | R022 | 同为 API, 部分 403/404 返回 HTML 错误页, 部分返回 JSON | Pending audit |  |
 | 109 | P3 | R026 | 锁文件里 69 个包的地址指向 registry.npmmirror.com, 78 个指向 registry.npmjs.org | Pending audit |  |
 | 110 | P3 | R027 | "锁定"文件只固定了 4 个顶层包, 没有传递依赖和哈希; pip-audit 是 continue-on-error | Pending audit |  |
