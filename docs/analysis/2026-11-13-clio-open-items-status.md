@@ -12,7 +12,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P1 | 35 | 20 | 15 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P2 | 59 | 19 | 17 | 0 | 0 | 0 | 0 | 0 | 23 |
+| P2 | 59 | 20 | 17 | 0 | 0 | 0 | 0 | 0 | 22 |
 | P3 | 14 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 10 |
 
 ## Item status
@@ -91,7 +91,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 070 | P2 | C16 | 原生弹窗: plan 编辑无撤销 (部分修复) | Satisfied | Satisfied; native dialog/undo work completed. |
 | 071 | P2 | B10 | README 数字与流程过时 | Fixed | `f3e27b7` removes handwritten test badges/count tables from both READMEs, clarifies the short-clip size budget plus 800 kbps long-clip floor, and syncs the pipeline diagram, step table, typical workflow, and English config guidance with the current implementation. Documentation-only verification: `git diff --check` passed. |
 | 072 | P2 | O18 | ROADMAP 过长 | Satisfied | Satisfied; roadmap archival completed. |
-| 073 | P2 | R031 | target_size_mb=5 在 800 kbps 保底下对约 46 秒以上的素材不再成立; 日志仍打印"目标 5MB", README 仍写 ~5MB; 短素材码率没有上限 | Pending audit |  |
+| 073 | P2 | R031 | target_size_mb=5 在 800 kbps 保底下对约 46 秒以上的素材不再成立; 日志仍打印"目标 5MB", README 仍写 ~5MB; 短素材码率没有上限 | Fixed | `cf0190c` turns `target_size_mb` into a best-effort budget, adds project-level `min_video_kbps`/`max_video_kbps` (default 800/8000), subtracts the audio budget, clamps the duration-derived bitrate, logs the selected bitrate, and refreshes V1 migration, `.vmeta` fingerprints, examples, UI copy, and docs. Legacy size-budget sidecars without bitrate bounds are re-compressed once. Focused: 267 compress/config/i18n tests passed; full Python suite: 3375 passed, 12 skipped; Vitest: 937 passed; Ruff, typecheck, and `main.py check` passed. |
 | 074 | P2 | F8 | 草稿只有视频轨 (部分修复) | Pending audit |  |
 | 075 | P2 | F4 | 没有 AI 输出自动质检 | Satisfied | Satisfied; readiness warnings implemented (`9c08ab2`). |
 | 076 | P2 | F5 | 没有本地模型 Provider | Pending audit |  |
