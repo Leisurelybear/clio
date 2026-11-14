@@ -18,16 +18,19 @@ export function buildRunStageModel({ selectedSteps, preview, activePhase = '', c
     const steps = stage.steps.filter(step => selected.has(step));
     const rows = steps.map(step => preview?.steps?.find(row => row.name === step));
     const known = steps.length > 0 && rows.every(Boolean);
+    const requiredRows = rows.filter(row => !row?.disabled);
     const total = rows.reduce((sum, row) => sum + (Number(row?.total) || 0), 0);
     const pending = rows.reduce((sum, row) => sum + (Number(row?.will_run) || 0), 0);
     const skipped = rows.reduce((sum, row) => sum + (Number(row?.will_skip) || 0), 0);
     const warnings = rows.flatMap(row => row?.warnings || []);
     // A skip is not proof of a usable artifact: warnings and empty inputs stay visible.
-    const reusable = known && total > 0 && pending === 0 && skipped === total && !warnings.length;
+    const reusable = known && requiredRows.every(row => Number(row?.total) > 0
+      && Number(row?.will_run) === 0 && Number(row?.will_skip) === Number(row?.total)
+      && !row?.warnings?.length);
     const done = steps.length > 0 && steps.every(step => completed.has(step));
     const status = !steps.length ? 'excluded' : active?.key === stage.key ? 'active'
       : done ? 'done' : !known ? 'unknown' : reusable ? 'reusable'
-        : total === 0 || warnings.length && pending === 0 ? 'blocked' : 'ready';
+        : total === 0 || requiredRows.some(row => row?.warnings?.length) && pending === 0 ? 'blocked' : 'ready';
     return { ...stage, steps, status, total, pending, skipped, warnings };
   });
 }

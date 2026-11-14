@@ -1265,6 +1265,7 @@ def test_preview_transcribe_warns_when_transcripts_disabled(tmp_path: Path) -> N
         use_transcripts=False,
     )
 
+    assert preview["steps"][0]["disabled"] is True
     assert preview["steps"][0]["warnings"] == ["字幕开关未启用，转录步骤不会在本次运行中执行。"]
     assert preview["steps"][0]["will_run"] == 0
     assert preview["totals"]["warnings"] == 1

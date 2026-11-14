@@ -117,3 +117,15 @@ describe('guided run stages', () => {
     expect(document.getElementById('run-progress').textContent).not.toContain('预计剩余');
   });
 });
+
+
+it('advances past explicitly disabled optional steps while retaining missing-input blocks', () => {
+  const p = preview();
+  p.steps[0] = { name: 'compress', total: 2, will_run: 0, will_skip: 2, warnings: [] };
+  p.steps[1] = { name: 'transcribe', total: 0, will_run: 0, will_skip: 0, disabled: true, warnings: ['disabled'] };
+  const m = buildRunStageModel({ selectedSteps: allSteps, preview: p });
+  expect(m[0].status).toBe('reusable');
+  expect(nextIncompleteStage(m).steps).toEqual(['analyze']);
+  p.steps[1].disabled = false;
+  expect(nextIncompleteStage(buildRunStageModel({ selectedSteps: allSteps, preview: p })).status).toBe('blocked');
+});

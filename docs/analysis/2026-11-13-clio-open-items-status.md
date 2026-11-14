@@ -169,3 +169,7 @@ Follow-up fix 3: pipeline analysis receives the effective transcript option expl
 Both enabled and disabled values are covered; unrelated steps do not receive the
 argument. Initial verification exposed one stale exact-call assertion (167 passed,
 1 failed); the fixture and assertion now include the effective option.
+
+Follow-up fix 4: preview identifies disabled transcription explicitly, guided stages
+ignore it as a dependency while retaining genuine missing-input blocks, and pipeline
+execution skips disabled transcription. Focused: 89 pytest and 69 runner Vitest passed.

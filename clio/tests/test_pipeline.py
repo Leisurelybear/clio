@@ -542,3 +542,12 @@ def test_pipeline_forwards_transcript_option_only_to_analysis(tmp_path: Path, en
         run_pipeline_steps(config, steps=["analyze", "voiceover"], tracker=MagicMock())
     assert analyze.call_args.kwargs["use_transcripts"] is enabled
     assert "use_transcripts" not in other.call_args.kwargs
+
+
+def test_disabled_transcription_is_not_executed(tmp_path: Path):
+    config = _mock_config(tmp_path)
+    config.plan.use_transcripts = False
+    transcribe = MagicMock(return_value=0)
+    with patch("clio.pipeline.auto_reindex_if_needed"), patch("clio.pipeline._STEP_FUNCS", {"transcribe": transcribe}):
+        run_pipeline_steps(config, steps=["transcribe"], tracker=MagicMock())
+    transcribe.assert_not_called()

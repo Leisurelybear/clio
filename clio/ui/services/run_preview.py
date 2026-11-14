@@ -729,8 +729,8 @@ def _step_preview(
             task_prompts=task_prompts,
         )
     if step == "transcribe":
-        if not use_transcripts:
-            return _warning_step(step, t("api.preview_transcribe_disabled"))
+        if not use_transcripts or not config.whisper.enabled:
+            return {**_warning_step(step, t("api.preview_transcribe_disabled")), "disabled": True}
         return _transcribe_step(config, compressed_videos, all_recursive_source_videos, force=force, index=index)
     if step == "consistency":
         return _consistency_step(

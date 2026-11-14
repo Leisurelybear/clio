@@ -121,6 +121,8 @@ def _run_step(
     cancel_event: threading.Event | None,
 ) -> Any:
     fn = _STEP_FUNCS[step]
+    if step == "transcribe" and not config.plan.use_transcripts:
+        return 0
     if step == "plan" and all_days:
         return run_plan_all_days(
             config,
