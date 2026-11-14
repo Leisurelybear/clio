@@ -8,6 +8,17 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 
 ## Summary
 
+Run interaction refresh (2026-11-14): implemented four presentation stages and next-stage actions
+within the Run pane. Custom steps and advanced options remain available; previews distinguish
+reusable outputs from missing inputs and expose warnings automatically. Completion stays in Run
+with explicit result and output-folder actions. No backend or task protocol changes. Frontend
+behavioral coverage includes stage payloads, custom selections, escaping, real progress, preview
+recovery, and explicit completion navigation. The processing matrix remains historical evidence;
+it is not presented as a count of skips from the current task. Consistency reports remain accessible
+through the output folder because no existing report-viewing endpoint is available.
+Verification: all 945 Vitest tests (90 files), `npm run typecheck`, and `git diff --check`
+passed. No live AI pipeline was started during verification.
+
 | Priority | Total | Fixed | Satisfied | In progress | Confirmed | Environment verification | Duplicate | Not applicable | Pending audit |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |

@@ -23,6 +23,15 @@ import {
 } from './runner-preview.js';
 import { buildSkippedDiagnostics, renderProcessingState, renderSkippedDiagnosticsHtml, STEP_KEYS, stepShortLabel } from './runner-diagnostics.js';
 
+import { buildRunStageModel, nextIncompleteStage, renderStageBoard, renderCompletionActions } from './runner-stages.js';
+
+let _lastRunPreview = null;
+let _customRun = false;
+let _runLogs = [];
+let _completedSteps = [];
+let _activePhase = '';
+let _previewFailed = false;
+
 let _lastRunDay = 'day1';
 let _runActive = false;
 let _lastProgressSnapshot = null;
@@ -85,6 +94,9 @@ function renderRun() {
   }
   _lastRunDay = state.currentDay || 'day1';
   const pane = $('tab-run');
+  _lastRunPreview = null;
+  _previewFailed = false;
+  _customRun = false;
   const saved = loadStepSelection();
   const savedSteps = saved.steps || {};
   const savedUseTrans = saved.use_transcripts !== false;
@@ -128,31 +140,48 @@ function renderRun() {
     <h3>${t('run.title')}</h3>
     <p class="hint">${t('run.subtitle')}</p>
     <p class="hint">${t('run.current_project', { path: escapeHtml(state.currentProjectDir || state.config?.project_dir || t('run.unset')) })}</p>
-    <div class="run-step-list">${stepChecks}</div>
+    <div id="run-scope"></div>
+    <section id="run-stage-board" class="run-stage-board"></section>
+    <section class="run-next-card">
+      <p id="run-next-description" class="hint"></p>
+      <p id="run-next-estimate" class="hint"></p>
+      <button id="btn-run-start" class="btn-primary">${getRunButtonText()}</button>
+      <button id="btn-run-retry-preview" class="btn-secondary" hidden>${t('run.guide.retry_preview')}</button>
+      <span id="run-files-badge" class="run-files-badge" style="display:none"></span>
+      <button id="btn-run-cancel" class="btn-secondary" style="display:none">${t('common.cancel')}</button>
+    </section>
+    <details id="run-custom-steps" class="run-prompt-section">
+      <summary>${t('run.guide.custom')}</summary>
+      <p class="hint">${t('run.guide.custom_hint')}</p>
+      <button id="btn-run-guided" class="btn-secondary">${t('run.guide.resume')}</button>
+      <div class="run-step-list">${stepChecks}</div>
+    </details>
     <details class="run-prompt-section" style="margin:12px 0">
-      <summary style="cursor:pointer;font-size:var(--text-sm);color:var(--text-secondary);user-select:none">${t('run.advanced_prompt')}</summary>
+      <summary style="cursor:pointer;font-size:var(--text-sm);color:var(--text-secondary);user-select:none">${t('run.guide.advanced')}</summary>
       <div style="margin-top:8px">
         <textarea id="run-context-override" class="run-prompt-input" placeholder="${t('run.context_placeholder')}" rows="4" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-input,#1e1e1e);color:var(--text-primary);font-size:var(--text-sm);resize:vertical;font-family:inherit"></textarea>
       </div>
     </details>
-    <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap">
-      <button id="btn-run-start" class="btn-primary">${getRunButtonText()}</button>
-      <span id="run-files-badge" class="run-files-badge" style="display:none"></span>
-      <button id="btn-run-cancel" class="btn-secondary" style="display:none">${t('common.cancel')}</button>
-      <label class="run-option-check" id="option-overwrite-wrap">
-        <input type="checkbox" id="run-overwrite">
-        <span>${t('run.overwrite')}</span>
+    <details id="run-execution-options" class="run-prompt-section">
+      <summary>${t('run.guide.execution_options')}</summary>
+      <label class="run-option run-option-check" id="option-overwrite-wrap">
+        <input type="checkbox" id="run-overwrite"><span>${t('run.overwrite')}</span>
       </label>
-    </div>
-    <div id="run-preview" style="margin-top:12px"></div>
+      <div id="run-preview" style="margin-top:12px"></div>
+    </details>
     <div id="run-progress" style="margin-top:12px"></div>
+    <div id="run-completion-actions" aria-live="polite"></div>
     <div id="run-task-link" class="run-task-link" hidden></div>
     <div id="run-state-container"></div>
   `;
+  const dayScope = pane.querySelector('.run-step-day-sub');
+  if (dayScope) $('run-scope').appendChild(dayScope);
+  $('btn-run-retry-preview').onclick = () => refreshRunPreview();
 
   // wire step checkbox change → persist + refresh preview
   document.querySelectorAll('.run-step-cb').forEach(cb => {
     cb.addEventListener('change', () => {
+      _customRun = true;
       const checks = {};
       document.querySelectorAll('.run-step-cb').forEach(c => {
         checks[c.dataset.step] = c.checked;
@@ -187,13 +216,19 @@ function renderRun() {
     });
   }
 
+  $('btn-run-guided').onclick = () => { _customRun = false; updateRunGuide(); };
+  $('run-day')?.addEventListener('input', () => refreshRunPreview({ silent: true }));
+  $('run-context-override')?.addEventListener('change', () => refreshRunPreview({ silent: true }));
   togglePlanSubOptions();
   updateRunFilesBadge();
   updateRunStartButtonState();
   refreshRunPreview({ silent: true });
 
   const runBtn = $('btn-run-start');
-  runBtn.onclick = startRun;
+  runBtn.onclick = () => {
+    const next = nextIncompleteStage(currentStageModel());
+    return startRun(!_customRun && _lastRunPreview && next ? next.steps : undefined);
+  };
   if (_runActive) { runBtn.disabled = true; runBtn.textContent = t('run.btn.running'); }
   const cancelBtn = $('btn-run-cancel');
   if (cancelBtn) cancelBtn.onclick = cancelRun;
@@ -254,6 +289,42 @@ function getRunButtonText() {
   return `${icon('play', 16)} ${t('run.btn.start')}`;
 }
 
+function currentStageModel() {
+  return buildRunStageModel({ selectedSteps: collectRunOptions().steps, preview: _lastRunPreview,
+    activePhase: _activePhase, completedSteps: _completedSteps });
+}
+
+function updateRunGuide() {
+  const board = $('run-stage-board');
+  if (!board) return;
+  const model = currentStageModel();
+  renderStageBoard(board, model);
+  const next = nextIncompleteStage(model);
+  const retry = $('btn-run-retry-preview');
+  if (retry) retry.hidden = !_previewFailed;
+  const estimate = $('run-next-estimate');
+  if (estimate) {
+    const rows = (_lastRunPreview?.steps || []).filter(row => _customRun || next?.steps.includes(row.name));
+    const calls = rows.reduce((sum, row) => sum + (Number(row.planned_calls) || 0), 0);
+    const priced = rows.filter(row => Number(row.planned_calls) > 0).every(row => row.estimate_status === 'estimated');
+    const cost = rows.reduce((sum, row) => sum + (Number(row.estimated_cost_usd) || 0), 0);
+    estimate.textContent = calls ? `${t('run.preview.ai_calls', { count: calls })} · ${priced
+      ? t('run.preview.ai_cost', { cost: `$${cost.toFixed(4)}` }) : t('run.preview.cost_unconfigured')}` : '';
+  }
+  const description = $('run-next-description');
+  if (description) description.textContent = t(_customRun ? 'run.guide.custom_hint'
+    : next ? 'run.guide.next_hint' : 'run.guide.all_current');
+  const btn = $('btn-run-start');
+  if (btn && !_runActive && !_customRun && !_lastRunPreview) {
+    btn.disabled = true;
+    btn.textContent = t(_previewFailed ? 'run.guide.preview_failed' : 'run.preview.generating');
+  }
+  if (btn && !_runActive && !_customRun && _lastRunPreview) {
+    btn.textContent = next ? t('run.guide.next', { stage: t(`run.stage.${next.key}`) }) : t('run.guide.all_current');
+    btn.disabled = !next || ['blocked', 'unknown'].includes(next.status) || (state.selectionMode && !state.selectedFiles.length);
+  }
+}
+
 function updateRunStartButtonState() {
   const btn = $('btn-run-start');
   if (!btn || _runActive) return;
@@ -262,6 +333,7 @@ function updateRunStartButtonState() {
   btn.disabled = noSelection;
   btn.innerHTML = getRunButtonText();
   btn.title = noSelection ? t('run.pick_first_title') : '';
+  updateRunGuide();
 }
 
 function collectRunOptions() {
@@ -289,24 +361,43 @@ async function refreshRunPreview({ silent = false } = {}) {
   const container = $('run-preview');
   if (!container) return null;
   const options = collectRunOptions();
+  const ac = beginLatest('run-preview');
+  _lastRunPreview = null;
+  _previewFailed = false;
+  updateRunStartButtonState();
   if (!options.steps.length) {
+    _lastRunPreview = null;
+    updateRunGuide();
     container.innerHTML = renderRunPreviewHtml(null);
+    endLatest('run-preview', ac);
     return null;
   }
-  const ac = beginLatest('run-preview');
   if (!silent) {
     container.innerHTML = `<p class="muted">${t('run.preview.generating')}</p>`;
   }
   try {
     const response = await api('POST', '/api/run/preview', options, { signal: ac.signal });
     if (!isLatest('run-preview', ac)) return null;
-    if (response.preview) {
+    _lastRunPreview = response?.preview || null;
+    _previewFailed = !_lastRunPreview;
+    if (!_runActive) _completedSteps = [];
+    updateRunStartButtonState();
+    if (response?.preview) {
       container.innerHTML = renderRunPreviewHtml(response.preview);
+      const p = response.preview;
+      if (p.preflight?.ok === false || p.totals?.warnings > 0 || p.artifact_overwrite?.required
+        || p.plan_overwrite?.required || p.analysis_rerun?.required || p.legacy_audio_removal?.required) {
+        const details = $('run-execution-options');
+        if (details) details.open = true;
+      }
     } else {
       container.innerHTML = renderRunPreviewHtml(null);
     }
   } catch (e) {
     if (isAbortError(e) || !isLatest('run-preview', ac)) return null;
+    _lastRunPreview = null;
+    _previewFailed = true;
+    updateRunStartButtonState();
     container.innerHTML = renderRunPreviewHtml(null);
   } finally {
     endLatest('run-preview', ac);
@@ -334,7 +425,7 @@ function updateRunFilesBadge() {
   if ($('run-preview')) refreshRunPreview({ silent: true });
 }
 
-async function startRun() {
+async function startRun(stageSteps) {
   const btn = $('btn-run-start');
   if (btn.disabled) return;
   if (state.selectionMode && state.selectedFiles.length === 0) {
@@ -345,6 +436,7 @@ async function startRun() {
   btn.disabled = true;
   btn.textContent = t('run.starting');
   const options = collectRunOptions();
+  if (Array.isArray(stageSteps)) options.steps = stageSteps;
   if (!options.steps.length) {
     updateRunStartButtonState();
     setStatus(t('run.need_steps'), 'warn');
@@ -408,6 +500,9 @@ async function startRun() {
       _managedTaskId = r.task_id || r.task?.id || null;
       renderManagedTaskLink();
       _runActive = true;
+      _runLogs = [];
+      _completedSteps = [];
+      if ($('run-completion-actions')) $('run-completion-actions').innerHTML = '';
       const msg = r.message || t('run.started');
       setStatus(msg, 'ok', { persist: false });
       addToast(msg, 'success', undefined, { persist: false });
@@ -473,6 +568,8 @@ function _taskToRunStatus(task, event = null) {
     message: event?.event?.message || task?.message || task?.error_message || '',
     task_id: task?.id,
     steps: task?.input_summary?.steps || _lastRunSteps,
+    logs: _runLogs.slice(-20),
+    eta_sec: task?.eta_sec,
   };
 }
 
@@ -487,7 +584,10 @@ function _subscribeManagedRunEvents() {
     const task = payload?.task;
     if (!task || task.kind !== 'pipeline' || !_sameRunProject(task)) return;
     if (_managedTaskId && task.id !== _managedTaskId) return;
+    if (_managedTaskId !== task.id) _runLogs = [];
     _managedTaskId = task.id;
+    const message = payload.event?.message;
+    if (message) _runLogs = [..._runLogs, String(message)].slice(-20);
     renderManagedTaskLink();
     _handleRunStatus(_taskToRunStatus(task, payload));
   });
@@ -580,6 +680,8 @@ export async function _handleRunStatus(s) {
   const hasRunDom = !!prog;
   if (s.rerun) return;
     if (s.status === 'idle' || s.status === 'unknown') {
+      _activePhase = '';
+      _completedSteps = [];
       _lastProgressSnapshot = null;
       _runActive = false;
       if (btn) {
@@ -595,6 +697,9 @@ export async function _handleRunStatus(s) {
       return;
     }
     if (s.status === 'running') {
+      _runActive = !!s.running;
+      _activePhase = s.phase || '';
+      updateRunGuide();
       const stale = !s.running;
       if (stale) {
         _runActive = false;
@@ -618,14 +723,14 @@ export async function _handleRunStatus(s) {
         const cancelBtn = $('btn-run-cancel');
         if (cancelBtn) { cancelBtn.style.display = ''; cancelBtn.disabled = false; }
         if (hasRunDom) {
-          const pct = s.total > 0 ? Math.round(s.current / s.total * 100) : 0;
+          const pct = Math.max(0, Math.min(100, Number.isFinite(s.progress_pct) ? s.progress_pct : s.total > 0 ? Math.round(s.current / s.total * 100) : 0));
           const eta = s.eta_sec ? t('run.eta', { sec: Math.round(s.eta_sec) }) : '';
           const logsHtml = s.logs?.length ? `<div class="run-logs">${s.logs.map(l => `<div class="run-log-line">${escapeHtml(l)}</div>`).join('')}</div>` : '';
           prog.innerHTML = `
             <p><strong>${t('run.phase')}</strong> ${escapeHtml(s.phase || '')}</p>
             <p><strong>${t('run.progress')}</strong> ${s.current}/${s.total} (${pct}%)${eta}</p>
             <p><strong>${t('run.state')}</strong> ${escapeHtml(s.message || '')}</p>
-            <div style="background:#333;border-radius:3px;height:8px;margin:8px 0">
+            <div style="background:var(--bg-surface-3);border-radius:3px;height:8px;margin:8px 0">
               <div style="background:var(--accent);border-radius:3px;height:100%;width:${pct}%"></div>
             </div>
             ${staleWarningHtml(s.phase)}
@@ -673,13 +778,27 @@ export async function _handleRunStatus(s) {
       } catch {}
       await refreshVideosAfterRun();
       const completedSteps = Array.isArray(s.steps) ? s.steps : _lastRunSteps;
-      if (state.currentEntity === 'run' && (_expectDoneNavigation || _seenNonTerminal)) {
-        await _showRunCompletionTarget(completedSteps);
-      } else if (state.currentEntity === 'plan') {
+      _activePhase = '';
+      _completedSteps = completedSteps;
+      if (hasRunDom) {
+        const outputPath = state.config?.output_dir || '';
+        renderCompletionActions($('run-completion-actions'), completedSteps,
+          () => _showRunCompletionTarget(completedSteps),
+          async () => {
+            try {
+              const result = await api('POST', '/api/fs/reveal', { path: outputPath });
+              if (!result.ok) throw new Error(result.error || t('project.open_failed_bare'));
+            } catch (error) { setStatus(t('project.reveal_failed', { detail: error.message }), 'err'); }
+          }, outputPath);
+        updateRunGuide();
+        refreshRunPreview({ silent: true });
+      }
+      if (state.currentEntity === 'plan') {
         import('./sidebar.js').then(mod => mod.selectPlan());
       }
       _expectDoneNavigation = false;
     } else if (s.status === 'cancelled') {
+      _activePhase = '';
       _lastProgressSnapshot = null;
       _runActive = false;
       updateRunStartButtonState();
@@ -694,6 +813,7 @@ export async function _handleRunStatus(s) {
       if (hasRunDom) renderProcessingState($('run-state-container'));
       await refreshVideosAfterRun();
     } else if (s.status === 'error') {
+      _activePhase = '';
       _lastProgressSnapshot = null;
       _runActive = false;
       updateRunStartButtonState();

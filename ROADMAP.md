@@ -10,6 +10,13 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
 
 ## Active backlog (2026-11-13)
 
+### Run interaction refresh (2026-11-14)
+
+- `[x]` Group the eight existing steps into four guided stages, with one-stage next actions.
+- `[x]` Keep custom selections, scope, overwrite confirmations, and detailed estimates available.
+- `[x]` Show live stage progress and retain the Run page after completion with explicit result actions.
+- `[x]` Cover stage selection, missing inputs, custom execution, preview recovery, and completion navigation with frontend tests.
+
 ### P0/P1/P2 review remediation
 
 Historical source: [`docs/analysis/2026-11-05-P0-P2-Issues.md`](docs/analysis/2026-11-05-P0-P2-Issues.md)
