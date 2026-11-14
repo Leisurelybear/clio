@@ -180,3 +180,7 @@ cancellation event propagate. Focused planning verification: 130 passed.
 
 Cache-preview hardening: non-object plan JSON is treated as missing input instead
 of raising during lineage calculation. Preview regressions: 70 passed.
+
+Cache diagnostics follow-up: the first full run found one regression in the corrupt
+plan diagnostic (3405 passed, 12 skipped, 1 failed). Restored the specific corrupt-file
+message; all 81 planning tests and full Ruff/mypy checks pass after the correction.

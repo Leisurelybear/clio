@@ -502,7 +502,8 @@ def _try_reuse_existing_plan(
             write_json_atomic(out_json, existing)
         print(t("task.plan.skip_existing", {"day": day_label}))
         return existing
-    print(t("task.plan.replan_lineage", {"day": day_label}))
+    _, error = _read_json_object(out_json)
+    print(t("task.plan.replan_corrupt" if error else "task.plan.replan_lineage", {"day": day_label}))
     return None
 
 
