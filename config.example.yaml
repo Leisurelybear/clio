@@ -103,7 +103,8 @@ ai:
       poll_interval_sec: 5
       video_upload_max_mb: 200
       retry_attempts: 5
-      requests_per_minute: 0
+      # Keep concurrent video analysis below your Gemini quota. 0 = unlimited.
+      requests_per_minute: 30
       capabilities: [video, text]
       models:
         - gemini-2.5-flash

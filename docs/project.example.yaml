@@ -49,7 +49,7 @@ analyze:
   window_max_min: 15            # single Gemini window length (minutes)
   window_overlap_sec: 20        # overlap between windows for boundary dedupe
   media_resolution: medium      # low | medium | high; medium + window_max_min: 5 is recommended for long clips
-  max_workers: 1
+  max_workers: 2              # parallel clip analysis; lower to 1 if your Gemini quota is tight
   # Inject GoPro GPMF / sidecar summary into AI analyze context.
   # Default true. Missing GPS/GPMF is always a silent no-op.
   use_gpmf: true

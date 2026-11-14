@@ -61,7 +61,7 @@ class AnalyzeConfig:
     window_max_min: int = 15
     window_overlap_sec: int = 20
     media_resolution: str = "medium"
-    max_workers: int = 1
+    max_workers: int = 2
     # Inject GoPro GPMF/sidecar summary into analyze context (R-024b).
     # Default true; clips without telemetry remain a silent no-op.
     use_gpmf: bool = True

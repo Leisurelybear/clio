@@ -65,7 +65,7 @@ CONFIG_DESCRIPTIONS: dict[str, str] = {
     "analyze.window_max_min": "AI 分析单窗最长分钟数；长片通过 Gemini 时间窗分析后合并",
     "analyze.window_overlap_sec": "相邻分析窗重叠秒数，用于边界去重",
     "analyze.media_resolution": "Gemini 视频分析分辨率：low / medium / high；默认 medium，长片建议配合 5 分钟窗口",
-    "analyze.max_workers": "AI 分析并发数（ThreadPoolExecutor），1=串行",
+    "analyze.max_workers": "AI 分析并发数（ThreadPoolExecutor），默认 2，1=串行",
     "analyze.use_gpmf": "将原片旁 .gpmf.json / GPMF 探测摘要注入 AI 分析上下文（默认开启；无 GPS 时静默跳过）",
     # naming
     "naming.index_width": "文件名中索引编号的位数（如 3 表示 001）",

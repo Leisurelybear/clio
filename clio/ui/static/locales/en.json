@@ -616,7 +616,7 @@
   "settings.desc.ai.tasks.{name}.timeout_sec": "HTTP timeout for this task (seconds); leave empty to use the provider timeout. Long-output tasks such as planning may need a larger value",
   "settings.desc.analyze.compressed_subdir": "Subdirectory holding compressed videos",
   "settings.desc.analyze.max_analyze_duration_min": "Hard cap for a whole file (minutes); longer files are skipped. 0 = unlimited. Long clips are mainly governed by window_max_min",
-  "settings.desc.analyze.max_workers": "AI analysis concurrency (ThreadPoolExecutor); 1 = serial",
+  "settings.desc.analyze.max_workers": "AI analysis concurrency (ThreadPoolExecutor); default 2, 1 = serial",
   "settings.desc.analyze.media_resolution": "Gemini video analysis resolution: low / medium / high; defaults to medium, with a 5-minute window recommended for long clips",
   "settings.desc.analyze.skip_existing": "Global skip switch: skip already processed files (affects every step)",
   "settings.desc.analyze.texts_subdir": "Subdirectory holding AI analysis output",

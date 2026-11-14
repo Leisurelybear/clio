@@ -47,6 +47,10 @@ def test_analyze_config_enables_gpmf_by_default():
     assert AnalyzeConfig().use_gpmf is True
 
 
+def test_analyze_config_defaults_to_two_workers():
+    assert AnalyzeConfig().max_workers == 2
+
+
 def test_server_task_retention_defaults_and_validation():
     server = ServerConfig()
     assert server.task_retention_days == 30
@@ -646,6 +650,7 @@ class TestLoadConfig:
         example_data = yaml.safe_load(path.read_text(encoding="utf-8"))
         assert example_data["config_version"] == "V2"
         assert example_data["ai"]["default_tasks"]["video_analyze"]["temperature"] == 0.2
+        assert example_data["ai"]["providers"]["gemini"]["requests_per_minute"] == 30
         assert "ai:" in path.read_text(encoding="utf-8")
 
     def test_example_configs_use_current_official_model_bindings(self):
@@ -666,6 +671,7 @@ class TestLoadConfig:
         assert project_data["ai"]["tasks"]["vlog_plan"]["model"] == "deepseek-v4-pro"
         assert project_data["ai"]["tasks"]["vlog_plan"]["timeout_sec"] == 300
         assert project_data["ai"]["tasks"]["video_analyze"]["temperature"] == 0.2
+        assert project_data["analyze"]["max_workers"] == 2
 
     def test_auto_generates_missing_config(self, tmp_path):
         target = tmp_path / "nested" / "config.yaml"
