@@ -12,7 +12,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P1 | 35 | 20 | 15 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P2 | 59 | 20 | 19 | 0 | 0 | 0 | 0 | 0 | 20 |
+| P2 | 59 | 20 | 20 | 0 | 0 | 0 | 0 | 0 | 19 |
 | P3 | 14 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 10 |
 
 ## Item status
@@ -95,7 +95,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 074 | P2 | F8 | 草稿只有视频轨 (部分修复) | Satisfied | Existing implementation generates a caption text track from `plan.sequence[].subtitle`, writes `subtitles.srt` from that track using the accumulated exported timeline, and maps `dissolve` to JianYing `叠化` on the previous segment; other transition kinds intentionally remain hard cuts. Focused: 51 export tests passed. |
 | 075 | P2 | F4 | 没有 AI 输出自动质检 | Satisfied | Satisfied; readiness warnings implemented (`9c08ab2`). |
 | 076 | P2 | F5 | 没有本地模型 Provider | Satisfied | Existing support maps `type: ollama` to `OpenAICompatProvider` with a default `http://localhost:11434/v1` endpoint, allows an empty API key, omits the Authorization header, and validates/probes local providers without credentials. The UI provider allow-list, locale copy, `config.example.yaml`, and READMEs document the binding. Focused: 190 AI/config/doctor tests passed. |
-| 077 | P2 | F9 | 规划模型看不到画面 | Pending audit |  |
+| 077 | P2 | F9 | 规划模型看不到画面 | Satisfied | Existing opt-in `plan.visual_transition_review` builds first/last-frame contact sheets for up to 12 adjacent cuts, sends only clip/timeline metadata to the `video_analyze` Gemini binding, requires a unique result for every position, and only then updates `transition`; extraction, provider, or validation failures keep the validated plan. Review settings and the video binding participate in plan lineage. Focused: 102 plan/transition-review tests passed. |
 | 078 | P2 | O8 | make_handler 过于庞大 | Satisfied | Satisfied; handler split completed (`f6a7b07`, `970d559`, `786ec31`, `961fdb1`). |
 | 079 | P2 | O10 | 宽泛异常 | Satisfied | Satisfied; broad exception cleanup completed (`52fab55`). |
 | 080 | P2 | O11 | 限流与等待逻辑重复 | Satisfied | Satisfied; limiter merge completed (`cb8613d`). |
