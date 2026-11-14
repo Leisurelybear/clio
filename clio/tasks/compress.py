@@ -50,11 +50,16 @@ def _sort_items_by_capture_time(items: list[tuple[Path, Path]], ffprobe: str) ->
     return [row[3] for row in keyed]
 
 
+_BITRATE_FINGERPRINT_KEYS = ("min_video_kbps", "max_video_kbps")
+
+
 def _compress_settings_fingerprint(config: AppConfig) -> dict:
     return {
         "max_width": config.compress.max_width,
         "fps": config.compress.fps,
         "target_size_mb": config.compress.target_size_mb,
+        "min_video_kbps": config.compress.min_video_kbps,
+        "max_video_kbps": config.compress.max_video_kbps,
         "remove_audio": config.compress.remove_audio,
     }
 
@@ -63,10 +68,14 @@ def _meta_matches_settings(meta: VideoMeta, config: AppConfig) -> bool:
     """True when the stored compress settings still match the current config.
 
     Legacy vmeta files without audio settings are stale when audio is now kept
-    by default, so they are re-compressed once before being reused.
+    by default. Legacy vmeta files without bitrate bounds are also stale in
+    size-budget mode because their short clips may exceed the new cap; they are
+    re-compressed once before being reused.
     """
     stored = meta.compress_settings or {}
     if "remove_audio" not in stored and not config.compress.remove_audio:
+        return False
+    if config.compress.target_size_mb > 0 and any(key not in stored for key in _BITRATE_FINGERPRINT_KEYS):
         return False
     return all(stored.get(k, v) == v for k, v in _compress_settings_fingerprint(config).items())
 
@@ -392,6 +401,8 @@ def run_compress_all(
                     "max_width": config.compress.max_width,
                     "fps": config.compress.fps,
                     "target_size_mb": config.compress.target_size_mb,
+                    "min_video_kbps": config.compress.min_video_kbps,
+                    "max_video_kbps": config.compress.max_video_kbps,
                     "remove_audio": config.compress.remove_audio,
                 },
                 split_info=None,

@@ -30,11 +30,11 @@ describe('settings localization helpers', () => {
 
   it('follows the active locale for tooltips and task copy', () => {
     setLocale('zh-CN');
-    expect(descFromPath('compress.target_size_mb', descs)).toBe('压缩后目标文件大小（MB）');
+    expect(descFromPath('compress.target_size_mb', descs)).toBe(zhCN['settings.desc.compress.target_size_mb']);
     expect(taskLabel('video_analyze')).toBe('视频分析');
 
     setLocale('en');
-    expect(descFromPath('compress.target_size_mb', descs)).toBe('Target file size after compression (MB)');
+    expect(descFromPath('compress.target_size_mb', descs)).toBe(en['settings.desc.compress.target_size_mb']);
     expect(taskLabel('video_analyze')).toBe('Video analysis');
     expect(taskDescription('video_analyze')).toBeTruthy();
 

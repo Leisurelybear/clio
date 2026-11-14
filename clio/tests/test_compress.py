@@ -9,7 +9,7 @@ from typing import Any, cast
 
 import pytest
 
-from clio.compress import _is_hdr_source, analysis_compress_advice, compress_video
+from clio.compress import _is_hdr_source, _select_video_bitrate, analysis_compress_advice, compress_video
 from clio.config import AppConfig
 
 
@@ -25,6 +25,8 @@ def _default_config() -> AppConfig:
                 codec="libx264",
                 remove_audio=True,
                 crf=23,
+                min_video_kbps=800,
+                max_video_kbps=8000,
             ),
         ),
     )
@@ -227,6 +229,61 @@ class TestCompressVideo:
         args = ffmpeg_calls[0]
         bv_idx = args.index("-b:v")
         assert int(args[bv_idx + 1]) == 800_000
+
+    def test_short_video_is_capped_by_max_video_kbps(self, monkeypatch, tmp_path: Path):
+        src = tmp_path / "input.mp4"
+        src.write_bytes(b"\x00" * 100_000)
+        out = tmp_path / "out.mp4"
+        monkeypatch.setattr("clio.compress.resolve_binary", lambda *a: "ffmpeg")
+        monkeypatch.setattr("clio.compress.get_duration_sec", lambda *a: 1.0)
+        ffmpeg_calls: list[list[str]] = []
+        monkeypatch.setattr("clio.compress.run_ffmpeg", _mock_ffmpeg(ffmpeg_calls))
+
+        compress_video(src, out, _default_config())
+
+        args = ffmpeg_calls[0]
+        bv_idx = args.index("-b:v")
+        assert int(args[bv_idx + 1]) == 8_000_000
+
+    def test_custom_bitrate_limits_are_applied(self):
+        assert (
+            _select_video_bitrate(
+                target_size_mb=0.01,
+                duration_sec=600.0,
+                remove_audio=True,
+                min_video_kbps=1200,
+                max_video_kbps=2400,
+            )
+            == 1_200_000
+        )
+        assert (
+            _select_video_bitrate(
+                target_size_mb=100.0,
+                duration_sec=1.0,
+                remove_audio=True,
+                min_video_kbps=1200,
+                max_video_kbps=2400,
+            )
+            == 2_400_000
+        )
+
+    def test_size_summary_reports_actual_video_bitrate(self, monkeypatch, tmp_path: Path, capsys):
+        monkeypatch.setenv("CLIO_LANG", "en")
+        _, _, calls = self._run_compress(monkeypatch, tmp_path)
+        args = calls[0]
+        bitrate = int(args[args.index("-b:v") + 1])
+
+        out = capsys.readouterr().out
+        assert f"video target {bitrate // 1000} kbps" in out
+        assert "5.0 MB budget" in out
+
+    def test_crf_summary_reports_crf_mode(self, monkeypatch, tmp_path: Path, capsys):
+        monkeypatch.setenv("CLIO_LANG", "en")
+        self._run_compress(monkeypatch, tmp_path, target_size_mb=0)
+
+        out = capsys.readouterr().out
+        assert "CRF 23" in out
+        assert "budget" not in out
 
     def test_cancel_during_compress(self, monkeypatch, tmp_path: Path):
         """cancel_event 被设置时 run_ffmpeg 应抛出 InterruptedError"""

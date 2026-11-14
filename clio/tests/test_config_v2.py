@@ -137,7 +137,12 @@ class TestV1ToV2Migration:
             yaml.dump(
                 {
                     "proxy": {"enabled": False},
-                    "compress": {"fps": 30, "target_size_mb": 10},
+                    "compress": {
+                        "fps": 30,
+                        "target_size_mb": 10,
+                        "min_video_kbps": 1000,
+                        "max_video_kbps": 5000,
+                    },
                 }
             ),
             encoding="utf-8",
@@ -149,7 +154,11 @@ class TestV1ToV2Migration:
         project_raw = yaml.safe_load((tmp_path / "project.yaml").read_text(encoding="utf-8"))
         assert global_raw["config_version"] == "V2"
         assert global_raw["compress"] == {"fps": 30}
-        assert project_raw["compress"] == {"target_size_mb": 10}
+        assert project_raw["compress"] == {
+            "target_size_mb": 10,
+            "min_video_kbps": 1000,
+            "max_video_kbps": 5000,
+        }
         assert cfg_path.with_suffix(".yaml.bak").is_file()
 
     def test_v1_config_loaded_correctly_after_migration(self, tmp_path: Path):
@@ -367,7 +376,7 @@ class TestCombinedWrappers:
 
     def test_combined_compress_global_takes_fps_project_takes_target(self):
         g = GlobalCompressConfig(fps=30, codec="libx264", remove_audio=True, crf=23)
-        p = ProjectCompressConfig(target_size_mb=10, max_width=1280)
+        p = ProjectCompressConfig(target_size_mb=10, max_width=1280, min_video_kbps=1000, max_video_kbps=5000)
         c = CombinedCompressConfig(g, p)
         assert c.fps == 30
         assert c.codec == "libx264"
@@ -375,12 +384,16 @@ class TestCombinedWrappers:
         assert c.crf == 23
         assert c.target_size_mb == 10
         assert c.max_width == 1280
+        assert c.min_video_kbps == 1000
+        assert c.max_video_kbps == 5000
 
     def test_combined_compress_no_project(self):
         g = GlobalCompressConfig(fps=15)
         c = CombinedCompressConfig(g, None)
         assert c.fps == 15
         assert c.target_size_mb == 5
+        assert c.min_video_kbps == 800
+        assert c.max_video_kbps == 8000
 
     def test_combined_whisper_delegation(self):
         g = GlobalWhisperConfig(cache_dir="/cache", hf_endpoint="https://hf-mirror.com")

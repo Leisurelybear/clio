@@ -12,7 +12,7 @@ from typing import Any, cast
 import pytest
 
 from clio.config import AppConfig
-from clio.tasks.compress import run_compress_all
+from clio.tasks.compress import _compress_settings_fingerprint, run_compress_all
 
 
 def _project_dir(cfg: AppConfig) -> Path:
@@ -33,6 +33,8 @@ def _cfg(tmp_path: Path, **overrides) -> AppConfig:
         compress=SimpleNamespace(
             target_size_mb=5,
             max_width=640,
+            min_video_kbps=800,
+            max_video_kbps=8000,
             fps=15,
             codec="libx264",
             remove_audio=True,
@@ -228,12 +230,55 @@ class TestRunCompressAll:
         run_compress_all(cfg)
         assert call_count[0] == 1
 
-        # Change a setting the fingerprint tracks.
+        # Change settings the fingerprint tracks. Bitrate bounds affect output
+        # even when target size and dimensions stay unchanged.
         cast(Any, cfg.compress).max_width = 480
+        cast(Any, cfg.compress).max_video_kbps = 6000
         cfg.analyze.skip_existing = True
         monkeypatch.setattr("clio.tasks.compress._next_index", lambda *a: 1)
         run_compress_all(cfg)
         assert call_count[0] == 2, "settings changed -> must re-compress"
+
+    def test_legacy_vmeta_without_bitrate_bounds_recompresses(self, monkeypatch, tmp_path: Path):
+        """Legacy size-budget artifacts cannot prove the new bitrate cap was applied."""
+        from clio.vmeta import VideoMeta
+
+        cfg = _cfg(tmp_path)
+        src = _add_video(cfg, "clip.mp4")
+        cfg.analyze.skip_existing = True
+
+        old = cfg.compressed_dir / "001_clip.mp4"
+        old.write_bytes(b"\x00" * 60_000)
+        VideoMeta.build(
+            src,
+            old,
+            10.0,
+            10.0,
+            compress_settings={
+                "max_width": 640,
+                "fps": 15,
+                "target_size_mb": 5,
+                "remove_audio": True,
+            },
+        ).write(old)
+
+        monkeypatch.setattr("clio.tasks.compress.resolve_binary", lambda *a: "ffmpeg")
+        monkeypatch.setattr("clio.tasks.compress.get_duration_sec", lambda *a, **kw: 10.0)
+        monkeypatch.setattr("clio.tasks.compress._safe_duration", lambda *a, **k: 10.0)
+
+        call_count = [0]
+
+        def _mock_compress(inp, outp, c, **kw):
+            call_count[0] += 1
+            outp.write_bytes(b"\x00" * 60_000)
+            return outp
+
+        monkeypatch.setattr("clio.tasks.compress.compress_video", _mock_compress)
+        records = run_compress_all(cfg)
+
+        assert call_count[0] == 1
+        assert records[0].meta.compress_settings["min_video_kbps"] == 800
+        assert records[0].meta.compress_settings["max_video_kbps"] == 8000
 
     def test_same_basename_videos_do_not_collide(self, monkeypatch, tmp_path: Path):
         """Two sources sharing a basename in different dirs must each keep their
@@ -533,10 +578,11 @@ class TestRunCompressAll:
 
         monkeypatch.setattr("clio.tasks.compress.get_duration_sec", lambda *a, **kw: 10.0)
 
-        stale_meta = VideoMeta.build(src, stale_path, 10.0, 10.0)
+        settings = _compress_settings_fingerprint(cfg)
+        stale_meta = VideoMeta.build(src, stale_path, 10.0, 10.0, compress_settings=settings)
         stale_meta.source_modifyTime = stale_meta.source_modifyTime - 10
         stale_meta.source_size = stale_meta.source_size - 1
-        fresh_meta = VideoMeta.build(src, fresh_path, 10.0, 10.0)
+        fresh_meta = VideoMeta.build(src, fresh_path, 10.0, 10.0, compress_settings=settings)
 
         existing: dict[str, list[tuple[int, Path, VideoMeta | None]]] = {
             f"src:{src.resolve()}": [(1, stale_path, stale_meta), (2, fresh_path, fresh_meta)]

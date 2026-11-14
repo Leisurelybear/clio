@@ -6,7 +6,7 @@
 # 属于项目级的配置项：
 #   paths: output_dir
 #   ai: tasks, context, context_file
-#   compress: target_size_mb, max_width
+#   compress: target_size_mb, max_width, min_video_kbps, max_video_kbps
 #   analyze: window_max_min, window_overlap_sec, max_analyze_duration_min, ...
 #   script, plan, export
 #   whisper: enabled, model_size, language, device, max_segments_per_clip, transcripts_subdir, engine
@@ -36,8 +36,10 @@ ai:
       timeout_sec: 300
 
 compress:
-  target_size_mb: 5              # 0 = CRF mode using global compress.crf
+  target_size_mb: 5              # 0 = CRF mode using global compress.crf; >0 is a best-effort size budget
   max_width: 640                # high analysis recommends 960-1280 after re-compress
+  min_video_kbps: 800           # long clips keep this analysis-quality floor
+  max_video_kbps: 8000          # short clips are capped to avoid extreme bitrate
 
 analyze:
   compressed_subdir: compressed

@@ -14,8 +14,8 @@ from clio.log import format_size, timed
 from clio.utils import get_duration_sec, probe_media_details, resolve_binary, run_ffmpeg
 
 ProgressCB = Callable[[float, float], None]  # (current_sec, total_sec)
-MIN_VIDEO_BITRATE = 800_000
 AUDIO_BITRATE = 64_000
+VIDEO_BITRATE_KILO = 1_000
 ANALYSIS_WIDTH_MIN = 960
 ANALYSIS_WIDTH_MAX = 1280
 ANALYSIS_FPS_MIN = 2
@@ -29,6 +29,27 @@ class AnalysisCompressAdvice:
     current: int | float
     recommended_min: int
     recommended_max: int
+
+
+def _select_video_bitrate(
+    *,
+    target_size_mb: float,
+    duration_sec: float,
+    remove_audio: bool,
+    min_video_kbps: int,
+    max_video_kbps: int,
+) -> int:
+    """Return the target video bitrate for a duration-based size budget.
+
+    ``target_size_mb`` is a best-effort budget for short clips. Very long clips
+    keep a useful analysis bitrate floor, while very short clips are clamped so
+    they do not spend an unbounded bitrate on a tiny file.
+    """
+    target_bits = target_size_mb * 8 * 1024 * 1024
+    if not remove_audio:
+        target_bits -= int(AUDIO_BITRATE * duration_sec * 1.05)
+    budget_bitrate = int(target_bits / duration_sec * 0.95)
+    return min(max(budget_bitrate, min_video_kbps * VIDEO_BITRATE_KILO), max_video_kbps * VIDEO_BITRATE_KILO)
 
 
 def analysis_compress_advice(
@@ -112,13 +133,14 @@ def compress_video(
         args.extend(["-ac", "1", "-c:a", "aac", "-b:a", f"{AUDIO_BITRATE // 1000}k"])
 
     if cfg.target_size_mb > 0:
-        target_bits = cfg.target_size_mb * 8 * 1024 * 1024
-        if not cfg.remove_audio:
-            target_bits -= int(AUDIO_BITRATE * duration * 1.05)  # 预留单声道 AAC 音轨 + 5% 余量
-        # A strict 5 MB cap makes long clips unusable for visual analysis.
-        # Keep the duration-based budget for short clips, but preserve enough
-        # detail for long clips instead of falling to ~100 kbps.
-        video_bitrate = max(int(target_bits / duration * 0.95), MIN_VIDEO_BITRATE)
+        video_bitrate = _select_video_bitrate(
+            target_size_mb=cfg.target_size_mb,
+            duration_sec=duration,
+            remove_audio=cfg.remove_audio,
+            min_video_kbps=cfg.min_video_kbps,
+            max_video_kbps=cfg.max_video_kbps,
+        )
+        video_kbps = video_bitrate / VIDEO_BITRATE_KILO
         args.extend(
             [
                 "-b:v",
@@ -157,15 +179,29 @@ def compress_video(
         raise
     new_size = output_path.stat().st_size
     ratio = (1 - new_size / orig_size) * 100 if orig_size > 0 else 0
-    print(
-        t(
-            "compress.size_summary",
-            {
-                "before": format_size(orig_size),
-                "after": format_size(new_size),
-                "ratio": f"{ratio:.0f}",
-                "target": f"{cfg.target_size_mb:.0f}",
-            },
+    if cfg.target_size_mb > 0:
+        print(
+            t(
+                "compress.size_summary",
+                {
+                    "before": format_size(orig_size),
+                    "after": format_size(new_size),
+                    "ratio": f"{ratio:.0f}",
+                    "bitrate": f"{video_kbps:.0f}",
+                    "budget": f"{cfg.target_size_mb:.1f}",
+                },
+            )
         )
-    )
+    else:
+        print(
+            t(
+                "compress.size_summary_crf",
+                {
+                    "before": format_size(orig_size),
+                    "after": format_size(new_size),
+                    "ratio": f"{ratio:.0f}",
+                    "crf": cfg.crf,
+                },
+            )
+        )
     return output_path

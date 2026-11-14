@@ -214,6 +214,13 @@ def _validate_config(config: AppConfig) -> None:
         )
     _require_min("compress.target_size_mb", config.compress.target_size_mb, 0)
     _require_min("compress.max_width", config.compress.max_width, 1)
+    _require_min("compress.min_video_kbps", config.compress.min_video_kbps, 1)
+    _require_min("compress.max_video_kbps", config.compress.max_video_kbps, 1)
+    if config.compress.min_video_kbps > config.compress.max_video_kbps:
+        raise ValueError(
+            f"compress.min_video_kbps ({config.compress.min_video_kbps}) "
+            f"must be <= compress.max_video_kbps ({config.compress.max_video_kbps})"
+        )
     _require_min("compress.fps", config.compress.fps, 1)
     _require_min("compress.crf", config.compress.crf, 0)
     _require_max("compress.crf", config.compress.crf, 51)

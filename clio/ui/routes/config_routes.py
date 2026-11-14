@@ -234,7 +234,7 @@ _SPLIT_GLOBAL: dict[str, set[str]] = {
 }
 _SPLIT_PROJECT: dict[str, set[str]] = {
     "paths": {"output_dir"},
-    "compress": {"target_size_mb", "max_width"},
+    "compress": {"target_size_mb", "max_width", "min_video_kbps", "max_video_kbps"},
     "ai": {"tasks", "context", "context_file"},
     "whisper": {
         "enabled",

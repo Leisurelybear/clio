@@ -34,7 +34,7 @@ run_compress_all(config, files=None, single_file=None)
   ├─ for each source:
   │    auto_reindex_if_needed → existing_map of candidate outputs per key
   │    _find_reusable: reuse iff (.vmeta fresh) ∧ (settings unchanged) ∧ (ffprobe-readable)
-  │      else compress_video: bitrate budget = target_size_mb - (audio budget if kept)
+  │      else compress_video: bitrate budget = target_size_mb - audio budget, clamped to min/max kbps
   │      → temp .part → verify duration → os.replace → prune stale siblings
   │    write .vmeta (VideoMeta.build) and the source .vindex segment table
   └─ summary / progress via tracker
@@ -45,8 +45,9 @@ Cache-correctness highlights:
 - **Source key**: `_meta_source_key` uses the resolved `.vmeta.source_path` (`src:…`) before the
   bare basename key (`stem:…`), so same-basename videos never collide.
 - **Freshness**: reuse only when `.vmeta.is_stale` is False **and** stored settings equal the
-  current `_compress_settings_fingerprint` (`max_width`/`fps`/`target_size_mb`), **and** the
-  output still probes readable. A source or settings change ⇒ re-encode.
+  current `_compress_settings_fingerprint` (`max_width`/`fps`/`target_size_mb`/`min_video_kbps`/`max_video_kbps`), **and** the
+  output still probes readable. Size-budget sidecars created before the bitrate bounds existed
+  are treated as stale once, so short legacy outputs cannot bypass the new cap.
 - **Garbage collection**: `_prune_stale_siblings` deletes stale same-key outputs (file + `.vmeta`)
   once a fresh one is committed — preventing unbounded compressed-dir growth from OS iteration
   order (P1-04).
@@ -116,7 +117,7 @@ output/waveforms/<key>.error     last failure detail (cool-down 60s)
 1. `_find_reusable` and `_prune_stale_siblings` share the cache-key logic (`src:`/`stem:`) with
    `analyze.py`; the two implementations must stay in sync when the fingerprint/settings surface
    changes.
-2. `compress_video` computes a target bitrate from `get_duration_sec`; a **codec/probe
+2. `compress_video` computes a target bitrate from `get_duration_sec`, subtracts the audio budget when kept, then clamps it to `min_video_kbps`/`max_video_kbps`; a **codec/probe
    inconsistency** (ffprobe reading a different stream than the encoder writes) can produce a
    larger-than-target file when the estimate is wrong — the UI logs actual `ratio` for diagnosis.
 3. Legacy `_seg*` handling keeps `legacy_segment_offset_sec` in the cut/verify/plan paths; new

@@ -49,8 +49,10 @@ CONFIG_DESCRIPTIONS: dict[str, str] = {
     "ai.debug_print_prompt": "调试用：设为 true 时在每次 AI 调用前打印完整 prompt 到控制台（含上下文注入）",
     "ai.provider_ttl_min": "已缓存的 AI 提供商过期间隔（分钟），超时后自动关闭重建。0 为永不过期",
     # compress
-    "compress.target_size_mb": "压缩后目标文件大小（MB）",
+    "compress.target_size_mb": "压缩体积预算（MB）；0 为 CRF 模式。短片按预算计算，长片受最低码率保护",
     "compress.max_width": "压缩后视频最大宽度（像素），高度按比例缩放；high 分析建议 960-1280",
+    "compress.min_video_kbps": "视频最低目标码率（kbps），长片避免画面细节不足",
+    "compress.max_video_kbps": "视频最高目标码率（kbps），短素材避免码率无限升高",
     "compress.fps": "压缩后视频帧率；时间线分析建议 2-5",
     "compress.codec": "视频编码器，默认 libx264",
     "compress.crf": "CRF 压缩质量（0-51，越小质量越高，文件越大）",

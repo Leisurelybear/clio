@@ -17,6 +17,7 @@ from clio.config import (
     _validate_config,
     deep_merge,
     load_config,
+    load_project_config,
 )
 from clio.config.models import (
     AnalyzeConfig,
@@ -472,6 +473,8 @@ class TestValidateConfig:
             ("analyze.max_workers", lambda cfg: setattr(cfg.project_cfg.analyze, "max_workers", 0)),
             ("compress.target_size_mb", lambda cfg: setattr(cfg.project_cfg.compress, "target_size_mb", -1)),
             ("compress.max_width", lambda cfg: setattr(cfg.project_cfg.compress, "max_width", 0)),
+            ("compress.min_video_kbps", lambda cfg: setattr(cfg.project_cfg.compress, "min_video_kbps", 0)),
+            ("compress.max_video_kbps", lambda cfg: setattr(cfg.project_cfg.compress, "max_video_kbps", 0)),
             ("naming.index_width", lambda cfg: setattr(cfg.global_cfg.naming, "index_width", 0)),
             ("ai.provider_ttl_min", lambda cfg: setattr(cfg.global_cfg.ai, "provider_ttl_min", -1)),
             (
@@ -524,6 +527,30 @@ class TestValidateConfig:
 
         assert cfg.compress.target_size_mb == 0
         assert cfg.compress.crf == 21
+
+    def test_rejects_min_video_kbps_above_max(self):
+        cfg = AppConfig(
+            global_cfg=GlobalConfig(),
+            project_cfg=ProjectConfig(compress=ProjectCompressConfig(min_video_kbps=9000, max_video_kbps=8000)),
+        )
+
+        with pytest.raises(ValueError, match=r"compress\.min_video_kbps.*compress\.max_video_kbps"):
+            _validate_config(cfg)
+
+    def test_project_loads_and_exposes_bitrate_limits(self, tmp_path: Path):
+        project = tmp_path / "project"
+        project.mkdir()
+        (project / "project.yaml").write_text(
+            "compress:\n  min_video_kbps: 1200\n  max_video_kbps: 6000\n",
+            encoding="utf-8",
+        )
+
+        project_cfg = load_project_config(project)
+        assert project_cfg is not None
+        cfg = AppConfig(global_cfg=GlobalConfig(), project_cfg=project_cfg)
+
+        assert cfg.compress.min_video_kbps == 1200
+        assert cfg.compress.max_video_kbps == 6000
 
     def test_rejects_unknown_analyze_media_resolution(self):
         cfg = AppConfig(

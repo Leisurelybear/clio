@@ -96,7 +96,7 @@ graph LR
 
 | Step | AI Engine | Command | Input → Output |
 |------|-----------|---------|---------------|
-| 1️⃣ Compress | | `compress` | 4K raw → 640p file; short clips use a ~5 MB budget, long clips keep an 800 kbps video floor, mono 64 kbps audio by default (one file per source) |
+| 1️⃣ Compress | | `compress` | 4K raw → 640p file; 5 MB is a configurable size budget, with video bitrate bounded to 800–8000 kbps and mono 64 kbps audio by default (one file per source) |
 | 2️⃣ 🧠 **AI Transcription** | **Whisper** / cloud ASR | `transcribe` | Compressed video → speech transcript (local or cloud) |
 | 3️⃣ 🤖 **AI Analysis** | **Gemini** 2.5 Flash | `analyze` | Compressed video + transcript → AI summary + timeline JSON |
 | 4️⃣ 🧩 **Same-day Consistency** | **DeepSeek** / OpenAI | `run --day day1` | Daily analysis JSON → normalized entities + duplicate-scene markers |

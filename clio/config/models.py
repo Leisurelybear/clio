@@ -232,6 +232,8 @@ class ProjectAIConfig:
 class ProjectCompressConfig:
     target_size_mb: float = 5
     max_width: int = 640
+    min_video_kbps: int = 800
+    max_video_kbps: int = 8000
 
 
 @dataclass
@@ -362,6 +364,14 @@ class CombinedCompressConfig:
     def max_width(self) -> int:
         return self._project.max_width if self._project else 640
 
+    @property
+    def min_video_kbps(self) -> int:
+        return self._project.min_video_kbps if self._project else 800
+
+    @property
+    def max_video_kbps(self) -> int:
+        return self._project.max_video_kbps if self._project else 8000
+
 
 @dataclass
 class CombinedWhisperConfig:
@@ -440,6 +450,8 @@ class PathsConfig:
 class CompressConfig:
     target_size_mb: float = 5
     max_width: int = 640
+    min_video_kbps: int = 800
+    max_video_kbps: int = 8000
     fps: int = 15
     codec: str = "libx264"
     crf: int = 32

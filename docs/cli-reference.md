@@ -74,7 +74,7 @@ Connectivity failures and model-registry mismatches are warnings, not blocking f
 
 ## `compress` — Compress Only
 
-Compress videos in the media folder with ffmpeg to 640p / 5MB / mono 64 kbps AAC audio for later use.
+Compress videos in the media folder with ffmpeg to 640p with a best-effort 5 MB size budget, bounded video bitrate, and mono 64 kbps AAC audio for later use.
 Does **not** invoke AI. Suitable for batch compressing first, then manual review later.
 
 Compresses each original to one file under `compressed/` as `<index>_<original stem>.mp4`.
@@ -488,8 +488,10 @@ User in JianYing (CapCut): select segments per plan → add effects → paste vo
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `target_size_mb` | 5 | Target file size (MB); bitrate is auto-calculated from video duration |
+| `target_size_mb` | 5 | Best-effort file size budget (MB); `0` selects CRF mode |
 | `max_width` | 640 | Maximum width |
+| `min_video_kbps` | 800 | Minimum target video bitrate for long clips |
+| `max_video_kbps` | 8000 | Maximum target video bitrate for short clips |
 | `fps` | 15 | Frame rate |
 | `remove_audio` | false | Strip audio; when false, keep mono AAC audio at 64 kbps |
 
@@ -510,6 +512,8 @@ ai:
 compress:
   fps: 1
   target_size_mb: 5
+  min_video_kbps: 800
+  max_video_kbps: 8000
 ```
 
 Auto deep-merged on top of the global configuration at load time:

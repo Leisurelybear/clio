@@ -28,6 +28,8 @@ _FIELD_OVERRIDES: dict[str, dict[str, Any]] = {
     "ai.context": {"group": BASIC, "ui": "textarea"},
     "compress.target_size_mb": {"group": BASIC},
     "compress.max_width": {"group": BASIC, "ui": "select_or_number", "choices": [640, 1280, 1920]},
+    "compress.min_video_kbps": {},
+    "compress.max_video_kbps": {},
     "plan.target_duration_sec": {"group": BASIC},
     "whisper.enabled": {"group": BASIC},
     "whisper.language": {"group": BASIC, "ui": "select", "choices": ["zh", "en", "auto"]},
