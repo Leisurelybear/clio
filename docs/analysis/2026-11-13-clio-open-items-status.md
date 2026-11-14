@@ -12,7 +12,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P1 | 35 | 20 | 15 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P2 | 59 | 23 | 23 | 0 | 0 | 0 | 0 | 0 | 13 |
+| P2 | 59 | 24 | 23 | 0 | 0 | 0 | 0 | 0 | 12 |
 | P3 | 14 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 10 |
 
 ## Item status
@@ -108,7 +108,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 087 | P2 | OPT-008 | 口播在规划前按整段素材生成 (Q12), 不知道最终用了哪几秒 | Satisfied | Existing `plan_voiceover` pipeline step runs after planning and generates per-segment voiceover from the selected `use_timeline`, aligned transcript slices, and adjacent-segment context. It writes `scripts/<day>_plan_voiceover.json/.md` and participates in preview, overwrite confirmation, and backup handling. Focused: 74 plan-voiceover/preview tests passed. |
 | 088 | P2 | OPT-009 | analyze.use_gpmf 默认 false; 分天用 UTC 日期 (E5) | Fixed | `56b9c02` defaults `analyze.use_gpmf` to true, localizes aware capture timestamps before day grouping and planning input, and keeps naive/unknown values unchanged. Focused: 326 pytest cases passed; Ruff, `main.py check`, locale JSON parse, and `git diff --check` passed. |
 | 089 | P2 | OPT-013 | 校验重试与截断重试都会重新上传视频 (clio/analyze.py:855-886、clio/ai/gemini.py:287-356) | Fixed | `a73a7ec` separates upload from generation for cached window calls. Truncation retries already reused the uploaded file; validation retries now reuse it too because window analysis passes `reuse_upload=True` and the provider retains the remote file until the clip session ends. Focused: 275 analyzer/provider tests passed. |
-| 090 | P2 | OPT-014 | analyze.max_workers 默认 1, 20 段素材串行 | Pending audit |  |
+| 090 | P2 | OPT-014 | analyze.max_workers 默认 1, 20 段素材串行 | Fixed | `ed40d50` defaults `analyze.max_workers` to 2, documents the concurrency/rate-limit tradeoff, and sets the example Gemini provider to 30 RPM. Existing explicit configs are unchanged. Focused: 273 config/analyze/script tests passed; Ruff, `main.py check`, locale JSON parse, and `git diff --check` passed. |
 | 091 | P2 | OPT-015 | SSE 每个连接每 250 ms 查询一次 SQLite (clio/ui/routes/tasks.py:146-167), 每个标签页 2 条流 | Pending audit |  |
 | 092 | P2 | OPT-016 | make_handler 是 680 行闭包 (clio/ui/server.py:328-1009), 内含 Handler 类与 92 条路由 | Pending audit |  |
 | 093 | P2 | OPT-017 | 52 个函数圈复杂度 ≥ 20: _build_videos_payload 85、main 80、handle_post_run_start 53、run_cut_all 53、handle_post_rerun 51 | Pending audit |  |
