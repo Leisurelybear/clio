@@ -47,6 +47,7 @@ from clio.config import AppConfig
 from clio.i18n import t
 from clio.identity import (
     SEGMENT_SUFFIX_RE,
+    MediaIdentity,
     _identity_to_dict,
     is_legacy_split_identity,
     is_legacy_split_path,
@@ -931,6 +932,226 @@ def _analyze_with_optional_windows(
     )
 
 
+def _probe_media_duration(compressed: Path, original: Path, config: AppConfig) -> float:
+    duration_sec = 0.0
+    try:
+        duration_sec = get_duration_sec(compressed, resolve_binary(config.paths.ffprobe, "ffprobe"))
+    except (OSError, subprocess.SubprocessError, TypeError, ValueError):
+        pass
+    if duration_sec <= 0:
+        # Fallback: probe original so windowing can still run for long clips.
+        try:
+            duration_sec = get_duration_sec(original, resolve_binary(config.paths.ffprobe, "ffprobe"))
+        except (OSError, subprocess.SubprocessError, TypeError, ValueError):
+            pass
+    return duration_sec
+
+
+def _log_stale_candidates(existing: list[Path], cache: AnalysisCacheStatus) -> None:
+    for candidate in existing:
+        if candidate not in cache.existing_paths:
+            continue
+        message_key = (
+            "task.analyze.overwrite_source_mismatch"
+            if cache.source_mismatch
+            else "task.analyze.overwrite_prompt_changed"
+        )
+        print(t(message_key, {"name": candidate.name}))
+
+
+def _build_cached_record(
+    *,
+    compressed: Path,
+    original: Path,
+    idx_str: str,
+    idx_val: int,
+    json_path: Path,
+    analysis: dict | None,
+    duration_sec: float,
+    config: AppConfig,
+    tracker: ProgressReporter | None,
+    state: ProcessingState,
+) -> ClipRecord:
+    text_path = json_path.with_suffix(".txt")
+    if tracker:
+        tracker.next(message=t("task.analyze.skip_message", {"name": compressed.name}))
+        tracker.log(t("task.analyze.skip_log_analyzed", {"name": compressed.name}))
+    state.mark(original.stem, "analyze", "skipped")
+    print(t("task.analyze.skip_exists", {"name": compressed.name, "json": json_path.name}))
+    identity = (
+        resolve_identity(compressed, idx_str, project_dir=config.project_dir)
+        if analysis is None
+        else (load_identity(analysis) or resolve_identity(compressed, idx_str, project_dir=config.project_dir))
+    )
+    return ClipRecord(
+        index=idx_val,
+        stem=json_path.stem,
+        source_path=original,
+        text_path=text_path,
+        compressed_path=compressed,
+        analysis=analysis,
+        duration_sec=duration_sec,
+        identity=identity,
+    )
+
+
+def _skip_no_duration(
+    compressed: Path,
+    original: Path,
+    state: ProcessingState,
+    tracker: ProgressReporter | None,
+) -> None:
+    print(t("task.analyze.skip_no_duration", {"name": compressed.name}))
+    if tracker:
+        tracker.next(message=t("task.analyze.skip_message_no_duration", {"name": compressed.name}))
+        tracker.log(t("task.analyze.skip_log_no_duration", {"name": compressed.name}))
+    state.mark(original.stem, "analyze", "skipped")
+
+
+def _skip_too_long(
+    compressed: Path,
+    original: Path,
+    duration_sec: float,
+    max_min: int,
+    state: ProcessingState,
+    tracker: ProgressReporter | None,
+) -> None:
+    print(
+        t(
+            "task.analyze.skip_too_long",
+            {"name": compressed.name, "duration": format_duration(duration_sec), "max": max_min},
+        )
+    )
+    if tracker:
+        tracker.next(message=t("task.analyze.skip_message_too_long", {"name": compressed.name}))
+        tracker.log(
+            t(
+                "task.analyze.skip_log_too_long",
+                {"name": compressed.name, "duration": format_duration(duration_sec)},
+            )
+        )
+    state.mark(original.stem, "analyze", "skipped")
+
+
+def _handle_cancelled(
+    compressed: Path,
+    original: Path,
+    state: ProcessingState,
+    tracker: ProgressReporter | None,
+    *,
+    notify_tracker: bool,
+) -> None:
+    print(t("task.analyze.cancel_item", {"name": compressed.name}))
+    state.mark(original.stem, "analyze", "cancelled")
+    if notify_tracker and tracker:
+        tracker.next(message=t("task.analyze.cancel_message", {"name": compressed.name}))
+        tracker.log(t("task.analyze.cancel_log", {"name": compressed.name}))
+
+
+def _handle_analysis_error(
+    compressed: Path,
+    original: Path,
+    error: Exception,
+    elapsed_total: float,
+    state: ProcessingState,
+    failure_counter: _FailureCounter,
+    tracker: ProgressReporter | None,
+) -> None:
+    print(
+        t(
+            "task.analyze.error_item",
+            {"name": compressed.name, "detail": error, "elapsed": format_duration(elapsed_total)},
+        )
+    )
+    state.mark(original.stem, "analyze", "error")
+    failure_counter.increment()
+    if tracker:
+        tracker.next(message=t("task.analyze.fail_message", {"name": compressed.name}))
+        tracker.log(t("task.analyze.fail_log", {"name": compressed.name, "detail": error}))
+
+
+def _guard_protected_stale(
+    stale_candidates: list[Path],
+    *,
+    confirm_artifact_overwrite: bool,
+    backup: bool,
+) -> None:
+    protected_stale = [
+        candidate for candidate in stale_candidates if artifact_requires_overwrite_confirmation(candidate)
+    ]
+    if protected_stale and not confirm_artifact_overwrite:
+        raise ArtifactOverwriteConfirmationRequired(
+            t(
+                "task.artifact.overwrite_confirmation_required",
+                {"items": ", ".join(candidate.name for candidate in protected_stale)},
+            ),
+            protected_stale,
+        )
+    if not backup or not protected_stale:
+        return
+    backup_paths: list[Path] = []
+    for candidate in protected_stale:
+        backup_paths.append(candidate)
+        text_path = candidate.with_suffix(".txt")
+        if text_path.is_file():
+            backup_paths.append(text_path)
+    backup_artifacts(backup_paths)
+
+
+def _finalize_analysis_artifacts(
+    analysis: dict,
+    *,
+    compressed: Path,
+    original: Path,
+    idx_val: int,
+    idx_str: str,
+    config: AppConfig,
+    current_lineage: str,
+    current_components: dict[str, str],
+    duration_sec: float,
+    use_transcripts: bool,
+    day_label: str,
+) -> tuple[MediaIdentity, str, Path, Path]:
+    analysis["index"] = idx_val
+    analysis["source_file"] = original.name
+    analysis["compressed_file"] = compressed.name  # stable lookup key for videos.py
+    if not str(analysis.get("day_label") or "").strip():
+        analysis["day_label"] = day_label
+    identity = resolve_identity(compressed, idx_str, project_dir=config.project_dir)
+    add_schema_version(analysis)
+    analysis["_lineage"] = current_lineage
+    analysis["_lineage_components"] = current_components
+    analysis["media_identity"] = _identity_to_dict(identity)
+    if use_transcripts:
+        attach_transcript_to_analysis(config, analysis)
+    coverage = measure_timeline_coverage(analysis, duration_sec)
+    print(
+        f"[analyze] {compressed.name}: rows={coverage.rows} "
+        f"coverage={coverage.coverage_ratio * 100:.1f}% max_gap={coverage.max_gap_sec:.1f}s"
+    )
+
+    stem = _build_stem(idx_val, analysis.get("title", original.stem), config)
+    final_text = config.texts_dir / f"{stem}.txt"
+    json_path = config.texts_dir / f"{stem}.json"
+    # Legacy split artifacts carry timestamps relative to their segment, so the
+    # original would be seeked at the wrong place; keep those on the compressed clip.
+    cover_source = compressed if is_legacy_split_identity(identity) else original
+    cover_path = extract_cover_frame(config, cover_source, analysis, stem, fallback_path=compressed)
+    if cover_path is not None:
+        analysis["cover_file"] = str(cover_path.relative_to(config.paths.output_dir))
+    return identity, stem, final_text, json_path
+
+
+def _remove_stale_artifacts(stale_candidates: list[Path], json_path: Path) -> None:
+    # Old results were only kept until here; drop them now that fresh output
+    # is committed, so the next glob still resolves this video's own JSON.
+    for stale in stale_candidates:
+        if stale.name == json_path.name:
+            continue
+        stale.with_suffix(".txt").unlink(missing_ok=True)
+        stale.unlink(missing_ok=True)
+
+
 def _process_video_item(
     compressed: Path,
     original: Path,
@@ -949,22 +1170,7 @@ def _process_video_item(
     use_transcripts: bool = True,
 ) -> ClipRecord | None:
     idx_val = int(idx_str)
-
-    # Probe compressed file duration once (cheaper than probing original in _write_csv)
-    duration_sec = 0.0
-    try:
-        ffprobe_bin = resolve_binary(config.paths.ffprobe, "ffprobe")
-        duration_sec = get_duration_sec(compressed, ffprobe_bin)
-    except (OSError, subprocess.SubprocessError, TypeError, ValueError):
-        pass
-    if duration_sec <= 0:
-        # Fallback: probe original so windowing can still run for long clips.
-        try:
-            ffprobe_bin = resolve_binary(config.paths.ffprobe, "ffprobe")
-            duration_sec = get_duration_sec(original, ffprobe_bin)
-        except (OSError, subprocess.SubprocessError, TypeError, ValueError):
-            pass
-
+    duration_sec = _probe_media_duration(compressed, original, config)
     cache = analysis_cache_status(
         config,
         compressed,
@@ -996,85 +1202,40 @@ def _process_video_item(
             analysis["day_label"] = day_label
             write_json_atomic(json_path, analysis)
     elif existing:
-        for candidate in existing:
-            if candidate not in cache.existing_paths:
-                continue
-            print(
-                t(
-                    "task.analyze.overwrite_prompt_changed"
-                    if not cache.source_mismatch
-                    else "task.analyze.overwrite_source_mismatch",
-                    {"name": candidate.name},
-                )
-            )
+        _log_stale_candidates(existing, cache)
     if json_path:
-        text_path = json_path.with_suffix(".txt")
-        if tracker:
-            tracker.next(message=t("task.analyze.skip_message", {"name": compressed.name}))
-            tracker.log(t("task.analyze.skip_log_analyzed", {"name": compressed.name}))
-        state.mark(original.stem, "analyze", "skipped")
-        print(t("task.analyze.skip_exists", {"name": compressed.name, "json": json_path.name}))
-        identity = (
-            resolve_identity(compressed, idx_str, project_dir=config.project_dir)
-            if analysis is None
-            else (load_identity(analysis) or resolve_identity(compressed, idx_str, project_dir=config.project_dir))
-        )
-        return ClipRecord(
-            index=idx_val,
-            stem=json_path.stem,
-            source_path=original,
-            text_path=text_path,
-            compressed_path=compressed,
+        return _build_cached_record(
+            compressed=compressed,
+            original=original,
+            idx_str=idx_str,
+            idx_val=idx_val,
+            json_path=json_path,
             analysis=analysis,
             duration_sec=duration_sec,
-            identity=identity,
+            config=config,
+            tracker=tracker,
+            state=state,
         )
 
     if duration_sec <= 0 and not is_legacy_split_path(compressed):
-        print(t("task.analyze.skip_no_duration", {"name": compressed.name}))
-        if tracker:
-            tracker.next(message=t("task.analyze.skip_message_no_duration", {"name": compressed.name}))
-            tracker.log(t("task.analyze.skip_log_no_duration", {"name": compressed.name}))
-        state.mark(original.stem, "analyze", "skipped")
+        _skip_no_duration(compressed, original, state, tracker)
         return None
 
     # Whole-clip quota guard applies before both single-call and windowed analysis.
     max_min = config.analyze.max_analyze_duration_min
     if max_min > 0 and duration_sec > max_min * 60:
-        print(
-            t(
-                "task.analyze.skip_too_long",
-                {"name": compressed.name, "duration": format_duration(duration_sec), "max": max_min},
-            )
-        )
-        if tracker:
-            tracker.next(message=t("task.analyze.skip_message_too_long", {"name": compressed.name}))
-            tracker.log(
-                t(
-                    "task.analyze.skip_log_too_long",
-                    {"name": compressed.name, "duration": format_duration(duration_sec)},
-                )
-            )
-        state.mark(original.stem, "analyze", "skipped")
+        _skip_too_long(compressed, original, duration_sec, max_min, state, tracker)
         return None
 
-    # Check cancel_event before starting analysis
     if cancel_event and cancel_event.is_set():
-        print(t("task.analyze.cancel_item", {"name": compressed.name}))
-        state.mark(original.stem, "analyze", "cancelled")
+        _handle_cancelled(compressed, original, state, tracker, notify_tracker=False)
         return None
 
-    protected_stale = [
-        candidate for candidate in stale_candidates if artifact_requires_overwrite_confirmation(candidate)
-    ]
-    if protected_stale and not confirm_artifact_overwrite:
-        raise ArtifactOverwriteConfirmationRequired(
-            t(
-                "task.artifact.overwrite_confirmation_required",
-                {"items": ", ".join(candidate.name for candidate in protected_stale)},
-            ),
-            protected_stale,
-        )
+    _guard_protected_stale(
+        stale_candidates,
+        confirm_artifact_overwrite=confirm_artifact_overwrite,
+        backup=False,
+    )
 
     print(t("task.analyze.analyzing", {"name": compressed.name}))
     t0 = time.monotonic()
@@ -1093,91 +1254,50 @@ def _process_video_item(
     except InterruptedError:
         if cancel_event is not None:
             cancel_event.set()
-        print(t("task.analyze.cancel_item", {"name": compressed.name}))
-        state.mark(original.stem, "analyze", "cancelled")
-        if tracker:
-            tracker.next(message=t("task.analyze.cancel_message", {"name": compressed.name}))
-            tracker.log(t("task.analyze.cancel_log", {"name": compressed.name}))
+        _handle_cancelled(compressed, original, state, tracker, notify_tracker=True)
         return None
     except ArtifactOverwriteConfirmationRequired:
         raise
     except Exception as e:  # noqa: BLE001 - one failed clip must be recorded without aborting the batch
-        elapsed_total = time.monotonic() - t0
-        print(
-            t(
-                "task.analyze.error_item",
-                {"name": compressed.name, "detail": e, "elapsed": format_duration(elapsed_total)},
-            )
+        _handle_analysis_error(
+            compressed,
+            original,
+            e,
+            time.monotonic() - t0,
+            state,
+            failure_counter,
+            tracker,
         )
-        state.mark(original.stem, "analyze", "error")
-        failure_counter.increment()
-        if tracker:
-            tracker.next(message=t("task.analyze.fail_message", {"name": compressed.name}))
-            tracker.log(t("task.analyze.fail_log", {"name": compressed.name, "detail": e}))
         return None
     finally:
         release_video_upload(config, str(compressed))
 
-    analysis["index"] = idx_val
-    analysis["source_file"] = original.name
-    analysis["compressed_file"] = compressed.name  # stable lookup key for videos.py
-    if not str(analysis.get("day_label") or "").strip():
-        analysis["day_label"] = day_label
-    identity = resolve_identity(compressed, idx_str, project_dir=config.project_dir)
-    add_schema_version(analysis)
-    analysis["_lineage"] = current_lineage
-    analysis["_lineage_components"] = cache.current_components
-    analysis["media_identity"] = _identity_to_dict(identity)
-    if use_transcripts:
-        attach_transcript_to_analysis(config, analysis)
-    coverage = measure_timeline_coverage(analysis, duration_sec)
-    print(
-        f"[analyze] {compressed.name}: rows={coverage.rows} "
-        f"coverage={coverage.coverage_ratio * 100:.1f}% max_gap={coverage.max_gap_sec:.1f}s"
+    identity, stem, final_text, json_path = _finalize_analysis_artifacts(
+        analysis,
+        compressed=compressed,
+        original=original,
+        idx_val=idx_val,
+        idx_str=idx_str,
+        config=config,
+        current_lineage=current_lineage,
+        current_components=cache.current_components,
+        duration_sec=duration_sec,
+        use_transcripts=use_transcripts,
+        day_label=day_label,
     )
-
-    stem = _build_stem(idx_val, analysis.get("title", original.stem), config)
-    final_text = config.texts_dir / f"{stem}.txt"
-    json_path = config.texts_dir / f"{stem}.json"
-    # Legacy split artifacts carry timestamps relative to their segment, so the
-    # original would be seeked at the wrong place; keep those on the compressed clip.
-    cover_source = compressed if is_legacy_split_identity(identity) else original
-    cover_path = extract_cover_frame(config, cover_source, analysis, stem, fallback_path=compressed)
-    if cover_path is not None:
-        analysis["cover_file"] = str(cover_path.relative_to(config.paths.output_dir))
 
     # Re-check immediately before replacing files so an edit made while the
     # provider call was running still cannot be overwritten silently.
-    protected_stale = [
-        candidate for candidate in stale_candidates if artifact_requires_overwrite_confirmation(candidate)
-    ]
-    if protected_stale and not confirm_artifact_overwrite:
-        raise ArtifactOverwriteConfirmationRequired(
-            t(
-                "task.artifact.overwrite_confirmation_required",
-                {"items": ", ".join(candidate.name for candidate in protected_stale)},
-            ),
-            protected_stale,
-        )
-    if protected_stale:
-        backup_paths: list[Path] = []
-        for candidate in protected_stale:
-            backup_paths.append(candidate)
-            text_path = candidate.with_suffix(".txt")
-            if text_path.is_file():
-                backup_paths.append(text_path)
-        backup_artifacts(backup_paths)
+    _guard_protected_stale(
+        stale_candidates,
+        confirm_artifact_overwrite=confirm_artifact_overwrite,
+        backup=True,
+    )
 
     _write_text_file(final_text, analysis, original, compressed)
     write_json_atomic(json_path, analysis)
     cleanup_window_cache_dir(window_cache_dir(config.paths.output_dir, compressed.stem))
-
-    # Old results were only kept until here; drop them now that fresh output
-    # is committed, so the next glob still resolves this video's own JSON.
-    for stale in stale_candidates:
-        if stale.name != json_path.name:
-            stale.with_suffix(".txt").unlink(missing_ok=True)
-            stale.unlink(missing_ok=True)
+    _remove_stale_artifacts(stale_candidates, json_path)
 
     state.mark(original.stem, "analyze", "done")
     if tracker:
