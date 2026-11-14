@@ -2,6 +2,20 @@
 
 ## 2026-11-14
 
+Guided run previews now validate cache lineage before skipping stages. All-day
+execution rediscovers days after analysis creates them, disabled transcription
+allows progression, and analysis receives the effective transcript option.
+Optional planning review failures preserve a locally validated draft while
+cancellation and invalid drafts continue to fail. Malformed plan caches retain
+their specific diagnostic and cannot crash planned-voiceover preview.
+
+Commits: `35e461a`, `79b5718`, `cab73e2`, `3d6c2bb`, `7b35fd1`, `059d012`,
+`c82ec80`, `5d90a34`. Verification: 3409 pytest passed, 12 skipped; 946 Vitest
+passed; frontend typecheck, Ruff check/format, mypy (287 source files),
+`main.py check`, and `git diff --check` passed. No live AI calls or push.
+
+## 2026-11-14
+
 Idle SSE workers are now retired before the local HTTP server returns from shutdown.
 `TaskStore` exposes a permanent waiter stop signal, both SSE loops exit on it, and
 `BoundedThreadingHTTPServer.server_close()` drains tracked workers for up to five seconds.

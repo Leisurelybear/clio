@@ -5,7 +5,8 @@ at `044f1b8`. The history contains 424 commits and changes 322 files. This revie
 inspected the cumulative changes and focused on execution boundaries, cache reuse,
 overwrite protection, provider calls, and the new guided runner. It is not a
 line-by-line certification of every changed file. Existing unrelated untracked
-files were preserved. No production code was changed.
+files were preserved. The initial review changed no production code; the authorized
+remediation and final verification are recorded below.
 
 ## Findings
 
@@ -118,3 +119,26 @@ Prioritize shared preview/runtime cache predicates and fresh all-day discovery,
 then fix transcript propagation, disabled-step handling, and planning fallback.
 Add behavioral regressions at those boundaries rather than more idealized
 per-function mocks. No push or commit was performed during this review.
+
+## Remediation (completed, 2026-11-14)
+
+All five confirmed findings were fixed in local commits after review approval.
+
+| Finding | Fix commits | Regression coverage |
+| --- | --- | --- |
+| Preview/runtime cache disagreement | `35e461a`, `c82ec80`, `5d90a34` | Current/stale lineage, context changes, skip mode, read-only previews, non-object JSON, corrupt-cache diagnostics |
+| Stale all-day discovery | `79b5718` | Analysis creates two real day artifacts; both downstream day steps discover and process them |
+| Disabled transcription blocks progression | `7b35fd1` | Disabled rows allow progression; genuine missing-input warnings still block; disabled execution is skipped |
+| Analysis transcript option ignored | `cab73e2`, `3d6c2bb` | Both option values reach analysis; other steps receive no unrelated argument |
+| Optional review discards valid draft | `059d012` | Provider failures and exhausted invalid corrections retain valid drafts; invalid drafts and cancellation still fail |
+
+Final verification on Python 3.11.9: **3409 pytest passed, 12 skipped**, including
+the real-ffmpeg smoke; **946 Vitest passed across 90 files**. Frontend typecheck,
+Ruff check/format, mypy over 287 source files, `main.py check`, and
+`git diff --check` passed. Frontend typecheck still excludes the runner modules.
+No live AI calls were made and no commits were pushed.
+
+The original tracker still has two confirmed P3 items outside this remediation:
+`OPT-022` (frontend type coverage) and `OPT-023` (title-dependent artifact naming).
+Passing tests and resolving these five findings do not certify every reviewed
+line or replace live-provider verification.

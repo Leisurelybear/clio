@@ -9,12 +9,15 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 ## Summary
 
 Follow-up audit (2026-11-14): [recent commits review](2026-11-14-recent-commits-review.md)
-records five additional open findings: preview/runtime reuse disagreement, stale
+records five additional findings, now fixed: preview/runtime reuse disagreement, stale
 all-day discovery, disabled-transcription stage blocking, missing analysis
 transcript-option propagation, and missing planning-review failure fallback.
 These findings are tracked separately in ROADMAP and are not included in the
-original 117-row summary below. Full verification: 3390 pytest passed, 12 skipped;
-945 Vitest passed; frontend typecheck passed. Production fixes remain pending.
+original 117-row summary below. Fixes: `35e461a`, `79b5718`, `cab73e2`,
+`3d6c2bb`, `7b35fd1`, `059d012`, `c82ec80`, `5d90a34`.
+Final verification: 3409 pytest passed, 12 skipped; 946 Vitest passed;
+frontend typecheck, Ruff check/format, mypy (287 source files), `main.py check`,
+and `git diff --check` passed. No live AI calls or push were performed.
 
 Run interaction refresh (2026-11-14): implemented four presentation stages and next-stage actions
 within the Run pane. Custom steps and advanced options remain available; previews distinguish
@@ -168,7 +171,8 @@ analysis callback and verifies both downstream day steps execute. Pipeline: 19 p
 Follow-up fix 3: pipeline analysis receives the effective transcript option explicitly.
 Both enabled and disabled values are covered; unrelated steps do not receive the
 argument. Initial verification exposed one stale exact-call assertion (167 passed,
-1 failed); the fixture and assertion now include the effective option.
+1 failed); the fixture and assertion now include the effective option, and the
+subsequent pipeline/routes/analyze batch passed all 168 tests.
 
 Follow-up fix 4: preview identifies disabled transcription explicitly, guided stages
 ignore it as a dependency while retaining genuine missing-input blocks, and pipeline
@@ -184,3 +188,5 @@ of raising during lineage calculation. Preview regressions: 70 passed.
 Cache diagnostics follow-up: the first full run found one regression in the corrupt
 plan diagnostic (3405 passed, 12 skipped, 1 failed). Restored the specific corrupt-file
 message; all 81 planning tests and full Ruff/mypy checks pass after the correction.
+Final full pytest: 3409 passed, 12 skipped. All five follow-up findings are closed;
+the two original confirmed P3 items remain open.

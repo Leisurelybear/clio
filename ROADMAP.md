@@ -20,6 +20,10 @@ Evidence and reproductions: [recent commits review](docs/analysis/2026-11-14-rec
 - `[x]` Forward the effective transcript option to pipeline analysis.
 - `[x]` Preserve a locally valid planning draft when optional review fails.
 
+Completed verification: 3409 pytest passed (12 skipped), 946 Vitest passed;
+frontend typecheck, Ruff check/format, mypy, and `main.py check` passed.
+Commit-level evidence and remaining scope limits are recorded in the review report.
+
 ### Run interaction refresh (2026-11-14)
 
 - `[x]` Group the eight existing steps into four guided stages, with one-stage next actions.
