@@ -17,6 +17,10 @@ the outgoing overwrite payload and the subsequent analysis action.
 Unavailable ASR now has an explicit Run-only skip action. It deselects transcript generation
 without disabling reuse of existing transcripts and keeps guided progression active. The
 explicitly disabled-preview path continues automatically, with UI tests for both cases.
+Final follow-up verification: 951 Vitest tests, 70 run-preview pytest cases, frontend
+typecheck, focused Ruff check/format, and diff checks passed. The cache regression also
+changes upstream analysis on disk and asserts all four downstream tasks become runnable.
+Resolution details: [Run interaction review](2026-11-14-run-interaction-review.md).
 
 Follow-up audit (2026-11-14): [recent commits review](2026-11-14-recent-commits-review.md)
 records five additional findings, now fixed: preview/runtime reuse disagreement, stale

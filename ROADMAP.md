@@ -29,6 +29,11 @@ Commit-level evidence and remaining scope limits are recorded in the review repo
 - `[x]` Resolve shared voiceover runtime phases against active task steps (2026-11-15).
 - `[x]` Apply overwrite to one submission and refresh normal cache state after success (2026-11-15).
 - `[x]` Offer an explicit optional-transcription skip when ASR cannot produce transcripts (2026-11-15).
+- `[x]` Verify changed upstream analysis invalidates all four downstream preview caches (2026-11-15).
+
+Follow-up verification: 951 Vitest tests, 70 run-preview pytest cases, frontend typecheck,
+focused Ruff check/format, and diff checks passed. See the
+[Run interaction review](docs/analysis/2026-11-14-run-interaction-review.md) for acceptance rules.
 
 - `[x]` Group the eight existing steps into four guided stages, with one-stage next actions.
 - `[x]` Keep custom selections, scope, overwrite confirmations, and detailed estimates available.

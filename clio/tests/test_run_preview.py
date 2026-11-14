@@ -1928,6 +1928,14 @@ def test_preview_cache_matches_runtime_lineage_and_is_read_only(tmp_path: Path, 
     assert forced["steps"][0]["will_run"] == 1
     assert before == {p: p.read_bytes() for p in config.paths.output_dir.rglob("*") if p.is_file()}
 
+    # A successful upstream rerun may change analysis without changing settings.
+    # Existing downstream JSON/Markdown must then stop being advertised as reusable.
+    config.analyze.skip_existing = True
+    _write_analysis(config, "updated harbor analysis after upstream rerun")
+    changed_source = build_run_preview(config, [step], force=False, use_transcripts=True)
+    assert changed_source["steps"][0]["will_run"] == 1
+    assert changed_source["steps"][0]["will_skip"] == 0
+
 
 @pytest.mark.parametrize("payload", ["[]", "null", "123"])
 def test_plan_voiceover_preview_rejects_non_object_plan(tmp_path: Path, payload: str):
