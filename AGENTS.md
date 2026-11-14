@@ -155,4 +155,4 @@ The full contracts moved to
 | Full file-level tree | `docs/superpowers/agents/directory-tree.md` |
 | Project history | `CHANGELOG.md` |
 | Documentation rules | `docs/CONVENTIONS.md` |
-| Current review state | `docs/analysis/2026-11-05-P0-P2-Issues.md` |
+| Current review state | `docs/analysis/2026-11-13-clio-open-items-status.md` |
