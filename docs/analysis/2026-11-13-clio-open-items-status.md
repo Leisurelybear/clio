@@ -160,3 +160,7 @@ Follow-up fix 1: preview now uses runtime lineage calculations and a shared read
 artifact reuse predicate for plan and voiceover caches; consistency uses its validated
 loader. Context, prompts, scope, and skip mode are respected without writing cache
 markers. Focused verification: 156 pytest passed; Ruff passed.
+
+Follow-up fix 2: all-day execution discovers current analysis days immediately before
+each day-scoped step. A production discovery regression creates two days during the
+analysis callback and verifies both downstream day steps execute. Pipeline: 19 passed.

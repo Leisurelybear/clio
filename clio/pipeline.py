@@ -188,7 +188,6 @@ def run_pipeline_steps(
     auto_reindex_if_needed(config)
     if not steps:
         steps = list(_STEP_FUNCS.keys())
-    day_labels = discover_day_labels(config) if all_days else [day_label]
 
     if tracker is None:
         tracker = ProgressTracker(config.paths.output_dir)
@@ -206,6 +205,8 @@ def run_pipeline_steps(
                 _cancel_pipeline_step(step, tracker)
                 break
             label = _step_label(step)
+            # Analysis can create or relabel days earlier in this same run.
+            day_labels = discover_day_labels(config) if all_days and step in _STEP_DAY_ARG else [day_label]
             if tracker:
                 tracker.update(phase=step, current=0, total=1, message=f"{label}...")
             with timed(f"=== {label} ==="):

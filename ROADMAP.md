@@ -15,7 +15,7 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
 Evidence and reproductions: [recent commits review](docs/analysis/2026-11-14-recent-commits-review.md).
 
 - `[x]` Share cache-reuse predicates between guided previews and runtime execution.
-- `[ ]` Rediscover day labels after analysis before each all-day scoped step.
+- `[x]` Rediscover day labels after analysis before each all-day scoped step.
 - `[ ]` Allow disabled optional transcription without blocking guided progression.
 - `[ ]` Forward the effective transcript option to pipeline analysis.
 - `[ ]` Preserve a locally valid planning draft when optional review fails.

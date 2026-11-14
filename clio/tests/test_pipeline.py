@@ -485,3 +485,42 @@ class TestAllDayScoping:
             with pytest.raises(ValueError):
                 run_pipeline_steps(config, steps=["plan"], files=["A.mp4"], all_days=True)
         reindex.assert_not_called()
+
+
+def test_all_days_discovers_outputs_created_by_prior_steps(tmp_path: Path):
+    from clio.tests.test_run_preview import _config, _write_day_analysis
+
+    config = _config(tmp_path, tmp_path / "output")
+    calls = []
+
+    def analyze(*args, **kwargs):
+        _write_day_analysis(config, "001", "A", "day1")
+        _write_day_analysis(config, "002", "B", "day2")
+        return []
+
+    def consistency(cfg, day, *args, **kwargs):
+        calls.append(("consistency", day))
+
+    def voiceover(cfg, day, *args, **kwargs):
+        calls.append(("plan_voiceover", day))
+
+    with (
+        patch("clio.pipeline.auto_reindex_if_needed"),
+        patch(
+            "clio.pipeline._STEP_FUNCS",
+            {
+                "analyze": analyze,
+                "consistency": consistency,
+                "plan_voiceover": voiceover,
+            },
+        ),
+    ):
+        run_pipeline_steps(
+            config, steps=["analyze", "consistency", "plan_voiceover"], all_days=True, tracker=MagicMock()
+        )
+    assert calls == [
+        ("consistency", "day1"),
+        ("consistency", "day2"),
+        ("plan_voiceover", "day1"),
+        ("plan_voiceover", "day2"),
+    ]
