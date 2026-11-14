@@ -13,7 +13,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P1 | 35 | 20 | 15 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P2 | 59 | 31 | 28 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P3 | 14 | 10 | 2 | 0 | 0 | 0 | 0 | 0 | 2 |
+| P3 | 14 | 10 | 2 | 0 | 2 | 0 | 0 | 0 | 0 |
 
 ## Item status
 
@@ -134,5 +134,5 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 113 | P3 | R034 | compress.target_size_mb 的校验下限是 0.01, 因此 -crf 分支永远走不到, compress.crf 配置不生效 | Fixed | `target_size_mb: 0` is now valid and selects the CRF path; negative values remain rejected. The project example documents the mode. Focused: 106 config and 27 compression tests passed. |
 | 114 | P3 | OPT-007 | 规划一次生成 (Q11), 输入是全部素材的完整 timeline | Satisfied | `plan_daily_vlog()` already runs bounded candidate selection, outline, shot selection, and review as typed stages inside the single `vlog_plan` binding. `clio/plan_input.py` caps planning input at `max_candidate_clips` (default 60), sends compact cards for the shortlist, and deterministically falls back on invalid selections; `clio/analyze.py:1674-1873` wires the stages. Focused: 195 analyze/plan-input/plan tests passed. |
 | 115 | P3 | OPT-010 | 分析输出是散文描述 (Q6), 景别、运镜写在 description 里 | Satisfied | `ANALYZE_PROMPT` already requires per-shot `shot_size`, `camera`, `camera_direction`, `first_frame`, `last_frame`, `energy`, audio, quality, and tags. `AnalysisTimelineItem` in `clio/ai/structured.py` enforces the enums/ranges, and `_normalize_timeline_item()` strips invalid optional values. Focused: structured-schema and normalization tests passed within 195 analyze/plan tests. |
-| 116 | P3 | OPT-022 | 前端 58 个文件 16,164 行无类型 JS, editor-config.js 2,414 行 | Pending audit |  |
-| 117 | P3 | OPT-023 | 产物文件名含 AI 生成的标题 ({index}_{title}), 标题一变就产生孤儿文件 (封面、口播、标号视频) | Pending audit |  |
+| 116 | P3 | OPT-022 | 前端 58 个文件 16,164 行无类型 JS, editor-config.js 2,414 行 | Confirmed | Re-measured 79 production JS files (15,919 lines); only 10 carry `// @ts-check` and are included by `tsconfig.json`, which keeps `checkJs`, `strict`, and `noImplicitAny` disabled. `editor-config.js` has already been reduced to a 56-line facade, so that size detail is stale, but most frontend modules remain unchecked JavaScript. |
+| 117 | P3 | OPT-023 | 产物文件名含 AI 生成的标题 ({index}_{title}), 标题一变就产生孤儿文件 (封面、口播、标号视频) | Confirmed | `_build_stem()` still returns `{index}_{sanitize_name(title)}` and drives analysis JSON/TXT names; voiceover, label, cover, and cut artifacts inherit that stem. Cut overwrite cleanup recovers stale cut files only, so a title change can still orphan analysis, voiceover, label, and cover artifacts. No compatibility-safe rename or migration strategy exists yet. |
