@@ -118,6 +118,7 @@ def build_run_preview(
             force=force,
             use_transcripts=use_transcripts,
             day_labels=preview_day_labels,
+            files=files,
             context_override=context_override,
             task_prompts=task_prompts,
         )
@@ -703,6 +704,7 @@ def _step_preview(
     force: bool,
     use_transcripts: bool,
     day_labels: list[str],
+    files: list[str] | None,
     context_override: str | None,
     task_prompts: dict[str, str] | None,
 ) -> dict[str, Any]:
@@ -727,7 +729,7 @@ def _step_preview(
     if step == "voiceover":
         return _voiceover_step(config, analysis_jsons, force=force)
     if step == "plan":
-        return _plan_step(config, all_analysis_jsons, day_labels=day_labels, force=force)
+        return _plan_step(config, all_analysis_jsons, day_labels=day_labels, files=files, force=force)
     if step == "plan_voiceover":
         return _plan_voiceover_step(
             config,
@@ -867,7 +869,14 @@ def _voiceover_step(
     return _step("voiceover", total=total, will_run=len(running), will_skip=total - len(running), usage=usage)
 
 
-def _plan_step(config: AppConfig, analysis_jsons: list[Path], *, day_labels: list[str], force: bool) -> dict[str, Any]:
+def _plan_step(
+    config: AppConfig,
+    analysis_jsons: list[Path],
+    *,
+    day_labels: list[str],
+    files: list[str] | None,
+    force: bool,
+) -> dict[str, Any]:
     if not analysis_jsons:
         return _warning_step("plan", t("api.preview_missing_analyze_plan"))
     total = len(day_labels)
@@ -876,7 +885,11 @@ def _plan_step(config: AppConfig, analysis_jsons: list[Path], *, day_labels: lis
         safe_day = plan_day_stem(scoped_day)
         plan_json = config.plans_dir / f"{safe_day}_plan.json"
         plan_md = config.plans_dir / f"{safe_day}_plan.md"
-        if force or not (plan_md.is_file() and _valid_json_file(plan_json)):
+        if (
+            force
+            or plan_overwrite_confirmation_required(config, scoped_day, files)
+            or not (plan_md.is_file() and _valid_json_file(plan_json))
+        ):
             running_days.append(scoped_day)
     calls = [call for _ in running_days for call in plan_calls()]
     usage = estimate_usage(config, calls)

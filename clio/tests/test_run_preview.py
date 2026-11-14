@@ -1202,6 +1202,8 @@ def test_preview_warns_when_partial_plan_would_overwrite_existing_plan(tmp_path:
     )
 
     assert preview["plan_overwrite"] == {"required": True, "day_label": "day2"}
+    assert preview["steps"][0]["will_run"] == 1
+    assert preview["steps"][0]["will_skip"] == 0
 
 
 def test_preview_omits_overwrite_warning_for_full_or_new_plan(tmp_path: Path) -> None:
