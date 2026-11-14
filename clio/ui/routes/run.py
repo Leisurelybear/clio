@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -307,12 +308,83 @@ def _is_safe_video_reference(value: str) -> bool:
     return all(_is_safe_basename(part) for part in parts)
 
 
-def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
-    """Handle POST /api/run/start."""
-    day_label = obj.get("day_label", "day1")
-    if not isinstance(day_label, str) or not _is_safe_basename(day_label):
-        return handler._send_json({"ok": False, "error": "invalid day_label"}, 400)
-    steps = obj.get("steps")
+@dataclass
+class _RunStartOptions:
+    proj_dir: Path
+    config_path: Path | None
+    cfg: Any
+    day_label: str
+    steps: list[str] | None
+    files_list: list[str] | None
+    all_days: bool
+    overwrite: bool
+    confirm_plan_overwrite: bool
+    confirm_artifact_overwrite: bool
+    confirm_legacy_audio_removal: bool
+    confirm_analysis_rerun: bool
+    context_override: str | None
+    task_prompts: dict[str, str] | None
+
+    @property
+    def selected_steps(self) -> list[str]:
+        return self.steps if self.steps is not None else list(PIPELINE_STEPS)
+
+
+def _bool_field(obj: dict[str, Any], key: str, default: bool = False) -> tuple[bool | None, str | None]:
+    value = obj.get(key, default)
+    if not isinstance(value, bool):
+        return None, f"{key} must be a boolean"
+    return value, None
+
+
+def _validate_run_steps(steps: Any) -> tuple[list[str] | None, str | None]:
+    if steps is None:
+        return None, None
+    if not isinstance(steps, list):
+        return None, "steps must be a list"
+    if not all(isinstance(step, str) for step in steps):
+        return None, "steps items must be strings"
+    unknown = sorted(set(steps) - set(PIPELINE_STEPS))
+    if unknown:
+        return None, f"unknown pipeline step(s): {', '.join(unknown)}"
+    return steps, None
+
+
+def _validate_run_files(files_list: Any) -> tuple[list[str] | None, str | None]:
+    if files_list is None:
+        return None, None
+    if not isinstance(files_list, list):
+        return None, "files must be a list of video names"
+    if not all(isinstance(item, str) for item in files_list):
+        return None, "files items must be strings"
+    return files_list, None
+
+
+def _validate_context_override(value: Any) -> tuple[str | None, str | None]:
+    if value is not None and not isinstance(value, str):
+        return None, "context_override must be a string"
+    if isinstance(value, str) and len(value) > 100_000:
+        return None, "context_override is too large"
+    return value or None, None
+
+
+def _validate_task_prompts(value: Any) -> tuple[dict[str, str] | None, str | None]:
+    if value is not None and (
+        not isinstance(value, dict)
+        or not all(isinstance(key, str) and isinstance(item, str) for key, item in value.items())
+    ):
+        return None, "task_prompts must be an object of strings"
+    prompts = value or None
+    if prompts and (len(prompts) > 20 or any(len(item) > 100_000 for item in prompts.values())):
+        return None, "task_prompts is too large"
+    return prompts, None
+
+
+def _resolve_run_start_project(
+    handler: HandlerProtocol,
+    qs: dict[str, Any],
+    obj: dict[str, Any],
+) -> tuple[Path | None, Path | None, Any | None, str | None]:
     proj_dir = handler._resolve_project_dir(qs)
     config_path = getattr(handler, "config_path", None)
     if not isinstance(config_path, Path):
@@ -324,99 +396,124 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
         allowed_paths=allowed,
     )
     if cfg_error:
-        return handler._send_json({"ok": False, "error": cfg_error}, 400)
-    # Config, output, state, lock and tasks all derive from the single final
-    # project dir, so a body override can never split them (P1-P31).
-    cfg = handler._get_config(proj_dir)
-    # Isolate run-local config so body flags never mutate the shared cache entry.
-    cfg = copy.deepcopy(cfg)
+        return None, config_path, None, cfg_error
+    cfg = copy.deepcopy(handler._get_config(proj_dir))
+    return proj_dir, config_path, cfg, None
+
+
+def _parse_run_start_options(
+    handler: HandlerProtocol,
+    qs: dict[str, Any],
+    obj: dict[str, Any],
+) -> _RunStartOptions | None:
+    day_label = obj.get("day_label", "day1")
+    if not isinstance(day_label, str) or not _is_safe_basename(day_label):
+        handler._send_json({"ok": False, "error": "invalid day_label"}, 400)
+        return None
+    proj_dir, config_path, cfg, cfg_error = _resolve_run_start_project(handler, qs, obj)
+    if cfg_error or proj_dir is None or cfg is None:
+        handler._send_json({"ok": False, "error": cfg_error}, 400)
+        return None
     if "use_transcripts" in obj:
         if not isinstance(obj["use_transcripts"], bool):
-            return handler._send_json({"ok": False, "error": "use_transcripts must be a boolean"}, 400)
+            handler._send_json({"ok": False, "error": "use_transcripts must be a boolean"}, 400)
+            return None
         cfg.plan.use_transcripts = obj["use_transcripts"]
-    if steps is not None:
-        if not isinstance(steps, list):
-            return handler._send_json({"ok": False, "error": "steps must be a list"}, 400)
-        for s in steps:
-            if not isinstance(s, str):
-                return handler._send_json({"ok": False, "error": "steps items must be strings"}, 400)
-        unknown = sorted(set(steps) - set(PIPELINE_STEPS))
-        if unknown:
-            return handler._send_json({"ok": False, "error": f"unknown pipeline step(s): {', '.join(unknown)}"}, 400)
-    files_list = obj.get("files")
-    if files_list is not None and not isinstance(files_list, list):
-        return handler._send_json({"ok": False, "error": "files must be a list of video names"}, 400)
-    if files_list is not None and not all(isinstance(item, str) for item in files_list):
-        return handler._send_json({"ok": False, "error": "files items must be strings"}, 400)
-    all_days = obj.get("all_days", False)
-    if not isinstance(all_days, bool):
-        return handler._send_json({"ok": False, "error": "all_days must be a boolean"}, 400)
+    steps, error = _validate_run_steps(obj.get("steps"))
+    if error:
+        handler._send_json({"ok": False, "error": error}, 400)
+        return None
+    files_list, error = _validate_run_files(obj.get("files"))
+    if error:
+        handler._send_json({"ok": False, "error": error}, 400)
+        return None
+    all_days, error = _bool_field(obj, "all_days")
+    if error:
+        handler._send_json({"ok": False, "error": error}, 400)
+        return None
     if all_days and files_list is not None:
-        return handler._send_json(
+        handler._send_json(
             {"ok": False, "error": "all_days cannot be combined with an explicit file selection"},
             400,
         )
-    overwrite = obj.get("overwrite", False)
-    if not isinstance(overwrite, bool):
-        return handler._send_json({"ok": False, "error": "overwrite must be a boolean"}, 400)
-    confirm_plan_overwrite = obj.get("confirm_plan_overwrite", False)
-    if not isinstance(confirm_plan_overwrite, bool):
-        return handler._send_json({"ok": False, "error": "confirm_plan_overwrite must be a boolean"}, 400)
-    confirm_artifact_overwrite = obj.get("confirm_artifact_overwrite", False)
-    if not isinstance(confirm_artifact_overwrite, bool):
-        return handler._send_json({"ok": False, "error": "confirm_artifact_overwrite must be a boolean"}, 400)
-    confirm_legacy_audio_removal = obj.get("confirm_legacy_audio_removal", False)
-    if not isinstance(confirm_legacy_audio_removal, bool):
-        return handler._send_json({"ok": False, "error": "confirm_legacy_audio_removal must be a boolean"}, 400)
-    confirm_analysis_rerun = obj.get("confirm_analysis_rerun", False)
-    if not isinstance(confirm_analysis_rerun, bool):
-        return handler._send_json({"ok": False, "error": "confirm_analysis_rerun must be a boolean"}, 400)
-    context_override = obj.get("context_override")
-    if context_override is not None and not isinstance(context_override, str):
-        return handler._send_json({"ok": False, "error": "context_override must be a string"}, 400)
-    if isinstance(context_override, str) and len(context_override) > 100_000:
-        return handler._send_json({"ok": False, "error": "context_override is too large"}, 400)
-    context_override = context_override or None
-    task_prompts = obj.get("task_prompts")
-    if task_prompts is not None and (
-        not isinstance(task_prompts, dict)
-        or not all(isinstance(key, str) and isinstance(value, str) for key, value in task_prompts.items())
-    ):
-        return handler._send_json({"ok": False, "error": "task_prompts must be an object of strings"}, 400)
-    task_prompts = task_prompts or None
-    if task_prompts and (len(task_prompts) > 20 or any(len(value) > 100_000 for value in task_prompts.values())):
-        return handler._send_json({"ok": False, "error": "task_prompts is too large"}, 400)
-
-    selected_steps = steps if steps is not None else list(PIPELINE_STEPS)
-    if (
-        "plan" in selected_steps
-        and not confirm_plan_overwrite
-        and plan_overwrite_confirmation_required(cfg, day_label, files_list)
-    ):
-        return handler._send_json(
-            {
-                "ok": False,
-                "code": "plan_overwrite_confirmation_required",
-                "error": t("task.plan.overwrite_confirmation_required", {"day": day_label}),
-                "day_label": day_label,
-            },
-            409,
-        )
-
-    artifact_paths = artifact_overwrite_paths(
-        cfg,
-        selected_steps,
-        force=overwrite,
-        use_transcripts=cfg.plan.use_transcripts,
-        files=files_list,
+        return None
+    overwrite, error = _bool_field(obj, "overwrite")
+    if error:
+        handler._send_json({"ok": False, "error": error}, 400)
+        return None
+    confirm_plan_overwrite, error = _bool_field(obj, "confirm_plan_overwrite")
+    if error:
+        handler._send_json({"ok": False, "error": error}, 400)
+        return None
+    confirm_artifact_overwrite, error = _bool_field(obj, "confirm_artifact_overwrite")
+    if error:
+        handler._send_json({"ok": False, "error": error}, 400)
+        return None
+    confirm_legacy_audio_removal, error = _bool_field(obj, "confirm_legacy_audio_removal")
+    if error:
+        handler._send_json({"ok": False, "error": error}, 400)
+        return None
+    confirm_analysis_rerun, error = _bool_field(obj, "confirm_analysis_rerun")
+    if error:
+        handler._send_json({"ok": False, "error": error}, 400)
+        return None
+    context_override, error = _validate_context_override(obj.get("context_override"))
+    if error:
+        handler._send_json({"ok": False, "error": error}, 400)
+        return None
+    task_prompts, error = _validate_task_prompts(obj.get("task_prompts"))
+    if error:
+        handler._send_json({"ok": False, "error": error}, 400)
+        return None
+    return _RunStartOptions(
+        proj_dir=proj_dir,
+        config_path=config_path,
+        cfg=cfg,
         day_label=day_label,
-        all_days=all_days,
+        steps=steps,
+        files_list=files_list,
+        all_days=bool(all_days),
+        overwrite=bool(overwrite),
+        confirm_plan_overwrite=bool(confirm_plan_overwrite),
+        confirm_artifact_overwrite=bool(confirm_artifact_overwrite),
+        confirm_legacy_audio_removal=bool(confirm_legacy_audio_removal),
+        confirm_analysis_rerun=bool(confirm_analysis_rerun),
         context_override=context_override,
         task_prompts=task_prompts,
     )
-    if artifact_paths and not confirm_artifact_overwrite:
+
+
+def _run_start_confirmation_error(options: _RunStartOptions) -> tuple[dict[str, Any], int] | None:
+    cfg = options.cfg
+    selected_steps = options.selected_steps
+    if (
+        "plan" in selected_steps
+        and not options.confirm_plan_overwrite
+        and plan_overwrite_confirmation_required(cfg, options.day_label, options.files_list)
+    ):
+        return (
+            {
+                "ok": False,
+                "code": "plan_overwrite_confirmation_required",
+                "error": t("task.plan.overwrite_confirmation_required", {"day": options.day_label}),
+                "day_label": options.day_label,
+            },
+            409,
+        )
+    artifact_paths = artifact_overwrite_paths(
+        cfg,
+        selected_steps,
+        force=options.overwrite,
+        use_transcripts=cfg.plan.use_transcripts,
+        files=options.files_list,
+        day_label=options.day_label,
+        all_days=options.all_days,
+        context_override=options.context_override,
+        task_prompts=options.task_prompts,
+    )
+    if artifact_paths and not options.confirm_artifact_overwrite:
         items = [path.name for path in artifact_paths]
-        return handler._send_json(
+        return (
             {
                 "ok": False,
                 "code": "artifact_overwrite_confirmation_required",
@@ -425,18 +522,17 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
             },
             409,
         )
-
     legacy_audio_risk = legacy_audio_removal_risk(
         cfg,
         selected_steps,
-        force=overwrite,
+        force=options.overwrite,
         use_transcripts=cfg.plan.use_transcripts,
-        files=files_list,
-        context_override=context_override,
-        task_prompts=task_prompts,
+        files=options.files_list,
+        context_override=options.context_override,
+        task_prompts=options.task_prompts,
     )
-    if legacy_audio_risk is not None and not confirm_legacy_audio_removal:
-        return handler._send_json(
+    if legacy_audio_risk is not None and not options.confirm_legacy_audio_removal:
+        return (
             {
                 "ok": False,
                 "code": "legacy_audio_removal_confirmation_required",
@@ -452,61 +548,65 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
             },
             409,
         )
-
     analysis_risk = analysis_rerun_risk(
         cfg,
         selected_steps,
-        force=overwrite,
+        force=options.overwrite,
         use_transcripts=cfg.plan.use_transcripts,
-        files=files_list,
-        context_override=context_override,
-        task_prompts=task_prompts,
+        files=options.files_list,
+        context_override=options.context_override,
+        task_prompts=options.task_prompts,
     )
-    if analysis_risk is not None and not confirm_analysis_rerun:
-        return handler._send_json(
+    if analysis_risk is not None and not options.confirm_analysis_rerun:
+        return (
             {
                 "ok": False,
                 "code": "analysis_rerun_confirmation_required",
-                "error": t(
-                    "task.analysis_rerun.confirmation_required",
-                    {"count": analysis_risk["count"]},
-                ),
+                "error": t("task.analysis_rerun.confirmation_required", {"count": analysis_risk["count"]}),
                 "analysis_rerun": analysis_risk,
             },
             409,
         )
+    return None
 
-    preflight = preflight_config_media_deps(cfg, required=media_dependencies_for_steps(steps))
+
+def _submit_run_start(handler: HandlerProtocol, options: _RunStartOptions) -> None:
+    preflight = preflight_config_media_deps(
+        options.cfg,
+        required=media_dependencies_for_steps(options.steps),
+    )
     if not preflight["ok"]:
-        return handler._send_json(media_dependency_error(preflight), 424)
-
+        handler._send_json(media_dependency_error(preflight), 424)
+        return
     manager = _managed_task_manager(handler)
     if manager is None:
-        return handler._send_json({"ok": False, "error": "task center unavailable"}, 500)
+        handler._send_json({"ok": False, "error": "task center unavailable"}, 500)
+        return
     _ensure_run_handlers(manager)
-    project_id = str(proj_dir.resolve())
+    project_id = str(options.proj_dir.resolve())
     if _active_managed_run(manager, project_id) is not None:
-        return handler._send_json({"ok": False, "error": t("task.project_busy")}, 409)
+        handler._send_json({"ok": False, "error": t("task.project_busy")}, 409)
+        return
     input_data = {
-        "config_path": str(config_path) if config_path is not None else None,
+        "config_path": str(options.config_path) if options.config_path is not None else None,
         "project_dir": project_id,
-        "day_label": day_label,
-        "steps": steps,
-        "files": files_list,
-        "all_days": all_days,
-        "overwrite": overwrite,
-        "confirm_plan_overwrite": confirm_plan_overwrite,
-        "confirm_artifact_overwrite": confirm_artifact_overwrite,
-        "confirm_legacy_audio_removal": confirm_legacy_audio_removal,
-        "confirm_analysis_rerun": confirm_analysis_rerun,
-        "use_transcripts": cfg.plan.use_transcripts,
+        "day_label": options.day_label,
+        "steps": options.steps,
+        "files": options.files_list,
+        "all_days": options.all_days,
+        "overwrite": options.overwrite,
+        "confirm_plan_overwrite": options.confirm_plan_overwrite,
+        "confirm_artifact_overwrite": options.confirm_artifact_overwrite,
+        "confirm_legacy_audio_removal": options.confirm_legacy_audio_removal,
+        "confirm_analysis_rerun": options.confirm_analysis_rerun,
+        "use_transcripts": options.cfg.plan.use_transcripts,
     }
-    retryable = not (context_override or task_prompts)
+    retryable = not (options.context_override or options.task_prompts)
     input_summary = {
-        "steps": list(steps or []),
-        "file_count": len(files_list) if files_list is not None else None,
-        "day_label": day_label,
-        "all_days": all_days,
+        "steps": list(options.steps or []),
+        "file_count": len(options.files_list) if options.files_list is not None else None,
+        "day_label": options.day_label,
+        "all_days": options.all_days,
         "retryable": retryable,
     }
     if not retryable:
@@ -516,21 +616,22 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
             TaskKind.PIPELINE,
             t("task.pipeline_title"),
             project_id=project_id,
-            project_name=proj_dir.name,
+            project_name=options.proj_dir.name,
             project_path=project_id,
             input_data=input_data,
             private_input_data={
-                "_config": cfg,
-                "context_override": context_override,
-                "task_prompts": task_prompts,
+                "_config": options.cfg,
+                "context_override": options.context_override,
+                "task_prompts": options.task_prompts,
             },
             input_summary=input_summary,
             reject_if_active=True,
         )
     except TaskAlreadyRunningError:
-        return handler._send_json({"ok": False, "error": t("task.project_busy")}, 409)
-    label = "+".join(steps) if steps else "all"
-    return handler._send_json(
+        handler._send_json({"ok": False, "error": t("task.project_busy")}, 409)
+        return
+    label = "+".join(options.steps) if options.steps else "all"
+    handler._send_json(
         {
             "ok": True,
             "message": f"pipeline started ({label})",
@@ -538,6 +639,19 @@ def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
             "task": task.to_dict(),
         }
     )
+
+
+def handle_post_run_start(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
+    """Handle POST /api/run/start."""
+    options = _parse_run_start_options(handler, qs, obj)
+    if options is None:
+        return
+    confirmation_error = _run_start_confirmation_error(options)
+    if confirmation_error is not None:
+        payload, status = confirmation_error
+        handler._send_json(payload, status)
+        return
+    _submit_run_start(handler, options)
 
 
 def handle_post_run_preview(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
