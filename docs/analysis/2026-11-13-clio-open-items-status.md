@@ -12,7 +12,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P1 | 35 | 20 | 15 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P2 | 59 | 20 | 18 | 0 | 0 | 0 | 0 | 0 | 21 |
+| P2 | 59 | 20 | 19 | 0 | 0 | 0 | 0 | 0 | 20 |
 | P3 | 14 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 10 |
 
 ## Item status
@@ -94,7 +94,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 073 | P2 | R031 | target_size_mb=5 在 800 kbps 保底下对约 46 秒以上的素材不再成立; 日志仍打印"目标 5MB", README 仍写 ~5MB; 短素材码率没有上限 | Fixed | `cf0190c` turns `target_size_mb` into a best-effort budget, adds project-level `min_video_kbps`/`max_video_kbps` (default 800/8000), subtracts the audio budget, clamps the duration-derived bitrate, logs the selected bitrate, and refreshes V1 migration, `.vmeta` fingerprints, examples, UI copy, and docs. Legacy size-budget sidecars without bitrate bounds are re-compressed once. Focused: 267 compress/config/i18n tests passed; full Python suite: 3375 passed, 12 skipped; Vitest: 937 passed; Ruff, typecheck, and `main.py check` passed. |
 | 074 | P2 | F8 | 草稿只有视频轨 (部分修复) | Satisfied | Existing implementation generates a caption text track from `plan.sequence[].subtitle`, writes `subtitles.srt` from that track using the accumulated exported timeline, and maps `dissolve` to JianYing `叠化` on the previous segment; other transition kinds intentionally remain hard cuts. Focused: 51 export tests passed. |
 | 075 | P2 | F4 | 没有 AI 输出自动质检 | Satisfied | Satisfied; readiness warnings implemented (`9c08ab2`). |
-| 076 | P2 | F5 | 没有本地模型 Provider | Pending audit |  |
+| 076 | P2 | F5 | 没有本地模型 Provider | Satisfied | Existing support maps `type: ollama` to `OpenAICompatProvider` with a default `http://localhost:11434/v1` endpoint, allows an empty API key, omits the Authorization header, and validates/probes local providers without credentials. The UI provider allow-list, locale copy, `config.example.yaml`, and READMEs document the binding. Focused: 190 AI/config/doctor tests passed. |
 | 077 | P2 | F9 | 规划模型看不到画面 | Pending audit |  |
 | 078 | P2 | O8 | make_handler 过于庞大 | Satisfied | Satisfied; handler split completed (`f6a7b07`, `970d559`, `786ec31`, `961fdb1`). |
 | 079 | P2 | O10 | 宽泛异常 | Satisfied | Satisfied; broad exception cleanup completed (`52fab55`). |
