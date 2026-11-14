@@ -143,7 +143,7 @@ def handle_get_tasks_stream(handler: HandlerProtocol, qs: dict[str, Any]) -> Non
     last_heartbeat = time.monotonic()
     try:
         while True:
-            events = manager.store.events(after_seq=cursor, limit=200)
+            events = manager.store.wait_for_events(after_seq=cursor, timeout=10.0)
             if events:
                 tasks = manager.store.get_many(event.task_id for event in events)
                 for event in events:
@@ -164,7 +164,6 @@ def handle_get_tasks_stream(handler: HandlerProtocol, qs: dict[str, Any]) -> Non
                 handler.wfile.write(b": heartbeat\n\n")
                 handler.wfile.flush()
                 last_heartbeat = now
-            time.sleep(0.25)
     except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
         return
 

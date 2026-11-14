@@ -131,7 +131,7 @@ def handle_get_notifications_stream(handler: HandlerProtocol, qs: dict[str, Any]
     last_heartbeat = time.monotonic()
     try:
         while True:
-            latest = store.latest_notification_seq()
+            latest = store.wait_for_notification_revision(after_seq=cursor, timeout=10.0)
             if latest > cursor:
                 cursor = latest
                 body = json.dumps({"seq": cursor, "refresh": True}, separators=(",", ":"))
@@ -144,7 +144,6 @@ def handle_get_notifications_stream(handler: HandlerProtocol, qs: dict[str, Any]
                 handler.wfile.write(b": heartbeat\n\n")
                 handler.wfile.flush()
                 last_heartbeat = now
-            time.sleep(0.25)
     except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
         return
 

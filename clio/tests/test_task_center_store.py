@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import datetime
@@ -437,3 +439,24 @@ def test_snapshot_returns_matching_tasks_count_and_event_cursor(tmp_path):
     assert [task.id for task in tasks] == ["foreground"]
     assert total == 1
     assert cursor == 2
+
+
+def test_wait_for_events_wakes_on_committed_event_without_polling(tmp_path):
+    store = TaskStore(tmp_path / "tasks.sqlite3")
+    task = create_task(TaskKind.PIPELINE, "wait", task_id="task-1")
+    store.create(task)
+    started = threading.Event()
+
+    def append_later() -> None:
+        started.set()
+        time.sleep(0.05)
+        store.append_event(_event(task.id, "wake"))
+
+    thread = threading.Thread(target=append_later)
+    thread.start()
+    started.wait(1)
+    events = store.wait_for_events(after_seq=1, timeout=2)
+    thread.join(2)
+
+    assert [event.message for event in events] == ["wake"]
+    assert events[0].seq == 2

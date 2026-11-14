@@ -91,6 +91,9 @@ class TaskStore:
         self._busy_timeout_ms = busy_timeout_ms
         self._schema_lock = threading.Lock()
         self._schema_identity: tuple[int, int, int] | None = None
+        # Writers notify this condition after committing; SSE streams wait here
+        # instead of polling SQLite while idle.
+        self._change_condition = threading.Condition()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         # Create the database eagerly so startup failures are reported at the
         # owner boundary rather than on the first asynchronous event query.
@@ -143,6 +146,7 @@ class TaskStore:
                 connection.commit()
         except sqlite3.IntegrityError as e:
             raise TaskAlreadyExistsError(f"task already exists: {task.id}") from e
+        self._notify_change()
         return task
 
     def get(self, task_id: str) -> TaskRecord | None:
@@ -285,6 +289,7 @@ class TaskStore:
                 raise TaskUpdateConflictError(f"task {task.id} status changed: expected {expected}")
             saved_event = self._insert_event(connection, event)
             connection.commit()
+        self._notify_change()
         return task, saved_event
 
     def append_event(self, event: TaskEvent) -> TaskEvent:
@@ -297,9 +302,10 @@ class TaskStore:
                     (event.created_at, event.created_at, event.task_id),
                 )
                 connection.commit()
-                return saved
         except sqlite3.IntegrityError as e:
             raise TaskNotFoundError(f"task not found: {event.task_id}") from e
+        self._notify_change()
+        return saved
 
     def events(
         self,
@@ -340,12 +346,41 @@ class TaskStore:
             ).fetchall()
         return [self._row_to_event(row) for row in reversed(rows)]
 
+    def _notify_change(self) -> None:
+        with self._change_condition:
+            self._change_condition.notify_all()
+
+    def wait_for_events(self, *, after_seq: int, timeout: float, limit: int = 200) -> builtins.list[TaskEvent]:
+        """Return events after ``after_seq``, sleeping until one is committed.
+
+        The initial query and the wait share the condition lock so an event
+        committed between them cannot be missed.
+        """
+        with self._change_condition:
+            events = self.events(after_seq=after_seq, limit=limit)
+            if events:
+                return events
+            if not self._change_condition.wait(timeout):
+                return []
+            return self.events(after_seq=after_seq, limit=limit)
+
+    def wait_for_notification_revision(self, *, after_seq: int, timeout: float) -> int:
+        """Return the notification revision, sleeping until it advances."""
+        with self._change_condition:
+            revision = self.latest_notification_seq()
+            if revision > after_seq:
+                return revision
+            if not self._change_condition.wait(timeout):
+                return after_seq
+            return max(after_seq, self.latest_notification_seq())
+
     def create_notification(self, notification: Notification) -> Notification:
         """Persist a UI-originated notification, returning the deduped row."""
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             saved = self._insert_notification(connection, notification)
             connection.commit()
+        self._notify_change()
         return saved
 
     def list_notifications(self, query: NotificationQuery | None = None) -> builtins.list[Notification]:
@@ -452,6 +487,7 @@ class TaskStore:
                     "SELECT * FROM notifications WHERE id = ?", (notification_id_value,)
                 ).fetchone()
             connection.commit()
+        self._notify_change()
         if row is None:
             return None
         return self._row_to_notification(row)
@@ -471,6 +507,8 @@ class TaskStore:
             if cursor.rowcount:
                 self._bump_notification_revision(connection)
             connection.commit()
+        if cursor.rowcount:
+            self._notify_change()
         return cursor.rowcount
 
     def delete(self, task_id: str) -> bool:
