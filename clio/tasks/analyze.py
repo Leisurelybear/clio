@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import re
@@ -933,18 +934,17 @@ def _analyze_with_optional_windows(
     )
 
 
+_PROBE_ERRORS = (OSError, subprocess.SubprocessError, TypeError, ValueError)
+
+
 def _probe_media_duration(compressed: Path, original: Path, config: AppConfig) -> float:
     duration_sec = 0.0
-    try:
+    with contextlib.suppress(*_PROBE_ERRORS):
         duration_sec = get_duration_sec(compressed, resolve_binary(config.paths.ffprobe, "ffprobe"))
-    except (OSError, subprocess.SubprocessError, TypeError, ValueError):
-        pass
     if duration_sec <= 0:
         # Fallback: probe original so windowing can still run for long clips.
-        try:
+        with contextlib.suppress(*_PROBE_ERRORS):
             duration_sec = get_duration_sec(original, resolve_binary(config.paths.ffprobe, "ffprobe"))
-        except (OSError, subprocess.SubprocessError, TypeError, ValueError):
-            pass
     return duration_sec
 
 
