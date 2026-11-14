@@ -6,6 +6,7 @@ import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import httpx
 from google import genai
@@ -396,7 +397,7 @@ class GeminiProvider:
     ) -> AIResponse:
         def _do() -> AIResponse:
             wait_for_rate_limit(self._rl, cancel_event, what=self.provider_id)
-            contents: list[types.Part | str] = [
+            contents: list[Any] = [
                 types.Part.from_bytes(data=Path(path).read_bytes(), mime_type="image/png") for path in image_paths
             ]
             contents.append(prompt)
