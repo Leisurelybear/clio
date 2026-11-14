@@ -120,74 +120,51 @@ def _resolve_output_dir(old_dir: Path, paths_raw: dict[str, Any], project_json: 
     return (old_dir / "output").resolve()
 
 
-def _migrate_one(old_dir: Path, config_path: Path, registry_file: Path) -> tuple[bool, str]:
-    """Migrate a single project directory. Returns (ok, message)."""
-    old_yaml = old_dir / "project.yaml"
-    if not old_yaml.is_file():
-        return False, t("task.migrate.no_project_yaml", {"dir": old_dir})
+def _read_legacy_project(old_dir: Path, old_yaml: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    with old_yaml.open(encoding="utf-8") as f:
+        loaded = yaml.safe_load(f)
+    if loaded is None:
+        loaded = {}
+    if not isinstance(loaded, dict):
+        raise ValueError("project.yaml root must be an object")
+    paths_value = loaded.get("paths") or {}
+    if not isinstance(paths_value, dict):
+        raise ValueError("project.yaml paths must be an object")
+    return loaded, dict(paths_value)
 
-    videos_json = old_dir / "videos.json"
-    try:
-        with old_yaml.open(encoding="utf-8") as f:
-            loaded = yaml.safe_load(f)
-        if loaded is None:
-            loaded = {}
-        if not isinstance(loaded, dict):
-            raise ValueError("project.yaml root must be an object")
-        paths_value = loaded.get("paths") or {}
-        if not isinstance(paths_value, dict):
-            raise ValueError("project.yaml paths must be an object")
-        old_raw: dict[str, Any] = loaded
-        paths_raw = dict(paths_value)
-    except _YAML_READ_ERRORS as e:
-        return False, t("task.migrate.read_yaml_failed", {"dir": old_dir, "detail": e})
-    has_input = bool(paths_raw.get("input_dir"))
-    if videos_json.is_file() and not has_input:
-        return False, f"{old_dir}: " + t("task.migrate.already_new_suffix")
 
-    # Resolve old input_dir for video discovery
+def _resolve_legacy_input_path(old_dir: Path, paths_raw: dict[str, Any]) -> Path:
     old_input_raw = paths_raw.get("input_dir", ".")
     if old_input_raw in (None, "", "."):
-        old_input_path = old_dir
-    else:
-        candidate = Path(str(old_input_raw))
-        old_input_path = candidate if candidate.is_absolute() else (old_dir / candidate).resolve()
+        return old_dir
+    candidate = Path(str(old_input_raw))
+    return candidate if candidate.is_absolute() else (old_dir / candidate).resolve()
 
-    name = old_raw.get("name") or old_dir.name
-    old_json = old_dir / "project.json"
-    abs_output = _resolve_output_dir(old_dir, paths_raw, old_json)
 
-    # Prefer in-place: keep project at old_dir, only write videos.json + strip yaml.
-    # Non-in-place only when videos live outside old_dir AND we want a clean config home.
-    # Even then we preserve absolute output_dir so existing artifacts stay reachable.
+def _select_migration_target(
+    old_dir: Path,
+    videos_json: Path,
+    abs_output: Path,
+    config_path: Path,
+    name: str,
+    old_input_path: Path,
+) -> tuple[Path, bool]:
     if old_input_path.resolve() == old_dir.resolve() or videos_json.is_file() or abs_output.exists():
-        # Stay in place whenever output already has work, or videos are collocated
-        new_dir = old_dir
-        in_place = True
-    else:
-        new_dir = (config_path.parent / "projects" / name).resolve()
-        in_place = False
+        return old_dir, True
+    return (config_path.parent / "projects" / name).resolve(), False
 
-    print(
-        t("task.migrate.migrating", {"src": old_dir, "dst": new_dir})
-        + (t("task.migrate.in_place_suffix") if in_place else "")
-    )
-    new_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. Backup old yaml
-    bak_yaml = old_dir / "project.yaml.migrate-bak"
-    if not bak_yaml.is_file():
-        try:
-            shutil.copy2(old_yaml, bak_yaml)
-        except OSError as e:
-            return False, t("task.migrate.backup_yaml_failed", {"dir": old_dir, "detail": e})
-
-    # 2. Write new project.yaml without input_dir/recursive (atomic via tmp+rename)
+def _write_migrated_yaml(
+    old_dir: Path,
+    old_raw: dict[str, Any],
+    paths_raw: dict[str, Any],
+    abs_output: Path,
+    new_dir: Path,
+) -> str | None:
     new_raw = dict(old_raw)
     new_paths = dict(paths_raw)
     new_paths.pop("input_dir", None)
     new_paths.pop("recursive", None)
-    # Always store absolute output_dir so non-in-place moves keep artifacts
     new_paths["output_dir"] = str(abs_output)
     new_raw["paths"] = new_paths
     new_yaml = new_dir / "project.yaml"
@@ -200,9 +177,11 @@ def _migrate_one(old_dir: Path, config_path: Path, registry_file: Path) -> tuple
         tmp_yaml.replace(new_yaml)
     except (OSError, yaml.YAMLError) as e:
         tmp_yaml.unlink(missing_ok=True)
-        return False, t("task.migrate.write_yaml_failed", {"dir": old_dir, "detail": e})
+        return t("task.migrate.write_yaml_failed", {"dir": old_dir, "detail": e})
+    return None
 
-    # 3. project.json (atomic via tmp+rename)
+
+def _write_migrated_json(old_dir: Path, old_json: Path, new_dir: Path, name: str, abs_output: Path) -> str | None:
     new_json = new_dir / "project.json"
     data: dict[str, Any] = {}
     if old_json.is_file():
@@ -222,55 +201,114 @@ def _migrate_one(old_dir: Path, config_path: Path, registry_file: Path) -> tuple
         tmp_json.replace(new_json)
     except OSError as e:
         tmp_json.unlink(missing_ok=True)
-        return False, t("task.migrate.write_json_failed", {"dir": old_dir, "detail": e})
+        return t("task.migrate.write_json_failed", {"dir": old_dir, "detail": e})
+    return None
 
-    # Verify writes succeeded before proceeding
+
+def _verify_migrated_files(old_dir: Path, new_yaml: Path, new_json: Path) -> str | None:
     if not new_yaml.is_file() or not new_json.is_file():
-        return False, t("task.migrate.write_verify_failed", {"dir": old_dir})
+        return t("task.migrate.write_verify_failed", {"dir": old_dir})
     try:
         verify_raw = yaml.safe_load(new_yaml.read_text(encoding="utf-8"))
         if not isinstance(verify_raw, dict) or "paths" not in verify_raw:
-            return False, t("task.migrate.yaml_verify_failed", {"dir": old_dir})
+            return t("task.migrate.yaml_verify_failed", {"dir": old_dir})
         verify_data = json.loads(new_json.read_text(encoding="utf-8"))
         if not isinstance(verify_data, dict) or verify_data.get("version") != 2:
-            return False, t("task.migrate.json_version_verify_failed", {"dir": old_dir})
+            return t("task.migrate.json_version_verify_failed", {"dir": old_dir})
     except _VERIFY_ERRORS as e:
-        return False, t("task.migrate.write_verify_error", {"dir": old_dir, "detail": e})
+        return t("task.migrate.write_verify_error", {"dir": old_dir, "detail": e})
+    return None
 
-    # 4. videos.json — preserve curated list if the file already exists
-    # (including intentional empty []). Only scan when the file is absent.
+
+def _load_or_scan_videos(
+    old_dir: Path,
+    new_dir: Path,
+    old_input_path: Path,
+    abs_output: Path,
+    videos_json: Path,
+) -> list[Path]:
     videos_json_target = new_dir / "videos.json"
-    videos_json_old = old_dir / "videos.json"
-    if videos_json_target.is_file() or (old_dir.resolve() != new_dir.resolve() and videos_json_old.is_file()):
+    same_dir = old_dir.resolve() == new_dir.resolve()
+    if videos_json_target.is_file() or (not same_dir and videos_json.is_file()):
         existing = load_selected_videos(new_dir)
-        if not existing and old_dir.resolve() != new_dir.resolve() and videos_json_old.is_file():
+        if not existing and not same_dir and videos_json.is_file():
             existing = load_selected_videos(old_dir)
             save_selected_videos(new_dir, existing)
         videos = existing
         print(t("task.migrate.keep_videos_json", {"count": len(videos)}))
+        return videos
+    if old_input_path.is_dir():
+        videos = find_videos(old_input_path, recursive=True)
+        out_resolved = abs_output.resolve()
+        videos = [v for v in videos if out_resolved not in v.resolve().parents and v.resolve() != out_resolved]
     else:
-        if old_input_path.is_dir():
-            videos = find_videos(old_input_path, recursive=True)
-            # Drop anything under the project's output tree (compressed artifacts)
-            out_resolved = abs_output.resolve()
-            videos = [v for v in videos if out_resolved not in v.resolve().parents and v.resolve() != out_resolved]
+        videos = []
+    save_selected_videos(new_dir, videos)
+    print(t("task.migrate.found_videos", {"count": len(videos)}))
+    return videos
+
+
+def _retire_legacy_yaml(old_dir: Path, new_dir: Path, old_yaml: Path, bak_yaml: Path, in_place: bool) -> None:
+    if in_place or not old_yaml.is_file() or old_yaml.resolve() == (new_dir / "project.yaml").resolve():
+        return
+    try:
+        if not bak_yaml.is_file():
+            old_yaml.rename(bak_yaml)
         else:
-            videos = []
-        save_selected_videos(new_dir, videos)
-        print(t("task.migrate.found_videos", {"count": len(videos)}))
+            old_yaml.unlink(missing_ok=True)
+    except OSError:
+        pass
 
-    # 5. Update registry
-    _update_registry(registry_file, old_dir, new_dir, name)
 
-    # 6. Non-in-place: retire old project.yaml (keep bak)
-    if not in_place and old_yaml.is_file() and old_yaml.resolve() != (new_dir / "project.yaml").resolve():
+def _migrate_one(old_dir: Path, config_path: Path, registry_file: Path) -> tuple[bool, str]:
+    """Migrate a single project directory. Returns (ok, message)."""
+    old_yaml = old_dir / "project.yaml"
+    if not old_yaml.is_file():
+        return False, t("task.migrate.no_project_yaml", {"dir": old_dir})
+
+    videos_json = old_dir / "videos.json"
+    try:
+        old_raw, paths_raw = _read_legacy_project(old_dir, old_yaml)
+    except _YAML_READ_ERRORS as e:
+        return False, t("task.migrate.read_yaml_failed", {"dir": old_dir, "detail": e})
+    has_input = bool(paths_raw.get("input_dir"))
+    if videos_json.is_file() and not has_input:
+        return False, f"{old_dir}: " + t("task.migrate.already_new_suffix")
+
+    old_input_path = _resolve_legacy_input_path(old_dir, paths_raw)
+    name = old_raw.get("name") or old_dir.name
+    old_json = old_dir / "project.json"
+    abs_output = _resolve_output_dir(old_dir, paths_raw, old_json)
+    new_dir, in_place = _select_migration_target(old_dir, videos_json, abs_output, config_path, name, old_input_path)
+
+    print(
+        t("task.migrate.migrating", {"src": old_dir, "dst": new_dir})
+        + (t("task.migrate.in_place_suffix") if in_place else "")
+    )
+    new_dir.mkdir(parents=True, exist_ok=True)
+
+    bak_yaml = old_dir / "project.yaml.migrate-bak"
+    if not bak_yaml.is_file():
         try:
-            if not bak_yaml.is_file():
-                old_yaml.rename(bak_yaml)
-            else:
-                old_yaml.unlink(missing_ok=True)
-        except OSError:
-            pass
+            shutil.copy2(old_yaml, bak_yaml)
+        except OSError as e:
+            return False, t("task.migrate.backup_yaml_failed", {"dir": old_dir, "detail": e})
+
+    error = _write_migrated_yaml(old_dir, old_raw, paths_raw, abs_output, new_dir)
+    if error:
+        return False, error
+    error = _write_migrated_json(old_dir, old_json, new_dir, name, abs_output)
+    if error:
+        return False, error
+    new_yaml = new_dir / "project.yaml"
+    new_json = new_dir / "project.json"
+    error = _verify_migrated_files(old_dir, new_yaml, new_json)
+    if error:
+        return False, error
+
+    videos = _load_or_scan_videos(old_dir, new_dir, old_input_path, abs_output, videos_json)
+    _update_registry(registry_file, old_dir, new_dir, name)
+    _retire_legacy_yaml(old_dir, new_dir, old_yaml, bak_yaml, in_place)
 
     return True, t(
         "task.migrate.migrated",
