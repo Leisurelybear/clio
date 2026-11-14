@@ -146,8 +146,8 @@ dispatch to both tasks (for background work) and domain modules (for reads/previ
 1. **Resumability over correctness-per-uniqueness** — most outputs are keyed by numeric index
    (`001`, `002`, …); `skip_existing` + fingerprint caches make reruns cheap and stale artifacts
    garbage-collected by the compress/analyze commits.
-2. **Compatibility via read-only combined views** — the V2 config split keeps legacy merged
-   dataclasses (`PathsConfig`, `AIConfig`, …) as deprecated aliases so old callers compile.
+2. **Compatibility via read-only combined views** — the V2 config split exposes `Combined*`
+   views for merged runtime access; the deprecated merged dataclasses have been removed.
 3. **SSE is long-poll over SQLite cursors**, not pub/sub — each subscriber polls `store.events(after_seq)`
    every ~250 ms; `Last-Event-ID` enables resume. This trades throughput for zero moving parts.
 4. **Cancellation is cooperative** — a `threading.Event` flows through `TaskReporter`;

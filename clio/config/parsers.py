@@ -3,9 +3,9 @@ from __future__ import annotations
 import os
 
 from clio.config.models import (
+    ProjectWhisperConfig,
     ProviderConfig,
     TaskConfig,
-    WhisperConfig,
 )
 from clio.config.validators import _filter_dc
 
@@ -63,7 +63,7 @@ def _parse_tasks(raw: dict) -> dict[str, TaskConfig]:
     return tasks
 
 
-def _parse_whisper(raw: dict) -> WhisperConfig:
-    cfg = WhisperConfig(**_filter_dc(raw, WhisperConfig))
+def _parse_whisper(raw: dict) -> ProjectWhisperConfig:
+    cfg = ProjectWhisperConfig(**_filter_dc(raw, ProjectWhisperConfig))
     cfg.sanitize()
     return cfg

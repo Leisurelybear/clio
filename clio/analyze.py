@@ -972,11 +972,7 @@ def _validate_plan_ranges(
     """Filter invalid plan segments and enforce source and segment budgets."""
     by_index: dict[int | str, list[tuple[float, float]]] = {}
     for clip in clips:
-        raw = clip.get("index")
-        try:
-            key: int | str = int(str(raw).strip())
-        except (TypeError, ValueError):
-            key = str(raw).strip()
+        key = _plan_index_key(clip.get("index"))
         by_index[key] = _timeline_intervals(clip)
 
     valid: list[dict] = []
@@ -984,11 +980,7 @@ def _validate_plan_ranges(
     for segment in result.get("sequence", []):
         if not isinstance(segment, dict):
             continue
-        raw_idx = segment.get("index")
-        try:
-            idx: int | str = int(str(raw_idx).strip())
-        except (TypeError, ValueError):
-            idx = str(raw_idx).strip()
+        idx = _plan_index_key(segment.get("index"))
         timeline = str(segment.get("use_timeline") or "").strip()
         intervals = by_index.get(idx, [])
         if timeline and intervals:

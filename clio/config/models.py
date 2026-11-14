@@ -419,67 +419,6 @@ class CombinedWhisperConfig:
 # AppConfig — runtime merged view
 # ---------------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
-# Backward-compat aliases (used in type hints, parsers, and tests)
-# These will be removed after all callers are migrated.
-# ---------------------------------------------------------------------------
-
-# These old merged dataclasses are kept temporarily so that callers
-# (parsers, validators, tests) continue to compile
-# during the transition. They are NOT used by the new loader or AppConfig.
-
-
-@dataclass
-class AIConfig:
-    providers: dict[str, ProviderConfig] = field(default_factory=dict)
-    tasks: dict[str, TaskConfig] = field(default_factory=dict)
-    context: str = ""
-    debug_print_prompt: bool = False
-    provider_ttl_min: int = 60
-
-
-@dataclass
-class PathsConfig:
-    output_dir: Path = Path("./output")
-    ffmpeg: str = ""
-    ffprobe: str = ""
-    logs_dir: Path = Path("./logs")
-
-
-@dataclass
-class CompressConfig:
-    target_size_mb: float = 5
-    max_width: int = 640
-    min_video_kbps: int = 800
-    max_video_kbps: int = 8000
-    fps: int = 15
-    codec: str = "libx264"
-    crf: int = 32
-    remove_audio: bool = False
-
-
-@dataclass
-class WhisperConfig:
-    enabled: bool = True
-    model_size: str = "medium"
-    language: str = "zh"
-    device: str = "auto"
-    max_segments_per_clip: int = 5
-    cache_dir: str = ""
-    transcripts_subdir: str = "transcripts"
-    hf_endpoint: str = ""
-
-    def sanitize(self) -> None:
-        if self.model_size not in list(WhisperModelSize):
-            raise ValueError(f"whisper.model_size must be one of {', '.join(WhisperModelSize)}, got: {self.model_size}")
-        if self.language not in list(WhisperLang):
-            raise ValueError(f"whisper.language must be one of {', '.join(WhisperLang)}, got: {self.language}")
-        if self.device not in list(WhisperDevice):
-            raise ValueError(f"whisper.device must be one of {', '.join(WhisperDevice)}, got: {self.device}")
-        if self.max_segments_per_clip < 1:
-            raise ValueError(f"whisper.max_segments_per_clip must be >= 1, got: {self.max_segments_per_clip}")
-
-
 _EMPTY_PROJECT = ProjectConfig()
 
 

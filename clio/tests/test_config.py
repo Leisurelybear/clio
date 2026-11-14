@@ -10,7 +10,6 @@ import pytest
 import yaml
 
 from clio.config import (
-    WhisperConfig,
     _load_context,
     _path,
     _resolve_api_key,
@@ -881,22 +880,21 @@ class TestLoadConfig:
         assert cfg.ai.context == "project specific"
 
 
-# ── WhisperConfig ────────────────────────────────────────────────────
+# ── ProjectWhisperConfig ─────────────────────────────────────────────
 
 
-class TestWhisperConfig:
+class TestProjectWhisperConfig:
     def test_defaults(self):
-        cfg = WhisperConfig()
+        cfg = ProjectWhisperConfig()
         assert cfg.enabled is True
         assert cfg.model_size == "medium"
         assert cfg.language == "zh"
         assert cfg.device == "auto"
         assert cfg.max_segments_per_clip == 5
-        assert cfg.cache_dir == ""
         assert cfg.transcripts_subdir == "transcripts"
 
     def test_custom_values(self):
-        cfg = WhisperConfig(enabled=True, model_size="small", language="en", device="cpu")
+        cfg = ProjectWhisperConfig(enabled=True, model_size="small", language="en", device="cpu")
         assert cfg.enabled is True
         assert cfg.model_size == "small"
         assert cfg.language == "en"
@@ -904,23 +902,23 @@ class TestWhisperConfig:
 
     def test_invalid_model_size_raises(self):
         with pytest.raises(ValueError):
-            WhisperConfig(model_size="invalid").sanitize()
+            ProjectWhisperConfig(model_size="invalid").sanitize()
 
     def test_invalid_language_raises(self):
         with pytest.raises(ValueError):
-            WhisperConfig(language="fr").sanitize()
+            ProjectWhisperConfig(language="fr").sanitize()
 
     def test_invalid_device_raises(self):
         with pytest.raises(ValueError):
-            WhisperConfig(device="gpu").sanitize()
+            ProjectWhisperConfig(device="gpu").sanitize()
 
     def test_zero_clips_raises(self):
         with pytest.raises(ValueError):
-            cfg = WhisperConfig(max_segments_per_clip=0)
+            cfg = ProjectWhisperConfig(max_segments_per_clip=0)
             cfg.sanitize()
 
     def test_auto_language_accepted(self):
-        cfg = WhisperConfig(language="auto")
+        cfg = ProjectWhisperConfig(language="auto")
         cfg.sanitize()
         assert cfg.language == "auto"
 

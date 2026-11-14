@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from clio.config import WhisperConfig
+from clio.config.models import ProjectWhisperConfig
 from clio.progress import ProgressTracker
 from clio.vmeta import VideoMeta
 
@@ -24,7 +24,7 @@ def _mock_whisper_deps(monkeypatch):
 @pytest.fixture
 def cfg(tmp_path):
     c = MagicMock()
-    c.whisper = WhisperConfig(enabled=True, language="zh", model_size="small", device="cpu")
+    c.whisper = ProjectWhisperConfig(enabled=True, language="zh", model_size="small", device="cpu")
     c.paths.output_dir = tmp_path / "default_output"
     c.project_dir = tmp_path / "default_input"
     c.analyze.skip_existing = True

@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from clio.config import AppConfig, WhisperConfig
+from clio.config import AppConfig
 from clio.config.models import (
     AnalyzeConfig,
     GlobalConfig,
@@ -56,34 +56,34 @@ def test_check_whisper_true_with_cublas_and_import():
 class TestResolveCacheDir:
     def test_default(self, tmp_path, monkeypatch):
         monkeypatch.setattr("clio.transcribe.PROJECT_ROOT", tmp_path)
-        result = _resolve_cache_dir(MagicMock(whisper=WhisperConfig(cache_dir="")))
+        result = _resolve_cache_dir(MagicMock(whisper=MagicMock(cache_dir="")))
         assert result == tmp_path / "models"
 
     def test_custom(self, tmp_path):
         custom = tmp_path / "whisper_cache"
-        result = _resolve_cache_dir(MagicMock(whisper=WhisperConfig(cache_dir=str(custom))))
+        result = _resolve_cache_dir(MagicMock(whisper=MagicMock(cache_dir=str(custom))))
         assert result == custom
 
 
 class TestResolveDevice:
     def test_cpu(self):
-        assert _resolve_device(MagicMock(whisper=WhisperConfig(device="cpu"))) == "cpu"
+        assert _resolve_device(MagicMock(whisper=ProjectWhisperConfig(device="cpu"))) == "cpu"
 
     def test_cuda(self):
-        assert _resolve_device(MagicMock(whisper=WhisperConfig(device="cuda"))) == "cuda"
+        assert _resolve_device(MagicMock(whisper=ProjectWhisperConfig(device="cuda"))) == "cuda"
 
     @patch("ctranslate2.get_cuda_device_count")
     def test_auto_cpu(self, mock_cuda_count):
         mock_cuda_count.return_value = 0
-        assert _resolve_device(MagicMock(whisper=WhisperConfig(device="auto"))) == "cpu"
+        assert _resolve_device(MagicMock(whisper=ProjectWhisperConfig(device="auto"))) == "cpu"
 
     @patch("ctranslate2.get_cuda_device_count")
     def test_auto_cuda(self, mock_cuda_count):
         mock_cuda_count.return_value = 1
-        assert _resolve_device(MagicMock(whisper=WhisperConfig(device="auto"))) == "cuda"
+        assert _resolve_device(MagicMock(whisper=ProjectWhisperConfig(device="auto"))) == "cuda"
 
     def test_override(self):
-        config = MagicMock(whisper=WhisperConfig(device="auto"))
+        config = MagicMock(whisper=ProjectWhisperConfig(device="auto"))
         assert _resolve_device(config, device_override="cpu") == "cpu"
 
 
@@ -98,7 +98,9 @@ class TestResolveComputeType:
 class TestGetModel:
     @patch("clio.transcribe.WhisperModel")
     def test_singleton(self, mock_whisper_cls):
-        cfg = MagicMock(whisper=WhisperConfig(model_size="small", cache_dir="/cache"))
+        cfg = MagicMock(
+            whisper=MagicMock(model_size="small", cache_dir="/cache", hf_endpoint="", device="auto", language="zh")
+        )
         with (
             patch("clio.transcribe._whisper_model", None),
             patch("clio.transcribe._whisper_cache_key", None),
@@ -115,14 +117,18 @@ class TestGetModel:
     def test_get_model_import_error(self, mock_dev, mock_cache, mock_reload):
         """WhisperModel 未安装时抛 ImportError"""
         with pytest.raises(ImportError):
-            _get_model(MagicMock(whisper=WhisperConfig(model_size="small")))
+            _get_model(MagicMock(whisper=ProjectWhisperConfig(model_size="small")))
 
     @patch("clio.transcribe.WhisperModel")
     def test_get_model_cache_invalidation(self, mock_whisper_cls):
         """model_size 或 cache_dir 变化时重新加载模型"""
         mock_whisper_cls.side_effect = lambda *a, **kw: MagicMock()
-        cfg1 = MagicMock(whisper=WhisperConfig(model_size="small", cache_dir="/cache1"))
-        cfg2 = MagicMock(whisper=WhisperConfig(model_size="medium", cache_dir="/cache1"))
+        cfg1 = MagicMock(
+            whisper=MagicMock(model_size="small", cache_dir="/cache1", hf_endpoint="", device="auto", language="zh")
+        )
+        cfg2 = MagicMock(
+            whisper=MagicMock(model_size="medium", cache_dir="/cache1", hf_endpoint="", device="auto", language="zh")
+        )
         with (
             patch("clio.transcribe._whisper_model", None),
             patch("clio.transcribe._whisper_cache_key", None),
@@ -141,7 +147,9 @@ class TestGetModel:
             ValueError("default error"),
             MagicMock(),
         ]
-        cfg = MagicMock(whisper=WhisperConfig(model_size="small", cache_dir="/cache"))
+        cfg = MagicMock(
+            whisper=MagicMock(model_size="small", cache_dir="/cache", hf_endpoint="", device="auto", language="zh")
+        )
         with (
             patch("clio.transcribe._whisper_model", None),
             patch("clio.transcribe._whisper_cache_key", None),
@@ -160,7 +168,9 @@ class TestGetModel:
             TypeError("Library cublas64_12.dll is not found or cannot be loaded"),
             MagicMock(),
         ]
-        cfg = MagicMock(whisper=WhisperConfig(model_size="small", cache_dir="/cache"))
+        cfg = MagicMock(
+            whisper=MagicMock(model_size="small", cache_dir="/cache", hf_endpoint="", device="auto", language="zh")
+        )
         with (
             patch("clio.transcribe._whisper_model", None),
             patch("clio.transcribe._whisper_cache_key", None),
@@ -176,7 +186,9 @@ class TestGetModel:
     def test_cuda_fallback_re_raises_on_non_cuda(self, mock_whisper_cls):
         """非 CUDA 设备抛异常时不回退"""
         mock_whisper_cls.side_effect = ValueError("model error")
-        cfg = MagicMock(whisper=WhisperConfig(model_size="small", cache_dir="/cache"))
+        cfg = MagicMock(
+            whisper=MagicMock(model_size="small", cache_dir="/cache", hf_endpoint="", device="auto", language="zh")
+        )
         with (
             patch("clio.transcribe._whisper_model", None),
             patch("clio.transcribe._whisper_cache_key", None),
@@ -198,7 +210,13 @@ class TestGetModel:
 
         mock_whisper_cls.side_effect = _capture_env
         cfg = MagicMock(
-            whisper=WhisperConfig(model_size="small", cache_dir="/cache", hf_endpoint="https://hf-mirror.com")
+            whisper=MagicMock(
+                model_size="small",
+                cache_dir="/cache",
+                hf_endpoint="https://hf-mirror.com",
+                device="auto",
+                language="zh",
+            )
         )
         old_val = os.environ.pop("HF_ENDPOINT", None)
         try:
@@ -280,7 +298,7 @@ class TestTranscribeAudio:
         callback = MagicMock()
         result = transcribe_audio(
             Path("/fake.wav"),
-            MagicMock(whisper=WhisperConfig(language="zh")),
+            MagicMock(whisper=ProjectWhisperConfig(language="zh")),
             callback,
         )
 
@@ -306,7 +324,7 @@ class TestTranscribeAudio:
 
         result = transcribe_audio(
             Path("/fake.wav"),
-            MagicMock(whisper=WhisperConfig(language="auto")),
+            MagicMock(whisper=ProjectWhisperConfig(language="auto")),
         )
         assert result == []
 
@@ -346,7 +364,7 @@ class TestTranscribeAudio:
         mock_model.transcribe.side_effect = _transcribe
         mock_get_model.return_value = mock_model
 
-        config = MagicMock(whisper=WhisperConfig(language="en", device="auto"))
+        config = MagicMock(whisper=ProjectWhisperConfig(language="en", device="auto"))
         result = transcribe_audio(
             Path("/fake.wav"),
             config,

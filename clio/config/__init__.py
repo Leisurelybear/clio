@@ -12,14 +12,12 @@ from clio.config.loader import (
     parse_dotenv,
 )
 from clio.config.models import (
-    AIConfig,
     AnalyzeConfig,
     AppConfig,
     CombinedAIConfig,
     CombinedCompressConfig,
     CombinedPaths,
     CombinedWhisperConfig,
-    CompressConfig,
     ExportConfig,
     GlobalAIConfig,
     GlobalCompressConfig,
@@ -27,7 +25,6 @@ from clio.config.models import (
     GlobalPathsConfig,
     GlobalWhisperConfig,
     NamingConfig,
-    PathsConfig,
     PlanConfig,
     ProjectAIConfig,
     ProjectCompressConfig,
@@ -40,7 +37,6 @@ from clio.config.models import (
     ServerConfig,
     TaskConfig,
     UiConfig,
-    WhisperConfig,
 )
 from clio.config.parsers import (
     _parse_providers,
@@ -52,14 +48,12 @@ from clio.config.validators import _filter_dc, _validate_config, validate_global
 
 __all__ = [
     "CONFIG_DESCRIPTIONS",
-    "AIConfig",
     "AnalyzeConfig",
     "AppConfig",
     "CombinedAIConfig",
     "CombinedCompressConfig",
     "CombinedPaths",
     "CombinedWhisperConfig",
-    "CompressConfig",
     "ExportConfig",
     "GlobalAIConfig",
     "GlobalCompressConfig",
@@ -67,7 +61,6 @@ __all__ = [
     "GlobalPathsConfig",
     "GlobalWhisperConfig",
     "NamingConfig",
-    "PathsConfig",
     "PlanConfig",
     "ProjectAIConfig",
     "ProjectCompressConfig",
@@ -80,7 +73,6 @@ __all__ = [
     "ServerConfig",
     "TaskConfig",
     "UiConfig",
-    "WhisperConfig",
     "WhisperDevice",
     "WhisperLang",
     "WhisperModelSize",

@@ -8,20 +8,23 @@ from typing import Any
 from clio.config.descriptions import CONFIG_DESCRIPTIONS
 from clio.config.models import (
     AnalyzeConfig,
-    CompressConfig,
     GlobalAIConfig,
+    GlobalCompressConfig,
+    GlobalPathsConfig,
+    GlobalWhisperConfig,
     NamingConfig,
-    PathsConfig,
     PlanConfig,
     PreviewSubtitlesConfig,
     ProjectAIConfig,
+    ProjectCompressConfig,
+    ProjectPathsConfig,
+    ProjectWhisperConfig,
     ProviderConfig,
     ProxyConfig,
     ScriptConfig,
     ServerConfig,
     TaskConfig,
     UiConfig,
-    WhisperConfig,
 )
 
 _KEY_PATTERN = re.compile(r"\{name\}")
@@ -31,18 +34,21 @@ _EXTRA_DESCRIPTION_KEYS = {"paths.project_dir", "whisper.engine"}
 
 # Map of config field name → dataclass type (hardcoded to avoid annotation resolution issues)
 _CONFIG_DC_MAP: list[tuple[str, type[Any]]] = [
-    ("paths", PathsConfig),
+    ("paths", GlobalPathsConfig),
+    ("paths", ProjectPathsConfig),
     ("proxy", ProxyConfig),
     ("server", ServerConfig),
     ("ai", GlobalAIConfig),
     ("ai", ProjectAIConfig),
-    ("compress", CompressConfig),
+    ("compress", GlobalCompressConfig),
+    ("compress", ProjectCompressConfig),
     ("analyze", AnalyzeConfig),
     ("naming", NamingConfig),
     ("ui", UiConfig),
     ("script", ScriptConfig),
     ("plan", PlanConfig),
-    ("whisper", WhisperConfig),
+    ("whisper", GlobalWhisperConfig),
+    ("whisper", ProjectWhisperConfig),
     ("preview.subtitles", PreviewSubtitlesConfig),
 ]
 

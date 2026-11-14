@@ -18,7 +18,7 @@
 
 | File | Responsibility |
 |---|---|
-| `models.py` | All dataclasses: `GlobalConfig`/`ProjectConfig` and their sub-configs; read-only `Combined*` view dataclasses; `AppConfig` (`:422`); deprecated merged aliases (`AIConfig`, `PathsConfig`, …) |
+| `models.py` | All dataclasses: `GlobalConfig`/`ProjectConfig` and their sub-configs; read-only `Combined*` view dataclasses; `AppConfig` (`:422`) |
 | `loader.py` | `load_global_config` (`:525`), `load_project_config` (`:574`), `load_config` (`:636`), `apply_run_paths` (`:661`); `.env` loader (`:89`), `_ensure_global_config` (`:117`), `_migrate_v1_to_v2` (`:421`), `_upgrade_config_file` (`:175`), `deep_merge` (`:136`), context-file loader `_load_context` (`:273`) |
 | `validators.py` | `_validate_config` (`:107`) + `validate_global_config` (`:183`); `_filter_dc` (unknown-field pruning); numeric `_require_*` helpers; provider/task semantics |
 | `parsers.py` | `_parse_providers`/`_parse_tasks`; `_infer_provider_capabilities` (default tags by provider type) |
@@ -115,9 +115,9 @@ Key migration details:
 1. `AppConfig` caches `Combined*` views lazily and invalidates them only in setters. Mutating
   `config.global_cfg.compress.crf = 20` directly is safe (same instance), but a method that
   *replaces* `global_cfg` must go through the setter or stale views leak through.
-2. Two files (`models.py` + `loader.py`) carry backward-compat merged aliases (`AIConfig`,
-  `PathsConfig`, `CompressConfig`, …) that are "kept temporarily" — they compile but their
-  exact removal target is undocumented; tighten before cleanup.
+2. Backward compatibility is provided by the read-only `Combined*` views. The deprecated
+  merged dataclasses (`AIConfig`, `PathsConfig`, `CompressConfig`, `WhisperConfig`) have been
+  removed; new code should use the global/project split models directly.
 3. `deep_merge` (`loader.py:136`) exists but is now used only for validation of generated YAML —
   confirm the UI does not still rely on it before removing (P2-P10 history).
 4. `.env` parsing is naive `partition("=")` — values with `=` and inline comments are split
