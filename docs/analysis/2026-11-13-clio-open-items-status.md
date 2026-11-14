@@ -12,7 +12,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P1 | 35 | 20 | 15 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P2 | 59 | 17 | 17 | 0 | 0 | 0 | 0 | 0 | 25 |
+| P2 | 59 | 19 | 17 | 0 | 0 | 0 | 0 | 0 | 23 |
 | P3 | 14 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 10 |
 
 ## Item status
@@ -89,7 +89,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 068 | P2 | R013 | "5-10 秒一条"与"每窗口最多 60 条"在 15 分钟窗口下矛盾 (需要 90-180 条) | Satisfied | Existing implementation (`2fefba8`) replaces the fixed 60-row cap with duration-based targets and maxima: <=5 minutes 25-40/60, 5-10 minutes 50-80/120, and 10-15 minutes 75-120/180. The prompt also uses 8-12 seconds per active row and up to 20 seconds for static footage, so a 15-minute window no longer conflicts with the density target (`clio/prompts.py:122-130`). Focused: 36 prompt tests passed. |
 | 069 | P2 | R020 | 只要有 1 个视频分析失败, analyze 步骤就抛异常, 后面的口播、规划全部不执行 | Fixed | `30c9bc8` makes analyze return successful records plus a failed count by default, records failures in the pipeline summary while continuing later steps, and adds `--strict` to `analyze`/`run` for legacy fail-fast behavior. Artifact overwrite confirmations remain fatal. Focused: 130 tests passed; full Python suite: 3366 passed, 12 skipped; Ruff and diff check passed. Mypy reports only the two pre-existing `test_routes_run.py` append errors. |
 | 070 | P2 | C16 | 原生弹窗: plan 编辑无撤销 (部分修复) | Satisfied | Satisfied; native dialog/undo work completed. |
-| 071 | P2 | B10 | README 数字与流程过时 | Pending audit |  |
+| 071 | P2 | B10 | README 数字与流程过时 | Fixed | `f3e27b7` removes handwritten test badges/count tables from both READMEs, clarifies the short-clip size budget plus 800 kbps long-clip floor, and syncs the pipeline diagram, step table, typical workflow, and English config guidance with the current implementation. Documentation-only verification: `git diff --check` passed. |
 | 072 | P2 | O18 | ROADMAP 过长 | Satisfied | Satisfied; roadmap archival completed. |
 | 073 | P2 | R031 | target_size_mb=5 在 800 kbps 保底下对约 46 秒以上的素材不再成立; 日志仍打印"目标 5MB", README 仍写 ~5MB; 短素材码率没有上限 | Pending audit |  |
 | 074 | P2 | F8 | 草稿只有视频轨 (部分修复) | Pending audit |  |
@@ -121,7 +121,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 100 | P2 | OPT-027 | 分析失败时统一提示"请检查 API Key 和网络连接" (task.analyze.incomplete), 即使原因是 JSON 结构或安全拦截 | Pending audit |  |
 | 101 | P2 | OPT-030 | Vitest 语句覆盖 55.78%; editor-plan.js 17%、main.js 28%、viewer.js 38% | Pending audit |  |
 | 102 | P2 | OPT-032 | AGENTS.md 411 行、ROADMAP.md 1,826 行、CHANGELOG.md 1,103 行; docs/analysis 27 份、docs/superpowers 109 份 | Pending audit |  |
-| 103 | P2 | OPT-033 | README 手写测试数量 (2409 / 720), 与实测 (2870 / 857) 不符 | Pending audit |  |
+| 103 | P2 | OPT-033 | README 手写测试数量 (2409 / 720), 与实测 (2870 / 857) 不符 | Fixed | `f3e27b7` removes the handwritten `tests-2000+` badges, per-module count table, and `2000+` project-tree labels from both READMEs; CI remains the authoritative count. Documentation-only verification: `git diff --check` passed. |
 | 104 | P3 | R036 | 任务指纹包含 provider、model、base_url、max_tokens, 但不包含 temperature | Fixed | Task lineage settings now include the bound task temperature. Focused: 27 plan-lineage tests passed, including a temperature-change fingerprint regression. |
 | 105 | P3 | R025 | test_readonly_dir_is_handled_gracefully 以 root 运行时失败 | Pending audit |  |
 | 106 | P3 | R035 | 校验重试的修正说明取自界面语言包, 英文界面下中文提示词后面会接一段英文说明 | Pending audit |  |
