@@ -734,8 +734,25 @@ def handle_post_run_preview(handler: HandlerProtocol, qs: dict[str, Any], obj: d
     handler._send_json({"ok": True, "preview": preview})
 
 
-def handle_post_rerun(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
-    """Handle POST /api/rerun."""
+@dataclass
+class _RerunOptions:
+    proj_dir: Path
+    cfg: Any
+    config_path: Path | None
+    proj_out: Path
+    video_basename: str
+    task: str
+    source_view: str
+    index_value: str | None
+    abspath_raw: str
+    confirm_artifact_overwrite: bool
+
+    @property
+    def stem(self) -> str:
+        return Path(self.video_basename).stem
+
+
+def _parse_rerun_options(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> _RerunOptions | None:
     proj_dir = handler._resolve_project_dir(qs)
     cfg = handler._get_config(proj_dir)
     config_path = getattr(handler, "config_path", None)
@@ -746,172 +763,233 @@ def handle_post_rerun(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -
     video_value = obj.get("video")
     task_value = obj.get("task")
     if not isinstance(video_value, str) or not isinstance(task_value, str):
-        return handler._send_json({"ok": False, "error": "invalid video filename"}, 400)
+        handler._send_json({"ok": False, "error": "invalid video filename"}, 400)
+        return None
     video_basename = video_value.strip()
     task = task_value.strip()
     if not video_basename or not _is_safe_video_reference(video_basename):
-        return handler._send_json({"ok": False, "error": "invalid video filename"}, 400)
+        handler._send_json({"ok": False, "error": "invalid video filename"}, 400)
+        return None
     if task not in ("compress", "analyze", "texts", "voiceover", "transcribe", "all"):
-        return handler._send_json(
+        handler._send_json(
             {
                 "ok": False,
                 "error": "requires video (filename) and task (compress|analyze|texts|voiceover|transcribe|all)",
             },
             400,
         )
-    # 向后兼容
+        return None
     if task == "texts":
         task = "analyze"
 
-    stem = Path(video_basename).stem
-
-    # Resolve original video path (supports external paths via .vmeta / videos.json)
     source_view = obj.get("source", "compressed")
     if source_view not in ("compressed", "original"):
-        return handler._send_json({"ok": False, "error": "source must be compressed or original"}, 400)
+        handler._send_json({"ok": False, "error": "source must be compressed or original"}, 400)
+        return None
     index_value = obj.get("index")
     if index_value is not None and not isinstance(index_value, str):
-        return handler._send_json({"ok": False, "error": "index must be a string"}, 400)
+        handler._send_json({"ok": False, "error": "index must be a string"}, 400)
+        return None
     abspath_value = obj.get("abspath")
     if abspath_value is not None and not isinstance(abspath_value, str):
-        return handler._send_json({"ok": False, "error": "abspath must be a string"}, 400)
+        handler._send_json({"ok": False, "error": "abspath must be a string"}, 400)
+        return None
     confirm_artifact_overwrite = obj.get("confirm_artifact_overwrite", False)
     if not isinstance(confirm_artifact_overwrite, bool):
-        return handler._send_json({"ok": False, "error": "confirm_artifact_overwrite must be a boolean"}, 400)
-    abspath_raw = (abspath_value or "").strip()
-    original_video: Path | None = None
-
-    if abspath_raw:
-        candidate = Path(abspath_raw).resolve()
-        if candidate.is_file() and candidate.suffix.lower() in VIDEO_EXTS:
-            selected = {p.resolve() for p in load_selected_videos(proj_dir)}
-            under_project = False
-            try:
-                candidate.relative_to(proj_dir.resolve())
-                under_project = True
-            except ValueError:
-                under_project = False
-            if candidate in selected or under_project:
-                original_video = candidate
-
-    if original_video is None and source_view == "original":
-        candidate = (proj_dir / video_basename).resolve()
-        if candidate.is_file():
-            original_video = candidate
-        else:
-            # Frontend may send compressed-style name in original view, or an
-            # external basename only present in videos.json / .vmeta.
-            for p in load_selected_videos(proj_dir):
-                if (p.name == video_basename or p.stem.lower() == stem.lower()) and p.is_file():
-                    original_video = p.resolve()
-                    break
-            if original_video is None:
-                original_video = _resolve_found_original(
-                    _find_original_for_compressed(stem, proj_dir, cfg.compressed_dir, project_dir=proj_dir),
-                    proj_dir,
-                )
-        if original_video is None:
-            return handler._send_json({"ok": False, "error": f"original video not found: {video_basename}"}, 404)
-    elif original_video is None:
-        # Compressed view: .vmeta.source_path is authoritative for external originals
-        comp_dir = cfg.compressed_dir
-        if comp_dir:
-            for _ext in VIDEO_EXTS:
-                cand = comp_dir / f"{stem}{_ext}"
-                if cand.is_file():
-                    meta = VideoMeta.read(cand)
-                    if meta is not None:
-                        sp = Path(meta.source_path)
-                        if sp.is_file():
-                            original_video = sp.resolve()
-                            break
-        if original_video is None:
-            original_video = _resolve_found_original(
-                _find_original_for_compressed(stem, proj_dir, comp_dir, project_dir=proj_dir),
-                proj_dir,
-            )
-            if original_video is None:
-                return handler._send_json({"ok": False, "error": f"no matching original video for {stem}"}, 404)
-
-    # Resolve texts JSON path (for voiceover rerun)
-    raw_index = (index_value or "").strip()
-    index_prefix = (
-        re.sub(r"[^a-zA-Z0-9_-]", "", raw_index) if raw_index else (stem.split("_", 1)[0] if "_" in stem else stem)
+        handler._send_json({"ok": False, "error": "confirm_artifact_overwrite must be a boolean"}, 400)
+        return None
+    return _RerunOptions(
+        proj_dir=proj_dir,
+        cfg=cfg,
+        config_path=config_path,
+        proj_out=proj_out,
+        video_basename=video_basename,
+        task=task,
+        source_view=source_view,
+        index_value=index_value,
+        abspath_raw=(abspath_value or "").strip(),
+        confirm_artifact_overwrite=confirm_artifact_overwrite,
     )
-    texts_json = None
-    if task == "voiceover":
-        for td in _find_texts_dirs(
-            proj_out,
-            preferred_subdir=getattr(getattr(cfg, "analyze", None), "texts_subdir", None) or "texts",
-        ):
-            candidates = sorted(td.glob(f"{index_prefix}_*.json"))
-            if candidates:
-                texts_json = candidates[0]
-                break
-        if texts_json is None:
-            return handler._send_json({"ok": False, "error": f"no analysis result found for {stem}"}, 404)
 
-    artifact_steps: list[str] = []
-    if task in ("analyze", "all"):
-        artifact_steps.append("analyze")
-    if task in ("voiceover", "all"):
-        artifact_steps.append("voiceover")
-    if artifact_steps:
-        artifact_cfg = copy.deepcopy(cfg)
-        artifact_cfg.analyze.skip_existing = False
-        artifact_paths = artifact_overwrite_paths(
-            artifact_cfg,
-            artifact_steps,
-            force=False,
-            use_transcripts=bool(getattr(cfg.plan, "use_transcripts", True)),
-            files=[str(original_video)],
+
+def _resolve_rerun_abspath(proj_dir: Path, abspath_raw: str) -> Path | None:
+    if not abspath_raw:
+        return None
+    candidate = Path(abspath_raw).resolve()
+    if not candidate.is_file() or candidate.suffix.lower() not in VIDEO_EXTS:
+        return None
+    selected = {p.resolve() for p in load_selected_videos(proj_dir)}
+    try:
+        candidate.relative_to(proj_dir.resolve())
+        under_project = True
+    except ValueError:
+        under_project = False
+    return candidate if candidate in selected or under_project else None
+
+
+def _resolve_rerun_original_video(options: _RerunOptions) -> tuple[Path | None, str | None]:
+    original_video = _resolve_rerun_abspath(options.proj_dir, options.abspath_raw)
+    if original_video is not None:
+        return original_video, None
+
+    if options.source_view == "original":
+        candidate = (options.proj_dir / options.video_basename).resolve()
+        if candidate.is_file():
+            return candidate, None
+        for path in load_selected_videos(options.proj_dir):
+            if (path.name == options.video_basename or path.stem.lower() == options.stem.lower()) and path.is_file():
+                return path.resolve(), None
+        original_video = _resolve_found_original(
+            _find_original_for_compressed(
+                options.stem,
+                options.proj_dir,
+                options.cfg.compressed_dir,
+                project_dir=options.proj_dir,
+            ),
+            options.proj_dir,
         )
-        if artifact_paths and not confirm_artifact_overwrite:
-            items = [path.name for path in artifact_paths]
-            return handler._send_json(
-                {
-                    "ok": False,
-                    "code": "artifact_overwrite_confirmation_required",
-                    "error": t("task.artifact.overwrite_confirmation_required", {"items": ", ".join(items)}),
-                    "items": items,
-                },
-                409,
-            )
+        if original_video is None:
+            return None, f"original video not found: {options.video_basename}"
+        return original_video, None
 
+    comp_dir = options.cfg.compressed_dir
+    if comp_dir:
+        for ext in VIDEO_EXTS:
+            candidate = comp_dir / f"{options.stem}{ext}"
+            if not candidate.is_file():
+                continue
+            meta = VideoMeta.read(candidate)
+            if meta is not None:
+                source_path = Path(meta.source_path)
+                if source_path.is_file():
+                    return source_path.resolve(), None
+    original_video = _resolve_found_original(
+        _find_original_for_compressed(options.stem, options.proj_dir, comp_dir, project_dir=options.proj_dir),
+        options.proj_dir,
+    )
+    if original_video is None:
+        return None, f"no matching original video for {options.stem}"
+    return original_video, None
+
+
+def _resolve_rerun_texts_json(options: _RerunOptions) -> Path | None:
+    if options.task != "voiceover":
+        return None
+    raw_index = (options.index_value or "").strip()
+    index_prefix = (
+        re.sub(r"[^a-zA-Z0-9_-]", "", raw_index)
+        if raw_index
+        else (options.stem.split("_", 1)[0] if "_" in options.stem else options.stem)
+    )
+    for texts_dir in _find_texts_dirs(
+        options.proj_out,
+        preferred_subdir=getattr(getattr(options.cfg, "analyze", None), "texts_subdir", None) or "texts",
+    ):
+        candidates = sorted(texts_dir.glob(f"{index_prefix}_*.json"))
+        if candidates:
+            return candidates[0]
+    return None
+
+
+def _rerun_artifact_confirmation(
+    options: _RerunOptions,
+    original_video: Path,
+) -> tuple[dict[str, Any], int] | None:
+    artifact_steps: list[str] = []
+    if options.task in ("analyze", "all"):
+        artifact_steps.append("analyze")
+    if options.task in ("voiceover", "all"):
+        artifact_steps.append("voiceover")
+    if not artifact_steps:
+        return None
+    artifact_cfg = copy.deepcopy(options.cfg)
+    artifact_cfg.analyze.skip_existing = False
+    artifact_paths = artifact_overwrite_paths(
+        artifact_cfg,
+        artifact_steps,
+        force=False,
+        use_transcripts=bool(getattr(options.cfg.plan, "use_transcripts", True)),
+        files=[str(original_video)],
+    )
+    if not artifact_paths or options.confirm_artifact_overwrite:
+        return None
+    items = [path.name for path in artifact_paths]
+    return (
+        {
+            "ok": False,
+            "code": "artifact_overwrite_confirmation_required",
+            "error": t("task.artifact.overwrite_confirmation_required", {"items": ", ".join(items)}),
+            "items": items,
+        },
+        409,
+    )
+
+
+def _submit_rerun(
+    handler: HandlerProtocol,
+    options: _RerunOptions,
+    original_video: Path,
+    texts_json: Path | None,
+) -> None:
     manager = _managed_task_manager(handler)
     if manager is None:
-        return handler._send_json({"ok": False, "error": "task center unavailable"}, 500)
+        handler._send_json({"ok": False, "error": "task center unavailable"}, 500)
+        return
     _ensure_run_handlers(manager)
-    project_id = str(proj_dir.resolve())
+    project_id = str(options.proj_dir.resolve())
     if _active_managed_run(manager, project_id) is not None:
-        return handler._send_json({"ok": False, "error": t("task.project_busy")}, 409)
+        handler._send_json({"ok": False, "error": t("task.project_busy")}, 409)
+        return
     try:
         managed_task = manager.submit(
             TaskKind.RERUN,
-            t("task.rerun_title", {"task": task, "video": video_basename}),
+            t("task.rerun_title", {"task": options.task, "video": options.video_basename}),
             project_id=project_id,
-            project_name=proj_dir.name,
+            project_name=options.proj_dir.name,
             project_path=project_id,
             input_data={
-                "config_path": str(config_path) if config_path is not None else None,
+                "config_path": str(options.config_path) if options.config_path is not None else None,
                 "project_dir": project_id,
-                "task": task,
-                "video_basename": video_basename,
+                "task": options.task,
+                "video_basename": options.video_basename,
                 "original_video": str(original_video),
                 "texts_json": str(texts_json) if texts_json is not None else None,
-                "confirm_artifact_overwrite": confirm_artifact_overwrite,
+                "confirm_artifact_overwrite": options.confirm_artifact_overwrite,
             },
-            private_input_data={"_config": cfg},
-            input_summary={"task": task, "video": video_basename},
+            private_input_data={"_config": options.cfg},
+            input_summary={"task": options.task, "video": options.video_basename},
             reject_if_active=True,
         )
     except TaskAlreadyRunningError:
-        return handler._send_json({"ok": False, "error": t("task.project_busy")}, 409)
-    return handler._send_json(
+        handler._send_json({"ok": False, "error": t("task.project_busy")}, 409)
+        return
+    handler._send_json(
         {
             "ok": True,
-            "message": f"started rerun {task} ({video_basename})",
+            "message": f"started rerun {options.task} ({options.video_basename})",
             "task_id": managed_task.id,
             "task": managed_task.to_dict(),
         }
     )
+
+
+def handle_post_rerun(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
+    """Handle POST /api/rerun."""
+    options = _parse_rerun_options(handler, qs, obj)
+    if options is None:
+        return
+    original_video, error = _resolve_rerun_original_video(options)
+    if error is not None:
+        handler._send_json({"ok": False, "error": error}, 404)
+        return
+    assert original_video is not None
+    texts_json = _resolve_rerun_texts_json(options)
+    if options.task == "voiceover" and texts_json is None:
+        handler._send_json({"ok": False, "error": f"no analysis result found for {options.stem}"}, 404)
+        return
+    confirmation = _rerun_artifact_confirmation(options, original_video)
+    if confirmation is not None:
+        payload, status = confirmation
+        handler._send_json(payload, status)
+        return
+    _submit_rerun(handler, options, original_video, texts_json)
