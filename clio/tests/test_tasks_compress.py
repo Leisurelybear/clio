@@ -277,6 +277,7 @@ class TestRunCompressAll:
         records = run_compress_all(cfg)
 
         assert call_count[0] == 1
+        assert records[0].meta is not None
         assert records[0].meta.compress_settings["min_video_kbps"] == 800
         assert records[0].meta.compress_settings["max_video_kbps"] == 8000
 

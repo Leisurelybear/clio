@@ -1447,24 +1447,24 @@ class TestRunRerunTask:
             "clio.ui.routes.run.run_compress_all",
             lambda *a, **kw: calls.append("compress"),
         )
-        monkeypatch.setattr(
-            "clio.ui.routes.run.run_transcribe_one",
-            lambda *a, **kw: calls.append("transcribe") or {},
-        )
-        monkeypatch.setattr(
-            "clio.ui.routes.run.run_analyze_all",
-            lambda *a, **kw: (
-                calls.append("analyze")
-                or [
-                    ClipRecord(
-                        index=1,
-                        stem="001_new_title",
-                        source_path=Path("source"),
-                        text_path=texts_txt,
-                    )
-                ]
-            ),
-        )
+
+        def fake_transcribe(*args, **kwargs):
+            calls.append("transcribe")
+            return {}
+
+        def fake_analyze(*args, **kwargs):
+            calls.append("analyze")
+            return [
+                ClipRecord(
+                    index=1,
+                    stem="001_new_title",
+                    source_path=Path("source"),
+                    text_path=texts_txt,
+                )
+            ]
+
+        monkeypatch.setattr("clio.ui.routes.run.run_transcribe_one", fake_transcribe)
+        monkeypatch.setattr("clio.ui.routes.run.run_analyze_all", fake_analyze)
         monkeypatch.setattr(
             "clio.ui.routes.run.run_generate_scripts",
             lambda *a, **kw: calls.append("voiceover"),

@@ -189,7 +189,7 @@ def test_failed_window_run_resumes_from_cache(monkeypatch, tmp_path: Path) -> No
 
     monkeypatch.setattr("clio.tasks.analyze.summarize_window_analysis", fake_summary)
 
-    analyze_calls: list[tuple[str, float | None, float | None, float | None, str | None]] = []
+    analyze_calls: list[tuple[str, float | None, float | None, float | None, str | None, bool | None]] = []
 
     def fail_second(path, *args, **kwargs):
         analyze_calls.append(
