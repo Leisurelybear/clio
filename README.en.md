@@ -1,13 +1,12 @@
 # 🎬 Clio — AI Preprocessing Pipeline
 
-> 🧠 **Raw footage → Compress → AI understands → Voiceover scripts → Edit plan → CapCut final cut**
+> 🧠 **Raw footage → Compress → AI understands → Same-day consistency → Voiceover scripts → Edit plans → CapCut final cut**
 >
 > A CLI + Web UI tool designed for solo travel vloggers. Feed your GoPro/phone 4K footage to AI, get summaries, timelines, voiceover scripts, and edit plans — then put the final touches (effects, lip-sync) in **CapCut (JianYing)**.
 
 [![CI](https://github.com/Leisurelybear/Clio/actions/workflows/test.yml/badge.svg)](https://github.com/Leisurelybear/Clio/actions/workflows/test.yml)
 [![codecov](https://codecov.io/gh/Leisurelybear/Clio/branch/main/graph/badge.svg?token=PEG3XQM76C)](https://codecov.io/gh/Leisurelybear/Clio)
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
-![tests](https://img.shields.io/badge/tests-2000%2B-brightgreen)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **English** · [简体中文](README.md)
@@ -18,7 +17,7 @@
 
 | | Feature | AI | Description |
 |---|---------|----|-------------|
-| 🗜️ | **Smart Compression** | | 4K → 640p · duration-adaptive bitrate · mono audio · ~5MB target |
+| 🗜️ | **Smart Compression** | | 4K → 640p · mono 64 kbps audio by default · short clips use a size budget, while long clips keep an 800 kbps analysis floor (logical windows) |
 | 🤖 | **AI Video Understanding** | ✅ Gemini | Watches footage → title / location / mood / summary / timeline |
 | ✍️ | **AI Voiceover** | ✅ DeepSeek | Writes narration from template + AI analysis |
 | 📋 | **AI Edit Planning** | ✅ DeepSeek | AI arranges segment order, target duration, theme |
@@ -28,7 +27,7 @@
 | ✂️ | **Precision Cutting** | | Plan-based cutting, fast or re-encode |
 | 🌐 | **Web UI Editor** | | Zero deps, browser-based editing & pipeline |
 | 🗂️ | **Task Center & Notifications** | | Cross-project persistent background tasks, live progress, retries, and inbox |
-| 🚀 | **One-shot Pipeline** | ✅ | `run --day day1` does it all, skips existing |
+| 🚀 | **One-shot Pipeline** | ✅ | `run --day day1` covers compress → transcribe → analyze → same-day consistency → voiceover → plan → planned voiceover → labels; run `cut` separately |
 
 ---
 
@@ -76,33 +75,38 @@ Security notes:
 
 ```mermaid
 graph LR
-    A[📹 4K Raw] --> B{🗜️ Split & Compress}
-    B --> C[🤖 Gemini Analysis]
-    C --> D[✍️ DeepSeek Voiceover]
-    C --> E[🧠 Whisper ASR]
-    D --> F[🤖 DeepSeek Plan]
-    E --> F
-    F --> G[✂️ Cut Clips]
-    F --> H[🏷️ Burn Labels]
-    G & H --> I[🎬 CapCut Final Cut]
+    A[📹 4K Raw] --> B{🗜️ Compress}
+    B --> C[🧠 Whisper ASR]
+    C --> D[🤖 Gemini Analysis]
+    D --> E[🧩 Same-day Consistency]
+    E --> F[✍️ DeepSeek Voiceover]
+    E --> G[🤖 DeepSeek Plan]
+    C --> G
+    G --> H[🎙️ Planned Voiceover]
+    G --> I[✂️ Cut Clips]
+    B --> J[🏷️ Burn Labels]
+    H & I & J --> K[🎬 CapCut Final Cut]
 
     style C fill:#e1f5fe,stroke:#01579b
     style D fill:#f3e5f5,stroke:#7b1fa2
-    style E fill:#fff3e0,stroke:#e65100
-    style F fill:#e8f5e9,stroke:#1b5e20
+    style E fill:#e8eaf6,stroke:#3949ab
+    style F fill:#fff3e0,stroke:#e65100
+    style G fill:#e8f5e9,stroke:#1b5e20
 ```
 
 | Step | AI Engine | Command | Input → Output |
 |------|-----------|---------|---------------|
-| 1️⃣ Compress | | `compress` | 4K raw → 640p / duration-adaptive bitrate / ~5MB target / mono audio |
-| 2️⃣ 🤖 **AI Analysis** | **Gemini** 2.5 Flash | `analyze` | Video → AI summary + timeline JSON |
-| 3️⃣ ✍️ **AI Voiceover** | **DeepSeek** / OpenAI | `scripts` | Analysis → AI-generated narration |
-| 4️⃣ 🧠 **AI Transcription** | **Whisper** ASR | `transcribe` | Video → Offline speech-to-text |
-| 5️⃣ 🤖 **AI Planning** | **DeepSeek** / OpenAI | `plan --day day1` | Analysis + transcripts → AI edit plan |
-| 6️⃣ 🔧 **AI Refine** | **DeepSeek** / Gemini | `refine` | Output + trip context → AI fix |
-| 7️⃣ Cut | | `cut --day day1` | Plan → Timestamp clip extraction |
-| 8️⃣ Label | | `label` | Video → Burn index watermark |
-| 🚀 Full Pipeline | All AI | `run --day day1` | Executes all steps sequentially |
+| 1️⃣ Compress | | `compress` | 4K raw → 640p file; short clips use a ~5 MB budget, long clips keep an 800 kbps video floor, mono 64 kbps audio by default (one file per source) |
+| 2️⃣ 🧠 **AI Transcription** | **Whisper** / cloud ASR | `transcribe` | Compressed video → speech transcript (local or cloud) |
+| 3️⃣ 🤖 **AI Analysis** | **Gemini** 2.5 Flash | `analyze` | Compressed video + transcript → AI summary + timeline JSON |
+| 4️⃣ 🧩 **Same-day Consistency** | **DeepSeek** / OpenAI | `run --day day1` | Daily analysis JSON → normalized entities + duplicate-scene markers |
+| 5️⃣ ✍️ **AI Voiceover** | **DeepSeek** / OpenAI | `scripts` | Analysis JSON → AI-generated narration |
+| 6️⃣ 🤖 **AI Planning** | **DeepSeek** / OpenAI | `plan --day day1` | Analysis + transcripts + consistency → AI edit plan |
+| 7️⃣ 🎙️ **Planned Voiceover** | **DeepSeek** / OpenAI | `run --day day1` | Plan segments + transcript → segment-aligned narration |
+| 8️⃣ 🔧 **AI Refine** | **DeepSeek** / Gemini | `refine` | Existing output + trip context → AI correction |
+| 9️⃣ Cut | | `cut --day day1` | Plan → timestamp-based clip extraction |
+| 🔟 Label | | `label` | Compressed video → burned index watermark |
+| 🚀 Full Pipeline | AI + media | `run --day day1` | Compress → transcribe → analyze → same-day consistency → voiceover → plan → planned voiceover → labels; run `cut` separately |
 
 > 💡 Supports **single-file** processing: `python main.py analyze -i "output/compressed/001_GL010685.mp4"`
 > 💡 Each step independently skips existing output; add `--force` to regenerate
@@ -133,9 +137,15 @@ DEEPSEEK_API_KEY=your_DeepSeek_API_Key
 
 ### ⚙️ Edit Config
 
+Configuration is split into two layers:
+
+- **`config.yaml`** (global): AI providers, default task bindings, proxy, codec settings, and other cross-project defaults
+- **`project.yaml`** (project-local): AI context, task overrides, compression size, Whisper language, and other per-project settings
+
 ```bash
 cp config.example.yaml config.yaml
-# Edit paths.input_dir, proxy.url, etc.
+# Global config: edit ai.providers, ai.default_tasks, etc.
+# Project config: place project.yaml in the project directory (see docs/project.example.yaml)
 ```
 
 ### 🌐 Language
@@ -172,7 +182,7 @@ python main.py serve
 | 📋 Edit Plan | **DeepSeek** / OpenAI | Text | Arranges segment sequence |
 | 🔧 Refine | Same (configurable) | Text | Fixes output with trip context |
 
-Each task can use a different provider/model via `config.yaml` → `ai.tasks`. Supports **OpenAI-compatible APIs** (Tongyi Qianwen, Kimi, etc.). OpenAI-compatible providers can set `timeout_sec` for slow gateways or local models. Gemini providers can set `video_upload_max_mb` to change the per-file upload limit (default: 200 MB; larger files must be compressed first).
+Global task bindings live in `config.yaml` → `ai.default_tasks`, so new projects do not need to choose a provider/model again. A project can override any task in `project.yaml` → `ai.tasks`; unset tasks inherit the global default. `refine_text` follows the project's effective `video_analyze` binding by default and can also be overridden explicitly. Supported backends include **OpenAI-compatible APIs** (Tongyi Qianwen, Kimi, etc.) and local **Ollama** (`type: ollama`, no API key required, default `http://localhost:11434/v1`). Providers declare `video` / `text` capabilities through `capabilities`; video-analysis tasks automatically filter and validate for video-capable providers. OpenAI-compatible providers can set `timeout_sec` for slow gateways or local models. Gemini providers can set `video_upload_max_mb` to change the per-file upload limit (default: 200 MB; larger files must be compressed first).
 
 📌 **Automatic trip context injection**: write your trip background and known pitfalls once in `templates/trip_context.md`, injected into every AI call.
 
@@ -184,16 +194,19 @@ Each task can use a different provider/model via `config.yaml` → `ai.tasks`. S
 📹 Home from a shoot, plug in GoPro SD card
 
 > python main.py run -i "E:/2025-10 Paris" --day day1
->   ⚙️ Split 3 clips (34min total)
->   ⚙️ Compressed (avg 4.8MB each)
+>   ⚙️ Compress source files (size budget for short clips, analysis floor for long clips)
+>   ⚙️ Scan 3 logical analysis windows (34min total; no physical slices)
 > ── 🤖 AI takes over ──────────────────
->   ✅ Gemini analyzed all footage → titles / timelines
->   ✅ DeepSeek wrote voiceover scripts → templated style
 >   ✅ Whisper / Cloud ASR done → local or cloud engine
+>   ✅ Gemini analyzed footage → titles / timelines / summaries
+>   ✅ DeepSeek normalized same-day entities → duplicate scenes marked
+>   ✅ DeepSeek wrote the full voiceover script → templated style
 >   ✅ DeepSeek planned edit order → 11 segs / ~3min
-> ── 🔧 Non-AI steps ──────────────────
->   ✅ Clips cut by plan
+>   ✅ DeepSeek wrote planned-segment voiceover → aligned to selected clips
 >   ✅ Index labels burned
+
+> python main.py cut --day day1
+>   ✅ Clips cut by plan → output/cuts/day1/
 
 > python main.py serve
   → Browser: review AI output, tweak scripts, reorder, preview
@@ -243,7 +256,7 @@ vlog-video-analysis/
 │   ├── ai/                    # 🧠 AI adapters (Gemini / OpenAI compat)
 │   ├── tasks/                 # 📂 Step implementations
 │   ├── ui/                    # 🌐 Web UI (stdlib only, zero deps)
-│   └── tests/                 # 🧪 2000+ unit tests
+│   └── tests/                 # 🧪 Backend and Web API tests
 └── output/
     ├── compressed/            # 🗜️ Compressed videos
     ├── texts/                 # 📝 AI analysis JSON
@@ -259,30 +272,27 @@ vlog-video-analysis/
 ## 🧪 Testing & Quality
 
 ```bash
+# Run all backend tests
 python -m pytest clio/tests/ -v
 
-# Test counts are authoritative in the GitHub Actions CI matrix (Python 3.11 / 3.12; Node 22.12+)
+# Frontend typecheck and unit tests require Node.js 22.12+ (the Web UI itself does not)
+npm run typecheck
+npm test
+
+# Test counts are authoritative in the GitHub Actions CI matrix
+# CI: Ubuntu + Windows + macOS · Python 3.11 / 3.12; Node 22.12+
 # Code style: ruff (format + lint)
 ```
 
-| Module | Tests | Coverage |
-|--------|-------|----------|
-| 🧩 config | 46 | Loading / merging / validation / descriptions |
-| 🛠️ utils | 74 | extract_json / ffmpeg discovery / atomic IO / subprocess |
-| 🎬 cut | 26 | Time parsing / filename gen / offset |
-| 📊 progress | 15 | Progress / ETA |
-| 🤖 ai series | 60 | Gemini / OpenAI / retry / cache |
-| 🧠 analyze | 19 | File matching / context injection |
-| 🌐 routes | 103 | Video / config / plan / transcript / env APIs |
-| 🔄 tasks | 81 | Step orchestration / cancel / file filter |
-| 🎙️ transcribe | 20 | Toggle / device / model / CUDA |
-| 📦 file_service | 61 | Safe path / atomic save / segment match |
-| 📁 project | 22 | Output dir / registry / step detection |
-| 📊 processing_state | 8 | Mark / reset / persistence |
-| 🧪 vmeta | 13 | Sidecar meta / index / staleness |
-| Others | ~96 | Pipeline / plan / log / ratelimit / main entry etc. |
+Primary coverage areas:
 
-> Run the full pytest and Vitest suites locally; the Python 3.11 / 3.12 and Node 22.12+ CI matrix remains authoritative.
+- ⚙️ Config loading, merging, validation, and upgrades
+- 🤖 Gemini / OpenAI-compatible / Ollama providers, retries, caching, and structured output
+- 📂 Compression, transcription, analysis, same-day consistency, planning, cutting, and export orchestration
+- 🌐 Web routes, path safety, task center, SSE, and error responses
+- 🖥️ Frontend save/conflict flows, plan history, player preview, and i18n
+
+> Run the full pytest and Vitest suites locally; the exact counts remain authoritative in the GitHub Actions CI matrix (Python 3.11 / 3.12; Node 22.12+).
 
 ---
 

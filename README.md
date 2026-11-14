@@ -7,7 +7,6 @@
 [![CI](https://github.com/Leisurelybear/Clio/actions/workflows/test.yml/badge.svg)](https://github.com/Leisurelybear/Clio/actions/workflows/test.yml)
 [![codecov](https://codecov.io/gh/Leisurelybear/Clio/branch/main/graph/badge.svg?token=PEG3XQM76C)](https://codecov.io/gh/Leisurelybear/Clio)
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
-![tests](https://img.shields.io/badge/tests-2000%2B-brightgreen)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 [English](README.en.md) · **简体中文**
@@ -18,7 +17,7 @@
 
 | | 特性 | AI 驱动 | 说明 |
 |---|------|---------|------|
-| 🗜️ | **智能压缩** | | 4K → 640p · 单声道 64 kbps 音频 · 体积 ~5MB（长片 AI 分析用逻辑窗） |
+| 🗜️ | **智能压缩** | | 4K → 640p · 默认单声道 64 kbps 音频 · 短视频按目标体积估算码率，长片保底 800 kbps 以便分析（逻辑窗） |
 | 🤖 | **AI 视频理解** | ✅ Gemini | 看懂画面 → 标题 / 地点 / 心情 / 摘要 / 时间轴 |
 | ✍️ | **AI 口播文案** | ✅ DeepSeek | 基于模板 + AI 分析，自动写 vlog 旁白稿 |
 | 📋 | **AI 剪辑规划** | ✅ DeepSeek | AI 编排片段顺序、目标时长、主题 |
@@ -87,8 +86,8 @@ graph LR
     C --> G
     G --> H[🎙️ 计划段口播]
     G --> I[✂️ 裁剪片段]
-    G --> J[🏷️ 烧录序号]
-    I & J --> K[🎬 剪映成片]
+    B --> J[🏷️ 烧录序号]
+    H & I & J --> K[🎬 剪映成片]
 
     style C fill:#e1f5fe,stroke:#01579b
     style D fill:#f3e5f5,stroke:#7b1fa2
@@ -99,7 +98,7 @@ graph LR
 
 | 步骤 | AI 引擎 | 命令 | 输入 → 输出 |
 |------|---------|------|------------|
-| 1️⃣ 压缩 | | `compress` | 4K 原片 → 640p / 时长自适应码率 / ~5MB 目标体积 / 单声道低码率音频（1 原片 1 压缩文件） |
+| 1️⃣ 压缩 | | `compress` | 4K 原片 → 640p 压缩文件；短视频按约 5 MB 估算码率，长片保留 800 kbps 最低视频码率，默认单声道 64 kbps 音频（1 原片 1 文件） |
 | 2️⃣ 🧠 **AI 转录** | **Whisper** / 云端 ASR | `transcribe` | 压缩视频 → 语音字幕（本地或云端） |
 | 3️⃣ 🤖 **AI 分析** | **Gemini** 2.5 Flash | `analyze` | 压缩视频 + 转录 → AI 摘要 + 时间轴 JSON |
 | 4️⃣ 🧩 **同日一致性** | **DeepSeek** / OpenAI | `run --day day1` | 当天分析 JSON → 统一实体名 + 标记重复场景 |
@@ -208,13 +207,15 @@ python main.py compare-models \
 📹 下班到家，把 GoPro SD 卡插上电脑
 
 > python main.py run -i "E:/2025-10 巴黎" --day day1
->   ⚙️ 分割 3 段（共 34min 素材）
->   ⚙️ 压缩 3 段（平均每段 4.8MB）
+>   ⚙️ 压缩原片（短视频按体积预算，长片保底分析码率）
+>   ⚙️ 扫描 3 个逻辑分析窗（共 34min 素材；不生成物理切片）
 > ── 🤖 AI 介入 ──────────────────────
->   ✅ Gemini 看完所有视频 → 输出标题 / 时间轴 / 摘要
->   ✅ DeepSeek 写完口播稿 → 符合模板风格
 >   ✅ Whisper 语音转录 → medium 模型离线完成
+>   ✅ Gemini 分析画面 → 输出标题 / 时间轴 / 摘要
+>   ✅ DeepSeek 同日一致性 → 统一实体名、标记重复场景
+>   ✅ DeepSeek 写完整片口播稿 → 符合模板风格
 >   ✅ DeepSeek 编排规划 → day1 共 11 片段 / ~3min
+>   ✅ DeepSeek 生成计划段口播 → 对齐最终入选片段
 >   ✅ 序号水印烧录完成
 
 > python main.py cut --day day1
@@ -267,7 +268,7 @@ vlog-video-analysis/
 │   ├── ai/                    # 🧠 AI 适配层（Gemini / OpenAI 兼容）
 │   ├── tasks/                 # 📂 各步骤具体实现
 │   ├── ui/                    # 🌐 Web UI（零依赖纯 stdlib）
-│   └── tests/                 # 🧪 2000+ 单元测试
+│   └── tests/                 # 🧪 后端与 Web API 测试
 └── output/
     ├── compressed/            # 🗜️ 压缩后的视频
     ├── texts/                 # 📝 AI 分析结果 JSON
@@ -295,24 +296,15 @@ npm test
 # 代码风格: ruff (format + lint)
 ```
 
-| 模块 | 用例数 | 覆盖内容 |
-|------|-------|---------|
-| 🧩 config | 46 | 加载 / 合并 / 校验 / 描述 |
-| 🛠️ utils | 74 | extract_json / ffmpeg 发现 / 原子 IO / 子进程 |
-| 🎬 cut | 26 | 时间解析 / 文件名生成 / 偏移 |
-| 📊 progress | 15 | 进度追踪 / ETA |
-| 🤖 ai 系列 | 60 | Gemini / OpenAI 兼容 / 重试 / 缓存 |
-| 🧠 analyze | 19 | 文件匹配 / 上下文注入 / 验证 |
-| 🌐 routes | 103 | 视频 / 配置 / 规划 / 转录 / 环境 API |
-| 🔄 tasks 系列 | 81 | 各步骤编排 / 取消传播 / 文件过滤 |
-| 🎙️ transcribe | 20 | 转录开关 / 设备 / 模型 / CUDA |
-| 📦 file_service | 61 | 安全路径 / 原子保存 / 段匹配 |
-| 📁 project | 22 | 目录 / 注册表 / 步骤检测 |
-| 📊 processing_state | 8 | 标记 / 重置 / 持久化 |
-| 🧪 vmeta | 13 | 侧边栏元数据 / 索引 / 过期检测 |
-| 其他 | ~96 | pipeline / plan / log / ratelimit / 主入口等 |
+主要覆盖范围：
 
-> 本地可运行全量 pytest 与 Vitest；最终测试数量以 CI 的 Python 3.11 / 3.12 平台矩阵和 Node 22.12+ 结果为准。
+- ⚙️ 配置加载、合并、校验与升级
+- 🤖 Gemini / OpenAI 兼容 / Ollama Provider、重试、缓存与结构化输出
+- 📂 压缩、转录、分析、同日一致性、规划、裁剪与导出编排
+- 🌐 Web 路由、路径安全、任务中心、SSE 与错误响应
+- 🖥️ 前端保存/冲突流程、计划历史、播放器预览与 i18n
+
+> 本地可运行全量 pytest 与 Vitest；具体测试数量以 GitHub Actions CI 的 Python 3.11 / 3.12 平台矩阵和 Node 22.12+ 结果为准。
 
 ---
 
