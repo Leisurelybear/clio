@@ -351,65 +351,54 @@ def _list_drives() -> list[str]:
         return [f"{d}:\\" for d in string.ascii_uppercase if Path(f"{d}:\\").is_dir()]
 
 
-def _find_original_for_compressed(
-    stem: str, fallback_dir: Path, comp_dir: Path | None = None, project_dir: Path | None = None
-) -> str | None:
-    """For a compressed stem like '001_GL010695', find the matching original path.
+def _path_result(path: Path, *, catch_oserror: bool = False) -> str:
+    try:
+        return str(path.resolve()) if path.is_file() else str(path)
+    except OSError:
+        if catch_oserror:
+            return str(path)
+        raise
 
-    Returns an absolute path string when possible (external originals via .vmeta /
-    videos.json), otherwise a basename under fallback_dir/project_dir for legacy.
-    """
-    # Try .vmeta first (O(1), supports any directory layout)
-    if comp_dir is not None:
-        for p in comp_dir.glob(f"{stem}.*"):
-            if p.suffix.lower() not in VIDEO_EXTS:
-                continue
-            meta = VideoMeta.read(p)
-            if meta is not None:
-                sp = Path(meta.source_path)
-                return str(sp.resolve()) if sp.is_file() else str(sp)
 
-    if "_" not in stem:
+def _find_vmeta_original(stem: str, comp_dir: Path | None) -> str | None:
+    if comp_dir is None:
         return None
-    suffix = stem.split("_", 1)[1].lower()
+    for candidate in comp_dir.glob(f"{stem}.*"):
+        if candidate.suffix.lower() not in VIDEO_EXTS:
+            continue
+        meta = VideoMeta.read(candidate)
+        if meta is not None:
+            return _path_result(Path(meta.source_path))
+    return None
 
-    # Project dir: use load_selected_videos when videos.json is present
-    lookup_dir = project_dir or fallback_dir
-    if lookup_dir:
-        from clio.tasks._video_loader import load_selected_videos
 
-        selected = load_selected_videos(lookup_dir)
-        if selected:
+def _unique_stem_match(selected: list[Path], needle: str) -> Path | None:
+    hits = [p for p in selected if p.stem.lower() == needle]
+    return hits[0] if len(hits) == 1 else None
 
-            def _unique_stem_match(needle: str) -> Path | None:
-                hits = [p for p in selected if p.stem.lower() == needle]
-                if len(hits) == 1:
-                    return hits[0]
-                return None  # zero or ambiguous same-stem names
 
-            hit = _unique_stem_match(suffix)
-            if hit is not None:
-                try:
-                    return str(hit.resolve()) if hit.is_file() else str(hit)
-                except OSError:
-                    return str(hit)
-            base = SEGMENT_SUFFIX_RE.sub("", suffix)
-            if base != suffix:
-                hit = _unique_stem_match(base)
-                if hit is not None:
-                    try:
-                        return str(hit.resolve()) if hit.is_file() else str(hit)
-                    except OSError:
-                        return str(hit)
-            # videos.json present but no unique match — do not fall through to dir scan
-            # of project_dir (would miss external-only selections intentionally)
-            if project_dir is not None:
-                return None
+def _find_selected_original(suffix: str, lookup_dir: Path | None, project_dir: Path | None) -> tuple[str | None, bool]:
+    if not lookup_dir:
+        return None, False
+    from clio.tasks._video_loader import load_selected_videos
 
-    # Legacy fallback: stem matching under fallback_dir / project_dir
-    scan_dir = (
-        fallback_dir if fallback_dir.is_dir() else (project_dir if project_dir and project_dir.is_dir() else None)
-    )
+    selected = load_selected_videos(lookup_dir)
+    if not selected:
+        return None, False
+    hit = _unique_stem_match(selected, suffix)
+    if hit is not None:
+        return _path_result(hit, catch_oserror=True), True
+    base = SEGMENT_SUFFIX_RE.sub("", suffix)
+    if base != suffix:
+        hit = _unique_stem_match(selected, base)
+        if hit is not None:
+            return _path_result(hit, catch_oserror=True), True
+    # videos.json present but no unique match: do not fall through to a
+    # project_dir scan, which would miss external-only selections.
+    return None, project_dir is not None
+
+
+def _find_legacy_original(scan_dir: Path | None, suffix: str) -> str | None:
     if scan_dir is None:
         return None
     stem_hits = [p for p in sorted(scan_dir.iterdir()) if p.is_file() and p.stem.lower() == suffix]
@@ -418,13 +407,41 @@ def _find_original_for_compressed(
     if len(stem_hits) > 1:
         return None
     base = SEGMENT_SUFFIX_RE.sub("", suffix)
-    if base != suffix:
-        base_hits = [p for p in sorted(scan_dir.iterdir()) if p.is_file() and p.stem.lower() == base]
-        if len(base_hits) == 1:
-            return str(base_hits[0].resolve())
-        if len(base_hits) > 1:
-            return None
+    if base == suffix:
+        return None
+    base_hits = [p for p in sorted(scan_dir.iterdir()) if p.is_file() and p.stem.lower() == base]
+    if len(base_hits) == 1:
+        return str(base_hits[0].resolve())
     return None
+
+
+def _find_original_for_compressed(
+    stem: str, fallback_dir: Path, comp_dir: Path | None = None, project_dir: Path | None = None
+) -> str | None:
+    """For a compressed stem like '001_GL010695', find the matching original path.
+
+    Returns an absolute path string when possible (external originals via .vmeta /
+    videos.json), otherwise a basename under fallback_dir/project_dir for legacy.
+    """
+    vmeta_match = _find_vmeta_original(stem, comp_dir)
+    if vmeta_match is not None:
+        return vmeta_match
+
+    if "_" not in stem:
+        return None
+    suffix = stem.split("_", 1)[1].lower()
+
+    lookup_dir = project_dir or fallback_dir
+    selected_match, selected_was_complete = _find_selected_original(suffix, lookup_dir, project_dir)
+    if selected_match is not None:
+        return selected_match
+    if selected_was_complete:
+        return None
+
+    scan_dir = (
+        fallback_dir if fallback_dir.is_dir() else (project_dir if project_dir and project_dir.is_dir() else None)
+    )
+    return _find_legacy_original(scan_dir, suffix)
 
 
 def _scan_compressed_for_original(stem: str, comp_dir: Path) -> list[tuple[str, str]] | None:
