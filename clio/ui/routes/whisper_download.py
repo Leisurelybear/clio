@@ -536,6 +536,239 @@ def _verify_install(cfg: Any, progress_path: Path, model_name: str) -> bool:
     return True
 
 
+def _ensure_hf_hub() -> None:
+    try:
+        import huggingface_hub  # noqa: F401
+    except ImportError:
+        r = run_subprocess(
+            [_sys.executable, "-m", "pip", "install", "huggingface_hub", "-q"],
+            capture_output=True,
+            text=True,
+        )
+        if r.returncode != 0:
+            raise RuntimeError(t("api.whisper_install_hf_hub_failed", {"detail": r.stderr})) from None
+
+
+def _install_whisper_packages(progress_path: Path, cancel: threading.Event, pip_index: str | None) -> bool:
+    """Install faster-whisper requirements. Returns False when the install failed."""
+    _write_install_progress(
+        progress_path,
+        {
+            "status": "downloading",
+            "progress_pct": 0,
+            "message": t("api.whisper_install_faster_whisper"),
+        },
+    )
+    req_txt = PROJECT_ROOT / "requirements-whisper.txt"
+    if not req_txt.is_file():
+        return True
+    ok, err = _pip_install_streaming(
+        ["-r", str(req_txt)], progress_path, t("api.whisper_install_faster_whisper_label"), cancel, pip_index
+    )
+    if not ok:
+        _write_install_progress(
+            progress_path,
+            {
+                "status": "error",
+                "progress_pct": 0,
+                "message": t("api.whisper_install_faster_whisper_failed", {"detail": err[:200]}),
+            },
+        )
+        return False
+    _reload_whisper_import()
+    return True
+
+
+def _install_cublas_packages(progress_path: Path, cancel: threading.Event, pip_index: str | None) -> None:
+    _write_install_progress(
+        progress_path,
+        {
+            "status": "downloading",
+            "progress_pct": 0,
+            "message": t("api.whisper_install_cublas"),
+        },
+    )
+    cublas_pkgs = ["nvidia-cublas-cu12"]
+    try:
+        from ctranslate2 import get_cuda_device_count
+
+        if get_cuda_device_count() > 0:
+            cublas_pkgs.append("nvidia-cudnn-cu12")
+    except (ImportError, OSError):
+        pass
+    if not cublas_pkgs:
+        return
+    ok, err = _pip_install_streaming(
+        cublas_pkgs, progress_path, t("api.whisper_install_cublas_label"), cancel, pip_index
+    )
+    if not ok:
+        _write_install_progress(
+            progress_path,
+            {
+                "status": "downloading",
+                "progress_pct": 0,
+                "message": t("api.whisper_cublas_install_failed", {"detail": err[:100]}),
+            },
+        )
+
+
+@dataclasses.dataclass
+class _ModelDownloadState:
+    downloaded: int = 0
+    start: float = dataclasses.field(default_factory=time.monotonic)
+    last_report_time: float = 0.0
+    last_pct: int = 0
+    total_size: int = 0
+
+
+def _skip_complete_file(repo_id: str, filename: str, target: Path, cfg: AppConfig, state: _ModelDownloadState) -> bool:
+    """Return True when an existing target file can be reused without downloading."""
+    if not (target.is_file() and target.stat().st_size > 0):
+        return False
+    expected_size = _get_remote_file_size(repo_id, filename, cfg)
+    if expected_size > 0 and target.stat().st_size != expected_size:
+        target.unlink(missing_ok=True)
+        return False
+    state.downloaded += target.stat().st_size
+    return True
+
+
+def _stream_model_file(
+    response: Any,
+    tmp_path: Path,
+    filename: str,
+    model_name: str,
+    progress_path: Path,
+    state: _ModelDownloadState,
+    cancel: threading.Event,
+) -> bool:
+    """Stream a response body to disk; return True when cancellation was requested."""
+    cancelled = False
+    with open(tmp_path, "wb") as f:
+        for chunk in response.iter_content(chunk_size=8192):
+            if cancel.is_set():
+                cancelled = True
+                break
+            if chunk:
+                f.write(chunk)
+                state.downloaded += len(chunk)
+
+            now = time.monotonic()
+            if now - state.last_report_time < 1.0:
+                continue
+            state.last_report_time = now
+            pct = int(state.downloaded / state.total_size * 100) if state.total_size else 0
+            speed_bps = state.downloaded / max(now - state.start, 1.0)
+            speed_str = (
+                f"{speed_bps / 1024 / 1024:.1f} MB/s"
+                if speed_bps > 1024 * 1024
+                else f"{speed_bps / 1024:.0f} KB/s"
+                if speed_bps
+                else ""
+            )
+            eta_sec = (
+                int((state.total_size - state.downloaded) / max(speed_bps, 1))
+                if state.total_size and speed_bps
+                else None
+            )
+            if state.total_size and pct >= state.last_pct + 2:
+                _write_install_progress(
+                    progress_path,
+                    {
+                        "status": "downloading",
+                        "progress_pct": pct,
+                        "message": t(
+                            "api.whisper_download_model_progress",
+                            {"model": model_name, "file": filename, "pct": pct},
+                        ),
+                        "speed": speed_str,
+                        "eta_sec": eta_sec,
+                    },
+                )
+                state.last_pct = pct
+            elif not state.total_size:
+                _write_install_progress(
+                    progress_path,
+                    {
+                        "status": "downloading",
+                        "progress_pct": 0,
+                        "message": t(
+                            "api.whisper_download_model_elapsed",
+                            {
+                                "model": model_name,
+                                "file": filename,
+                                "elapsed": int(now - state.start),
+                                "size": _format_bytes(state.downloaded),
+                            },
+                        ),
+                    },
+                )
+    return cancelled
+
+
+def _download_one_model_file(
+    cfg: AppConfig,
+    progress_path: Path,
+    model_name: str,
+    repo_id: str,
+    snapshots: Path,
+    filename: str,
+    state: _ModelDownloadState,
+    proxies: dict[str, str] | None,
+    cancel: threading.Event,
+) -> bool:
+    """Download one model file. Returns False when the download was cancelled."""
+    from huggingface_hub import hf_hub_url
+
+    target = snapshots / filename
+    if _skip_complete_file(repo_id, filename, target, cfg, state):
+        return True
+    url = hf_hub_url(repo_id, filename=filename)
+    tmp_path = target.with_name(target.name + f".{os.urandom(4).hex()}.tmp")
+    try:
+        response = _req.get(url, stream=True, proxies=proxies, timeout=(30, 180), allow_redirects=True)
+        response.raise_for_status()
+    except _req.exceptions.RequestException as e:
+        raise RuntimeError(_download_error_detail(e, cfg)) from e
+
+    if not state.total_size:
+        state.total_size += int(response.headers.get("Content-Length", 0))
+
+    if _stream_model_file(response, tmp_path, filename, model_name, progress_path, state, cancel):
+        tmp_path.unlink(missing_ok=True)
+        _write_install_progress(
+            progress_path,
+            {"status": "idle", "progress_pct": 0, "message": t("api.whisper_download_cancelled")},
+        )
+        return False
+
+    try:
+        tmp_path.replace(target)
+    except OSError as e:
+        raise RuntimeError(_download_error_detail(e, cfg)) from e
+    return True
+
+
+def _download_model_files(
+    cfg: AppConfig,
+    progress_path: Path,
+    model_name: str,
+    repo_id: str,
+    snapshots: Path,
+    total_size: int,
+    proxies: dict[str, str] | None,
+    cancel: threading.Event,
+) -> bool:
+    """Download every required model file. Returns False when cancelled."""
+    state = _ModelDownloadState(total_size=total_size)
+    for filename in REQUIRED_MODEL_FILES:
+        if not _download_one_model_file(
+            cfg, progress_path, model_name, repo_id, snapshots, filename, state, proxies, cancel
+        ):
+            return False
+    return True
+
+
 def _run_install(
     handler: _InstallHandler,
     qs: dict[str, Any],
@@ -564,71 +797,12 @@ def _run_install(
             "message": t("api.whisper_check_hf_hub"),
         },
     )
-    try:
-        import huggingface_hub  # noqa: F401
-    except ImportError:
-        r = run_subprocess(
-            [_sys.executable, "-m", "pip", "install", "huggingface_hub", "-q"],
-            capture_output=True,
-            text=True,
-        )
-        if r.returncode != 0:
-            raise RuntimeError(t("api.whisper_install_hf_hub_failed", {"detail": r.stderr})) from None
+    _ensure_hf_hub()
 
-    _write_install_progress(
-        progress_path,
-        {
-            "status": "downloading",
-            "progress_pct": 0,
-            "message": t("api.whisper_install_faster_whisper"),
-        },
-    )
-    req_txt = PROJECT_ROOT / "requirements-whisper.txt"
-    if req_txt.is_file():
-        ok, err = _pip_install_streaming(
-            ["-r", str(req_txt)], progress_path, t("api.whisper_install_faster_whisper_label"), cancel, pip_index
-        )
-        if not ok:
-            _write_install_progress(
-                progress_path,
-                {
-                    "status": "error",
-                    "progress_pct": 0,
-                    "message": t("api.whisper_install_faster_whisper_failed", {"detail": err[:200]}),
-                },
-            )
-            return
-        _reload_whisper_import()
+    if not _install_whisper_packages(progress_path, cancel, pip_index):
+        return
 
-    _write_install_progress(
-        progress_path,
-        {
-            "status": "downloading",
-            "progress_pct": 0,
-            "message": t("api.whisper_install_cublas"),
-        },
-    )
-    cublas_pkgs = ["nvidia-cublas-cu12"]
-    try:
-        from ctranslate2 import get_cuda_device_count
-
-        if get_cuda_device_count() > 0:
-            cublas_pkgs.append("nvidia-cudnn-cu12")
-    except (ImportError, OSError):
-        pass
-    if cublas_pkgs:
-        ok, err = _pip_install_streaming(
-            cublas_pkgs, progress_path, t("api.whisper_install_cublas_label"), cancel, pip_index
-        )
-        if not ok:
-            _write_install_progress(
-                progress_path,
-                {
-                    "status": "downloading",
-                    "progress_pct": 0,
-                    "message": t("api.whisper_cublas_install_failed", {"detail": err[:100]}),
-                },
-            )
+    _install_cublas_packages(progress_path, cancel, pip_index)
 
     cache_dir = _resolve_cache_dir(cfg)
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -653,108 +827,14 @@ def _run_install(
         },
     )
 
-    from huggingface_hub import hf_hub_url
-
     proxy_url = cfg.proxy.url if (cfg.proxy.enabled and cfg.proxy.url) else None
     proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
 
     snapshots = model_snapshot_dir(cache_dir, model_name)
     snapshots.mkdir(parents=True, exist_ok=True)
 
-    downloaded = 0
-    start = time.monotonic()
-    last_report_time = 0.0
-    last_pct = 0
-
-    for filename in REQUIRED_MODEL_FILES:
-        target = snapshots / filename
-        if target.is_file() and target.stat().st_size > 0:
-            expected_size = _get_remote_file_size(repo_id, filename, cfg)
-            if expected_size > 0 and target.stat().st_size != expected_size:
-                target.unlink(missing_ok=True)
-            else:
-                downloaded += target.stat().st_size
-                continue
-        url = hf_hub_url(repo_id, filename=filename)
-        tmp_path = target.with_name(target.name + f".{os.urandom(4).hex()}.tmp")
-        try:
-            response = _req.get(url, stream=True, proxies=proxies, timeout=(30, 180), allow_redirects=True)
-            response.raise_for_status()
-        except _req.exceptions.RequestException as e:
-            raise RuntimeError(_download_error_detail(e, cfg)) from e
-
-        if not total_size:
-            total_size += int(response.headers.get("Content-Length", 0))
-
-        cancelled = False
-        with open(tmp_path, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                if cancel.is_set():
-                    cancelled = True
-                    break
-                if chunk:
-                    f.write(chunk)
-                    downloaded += len(chunk)
-
-                now = time.monotonic()
-                if now - last_report_time < 1.0:
-                    continue
-                last_report_time = now
-                pct = int(downloaded / total_size * 100) if total_size else 0
-                speed_bps = downloaded / max(now - start, 1.0)
-                speed_str = (
-                    f"{speed_bps / 1024 / 1024:.1f} MB/s"
-                    if speed_bps > 1024 * 1024
-                    else f"{speed_bps / 1024:.0f} KB/s"
-                    if speed_bps
-                    else ""
-                )
-                eta_sec = int((total_size - downloaded) / max(speed_bps, 1)) if total_size and speed_bps else None
-                if total_size and pct >= last_pct + 2:
-                    _write_install_progress(
-                        progress_path,
-                        {
-                            "status": "downloading",
-                            "progress_pct": pct,
-                            "message": t(
-                                "api.whisper_download_model_progress",
-                                {"model": model_name, "file": filename, "pct": pct},
-                            ),
-                            "speed": speed_str,
-                            "eta_sec": eta_sec,
-                        },
-                    )
-                    last_pct = pct
-                elif not total_size:
-                    _write_install_progress(
-                        progress_path,
-                        {
-                            "status": "downloading",
-                            "progress_pct": 0,
-                            "message": t(
-                                "api.whisper_download_model_elapsed",
-                                {
-                                    "model": model_name,
-                                    "file": filename,
-                                    "elapsed": int(now - start),
-                                    "size": _format_bytes(downloaded),
-                                },
-                            ),
-                        },
-                    )
-
-        if cancelled:
-            tmp_path.unlink(missing_ok=True)
-            _write_install_progress(
-                progress_path,
-                {"status": "idle", "progress_pct": 0, "message": t("api.whisper_download_cancelled")},
-            )
-            return
-
-        try:
-            tmp_path.replace(target)
-        except OSError as e:
-            raise RuntimeError(_download_error_detail(e, cfg)) from e
+    if not _download_model_files(cfg, progress_path, model_name, repo_id, snapshots, total_size, proxies, cancel):
+        return
 
     ensure_model_cache_refs(cache_dir, model_name)
     _verify_install(cfg, progress_path, model_name)
