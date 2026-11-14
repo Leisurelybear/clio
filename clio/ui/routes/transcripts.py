@@ -222,73 +222,98 @@ def handle_put_transcripts(handler: HandlerProtocol, qs: dict[str, Any], obj: di
         handler._send_json({"ok": False, "error": str(e)}, 500)
 
 
-def handle_post_transcripts(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
-    video = qs.get("video", [None])[0]
-    if not video:
-        return handler._send_json({"ok": False, "error": "missing video param"}, 400)
+def _build_initial_segments(handler: HandlerProtocol, init_segments: Any) -> list[dict[str, Any]] | None:
+    """Validate and normalize client-supplied segments for a new transcript.
 
-    if obj.get("create"):
-        tp = _intended_transcript_path(handler, qs, video)
-        if not tp:
-            return handler._send_json({"ok": False, "error": "cannot create transcript path"}, 400)
-        if tp.is_file():
-            return handler._send_json({"ok": False, "error": "transcript already exists"}, 409)
-        tp.parent.mkdir(parents=True, exist_ok=True)
-        skeleton: dict[str, Any] = {"segments": [], "_rev": 1}
-        init_segments = obj.get("segments")
-        if init_segments is not None:
-            if not isinstance(init_segments, list):
-                return handler._send_json({"ok": False, "error": "segments must be a list"}, 400)
-            for seg in init_segments:
-                if not isinstance(seg, dict):
-                    return handler._send_json({"ok": False, "error": "segment must be an object"}, 400)
-                if not isinstance(seg.get("text"), str):
-                    return handler._send_json({"ok": False, "error": "segment.text must be a string"}, 400)
-                try:
-                    seg_start = float(seg.get("start", 0))
-                    seg_end = float(seg.get("end", 0))
-                except (TypeError, ValueError):
-                    return handler._send_json({"ok": False, "error": "segment.start/end must be numbers"}, 400)
-                skeleton["segments"].append(
-                    {
-                        "start": round(seg_start, 2),
-                        "end": round(seg_end, 2),
-                        "text": seg["text"].strip(),
-                        "low_confidence": False,
-                    }
-                )
-        _save_atomic(tp, json.dumps(skeleton, ensure_ascii=False, indent=2).encode("utf-8"))
-        handler._send_json({"ok": True, "message": "transcript file created"})
+    Returns None after sending a 400 response when validation fails.
+    """
+    if init_segments is None:
+        return []
+    if not isinstance(init_segments, list):
+        handler._send_json({"ok": False, "error": "segments must be a list"}, 400)
+        return None
+    segments: list[dict[str, Any]] = []
+    for seg in init_segments:
+        if not isinstance(seg, dict):
+            handler._send_json({"ok": False, "error": "segment must be an object"}, 400)
+            return None
+        if not isinstance(seg.get("text"), str):
+            handler._send_json({"ok": False, "error": "segment.text must be a string"}, 400)
+            return None
+        try:
+            seg_start = float(seg.get("start", 0))
+            seg_end = float(seg.get("end", 0))
+        except (TypeError, ValueError):
+            handler._send_json({"ok": False, "error": "segment.start/end must be numbers"}, 400)
+            return None
+        segments.append(
+            {
+                "start": round(seg_start, 2),
+                "end": round(seg_end, 2),
+                "text": seg["text"].strip(),
+                "low_confidence": False,
+            }
+        )
+    return segments
+
+
+def _handle_create_transcript(handler: HandlerProtocol, qs: dict[str, Any], video: str, obj: dict) -> None:
+    tp = _intended_transcript_path(handler, qs, video)
+    if not tp:
+        return handler._send_json({"ok": False, "error": "cannot create transcript path"}, 400)
+    if tp.is_file():
+        return handler._send_json({"ok": False, "error": "transcript already exists"}, 409)
+    tp.parent.mkdir(parents=True, exist_ok=True)
+    segments = _build_initial_segments(handler, obj.get("segments"))
+    if segments is None:
         return
+    skeleton: dict[str, Any] = {"segments": segments, "_rev": 1}
+    _save_atomic(tp, json.dumps(skeleton, ensure_ascii=False, indent=2).encode("utf-8"))
+    handler._send_json({"ok": True, "message": "transcript file created"})
 
+
+def _validate_new_segment(handler: HandlerProtocol, obj: dict) -> tuple[float, float, str] | None:
     start = obj.get("start")
     end = obj.get("end")
     text = obj.get("text", "")
     if start is None or end is None:
-        return handler._send_json({"ok": False, "error": "missing start/end"}, 400)
+        handler._send_json({"ok": False, "error": "missing start/end"}, 400)
+        return None
     if not isinstance(start, (int, float)) or not isinstance(end, (int, float)):
-        return handler._send_json({"ok": False, "error": "start/end must be numbers"}, 400)
+        handler._send_json({"ok": False, "error": "start/end must be numbers"}, 400)
+        return None
     if not isinstance(text, str):
-        return handler._send_json({"ok": False, "error": "text must be a string"}, 400)
-
+        handler._send_json({"ok": False, "error": "text must be a string"}, 400)
+        return None
     if not math.isfinite(start) or not math.isfinite(end):
-        return handler._send_json({"ok": False, "error": "start/end must be finite numbers"}, 400)
-
+        handler._send_json({"ok": False, "error": "start/end must be finite numbers"}, 400)
+        return None
     if start < 0:
-        return handler._send_json({"ok": False, "error": "start time cannot be negative"}, 400)
+        handler._send_json({"ok": False, "error": "start time cannot be negative"}, 400)
+        return None
     if end <= start:
-        return handler._send_json({"ok": False, "error": "end time must be greater than start time"}, 400)
+        handler._send_json({"ok": False, "error": "end time must be greater than start time"}, 400)
+        return None
     if end > _MAX_TIME_SEC:
-        return handler._send_json({"ok": False, "error": f"end time exceeds maximum ({_MAX_TIME_SEC}s)"}, 400)
-
+        handler._send_json({"ok": False, "error": f"end time exceeds maximum ({_MAX_TIME_SEC}s)"}, 400)
+        return None
     text = text.strip()
     if not text:
-        return handler._send_json({"ok": False, "error": "text cannot be empty"}, 400)
+        handler._send_json({"ok": False, "error": "text cannot be empty"}, 400)
+        return None
     if len(text) > _MAX_SEGMENT_TEXT_LENGTH:
-        return handler._send_json(
+        handler._send_json(
             {"ok": False, "error": f"text too long ({len(text)} > {_MAX_SEGMENT_TEXT_LENGTH} chars)"}, 400
         )
+        return None
+    return start, end, text
 
+
+def _handle_append_segment(handler: HandlerProtocol, qs: dict[str, Any], video: str, obj: dict) -> None:
+    parsed = _validate_new_segment(handler, obj)
+    if parsed is None:
+        return
+    start, end, text = parsed
     tp = _transcript_path(handler, qs, video)
     if not tp or not tp.is_file():
         return handler._send_json({"ok": False, "error": "transcript not found"}, 404)
@@ -321,3 +346,12 @@ def handle_post_transcripts(handler: HandlerProtocol, qs: dict[str, Any], obj: d
         handler._send_json({"ok": True, "segment_index": insert_idx, "revision": rev + 1, "segment": new_seg})
     except (OSError, TypeError, ValueError) as e:
         handler._send_json({"ok": False, "error": str(e)}, 500)
+
+
+def handle_post_transcripts(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
+    video = qs.get("video", [None])[0]
+    if not video:
+        return handler._send_json({"ok": False, "error": "missing video param"}, 400)
+    if obj.get("create"):
+        return _handle_create_transcript(handler, qs, video, obj)
+    return _handle_append_segment(handler, qs, video, obj)
