@@ -3,6 +3,7 @@ from __future__ import annotations
 import http.client
 import json
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -296,6 +297,24 @@ def test_open_stream_does_not_starve_normal_requests(tmp_path, loaded_config: Ap
         if stream is not None:
             stream.close()
         endpoint.close()
+
+
+def test_server_close_retires_idle_sse_workers(tmp_path, loaded_config: AppConfig):
+    """A closed test server must not leave capture-writing workers behind."""
+    manager = _manager(tmp_path)
+    endpoint = _EndpointServer(loaded_config, manager)
+    stream = None
+    try:
+        stream = endpoint.open_stream("/api/tasks/stream?after=0")
+        assert endpoint.server.worker_threads()
+    finally:
+        if stream is not None:
+            stream.close()
+        started = time.monotonic()
+        endpoint.close()
+        elapsed = time.monotonic() - started
+    assert elapsed < 3.0
+    assert endpoint.server.worker_threads() == ()
 
 
 def test_request_budget_exhaustion_answers_503(tmp_path, loaded_config: AppConfig):

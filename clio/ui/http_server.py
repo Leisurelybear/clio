@@ -14,6 +14,7 @@ import contextlib
 import json
 import sys
 import threading
+import time
 from collections.abc import Iterable
 from http.server import ThreadingHTTPServer
 from typing import Any, Protocol
@@ -27,6 +28,8 @@ MAX_CONCURRENT_REQUESTS = 32
 MAX_CONCURRENT_STREAMS = 64
 # Hard ceiling on connection threads.
 MAX_CONNECTION_THREADS = MAX_CONCURRENT_REQUESTS + MAX_CONCURRENT_STREAMS
+# Upper bound for waiting on active workers during orderly shutdown.
+SHUTDOWN_GRACE_SEC = 5.0
 # Endpoints that hold their worker for the whole client session.
 STREAM_PATHS = frozenset({"/api/notifications/stream", "/api/tasks/stream"})
 # Combined request-line + header field budget (bytes).
@@ -111,6 +114,8 @@ class BoundedThreadingHTTPServer(ThreadingHTTPServer):
             raise ValueError("max_streams must be >= 1")
         self.request_budget = RequestBudget(max_workers, max_streams)
         self._worker_slots = threading.BoundedSemaphore(max_workers + max_streams)
+        self._worker_threads: set[threading.Thread] = set()
+        self._worker_threads_lock = threading.Lock()
         self.request_timeout = float(request_timeout)
         # Ensure handlers inherit the same deadline when they call setup().
         if getattr(RequestHandlerClass, "timeout", None) in (None, 0):
@@ -133,12 +138,21 @@ class BoundedThreadingHTTPServer(ThreadingHTTPServer):
             self._reject_busy(request, client_address)
             return
 
-        t = threading.Thread(
+        thread = threading.Thread(
             target=self._process_request_thread,
             args=(request, client_address),
+            name="clio-http-worker",
             daemon=True,
         )
-        t.start()
+        with self._worker_threads_lock:
+            self._worker_threads.add(thread)
+        try:
+            thread.start()
+        except BaseException:
+            with self._worker_threads_lock:
+                self._worker_threads.discard(thread)
+            self._worker_slots.release()
+            raise
 
     def _reject_busy(self, request: Any, client_address: Any) -> None:
         """Answer 503 and close; a silent close shows up as an empty response."""
@@ -160,6 +174,47 @@ class BoundedThreadingHTTPServer(ThreadingHTTPServer):
             self.handle_error(request, client_address)
         finally:
             try:
-                self.shutdown_request(request)
+                try:
+                    self.shutdown_request(request)
+                finally:
+                    self._worker_slots.release()
             finally:
-                self._worker_slots.release()
+                with self._worker_threads_lock:
+                    self._worker_threads.discard(threading.current_thread())
+
+    def worker_threads(self) -> tuple[threading.Thread, ...]:
+        """Return a snapshot of live request workers for shutdown diagnostics."""
+        with self._worker_threads_lock:
+            return tuple(self._worker_threads)
+
+    def _stop_stream_waiters(self) -> None:
+        """Retire SSE handlers blocked in the task store during shutdown."""
+        manager = getattr(self.RequestHandlerClass, "_task_manager", None)
+        store = getattr(manager, "store", None)
+        stop = getattr(store, "stop_waiters", None)
+        if callable(stop):
+            stop()
+
+    def server_close(self) -> None:
+        """Close the listener and drain request workers before returning."""
+        self._stop_stream_waiters()
+        try:
+            super().server_close()
+        finally:
+            deadline = time.monotonic() + SHUTDOWN_GRACE_SEC
+            while True:
+                workers = [
+                    thread
+                    for thread in self.worker_threads()
+                    if thread is not threading.current_thread() and thread.is_alive()
+                ]
+                if not workers:
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                for thread in workers:
+                    thread.join(timeout=remaining)
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        break

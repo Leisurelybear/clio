@@ -460,3 +460,32 @@ def test_wait_for_events_wakes_on_committed_event_without_polling(tmp_path):
 
     assert [event.message for event in events] == ["wake"]
     assert events[0].seq == 2
+
+
+def test_stop_waiters_wakes_event_and_notification_waiters(tmp_path):
+    store = TaskStore(tmp_path / "tasks.sqlite3")
+    started = [threading.Event(), threading.Event()]
+    results: dict[str, object] = {}
+
+    def wait_for_events() -> None:
+        started[0].set()
+        results["events"] = store.wait_for_events(after_seq=0, timeout=30)
+
+    def wait_for_notifications() -> None:
+        started[1].set()
+        results["notifications"] = store.wait_for_notification_revision(after_seq=0, timeout=30)
+
+    threads = [threading.Thread(target=wait_for_events), threading.Thread(target=wait_for_notifications)]
+    for thread in threads:
+        thread.start()
+    assert all(event.wait(1) for event in started)
+
+    started_at = time.monotonic()
+    store.stop_waiters()
+    for thread in threads:
+        thread.join(1)
+
+    assert time.monotonic() - started_at < 1
+    assert not any(thread.is_alive() for thread in threads)
+    assert store.waiters_stopped is True
+    assert results == {"events": [], "notifications": 0}

@@ -94,6 +94,7 @@ class TaskStore:
         # Writers notify this condition after committing; SSE streams wait here
         # instead of polling SQLite while idle.
         self._change_condition = threading.Condition()
+        self._waiters_stopped = False
         self.path.parent.mkdir(parents=True, exist_ok=True)
         # Create the database eagerly so startup failures are reported at the
         # owner boundary rather than on the first asynchronous event query.
@@ -350,6 +351,17 @@ class TaskStore:
         with self._change_condition:
             self._change_condition.notify_all()
 
+    def stop_waiters(self) -> None:
+        """Permanently retire SSE waiters without blocking in-flight writes."""
+        with self._change_condition:
+            self._waiters_stopped = True
+            self._change_condition.notify_all()
+
+    @property
+    def waiters_stopped(self) -> bool:
+        with self._change_condition:
+            return self._waiters_stopped
+
     def wait_for_events(self, *, after_seq: int, timeout: float, limit: int = 200) -> builtins.list[TaskEvent]:
         """Return events after ``after_seq``, sleeping until one is committed.
 
@@ -357,20 +369,24 @@ class TaskStore:
         committed between them cannot be missed.
         """
         with self._change_condition:
+            if self._waiters_stopped:
+                return []
             events = self.events(after_seq=after_seq, limit=limit)
             if events:
                 return events
-            if not self._change_condition.wait(timeout):
+            if not self._change_condition.wait(timeout) or self._waiters_stopped:
                 return []
             return self.events(after_seq=after_seq, limit=limit)
 
     def wait_for_notification_revision(self, *, after_seq: int, timeout: float) -> int:
         """Return the notification revision, sleeping until it advances."""
         with self._change_condition:
+            if self._waiters_stopped:
+                return after_seq
             revision = self.latest_notification_seq()
             if revision > after_seq:
                 return revision
-            if not self._change_condition.wait(timeout):
+            if not self._change_condition.wait(timeout) or self._waiters_stopped:
                 return after_seq
             return max(after_seq, self.latest_notification_seq())
 

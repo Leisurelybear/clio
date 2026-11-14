@@ -142,8 +142,10 @@ def handle_get_tasks_stream(handler: HandlerProtocol, qs: dict[str, Any]) -> Non
 
     last_heartbeat = time.monotonic()
     try:
-        while True:
+        while not manager.store.waiters_stopped:
             events = manager.store.wait_for_events(after_seq=cursor, timeout=10.0)
+            if manager.store.waiters_stopped:
+                return
             if events:
                 tasks = manager.store.get_many(event.task_id for event in events)
                 for event in events:
@@ -166,6 +168,10 @@ def handle_get_tasks_stream(handler: HandlerProtocol, qs: dict[str, Any]) -> Non
                 last_heartbeat = now
     except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
         return
+    finally:
+        # A stream must not leave a keep-alive worker waiting for a next
+        # request after shutdown or a client disconnect.
+        handler.close_connection = True
 
 
 def handle_post_task_cancel(handler: HandlerProtocol, qs: dict[str, Any], obj: dict, task_id: str) -> None:

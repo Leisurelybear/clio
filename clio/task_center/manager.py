@@ -369,6 +369,7 @@ class TaskManager:
         with self._condition:
             self._closed = True
             task_ids = list(self._runtime)
+        self.store.stop_waiters()
         for task_id in task_ids:
             try:
                 self.request_cancel(task_id)

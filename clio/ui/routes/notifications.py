@@ -130,8 +130,10 @@ def handle_get_notifications_stream(handler: HandlerProtocol, qs: dict[str, Any]
     handler.end_headers()
     last_heartbeat = time.monotonic()
     try:
-        while True:
+        while not store.waiters_stopped:
             latest = store.wait_for_notification_revision(after_seq=cursor, timeout=10.0)
+            if store.waiters_stopped:
+                return
             if latest > cursor:
                 cursor = latest
                 body = json.dumps({"seq": cursor, "refresh": True}, separators=(",", ":"))
@@ -146,6 +148,10 @@ def handle_get_notifications_stream(handler: HandlerProtocol, qs: dict[str, Any]
                 last_heartbeat = now
     except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
         return
+    finally:
+        # A stream must not leave a keep-alive worker waiting for a next
+        # request after shutdown or a client disconnect.
+        handler.close_connection = True
 
 
 def _link_escapes_origin(link: str) -> bool:

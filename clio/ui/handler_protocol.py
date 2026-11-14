@@ -20,6 +20,7 @@ class HandlerProtocol(Protocol):
 
     wfile: Any  # io.BufferedIOBase
     headers: Any
+    close_connection: bool
 
     # -- Custom instance methods --
     def _send_json(
