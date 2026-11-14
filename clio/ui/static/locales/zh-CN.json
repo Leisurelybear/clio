@@ -1402,5 +1402,6 @@
   "run.guide.view_result": "查看本次结果",
   "run.guide.open_output": "打开输出目录",
   "run.guide.retry_preview": "重新检查",
-  "run.guide.preview_failed": "预览失败，请重新检查"
+  "run.guide.preview_failed": "预览失败，请重新检查",
+  "run.guide.overwrite_once": "覆盖仅作用于本次提交的步骤，成功结束后自动关闭；失败或取消后保留以便重试。"
 }

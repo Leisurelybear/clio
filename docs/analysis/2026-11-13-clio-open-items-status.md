@@ -11,6 +11,9 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 Run interaction follow-up (2026-11-15): planned voiceover now highlights delivery even when
 runtime reports the shared `voiceover` phase. Full custom pipelines retain the transition
 from clip scripts to planned voiceover. Focused runner tests verify both paths.
+Overwrite now applies to one submitted action, resets after success, and refreshes the
+non-forced preview before choosing the next stage. A sequential UI regression verifies
+the outgoing overwrite payload and the subsequent analysis action.
 
 Follow-up audit (2026-11-14): [recent commits review](2026-11-14-recent-commits-review.md)
 records five additional findings, now fixed: preview/runtime reuse disagreement, stale

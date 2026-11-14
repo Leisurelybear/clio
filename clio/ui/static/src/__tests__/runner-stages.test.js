@@ -127,6 +127,33 @@ describe('guided run stages', () => {
     }
   });
 
+  it('consumes overwrite for one action and progresses using a fresh non-forced preview', async () => {
+    let prepared = false;
+    vi.mocked(api).mockImplementation(async (method, url, options) => {
+      if (url !== '/api/run/preview') return url === '/api/run/start' ? { ok: true } : { files: {} };
+      const p = preview();
+      if (prepared && !options.overwrite) p.steps.slice(0, 2).forEach(row => {
+        row.will_run = 0; row.will_skip = 2;
+      });
+      return { preview: p };
+    });
+    document.body.innerHTML = '<div id="tab-run"></div>';
+    renderRun();
+    await vi.waitFor(() => expect(document.getElementById('btn-run-start').disabled).toBe(false));
+    const overwrite = document.getElementById('run-overwrite');
+    overwrite.checked = true;
+    overwrite.dispatchEvent(new Event('change'));
+    await vi.waitFor(() => expect(document.getElementById('btn-run-start').disabled).toBe(false));
+    await document.getElementById('btn-run-start').onclick();
+    const start = vi.mocked(api).mock.calls.find(([, url]) => url === '/api/run/start');
+    expect(start[2]).toMatchObject({ steps: ['compress', 'transcribe'], overwrite: true });
+    prepared = true;
+    await _handleRunStatus({ status: 'done', steps: ['compress', 'transcribe'] });
+    await vi.waitFor(() => expect(document.getElementById('btn-run-start').textContent).toContain('AI 看素材'));
+    expect(overwrite.checked).toBe(false);
+    expect(document.getElementById('btn-run-start').disabled).toBe(false);
+  });
+
   it('distinguishes both voiceover tasks within a custom full pipeline', async () => {
     document.body.innerHTML = '<div id="tab-run"></div>';
     renderRun();

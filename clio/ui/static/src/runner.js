@@ -168,6 +168,7 @@ function renderRun() {
       <label class="run-option run-option-check" id="option-overwrite-wrap">
         <input type="checkbox" id="run-overwrite"><span>${t('run.overwrite')}</span>
       </label>
+      <p class="hint">${t('run.guide.overwrite_once')}</p>
       <div id="run-preview" style="margin-top:12px"></div>
     </details>
     <div id="run-progress" style="margin-top:12px"></div>
@@ -783,6 +784,9 @@ export async function _handleRunStatus(s) {
       _activePhase = '';
       _completedSteps = completedSteps;
       if (hasRunDom) {
+        // Overwrite applies to this submitted action, not the next guided stage.
+        const overwrite = $('run-overwrite');
+        if (overwrite) overwrite.checked = false;
         const outputPath = state.config?.output_dir || '';
         renderCompletionActions($('run-completion-actions'), completedSteps,
           () => _showRunCompletionTarget(completedSteps),
