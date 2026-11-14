@@ -13,7 +13,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P1 | 35 | 20 | 15 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P2 | 59 | 29 | 27 | 0 | 0 | 0 | 0 | 0 | 3 |
-| P3 | 14 | 5 | 0 | 0 | 0 | 0 | 0 | 9 |
+| P3 | 14 | 5 | 0 | 0 | 0 | 0 | 0 | 9 | 0 |
 
 ## Item status
 
