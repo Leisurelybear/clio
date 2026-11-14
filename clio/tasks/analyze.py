@@ -642,6 +642,201 @@ def _resolve_original(
     return None
 
 
+def _window_one_call(
+    compressed: Path,
+    *,
+    config: AppConfig,
+    token_store: FileTokenUsageStore | None,
+    cancel_event: threading.Event | None,
+    effective_context: str | None,
+    task_prompts: dict[str, str] | None,
+    transcript_context: str,
+    start_sec: float | None = None,
+    end_sec: float | None = None,
+    fps: float | None = None,
+    window_boundaries: Sequence[float] | None = None,
+) -> dict:
+    window_transcript_context = transcript_context
+    if transcript_context and start_sec is not None and end_sec is not None:
+        window_transcript_context = slice_transcript_context(transcript_context, start_sec, end_sec)
+    try:
+        return analyze_video(
+            str(compressed),
+            config,
+            progress_callback=lambda msg: None,
+            token_store=token_store,
+            cancel_event=cancel_event,
+            context_override=effective_context,
+            task_prompts=task_prompts,
+            transcript_context=window_transcript_context,
+            video_start_sec=start_sec,
+            video_end_sec=end_sec,
+            video_fps=fps,
+            media_resolution=getattr(config.analyze, "media_resolution", "medium"),
+            scene_boundaries=window_boundaries,
+            reuse_upload=True,
+        )
+    except Exception as exc:
+        if cancel_event is not None and cancel_event.is_set():
+            raise InterruptedError(t("task.analyze.cancelled")) from exc
+        raise
+
+
+def _complete_sparse_window(
+    part: dict,
+    window: AnalyzeWindow,
+    *,
+    compressed: Path,
+    scene_boundaries: Sequence[float],
+    config: AppConfig,
+    token_store: FileTokenUsageStore | None,
+    cancel_event: threading.Event | None,
+    effective_context: str | None,
+    task_prompts: dict[str, str] | None,
+    transcript_context: str,
+) -> dict:
+    gap = select_sparse_retry_gap(part, window.start_sec, window.end_sec)
+    if gap is None:
+        return part
+    if cancel_event is not None and cancel_event.is_set():
+        raise InterruptedError(t("task.analyze.cancelled"))
+    print(
+        t(
+            "task.analyze.sparse_retry",
+            {
+                "name": compressed.name,
+                "index": window.index,
+                "start": f"{gap.start_sec:.1f}",
+                "end": f"{gap.end_sec:.1f}",
+            },
+        )
+    )
+    try:
+        completion = _window_one_call(
+            compressed,
+            config=config,
+            token_store=token_store,
+            cancel_event=cancel_event,
+            effective_context=effective_context,
+            task_prompts=task_prompts,
+            transcript_context=transcript_context,
+            start_sec=gap.start_sec,
+            end_sec=gap.end_sec,
+            fps=3,
+            window_boundaries=slice_scene_boundaries(scene_boundaries, gap.start_sec, gap.end_sec),
+        )
+    except InterruptedError:
+        raise
+    except Exception as exc:
+        if cancel_event is not None and cancel_event.is_set():
+            raise InterruptedError(t("task.analyze.cancelled")) from exc
+        print(
+            t(
+                "task.analyze.sparse_retry_failed",
+                {"name": compressed.name, "index": window.index, "detail": exc},
+            )
+        )
+        return part
+    completed = merge_timeline_completion(part, completion, gap)
+    if cancel_event is not None and cancel_event.is_set():
+        raise InterruptedError(t("task.analyze.cancelled"))
+    return completed
+
+
+def _build_window_cache_key(compressed: Path, lineage: str) -> _WindowCacheKey | None:
+    try:
+        source_stat = compressed.stat()
+    except OSError:
+        return None
+    return {
+        "lineage": lineage,
+        "source_size": source_stat.st_size,
+        "source_mtime_ns": source_stat.st_mtime_ns,
+    }
+
+
+def _load_or_analyze_window(
+    window: AnalyzeWindow,
+    *,
+    compressed: Path,
+    scene_boundaries: Sequence[float],
+    config: AppConfig,
+    token_store: FileTokenUsageStore | None,
+    cancel_event: threading.Event | None,
+    effective_context: str | None,
+    task_prompts: dict[str, str] | None,
+    transcript_context: str,
+    cache_dir: Path,
+    cache_key: _WindowCacheKey | None,
+    lineage: str,
+) -> tuple[AnalyzeWindow, dict]:
+    if cancel_event is not None and cancel_event.is_set():
+        raise InterruptedError(t("task.analyze.cancelled"))
+    part = load_window_cache(cache_dir, window=window, **cache_key) if cache_key is not None and lineage else None
+    if part is not None:
+        print(t("task.analyze.window_cache_hit", {"name": compressed.name, "index": window.index}))
+        return window, part
+    window_boundaries = slice_scene_boundaries(scene_boundaries, window.start_sec, window.end_sec)
+    part = _window_one_call(
+        compressed,
+        config=config,
+        token_store=token_store,
+        cancel_event=cancel_event,
+        effective_context=effective_context,
+        task_prompts=task_prompts,
+        transcript_context=transcript_context,
+        start_sec=window.start_sec,
+        end_sec=window.end_sec,
+        fps=3,
+        window_boundaries=window_boundaries,
+    )
+    part = shift_analysis_times(part, window.start_sec)
+    part = _complete_sparse_window(
+        part,
+        window,
+        compressed=compressed,
+        scene_boundaries=scene_boundaries,
+        config=config,
+        token_store=token_store,
+        cancel_event=cancel_event,
+        effective_context=effective_context,
+        task_prompts=task_prompts,
+        transcript_context=transcript_context,
+    )
+    if cache_key is not None and lineage:
+        save_window_cache(cache_dir, window=window, analysis=part, **cache_key)
+    return window, part
+
+
+def _summarize_window_analysis_result(
+    merged: dict,
+    *,
+    compressed: Path,
+    config: AppConfig,
+    token_store: FileTokenUsageStore | None,
+    cancel_event: threading.Event | None,
+    effective_context: str | None,
+    task_prompts: dict[str, str] | None,
+) -> dict:
+    if cancel_event is not None and cancel_event.is_set():
+        raise InterruptedError(t("analyze.cancelled"))
+    try:
+        return summarize_window_analysis(
+            merged,
+            config,
+            token_store=token_store,
+            cancel_event=cancel_event,
+            context_override=effective_context,
+            task_prompts=task_prompts,
+        )
+    except InterruptedError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - merged window data is still a usable analysis
+        print(t("task.analyze.window_summary_failed", {"name": compressed.name, "detail": exc}))
+        merged["_summary_failed"] = True
+        return merged
+
+
 def _analyze_with_optional_windows(
     *,
     compressed: Path,
@@ -661,154 +856,79 @@ def _analyze_with_optional_windows(
         str(getattr(config.paths, "ffmpeg", "") or ""),
         cancel_event=cancel_event,
     )
-
-    def _one_call(
-        video_path: str,
-        *,
-        start_sec: float | None = None,
-        end_sec: float | None = None,
-        fps: float | None = None,
-        window_boundaries: Sequence[float] | None = None,
-    ) -> dict:
-        window_transcript_context = transcript_context
-        if transcript_context and start_sec is not None and end_sec is not None:
-            window_transcript_context = slice_transcript_context(transcript_context, start_sec, end_sec)
-        try:
-            return analyze_video(
-                video_path,
-                config,
-                progress_callback=lambda msg: None,
-                token_store=token_store,
-                cancel_event=cancel_event,
-                context_override=effective_context,
-                task_prompts=task_prompts,
-                transcript_context=window_transcript_context,
-                video_start_sec=start_sec,
-                video_end_sec=end_sec,
-                video_fps=fps,
-                media_resolution=getattr(config.analyze, "media_resolution", "medium"),
-                scene_boundaries=window_boundaries,
-                reuse_upload=True,
-            )
-        except Exception as exc:
-            if cancel_event is not None and cancel_event.is_set():
-                raise InterruptedError(t("task.analyze.cancelled")) from exc
-            raise
-
-    def _complete_if_sparse(part: dict, window: AnalyzeWindow) -> dict:
-        gap = select_sparse_retry_gap(part, window.start_sec, window.end_sec)
-        if gap is None:
-            return part
-        if cancel_event is not None and cancel_event.is_set():
-            raise InterruptedError(t("task.analyze.cancelled"))
-        print(
-            t(
-                "task.analyze.sparse_retry",
-                {
-                    "name": compressed.name,
-                    "index": window.index,
-                    "start": f"{gap.start_sec:.1f}",
-                    "end": f"{gap.end_sec:.1f}",
-                },
-            )
-        )
-        try:
-            completion = _one_call(
-                str(compressed),
-                start_sec=gap.start_sec,
-                end_sec=gap.end_sec,
-                fps=3,
-                window_boundaries=slice_scene_boundaries(scene_boundaries, gap.start_sec, gap.end_sec),
-            )
-        except InterruptedError:
-            raise
-        except Exception as exc:
-            if cancel_event is not None and cancel_event.is_set():
-                raise InterruptedError(t("task.analyze.cancelled")) from exc
-            print(
-                t(
-                    "task.analyze.sparse_retry_failed",
-                    {"name": compressed.name, "index": window.index, "detail": exc},
-                )
-            )
-            return part
-        completed = merge_timeline_completion(part, completion, gap)
-        if cancel_event is not None and cancel_event.is_set():
-            raise InterruptedError(t("task.analyze.cancelled"))
-        return completed
-
     if is_legacy_split_path(compressed):
-        return _one_call(str(compressed), window_boundaries=scene_boundaries)
+        return _window_one_call(
+            compressed,
+            config=config,
+            token_store=token_store,
+            cancel_event=cancel_event,
+            effective_context=effective_context,
+            task_prompts=task_prompts,
+            transcript_context=transcript_context,
+            window_boundaries=scene_boundaries,
+        )
 
     w_max = int(getattr(config.analyze, "window_max_min", 15) or 15)
     overlap = int(getattr(config.analyze, "window_overlap_sec", 20) or 0)
     windows = build_analyze_windows(duration_sec, w_max, overlap)
 
     if len(windows) <= 1:
-        window_boundaries = slice_scene_boundaries(scene_boundaries, 0.0, duration_sec)
-        analysis = _one_call(
-            str(compressed),
+        analysis = _window_one_call(
+            compressed,
+            config=config,
+            token_store=token_store,
+            cancel_event=cancel_event,
+            effective_context=effective_context,
+            task_prompts=task_prompts,
+            transcript_context=transcript_context,
             start_sec=0.0,
             end_sec=duration_sec,
             fps=3,
-            window_boundaries=window_boundaries,
+            window_boundaries=slice_scene_boundaries(scene_boundaries, 0.0, duration_sec),
         )
         if windows:
-            analysis = _complete_if_sparse(analysis, windows[0])
+            analysis = _complete_sparse_window(
+                analysis,
+                windows[0],
+                compressed=compressed,
+                scene_boundaries=scene_boundaries,
+                config=config,
+                token_store=token_store,
+                cancel_event=cancel_event,
+                effective_context=effective_context,
+                task_prompts=task_prompts,
+                transcript_context=transcript_context,
+            )
         return merge_window_analyses([(windows[0], analysis)], overlap) if windows else analysis
 
     cache_dir = window_cache_dir(config.paths.output_dir, compressed.stem)
-    cache_key: _WindowCacheKey | None
-    try:
-        source_stat = compressed.stat()
-        cache_key = {
-            "lineage": lineage,
-            "source_size": source_stat.st_size,
-            "source_mtime_ns": source_stat.st_mtime_ns,
-        }
-    except OSError:
-        cache_key = None
-    partials: list = []
-    for w in windows:
-        if cancel_event is not None and cancel_event.is_set():
-            raise InterruptedError(t("task.analyze.cancelled"))
-        part = load_window_cache(cache_dir, window=w, **cache_key) if cache_key is not None and lineage else None
-        if part is not None:
-            print(t("task.analyze.window_cache_hit", {"name": compressed.name, "index": w.index}))
-            partials.append((w, part))
-            continue
-        window_boundaries = slice_scene_boundaries(scene_boundaries, w.start_sec, w.end_sec)
-        part = _one_call(
-            str(compressed),
-            start_sec=w.start_sec,
-            end_sec=w.end_sec,
-            fps=3,
-            window_boundaries=window_boundaries,
-        )
-        part = shift_analysis_times(part, w.start_sec)
-        part = _complete_if_sparse(part, w)
-        if cache_key is not None and lineage:
-            save_window_cache(cache_dir, window=w, analysis=part, **cache_key)
-        partials.append((w, part))
-
-    merged = merge_window_analyses(partials, overlap)
-    if cancel_event is not None and cancel_event.is_set():
-        raise InterruptedError(t("analyze.cancelled"))
-    try:
-        return summarize_window_analysis(
-            merged,
-            config,
+    cache_key = _build_window_cache_key(compressed, lineage)
+    partials = [
+        _load_or_analyze_window(
+            window,
+            compressed=compressed,
+            scene_boundaries=scene_boundaries,
+            cache_dir=cache_dir,
+            cache_key=cache_key,
+            lineage=lineage,
+            config=config,
             token_store=token_store,
             cancel_event=cancel_event,
-            context_override=effective_context,
+            effective_context=effective_context,
             task_prompts=task_prompts,
+            transcript_context=transcript_context,
         )
-    except InterruptedError:
-        raise
-    except Exception as exc:  # noqa: BLE001 - merged window data is still a usable analysis
-        print(t("task.analyze.window_summary_failed", {"name": compressed.name, "detail": exc}))
-        merged["_summary_failed"] = True
-        return merged
+        for window in windows
+    ]
+    return _summarize_window_analysis_result(
+        merge_window_analyses(partials, overlap),
+        compressed=compressed,
+        config=config,
+        token_store=token_store,
+        cancel_event=cancel_event,
+        effective_context=effective_context,
+        task_prompts=task_prompts,
+    )
 
 
 def _process_video_item(
