@@ -2,6 +2,21 @@
 
 ## 2026-11-14
 
+Idle SSE workers are now retired before the local HTTP server returns from shutdown.
+`TaskStore` exposes a permanent waiter stop signal, both SSE loops exit on it, and
+`BoundedThreadingHTTPServer.server_close()` drains tracked workers for up to five seconds.
+Streaming handlers also close keep-alive connections when they exit, preventing a stale
+worker from writing an access log into a pytest capture stream after teardown.
+
+- fix(ui): drain SSE workers during server shutdown
+- test(ui): cover idle SSE worker retirement and waiter wakeup
+
+Verification: focused task/notification/SSE/server suite passes 105 tests; full pytest
+passes 3389 tests with 12 skipped; Ruff check/format, mypy over 287 source files,
+`main.py check`, and `git diff --check` pass. Commit: `4865d83`.
+
+## 2026-11-14
+
 CI now passes on the full Linux, Windows, and macOS Python matrix with current tooling.
 The discovered ffmpeg paths are narrowed for mypy 2.4.1, macOS installs use the
 cross-platform requirements file because the Windows-generated hash lock omits pyobjc,
