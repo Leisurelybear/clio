@@ -12,7 +12,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P1 | 35 | 20 | 15 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P2 | 59 | 25 | 24 | 0 | 0 | 0 | 0 | 0 | 10 |
+| P2 | 59 | 25 | 25 | 0 | 0 | 0 | 0 | 0 | 9 |
 | P3 | 14 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 10 |
 
 ## Item status
@@ -113,7 +113,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 092 | P2 | OPT-016 | make_handler 是 680 行闭包 (clio/ui/server.py:328-1009), 内含 Handler 类与 92 条路由 | Satisfied | Existing refactors split the handler into `clio/ui/handler_factory.py`, moved all 92 routes into declarative `clio/ui/route_table.py`, and reduced `make_handler` to dependency wiring. This duplicates the already-satisfied make_handler row above (`f6a7b07`, `970d559`, `786ec31`, `961fdb1`). |
 | 093 | P2 | OPT-017 | 52 个函数圈复杂度 ≥ 20: _build_videos_payload 85、main 80、handle_post_run_start 53、run_cut_all 53、handle_post_rerun 51 | In progress | All five named hotspots are split with focused tests (`be2346d`, `93c1c8e`, `95b90fd`). A full C901 scan still reports 21 functions above 20, so the broader 52-function finding remains open. |
 | 094 | P2 | OPT-019 | mypy 全量 470 个错误。非测试代码 82 个, 集中在 tasks/plan.py (16)、ui/routes/videos.py (13) | Fixed | Latest full mypy passes with no issues across 287 source files. `ba7a467` aligns cut selection annotations, `2b044d0` aligns Gemini image content typing with the SDK, and `ad7cacb` resolves the remaining test-side errors. Focused: 98 cut, 72 Gemini, and 123 affected-test cases passed; Ruff and diff check passed. |
-| 095 | P2 | OPT-020 | ruff 只开 E/F/I/W/UP; 非测试代码有 172 处 except Exception | Pending audit |  |
+| 095 | P2 | OPT-020 | ruff 只开 E/F/I/W/UP; 非测试代码有 172 处 except Exception | Satisfied | `BLE001` is enabled and `ruff check clio main.py --select BLE001 --output-format concise` passes. No bare `except Exception: pass` remains; the remaining broad handlers either re-raise or carry an explicit `noqa: BLE001` rationale. The full `S` family is intentionally not enabled in this item because it reports 6110 pre-existing warnings, mostly pytest `S101`; that requires a separate security-lint migration. |
 | 096 | P2 | OPT-021 | clio/config/models.py 末尾保留 4 个标注为过渡用途的旧 dataclass; _plan_index_key 的逻辑在 analyze.py 里另有两处内联副本 (731-734, 743-746) | Pending audit |  |
 | 097 | P2 | OPT-024 | 步骤函数返回值各不相同 (list / int / dict / None), pipeline.py:126-130 靠类型猜结果, failed 恒为 0 | Pending audit |  |
 | 098 | P2 | OPT-025 | 配置升级靠"缺字段就写默认值" (R009) | Pending audit |  |
