@@ -77,6 +77,21 @@ def build_label_drawtext_vf(label: str, font_path: str | Path | None = None) -> 
     )
 
 
+def _label_index(data: dict[str, Any], json_file: Path, index_width: int) -> str:
+    raw_idx = data.get("index")
+    try:
+        return format_index(int(raw_idx), index_width) if raw_idx is not None else json_file.stem[:3]
+    except (ValueError, TypeError):
+        return json_file.stem[:3]
+
+
+def _find_compressed_video(compressed_dir: Path, idx: str) -> Path | None:
+    for candidate in sorted(compressed_dir.glob(f"{idx}_*")):
+        if candidate.suffix.lower() in VIDEO_EXTS:
+            return candidate
+    return None
+
+
 def run_label_videos(
     config: AppConfig,
     tracker: ProgressReporter | None = None,
@@ -112,19 +127,8 @@ def run_label_videos(
                 print(t("task.label.cancelled"))
                 break
             data = json.loads(json_file.read_text(encoding="utf-8"))
-            raw_idx = data.get("index")
-            try:
-                idx = (
-                    format_index(int(raw_idx), config.naming.index_width) if raw_idx is not None else json_file.stem[:3]
-                )
-            except (ValueError, TypeError):
-                idx = json_file.stem[:3]
-            compressed = None
-            for f in config.compressed_dir.glob(f"{idx}_*"):
-                if f.suffix.lower() not in VIDEO_EXTS:
-                    continue
-                compressed = f
-                break
+            idx = _label_index(data, json_file, config.naming.index_width)
+            compressed = _find_compressed_video(config.compressed_dir, idx)
             orig_stem = Path(data.get("source_file") or data.get("compressed_file") or json_file.stem).stem
             if not compressed or not compressed.exists():
                 print(t("task.label.skip_no_compressed", {"index": idx}))
