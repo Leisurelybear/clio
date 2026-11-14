@@ -1670,6 +1670,20 @@ def plan_daily_vlog(
     selected_validation_clips = list(validation_clips)
     valid_plan: dict[str, Any] | None = None
 
+    def call_review(prompt: str, fallback: dict) -> dict:
+        try:
+            text = call_stage(t("analyze.label.vlog_plan_review"), prompt, VLOG_PLAN_REVIEW_OUTPUT)
+            return _parse_plan_review(text, fallback)
+        except InterruptedError:
+            raise
+        except Exception:
+            if cancel_event is not None and cancel_event.is_set():
+                raise
+            if not draft_issues:
+                print(t("analyze.plan_review_fallback"))
+                return draft
+            raise
+
     with provider_use(provider):
         if should_shortlist_plan_clips(clips, config):
             shortlist_limit = plan_candidate_limit(config)
@@ -1813,23 +1827,19 @@ def plan_daily_vlog(
             max_segments=max_segments,
         )
 
-        reviewed = _parse_plan_review(
-            call_stage(
-                t("analyze.label.vlog_plan_review"),
-                _make_plan_review_prompt(
-                    draft,
-                    draft_issues,
-                    review_template=review_template,
-                    clips_json=clips_json,
-                    max_clips=max_clips,
-                    max_segments=max_segments,
-                    target_duration_sec=target_duration_sec,
-                    day_label=day_label,
-                    context_suffix=context_suffix,
-                    config=config,
-                    context_override=context_override,
-                ),
-                VLOG_PLAN_REVIEW_OUTPUT,
+        reviewed = call_review(
+            _make_plan_review_prompt(
+                draft,
+                draft_issues,
+                review_template=review_template,
+                clips_json=clips_json,
+                max_clips=max_clips,
+                max_segments=max_segments,
+                target_duration_sec=target_duration_sec,
+                day_label=day_label,
+                context_suffix=context_suffix,
+                config=config,
+                context_override=context_override,
             ),
             draft,
         )
@@ -1847,29 +1857,29 @@ def plan_daily_vlog(
                 valid_plan = result
                 break
             if attempt == 1:
+                if not draft_issues:
+                    print(t("analyze.plan_review_fallback"))
+                    valid_plan = draft
+                    break
                 if not result.get("sequence"):
                     raise RuntimeError(t("analyze.plan_no_usable_clips", {"count": raw_sequence_count}))
                 raise RuntimeError(t("analyze.plan_validation_failed", {"errors": "；".join(issues)}))
 
             issue_text = "；".join(issues)
             print(t("analyze.plan_validation_retry", {"errors": issue_text}))
-            reviewed = _parse_plan_review(
-                call_stage(
-                    t("analyze.label.vlog_plan_review"),
-                    _make_plan_review_prompt(
-                        result,
-                        issues,
-                        review_template=review_template,
-                        clips_json=clips_json,
-                        max_clips=max_clips,
-                        max_segments=max_segments,
-                        target_duration_sec=target_duration_sec,
-                        day_label=day_label,
-                        context_suffix=context_suffix,
-                        config=config,
-                        context_override=context_override,
-                    ),
-                    VLOG_PLAN_REVIEW_OUTPUT,
+            reviewed = call_review(
+                _make_plan_review_prompt(
+                    result,
+                    issues,
+                    review_template=review_template,
+                    clips_json=clips_json,
+                    max_clips=max_clips,
+                    max_segments=max_segments,
+                    target_duration_sec=target_duration_sec,
+                    day_label=day_label,
+                    context_suffix=context_suffix,
+                    config=config,
+                    context_override=context_override,
                 ),
                 result,
             )

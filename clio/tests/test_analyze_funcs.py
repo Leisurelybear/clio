@@ -2163,3 +2163,58 @@ class TestValidateWithRetry:
 
         retry.assert_called_once()
         validate.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "failure", [TimeoutError("timeout"), RuntimeError("provider failure"), InterruptedError("cancelled")]
+)
+@pytest.mark.parametrize("valid_draft", [True, False])
+def test_plan_review_failure_preserves_only_valid_drafts(monkeypatch, failure, valid_draft):
+    clips = [{"index": "001", "timeline": [{"start": "00:00", "end": "00:10"}]}]
+    draft = {
+        "day_title": "draft",
+        "sequence": [{"index": "001", "use_timeline": "00:01-00:05" if valid_draft else "00:20-00:25"}],
+    }
+    monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (MagicMock(), "model"))
+    monkeypatch.setattr("clio.analyze._call_ai", MagicMock(side_effect=["{}", json.dumps(draft), failure]))
+    if not valid_draft or isinstance(failure, InterruptedError):
+        with pytest.raises(type(failure)):
+            plan_daily_vlog(clips, _fake_config())
+    else:
+        result = plan_daily_vlog(clips, _fake_config())
+        assert result["day_title"] == "draft"
+        assert result["sequence"][0]["use_timeline"] == "00:01-00:05"
+
+
+def test_plan_review_cancellation_flag_does_not_fall_back(monkeypatch):
+    import threading
+
+    event = threading.Event()
+    draft = {"sequence": [{"index": "001", "use_timeline": "00:01-00:05"}]}
+    responses = iter(["{}", json.dumps(draft)])
+
+    def call(*args, **kwargs):
+        try:
+            return next(responses)
+        except StopIteration:
+            event.set()
+            raise RuntimeError("cancelled") from None
+
+    monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (MagicMock(), "model"))
+    monkeypatch.setattr("clio.analyze._call_ai", call)
+    with pytest.raises(RuntimeError, match="cancelled"):
+        plan_daily_vlog(
+            [{"index": "001", "timeline": [{"start": "00:00", "end": "00:10"}]}], _fake_config(), cancel_event=event
+        )
+
+
+def test_plan_invalid_review_corrections_fall_back_to_valid_draft(monkeypatch):
+    draft = {"day_title": "draft", "sequence": [{"index": "001", "use_timeline": "00:01-00:05"}]}
+    invalid = {"sequence": [{"index": "001", "use_timeline": "00:20-00:25"}]}
+    monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (MagicMock(), "model"))
+    monkeypatch.setattr(
+        "clio.analyze._call_ai",
+        MagicMock(side_effect=["{}", json.dumps(draft), json.dumps(invalid), json.dumps(invalid)]),
+    )
+    result = plan_daily_vlog([{"index": "001", "timeline": [{"start": "00:00", "end": "00:10"}]}], _fake_config())
+    assert result["day_title"] == "draft"

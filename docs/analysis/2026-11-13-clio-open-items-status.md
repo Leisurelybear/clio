@@ -173,3 +173,7 @@ argument. Initial verification exposed one stale exact-call assertion (167 passe
 Follow-up fix 4: preview identifies disabled transcription explicitly, guided stages
 ignore it as a dependency while retaining genuine missing-input blocks, and pipeline
 execution skips disabled transcription. Focused: 89 pytest and 69 runner Vitest passed.
+
+Follow-up fix 5: failed optional review or exhausted invalid corrections fall back
+to the locally valid draft. Invalid drafts still fail; InterruptedError and a set
+cancellation event propagate. Focused planning verification: 130 passed.

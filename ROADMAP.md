@@ -18,7 +18,7 @@ Evidence and reproductions: [recent commits review](docs/analysis/2026-11-14-rec
 - `[x]` Rediscover day labels after analysis before each all-day scoped step.
 - `[x]` Allow disabled optional transcription without blocking guided progression.
 - `[x]` Forward the effective transcript option to pipeline analysis.
-- `[ ]` Preserve a locally valid planning draft when optional review fails.
+- `[x]` Preserve a locally valid planning draft when optional review fails.
 
 ### Run interaction refresh (2026-11-14)
 
