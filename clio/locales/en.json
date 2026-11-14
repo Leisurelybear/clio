@@ -526,6 +526,7 @@
   "task.analyze.fail_message": "Failed {name}",
   "task.analyze.gpmf_context_failed": "  [warning] GPMF context injection failed; continuing with the base context: {exc}",
   "task.analyze.incomplete": "AI analysis did not complete fully ({completed} succeeded, {failed} failed); check the API key and network connection",
+  "task.analyze.incomplete_reasons": "Failure details: {details}",
   "task.analyze.lineage_stamped": "✓ {name} had no recorded lineage; stamped the current version",
   "task.analyze.high_resolution_low_compress_width": "  [warning] analyze.media_resolution is high but compressed video width is only {width}px; higher analysis resolution cannot restore detail already discarded during compression. Consider compress.max_width {recommended_min}-{recommended_max} and re-compress.",
   "task.analyze.low_compress_fps": "  [warning] compressed video fps is {fps}; values below 2 reduce timeline detail. Raise compress.fps to 2-5 and re-compress.",

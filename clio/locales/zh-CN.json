@@ -526,6 +526,7 @@
   "task.analyze.fail_message": "失败 {name}",
   "task.analyze.gpmf_context_failed": "  [警告] GPMF context 注入失败，继续使用基础 context: {exc}",
   "task.analyze.incomplete": "AI 分析未完整完成（{completed} 个成功，{failed} 个失败），请检查 API Key 和网络连接",
+  "task.analyze.incomplete_reasons": "失败详情: {details}",
   "task.analyze.lineage_stamped": "✓ {name} 血缘未记录，已标记当前版本",
   "task.analyze.high_resolution_low_compress_width": "  [警告] analyze.media_resolution 为 high，但压缩视频宽度仅为 {width}px；提高分析分辨率无法恢复压缩时已丢失的细节。建议将 compress.max_width 调到 {recommended_min}-{recommended_max} 并重新压缩。",
   "task.analyze.low_compress_fps": "  [警告] 压缩视频帧率为 {fps}；低于 2 会降低时间线细节，建议将 compress.fps 调到 2-5 并重新压缩。",

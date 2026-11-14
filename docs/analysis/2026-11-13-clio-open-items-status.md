@@ -12,7 +12,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | P0 | 9 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P1 | 35 | 20 | 15 | 0 | 0 | 0 | 0 | 0 | 0 |
-| P2 | 59 | 27 | 25 | 0 | 0 | 0 | 0 | 0 | 7 |
+| P2 | 59 | 28 | 25 | 0 | 0 | 0 | 0 | 0 | 6 |
 | P3 | 14 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 10 |
 
 ## Item status
@@ -118,7 +118,7 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 | 097 | P2 | OPT-024 | 步骤函数返回值各不相同 (list / int / dict / None), pipeline.py:126-130 靠类型猜结果, failed 恒为 0 | Pending audit |  |
 | 098 | P2 | OPT-025 | 配置升级靠"缺字段就写默认值" (R009) | Pending audit |  |
 | 099 | P2 | OPT-026 | 34 处 confirm() 与 1 处 alert(); pywebview 下原生弹窗样式与行为不一致 | Pending audit |  |
-| 100 | P2 | OPT-027 | 分析失败时统一提示"请检查 API Key 和网络连接" (task.analyze.incomplete), 即使原因是 JSON 结构或安全拦截 | Pending audit |  |
+| 100 | P2 | OPT-027 | 分析失败时统一提示"请检查 API Key 和网络连接" (task.analyze.incomplete), 即使原因是 JSON 结构或安全拦截 | Fixed | `analyze` now records per-video failure details and appends them to the strict `task.analyze.incomplete` error via `task.analyze.incomplete_reasons` (truncated to five entries). Focused: 84 analysis/i18n tests passed; Ruff and mypy clean. |
 | 101 | P2 | OPT-030 | Vitest 语句覆盖 55.78%; editor-plan.js 17%、main.js 28%、viewer.js 38% | Pending audit |  |
 | 102 | P2 | OPT-032 | AGENTS.md 411 行、ROADMAP.md 1,826 行、CHANGELOG.md 1,103 行; docs/analysis 27 份、docs/superpowers 109 份 | Pending audit |  |
 | 103 | P2 | OPT-033 | README 手写测试数量 (2409 / 720), 与实测 (2870 / 857) 不符 | Fixed | `f3e27b7` removes the handwritten `tests-2000+` badges, per-module count table, and `2000+` project-tree labels from both READMEs; CI remains the authoritative count. Documentation-only verification: `git diff --check` passed. |

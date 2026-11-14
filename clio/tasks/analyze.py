@@ -168,19 +168,30 @@ class AnalyzeResult(list[ClipRecord]):
         self.failed = failed
 
 
+_MAX_FAILURE_DETAILS = 5
+_MAX_FAILURE_DETAIL_LENGTH = 300
+
+
 class _FailureCounter:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._count = 0
+        self._details: list[str] = []
 
-    def increment(self) -> None:
+    def increment(self, detail: str | None = None) -> None:
         with self._lock:
             self._count += 1
+            if detail:
+                self._details.append(detail[:_MAX_FAILURE_DETAIL_LENGTH])
 
     @property
     def value(self) -> int:
         with self._lock:
             return self._count
+
+    def summary(self) -> str:
+        with self._lock:
+            return "; ".join(self._details[:_MAX_FAILURE_DETAILS])
 
 
 ANALYSIS_LINEAGE_COMPONENTS = (
@@ -1065,7 +1076,7 @@ def _handle_analysis_error(
         )
     )
     state.mark(original.stem, "analyze", "error")
-    failure_counter.increment()
+    failure_counter.increment(f"{original.name}: {error}")
     if tracker:
         tracker.next(message=t("task.analyze.fail_message", {"name": compressed.name}))
         tracker.log(t("task.analyze.fail_log", {"name": compressed.name, "detail": error}))
@@ -1472,7 +1483,7 @@ class _AnalyzeRunContext:
 def _submit_next_analysis(
     pool: ThreadPoolExecutor,
     item_iter: Iterator[tuple[Path, Path, str]],
-    pending: dict[Future, None],
+    pending: dict[Future, str],
     ctx: _AnalyzeRunContext,
 ) -> bool:
     try:
@@ -1497,11 +1508,11 @@ def _submit_next_analysis(
         ctx.confirm_artifact_overwrite,
         ctx.use_transcripts,
     )
-    pending[future] = None
+    pending[future] = compressed.name
     return True
 
 
-def _cancel_pending_analyses(pending: dict[Future, None]) -> None:
+def _cancel_pending_analyses(pending: dict[Future, str]) -> None:
     print(t("task.analyze.cancel_pending"))
     for future in pending:
         if not future.done():
@@ -1520,7 +1531,7 @@ def _run_analysis_worker_pool(
             print(t("task.analyze.cancelled_step"))
             return
         item_iter = iter(items)
-        pending: dict[Future, None] = {}
+        pending: dict[Future, str] = {}
         for _ in range(min(max_workers, len(items))):
             _submit_next_analysis(pool, item_iter, pending, ctx)
 
@@ -1530,7 +1541,7 @@ def _run_analysis_worker_pool(
                 break
             done, _ = wait(pending, return_when=FIRST_COMPLETED)
             for future in done:
-                pending.pop(future, None)
+                failed_name = pending.pop(future, "")
                 try:
                     result = future.result()
                     if result is not None:
@@ -1539,7 +1550,7 @@ def _run_analysis_worker_pool(
                     raise
                 except Exception as e:  # noqa: BLE001 - a worker failure must be counted without aborting analysis
                     print(t("task.analyze.task_failed", {"detail": e}))
-                    ctx.failure_counter.increment()
+                    ctx.failure_counter.increment(f"{failed_name}: {e}" if failed_name else str(e))
 
                 if ctx.cancel_event and ctx.cancel_event.is_set():
                     break
@@ -1645,5 +1656,9 @@ def run_analyze_all(
     failed = failure_counter.value
     records.failed = failed
     if strict and failed > 0:
-        raise RuntimeError(t("task.analyze.incomplete", {"completed": completed, "failed": failed}))
+        message = t("task.analyze.incomplete", {"completed": completed, "failed": failed})
+        details = failure_counter.summary()
+        if details:
+            message = f"{message}\n{t('task.analyze.incomplete_reasons', {'details': details})}"
+        raise RuntimeError(message)
     return records

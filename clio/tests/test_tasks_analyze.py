@@ -510,6 +510,7 @@ class TestRunAnalyzeAll:
             run_analyze_all(cfg, strict=True)
 
         assert t("task.analyze.incomplete", {"completed": 1, "failed": 1}) in str(exc_info.value)
+        assert "provider failed" in str(exc_info.value)
         assert len(list(cfg.texts_dir.glob("*.json"))) == 1
 
     def test_low_compress_fps_warns_once_per_batch(self, monkeypatch, tmp_path: Path, capsys):
