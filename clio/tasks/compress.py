@@ -234,18 +234,11 @@ def _write_vindex(records: list[ClipRecord], config: AppConfig, ffprobe: str) ->
         vindex.write(compressed_dir)
 
 
-def run_compress_all(
+def _select_compress_videos(
     config: AppConfig,
-    tracker: ProgressReporter | None = None,
-    single_file: Path | None = None,
-    cancel_event: threading.Event | None = None,
-    files: list[str] | None = None,
-    overwrite: bool = False,
-    **kwargs: Any,
-) -> list[ClipRecord]:
-    resolve_binary(config.paths.ffmpeg, "ffmpeg")  # fail fast if missing
-    ffprobe = resolve_binary(config.paths.ffprobe, "ffprobe")
-
+    single_file: Path | None,
+    files: list[str] | None,
+) -> list[Path]:
     if single_file:
         videos = [single_file]
     else:
@@ -263,6 +256,169 @@ def run_compress_all(
     if files is not None:
         selected = _selection_from_files(files)
         videos = [v for v in videos if _matches_selected_stem(v, selected)]
+    return videos
+
+
+def _scan_existing_compressed(
+    config: AppConfig,
+    ffprobe: str,
+) -> tuple[dict[str, list[tuple[int, Path, VideoMeta | None]]], dict[str, list[Path]]]:
+    # Only include files >= 50KB to skip partially-written files from interrupted runs.
+    min_valid_size = 50 * 1024
+    existing_map: dict[str, list[tuple[int, Path, VideoMeta | None]]] = {}
+    # Files ffprobe could not read during scan. A probe timeout/fork failure is
+    # NOT proof of corruption: keep the artifact and only remove it after a
+    # fresh replacement commits (GAP-P1-07).
+    unverifiable: dict[str, list[Path]] = {}
+    if not config.compressed_dir.is_dir():
+        return existing_map, unverifiable
+    for f in config.compressed_dir.iterdir():
+        if not f.is_file() or f.suffix.lower() not in VIDEO_EXTS:
+            continue
+        if f.stat().st_size < min_valid_size:
+            continue
+        try:
+            dur = get_duration_sec(f, ffprobe)
+            if dur <= 0:
+                raise ValueError("zero duration")
+        except _PROBE_FAILURES:
+            meta = VideoMeta.read(f)
+            if meta and meta.source_path:
+                unverifiable.setdefault(str(Path(meta.source_path).resolve()), []).append(f)
+            print(t("task.compress.keep_unverifiable", {"name": f.name}))
+            continue
+        if "_" not in f.stem:
+            continue
+        prefix, stem_part = f.stem.split("_", 1)
+        if not prefix.isdigit():
+            continue
+        meta = VideoMeta.read(f)
+        key = _meta_source_key(stem_part, meta)
+        if key:
+            existing_map.setdefault(key, []).append((int(prefix), f, meta))
+    return existing_map, unverifiable
+
+
+def _compress_and_record(
+    original: Path,
+    source: Path,
+    *,
+    config: AppConfig,
+    ffprobe: str,
+    existing_map: dict[str, list[tuple[int, Path, VideoMeta | None]]],
+    unverifiable: dict[str, list[Path]],
+    tracker: ProgressReporter | None,
+    state: ProcessingState,
+    cancel_event: threading.Event | None,
+    force_compress: bool,
+    reject_reason: str | None,
+    next_idx: int,
+    completed: int,
+    index: int,
+    total: int,
+    label_name: str,
+    elapsed_total: float,
+) -> tuple[ClipRecord, float]:
+    overwrite_slot = _find_existing_slot(source, existing_map) if force_compress else None
+    if overwrite_slot is not None:
+        use_idx, use_out = overwrite_slot
+    else:
+        use_idx = next_idx + completed
+        use_out = config.compressed_dir / f"{format_index(use_idx, config.naming.index_width)}_{source.stem}.mp4"
+    if reject_reason:
+        print(t("task.compress.recompress", {"name": source.stem, "reason": reject_reason}))
+    if tracker:
+        tracker.update(
+            phase="compress",
+            current=index,
+            total=total,
+            message=t("task.compress.progress", {"name": source.name}),
+        )
+        tracker.log(t("task.compress.start_log", {"label": label_name}))
+    print(_eta_line(t("task.compress.eta_label"), index, total, label_name, completed, elapsed_total))
+    t0 = time.monotonic()
+    target_pre_existed = use_out.exists()
+    try:
+        if tracker:
+
+            def _on_progress(_sec: float, total_dur: float, _i: int = index, _name: str = label_name):
+                pct = int(_sec / total_dur * 100) if total_dur > 0 else 0
+                tracker.update(
+                    phase="compress",
+                    current=_i,
+                    total=total,
+                    message=t("task.compress.progress_pct", {"name": _name, "pct": pct}),
+                )
+
+            compress_video(source, use_out, config, progress_callback=_on_progress, cancel_event=cancel_event)
+        else:
+            compress_video(source, use_out, config, cancel_event=cancel_event)
+    except Exception:
+        # Keep the last valid artifact when the encode fails: only the
+        # atomic temp write is discarded, so a pre-existing target must
+        # be left untouched (GAP-P1-07). A freshly-created partial
+        # (non-atomic callers) is still cleaned up.
+        if use_out.exists() and not target_pre_existed:
+            use_out.unlink(missing_ok=True)
+        raise
+    elapsed = time.monotonic() - t0
+    state.mark(original.stem, "compress", "done")
+
+    # Always write non-split identity for new compresses.
+    src_dur = _safe_duration(original, ffprobe)
+    tgt_dur = _safe_duration(use_out, ffprobe)
+    meta = VideoMeta.build(
+        source=original,
+        target=use_out,
+        source_duration=src_dur,
+        target_duration=tgt_dur,
+        compress_settings={
+            "max_width": config.compress.max_width,
+            "fps": config.compress.fps,
+            "target_size_mb": config.compress.target_size_mb,
+            "min_video_kbps": config.compress.min_video_kbps,
+            "max_video_kbps": config.compress.max_video_kbps,
+            "remove_audio": config.compress.remove_audio,
+        },
+        split_info=None,
+    )
+    meta.write(use_out)
+
+    _prune_stale_siblings(source, use_out, existing_map, config, force=force_compress)
+
+    # Now that a fresh valid output is committed, drop previously
+    # unverifiable same-source artifacts that were retained on scan
+    # (GAP-P1-07: defer deletion until a replacement exists).
+    resolved_src = str(source.resolve())
+    for stale in unverifiable.pop(resolved_src, []):
+        if stale.resolve() != use_out.resolve():
+            print(t("task.compress.prune_committed", {"name": stale.name}))
+            stale.unlink(missing_ok=True)
+            stale.with_suffix(VMETA_EXT).unlink(missing_ok=True)
+
+    record = ClipRecord(
+        index=use_idx,
+        stem=use_out.stem,
+        source_path=original,
+        compressed_path=use_out,
+        meta=meta,
+    )
+    return record, elapsed
+
+
+def run_compress_all(
+    config: AppConfig,
+    tracker: ProgressReporter | None = None,
+    single_file: Path | None = None,
+    cancel_event: threading.Event | None = None,
+    files: list[str] | None = None,
+    overwrite: bool = False,
+    **kwargs: Any,
+) -> list[ClipRecord]:
+    resolve_binary(config.paths.ffmpeg, "ffmpeg")  # fail fast if missing
+    ffprobe = resolve_binary(config.paths.ffprobe, "ffprobe")
+
+    videos = _select_compress_videos(config, single_file, files)
     config.compressed_dir.mkdir(parents=True, exist_ok=True)
     force_compress = overwrite or not config.analyze.skip_existing
 
@@ -272,38 +428,9 @@ def run_compress_all(
         items = _sort_items_by_capture_time(items, ffprobe)
 
     # Phase 2: build existing lookup (source path or stem -> (index, Path, VideoMeta))
-    # Only include files >= 50KB to skip partially-written files from interrupted runs.
     # Match by resolved source path recorded in the .vmeta sidecar so two videos
     # sharing a basename never collide on the same existing file.
-    MIN_VALID_SIZE = 50 * 1024
-    existing_map: dict[str, list[tuple[int, Path, VideoMeta | None]]] = {}
-    # Files ffprobe could not read during scan. A probe timeout/fork failure is
-    # NOT proof of corruption: keep the artifact and only remove it after a
-    # fresh replacement commits (GAP-P1-07).
-    unverifiable: dict[str, list[Path]] = {}
-    if config.compressed_dir.is_dir():
-        for f in config.compressed_dir.iterdir():
-            if not f.is_file() or f.suffix.lower() not in VIDEO_EXTS:
-                continue
-            if f.stat().st_size < MIN_VALID_SIZE:
-                continue
-            try:
-                dur = get_duration_sec(f, ffprobe)
-                if dur <= 0:
-                    raise ValueError("zero duration")
-            except _PROBE_FAILURES:
-                meta = VideoMeta.read(f)
-                if meta and meta.source_path:
-                    unverifiable.setdefault(str(Path(meta.source_path).resolve()), []).append(f)
-                print(t("task.compress.keep_unverifiable", {"name": f.name}))
-                continue
-            if "_" in f.stem:
-                prefix, stem_part = f.stem.split("_", 1)
-                if prefix.isdigit():
-                    meta = VideoMeta.read(f)
-                    key = _meta_source_key(stem_part, meta)
-                    if key:
-                        existing_map.setdefault(key, []).append((int(prefix), f, meta))
+    existing_map, unverifiable = _scan_existing_compressed(config, ffprobe)
 
     # Phase 3: assign indices and compress each
     next_idx = _next_index(config.compressed_dir, config.naming.index_width)
@@ -319,7 +446,7 @@ def run_compress_all(
             # Reuse existing compressed file if it is fresh and still matches.
             # Force/rerun mode re-compresses but keeps the existing numeric slot.
             if not force_compress:
-                use_idx, use_out, use_meta, reject_reason = _find_reusable(source, existing_map, config, ffprobe)
+                use_idx, use_out, _use_meta, reject_reason = _find_reusable(source, existing_map, config, ffprobe)
                 if use_idx is not None and use_out is not None:
                     if tracker:
                         tracker.update(
@@ -340,96 +467,28 @@ def run_compress_all(
 
             # Leftover *_segNN files do NOT satisfy whole-file compress; continue to create
             # a new non-segment compressed file so the project can migrate forward.
-
-            overwrite_slot = _find_existing_slot(source, existing_map) if force_compress else None
-            if overwrite_slot is not None:
-                use_idx, use_out = overwrite_slot
-            else:
-                use_idx = next_idx + completed
-                use_out = (
-                    config.compressed_dir / f"{format_index(use_idx, config.naming.index_width)}_{source.stem}.mp4"
-                )
-            if reject_reason:
-                print(t("task.compress.recompress", {"name": source.stem, "reason": reject_reason}))
-            if tracker:
-                tracker.update(
-                    phase="compress",
-                    current=i,
-                    total=len(items),
-                    message=t("task.compress.progress", {"name": source.name}),
-                )
-                tracker.log(t("task.compress.start_log", {"label": label_name}))
-            print(_eta_line(t("task.compress.eta_label"), i, len(items), label_name, completed, elapsed_total))
-            t0 = time.monotonic()
-            target_pre_existed = use_out.exists()
-            try:
-                if tracker:
-
-                    def _on_progress(_sec: float, total_dur: float, _i: int = i, _name: str = label_name):
-                        pct = int(_sec / total_dur * 100) if total_dur > 0 else 0
-                        tracker.update(
-                            phase="compress",
-                            current=_i,
-                            total=len(items),
-                            message=t("task.compress.progress_pct", {"name": _name, "pct": pct}),
-                        )
-
-                    compress_video(source, use_out, config, progress_callback=_on_progress, cancel_event=cancel_event)
-                else:
-                    compress_video(source, use_out, config, cancel_event=cancel_event)
-            except Exception:
-                # Keep the last valid artifact when the encode fails: only the
-                # atomic temp write is discarded, so a pre-existing target must
-                # be left untouched (GAP-P1-07). A freshly-created partial
-                # (non-atomic callers) is still cleaned up.
-                if use_out.exists() and not target_pre_existed:
-                    use_out.unlink(missing_ok=True)
-                raise
-            state.mark(original.stem, "compress", "done")
-            elapsed_total += time.monotonic() - t0
+            record, elapsed = _compress_and_record(
+                original,
+                source,
+                config=config,
+                ffprobe=ffprobe,
+                existing_map=existing_map,
+                unverifiable=unverifiable,
+                tracker=tracker,
+                state=state,
+                cancel_event=cancel_event,
+                force_compress=force_compress,
+                reject_reason=reject_reason,
+                next_idx=next_idx,
+                completed=completed,
+                index=i,
+                total=len(items),
+                label_name=label_name,
+                elapsed_total=elapsed_total,
+            )
+            records.append(record)
+            elapsed_total += elapsed
             completed += 1
-
-            # Always write non-split identity for new compresses.
-            src_dur = _safe_duration(original, ffprobe)
-            tgt_dur = _safe_duration(use_out, ffprobe)
-            meta = VideoMeta.build(
-                source=original,
-                target=use_out,
-                source_duration=src_dur,
-                target_duration=tgt_dur,
-                compress_settings={
-                    "max_width": config.compress.max_width,
-                    "fps": config.compress.fps,
-                    "target_size_mb": config.compress.target_size_mb,
-                    "min_video_kbps": config.compress.min_video_kbps,
-                    "max_video_kbps": config.compress.max_video_kbps,
-                    "remove_audio": config.compress.remove_audio,
-                },
-                split_info=None,
-            )
-            meta.write(use_out)
-
-            _prune_stale_siblings(source, use_out, existing_map, config, force=force_compress)
-
-            # Now that a fresh valid output is committed, drop previously
-            # unverifiable same-source artifacts that were retained on scan
-            # (GAP-P1-07: defer deletion until a replacement exists).
-            resolved_src = str(source.resolve())
-            for stale in unverifiable.pop(resolved_src, []):
-                if stale.resolve() != use_out.resolve():
-                    print(t("task.compress.prune_committed", {"name": stale.name}))
-                    stale.unlink(missing_ok=True)
-                    stale.with_suffix(VMETA_EXT).unlink(missing_ok=True)
-
-            records.append(
-                ClipRecord(
-                    index=use_idx,
-                    stem=use_out.stem,
-                    source_path=original,
-                    compressed_path=use_out,
-                    meta=meta,
-                )
-            )
 
     # 写 .vindex（每个原始文件一个，汇总所有分段）
     _write_vindex(records, config, ffprobe)
