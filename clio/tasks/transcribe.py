@@ -231,6 +231,278 @@ def _extract_audio(
         unregister_process(proc)
 
 
+def _skip_cached_transcript(
+    config: AppConfig,
+    compressed_stem: str,
+    out_path: Path,
+    orig_stem: str,
+    *,
+    current_engine: str,
+    current_model: str,
+    current_language: str,
+    overwrite: bool,
+    state: ProcessingState,
+    tracker: ProgressReporter | None,
+) -> bool:
+    if overwrite or not config.analyze.skip_existing or not out_path.exists():
+        return False
+    try:
+        existing = json.loads(out_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        print(t("task.transcribe.retranscribe_corrupt", {"name": compressed_stem}))
+        return False
+    if not isinstance(existing, dict):
+        print(t("task.transcribe.retranscribe_corrupt", {"name": compressed_stem}))
+        existing = None
+    mismatches = _transcript_cache_mismatches(
+        existing or {},
+        engine=current_engine,
+        model_size=current_model,
+        language=current_language,
+    )
+    if mismatches:
+        changes = ", ".join(mismatches)
+        print(t("task.transcribe.retranscribe_metadata", {"name": compressed_stem, "changes": changes}))
+        if tracker:
+            tracker.log(t("task.transcribe.metadata_changed", {"name": compressed_stem, "changes": changes}))
+        return False
+    print(
+        t(
+            "task.transcribe.skip_exists",
+            {
+                "name": compressed_stem,
+                "engine": current_engine,
+                "model": current_model,
+                "language": current_language,
+            },
+        )
+    )
+    state.mark(orig_stem, "transcribe", "skipped")
+    if tracker:
+        tracker.next(message=t("task.transcribe.skip_next", {"name": compressed_stem}))
+        tracker.log(t("task.transcribe.skip_exists_log", {"name": compressed_stem}))
+    return True
+
+
+def _extract_item_audio(
+    config: AppConfig,
+    compressed_video: Path,
+    original_video: Path,
+    compressed_stem: str,
+    orig_stem: str,
+    *,
+    state: ProcessingState,
+    tracker: ProgressReporter | None,
+    cancel_event: threading.Event | None,
+    tmp_dir: Path,
+) -> tuple[Path | None, str | None]:
+    ffmpeg = resolve_binary(config.paths.ffmpeg, "ffmpeg")
+    ffprobe = resolve_binary(config.paths.ffprobe, "ffprobe")
+    audio_source = (
+        compressed_video if compressed_video.is_file() and not config.compress.remove_audio else original_video
+    )
+    audio_dur = _get_video_duration(audio_source, ffprobe)
+
+    def _on_extract_progress(pct: int, *, name: str = compressed_stem) -> None:
+        if tracker:
+            tracker.update(
+                phase="transcribe",
+                message=t("task.transcribe.extract_progress", {"name": name, "pct": pct}),
+            )
+
+    wav_path = _extract_audio(
+        audio_source,
+        ffmpeg,
+        progress_callback=_on_extract_progress,
+        cancel_event=cancel_event,
+        total_duration=audio_dur,
+        tmp_dir=tmp_dir,
+    )
+    if wav_path is not None:
+        return wav_path, None
+    if cancel_event and cancel_event.is_set():
+        print(t("task.transcribe.cancel_extract", {"name": compressed_stem}))
+        state.mark(orig_stem, "transcribe", "cancelled")
+        if tracker:
+            tracker.next(message=t("task.transcribe.cancel", {"name": compressed_stem}))
+            tracker.log(t("task.transcribe.cancel", {"name": compressed_stem}))
+        return None, "cancelled"
+    print(t("task.transcribe.skip_no_audio", {"name": compressed_stem}))
+    state.mark(orig_stem, "transcribe", "skipped")
+    if tracker:
+        tracker.next(message=t("task.transcribe.skip_no_audio_next", {"name": compressed_stem}))
+        tracker.log(t("task.transcribe.skip_no_audio_log", {"name": compressed_stem}))
+    return None, "skipped"
+
+
+def _write_item_transcript(
+    config: AppConfig,
+    compressed_video: Path,
+    original_video: Path,
+    compressed_stem: str,
+    out_path: Path,
+    wav_path: Path,
+    orig_stem: str,
+    *,
+    index: int,
+    total: int,
+    start_time: float,
+    current_engine: str,
+    state: ProcessingState,
+    tracker: ProgressReporter | None,
+    cancel_event: threading.Event | None,
+) -> None:
+    def _on_transcribe_progress(pct: int, *, name: str = compressed_stem) -> None:
+        if tracker:
+            tracker.update(
+                phase="transcribe",
+                message=t("task.transcribe.whisper_progress", {"name": name, "pct": pct}),
+            )
+
+    if tracker:
+        engine_label = current_engine if current_engine != "local" else t("task.transcribe.engine_local_label")
+        tracker.update(
+            phase="transcribe",
+            message=t("task.transcribe.transcribing", {"name": compressed_stem, "engine": engine_label}),
+        )
+        tracker.log(t("task.transcribe.transcribing", {"name": compressed_stem, "engine": engine_label}))
+    segments = transcribe_audio(wav_path, config, progress_callback=_on_transcribe_progress, cancel_event=cancel_event)
+    transcript: dict[str, Any] = {
+        "source_video": original_video.name,
+        "source_stem": compressed_stem,
+        "language": config.whisper.language,
+        "model_size": config.whisper.model_size,
+        "engine": current_engine,
+        "segments": segments,
+        "generated_at": datetime.now().isoformat(),
+    }
+    idx = compressed_stem.split("_", 1)[0] if "_" in compressed_stem else ""
+    transcript_identity = resolve_identity(compressed_video, idx, project_dir=config.project_dir)
+    add_schema_version(transcript)
+    transcript["media_identity"] = _identity_to_dict(transcript_identity)
+    write_json_atomic(out_path, transcript)
+    enriched = enrich_matching_analysis_files(config, transcript)
+    if enriched:
+        print(t("task.transcribe.aligned", {"count": enriched}))
+    state.mark(orig_stem, "transcribe", "done")
+    seg_info = t("task.transcribe.seg_count", {"count": len(segments)}) if segments else t("task.transcribe.seg_none")
+    elapsed = time.time() - start_time
+    pace = elapsed / (index + 1)
+    eta = pace * (total - index - 1)
+    line = t(
+        "task.transcribe.line",
+        {
+            "i": index + 1,
+            "total": total,
+            "name": compressed_stem,
+            "info": seg_info,
+            "pace": format_duration(pace),
+            "eta": format_duration(eta),
+        },
+    )
+    print(line)
+
+
+def _process_transcribe_item(
+    config: AppConfig,
+    compressed_video: Path,
+    *,
+    index: int,
+    total: int,
+    transcripts_dir: Path,
+    original_cache: dict[str, Path | None],
+    selected_paths: frozenset[str] | None,
+    state: ProcessingState,
+    tracker: ProgressReporter | None,
+    cancel_event: threading.Event | None,
+    overwrite: bool,
+    tmp_dir: Path,
+    start_time: float,
+) -> str:
+    """Transcribe one compressed video and return its batch outcome."""
+    compressed_stem = compressed_video.stem
+    out_path = transcripts_dir / f"{compressed_stem}_transcript.json"
+    original_video = _find_original_video(compressed_stem, original_cache, compressed_video, selected_paths)
+    if original_video is None:
+        orig_stem = _extract_orig_stem(compressed_stem)
+        print(t("task.transcribe.skip_no_original", {"name": compressed_stem}))
+        state.mark(orig_stem, "transcribe", "skipped")
+        if tracker:
+            tracker.next(message=t("task.transcribe.skip_next", {"name": compressed_stem}))
+            tracker.log(t("task.transcribe.skip_no_original_log", {"name": compressed_stem}))
+        return "skipped"
+    orig_stem = original_video.stem
+
+    current_engine = getattr(config.whisper, "engine", "local")
+    current_model = config.whisper.model_size
+    current_language = config.whisper.language
+    if _skip_cached_transcript(
+        config,
+        compressed_stem,
+        out_path,
+        orig_stem,
+        current_engine=current_engine,
+        current_model=current_model,
+        current_language=current_language,
+        overwrite=overwrite,
+        state=state,
+        tracker=tracker,
+    ):
+        return "skipped"
+
+    if cancel_event and cancel_event.is_set():
+        print(t("task.transcribe.cancelled"))
+        return "cancelled"
+    wav_path, outcome = _extract_item_audio(
+        config,
+        compressed_video,
+        original_video,
+        compressed_stem,
+        orig_stem,
+        state=state,
+        tracker=tracker,
+        cancel_event=cancel_event,
+        tmp_dir=tmp_dir,
+    )
+    if wav_path is None:
+        return outcome or "skipped"
+
+    try:
+        _write_item_transcript(
+            config,
+            compressed_video,
+            original_video,
+            compressed_stem,
+            out_path,
+            wav_path,
+            orig_stem,
+            index=index,
+            total=total,
+            start_time=start_time,
+            current_engine=current_engine,
+            state=state,
+            tracker=tracker,
+            cancel_event=cancel_event,
+        )
+    except KeyboardInterrupt:
+        raise
+    except Exception as e:  # noqa: BLE001 - isolate one failed transcript without aborting the batch
+        err_msg = str(e)
+        print(t("task.transcribe.error", {"name": compressed_stem, "detail": err_msg}))
+        state.mark(orig_stem, "transcribe", "error")
+        if tracker:
+            tracker.next(message=t("task.transcribe.failed_next", {"name": compressed_stem}))
+            tracker.log(t("task.transcribe.failed_log", {"name": compressed_stem, "detail": err_msg}))
+        return "error"
+    finally:
+        wav_path.unlink(missing_ok=True)
+
+    if tracker:
+        tracker.next(message=t("task.transcribe.done_next", {"name": compressed_stem}))
+        tracker.log(t("task.transcribe.done_log", {"name": compressed_stem}))
+    return "done"
+
+
 def run_transcribe_all(
     config: AppConfig,
     tracker: ProgressReporter | None = None,
@@ -289,176 +561,25 @@ def run_transcribe_all(
 
     start_time = time.time()
     for i, compressed_video in enumerate(videos):
-        compressed_stem = compressed_video.stem
-        out_path = transcripts_dir / f"{compressed_stem}_transcript.json"
-        original_video = _find_original_video(compressed_stem, original_cache, compressed_video, selected_paths)
-        if original_video is None:
-            orig_stem = _extract_orig_stem(compressed_stem)
-            print(t("task.transcribe.skip_no_original", {"name": compressed_stem}))
-            state.mark(orig_stem, "transcribe", "skipped")
-            if tracker:
-                tracker.next(message=t("task.transcribe.skip_next", {"name": compressed_stem}))
-                tracker.log(t("task.transcribe.skip_no_original_log", {"name": compressed_stem}))
-            continue
-
-        orig_stem = original_video.stem
-
-        current_engine = getattr(config.whisper, "engine", "local")
-        current_model = config.whisper.model_size
-        current_language = config.whisper.language
-        if not overwrite and config.analyze.skip_existing and out_path.exists():
-            try:
-                existing = json.loads(out_path.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                print(t("task.transcribe.retranscribe_corrupt", {"name": compressed_stem}))
-            else:
-                if not isinstance(existing, dict):
-                    print(t("task.transcribe.retranscribe_corrupt", {"name": compressed_stem}))
-                    existing = None
-                mismatches = _transcript_cache_mismatches(
-                    existing or {},
-                    engine=current_engine,
-                    model_size=current_model,
-                    language=current_language,
-                )
-                if mismatches:
-                    changes = ", ".join(mismatches)
-                    print(t("task.transcribe.retranscribe_metadata", {"name": compressed_stem, "changes": changes}))
-                    if tracker:
-                        tracker.log(
-                            t("task.transcribe.metadata_changed", {"name": compressed_stem, "changes": changes})
-                        )
-                else:
-                    print(
-                        t(
-                            "task.transcribe.skip_exists",
-                            {
-                                "name": compressed_stem,
-                                "engine": current_engine,
-                                "model": current_model,
-                                "language": current_language,
-                            },
-                        )
-                    )
-                    state.mark(orig_stem, "transcribe", "skipped")
-                    if tracker:
-                        tracker.next(message=t("task.transcribe.skip_next", {"name": compressed_stem}))
-                        tracker.log(t("task.transcribe.skip_exists_log", {"name": compressed_stem}))
-                    continue
-
-        if cancel_event and cancel_event.is_set():
-            print(t("task.transcribe.cancelled"))
-            break
-        ffmpeg = resolve_binary(config.paths.ffmpeg, "ffmpeg")
-        ffprobe = resolve_binary(config.paths.ffprobe, "ffprobe")
-        audio_source = (
-            compressed_video if compressed_video.is_file() and not config.compress.remove_audio else original_video
-        )
-        audio_dur = _get_video_duration(audio_source, ffprobe)
-
-        def _on_extract_progress(pct: int, *, name: str = compressed_stem) -> None:
-            if tracker:
-                tracker.update(
-                    phase="transcribe",
-                    message=t("task.transcribe.extract_progress", {"name": name, "pct": pct}),
-                )
-
-        def _on_transcribe_progress(pct: int, *, name: str = compressed_stem) -> None:
-            if tracker:
-                tracker.update(
-                    phase="transcribe",
-                    message=t("task.transcribe.whisper_progress", {"name": name, "pct": pct}),
-                )
-
-        wav_path = _extract_audio(
-            audio_source,
-            ffmpeg,
-            progress_callback=_on_extract_progress,
+        outcome = _process_transcribe_item(
+            config,
+            compressed_video,
+            index=i,
+            total=total,
+            transcripts_dir=transcripts_dir,
+            original_cache=original_cache,
+            selected_paths=selected_paths,
+            state=state,
+            tracker=tracker,
             cancel_event=cancel_event,
-            total_duration=audio_dur,
+            overwrite=overwrite,
             tmp_dir=tmp_dir,
+            start_time=start_time,
         )
-        if wav_path is None:
-            if cancel_event and cancel_event.is_set():
-                print(t("task.transcribe.cancel_extract", {"name": compressed_stem}))
-                state.mark(orig_stem, "transcribe", "cancelled")
-                if tracker:
-                    tracker.next(message=t("task.transcribe.cancel", {"name": compressed_stem}))
-                    tracker.log(t("task.transcribe.cancel", {"name": compressed_stem}))
-                break
-            print(t("task.transcribe.skip_no_audio", {"name": compressed_stem}))
-            state.mark(orig_stem, "transcribe", "skipped")
-            if tracker:
-                tracker.next(message=t("task.transcribe.skip_no_audio_next", {"name": compressed_stem}))
-                tracker.log(t("task.transcribe.skip_no_audio_log", {"name": compressed_stem}))
-            continue
-
-        try:
-            if tracker:
-                engine_label = current_engine if current_engine != "local" else t("task.transcribe.engine_local_label")
-                tracker.update(
-                    phase="transcribe",
-                    message=t("task.transcribe.transcribing", {"name": compressed_stem, "engine": engine_label}),
-                )
-                tracker.log(t("task.transcribe.transcribing", {"name": compressed_stem, "engine": engine_label}))
-            segments = transcribe_audio(
-                wav_path, config, progress_callback=_on_transcribe_progress, cancel_event=cancel_event
-            )
-            transcript: dict[str, Any] = {
-                "source_video": original_video.name,
-                "source_stem": compressed_stem,
-                "language": config.whisper.language,
-                "model_size": config.whisper.model_size,
-                "engine": current_engine,
-                "segments": segments,
-                "generated_at": datetime.now().isoformat(),
-            }
-            idx = compressed_stem.split("_", 1)[0] if "_" in compressed_stem else ""
-            transcript_identity = resolve_identity(compressed_video, idx, project_dir=config.project_dir)
-            add_schema_version(transcript)
-            transcript["media_identity"] = _identity_to_dict(transcript_identity)
-            write_json_atomic(out_path, transcript)
-            enriched = enrich_matching_analysis_files(config, transcript)
-            if enriched:
-                print(t("task.transcribe.aligned", {"count": enriched}))
-            state.mark(orig_stem, "transcribe", "done")
-            seg_info = (
-                t("task.transcribe.seg_count", {"count": len(segments)}) if segments else t("task.transcribe.seg_none")
-            )
-            elapsed = time.time() - start_time
-            pace = elapsed / (i + 1)
-            eta = pace * (total - i - 1)
-            eta_str = format_duration(eta)
-            pace_str = format_duration(pace)
-            line = t(
-                "task.transcribe.line",
-                {
-                    "i": i + 1,
-                    "total": total,
-                    "name": compressed_stem,
-                    "info": seg_info,
-                    "pace": pace_str,
-                    "eta": eta_str,
-                },
-            )
-            print(line)
-        except KeyboardInterrupt:
-            raise
-        except Exception as e:  # noqa: BLE001 - isolate one failed transcript without aborting the batch
-            err_msg = str(e)
-            print(t("task.transcribe.error", {"name": compressed_stem, "detail": err_msg}))
-            state.mark(orig_stem, "transcribe", "error")
-            if tracker:
-                tracker.next(message=t("task.transcribe.failed_next", {"name": compressed_stem}))
-                tracker.log(t("task.transcribe.failed_log", {"name": compressed_stem, "detail": err_msg}))
+        if outcome == "cancelled":
+            break
+        if outcome == "error":
             error_count += 1
-            continue
-        finally:
-            wav_path.unlink(missing_ok=True)
-
-        if tracker:
-            tracker.next(message=t("task.transcribe.done_next", {"name": compressed_stem}))
-            tracker.log(t("task.transcribe.done_log", {"name": compressed_stem}))
 
     if error_count > 0:
         msg = t("task.transcribe.completed_with_errors", {"count": error_count})
