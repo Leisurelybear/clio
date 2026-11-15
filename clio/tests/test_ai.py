@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any, cast
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -144,3 +145,48 @@ class TestOpenAICompatHasNoAnalyzeVideo:
         assert isinstance(provider, OpenAICompatProvider)
         assert not hasattr(provider, "analyze_video")
         assert not isinstance(provider, VideoAIProvider)
+
+
+def test_rotation_retires_only_affected_provider_after_lease(loaded_config, monkeypatch):
+    from clio.ai import factory
+
+    monkeypatch.setitem(factory._PROVIDER_TYPES, "gemini", lambda *args: MagicMock())
+    monkeypatch.setitem(factory._PROVIDER_TYPES, "openai_compat", lambda *args: MagicMock())
+    first: Any = factory._build_provider(loaded_config, "gemini")
+    other = factory._build_provider(loaded_config, "deepseek")
+    with factory.provider_use(first):
+        factory._clear_provider_cache({"gemini"})
+        first.close.assert_not_called()
+        assert factory._build_provider(loaded_config, "gemini") is not first
+        assert factory._build_provider(loaded_config, "deepseek") is other
+        factory._clear_provider_cache()
+        first.close.assert_not_called()
+    first.close.assert_called_once()
+
+
+def test_retirement_closes_once_after_last_nested_lease_and_error(loaded_config, monkeypatch):
+    from clio.ai import factory
+
+    monkeypatch.setitem(factory._PROVIDER_TYPES, "gemini", lambda *args: MagicMock())
+    provider: Any = factory._build_provider(loaded_config, "gemini")
+    with factory.provider_use(provider):
+        with pytest.raises(RuntimeError, match="call failed"), factory.provider_use(provider):
+            factory._clear_provider_cache()
+            factory._clear_provider_cache()
+            raise RuntimeError("call failed")
+        provider.close.assert_not_called()
+    provider.close.assert_called_once()
+
+
+def test_reacquisition_handoff_does_not_use_closed_client(loaded_config, monkeypatch):
+    from clio.ai import factory
+
+    monkeypatch.setitem(factory._PROVIDER_TYPES, "gemini", lambda *args: MagicMock())
+    first: Any = factory._build_provider(loaded_config, "gemini")
+    factory._clear_provider_cache({"gemini"})
+    first.close.assert_called_once()
+    with factory.provider_use(first, acquire=lambda: factory._build_provider(loaded_config, "gemini")) as current:
+        assert current is not first
+        factory._clear_provider_cache({"gemini"})
+        current.close.assert_not_called()
+    current.close.assert_called_once()

@@ -1169,7 +1169,7 @@ def analyze_video(
             **_usage_meta(config, TaskName.VIDEO_ANALYZE),
         )
 
-    with provider_use(provider):
+    with provider_use(provider, acquire=lambda: get_video_provider(config, TaskName.VIDEO_ANALYZE)[0]) as provider:
         text = call_analyze(prompt)
         # Check cancel_event after AI call but before validation
         if cancel_event and cancel_event.is_set():
@@ -1269,7 +1269,7 @@ def generate_voiceover(
             **_usage_meta(config, TaskName.VOICEOVER),
         )
 
-    with provider_use(provider):
+    with provider_use(provider, acquire=lambda: get_task_provider(config, TaskName.VOICEOVER)[0]) as provider:
         text = call_voiceover(prompt)
         return _validate_with_retry(
             text,
@@ -1412,7 +1412,7 @@ def generate_plan_voiceover(
             **_usage_meta(config, TaskName.VOICEOVER),
         )
 
-    with provider_use(provider):
+    with provider_use(provider, acquire=lambda: get_task_provider(config, TaskName.VOICEOVER)[0]) as provider:
         text = call_voiceover(prompt)
         validated = _validate_with_retry(
             text,
@@ -1684,7 +1684,7 @@ def plan_daily_vlog(
                 return draft
             raise
 
-    with provider_use(provider):
+    with provider_use(provider, acquire=lambda: get_task_provider(config, TaskName.VLOG_PLAN)[0]) as provider:
         if should_shortlist_plan_clips(clips, config):
             shortlist_limit = plan_candidate_limit(config)
             shortlist_template = resolve_prompt_template(
@@ -1932,7 +1932,7 @@ def refine_text(
     system = _system_context(config)
     prompt = _wrap_with_context(base, config, context_override=context_override, include_spec=False)
     try:
-        with provider_use(provider):
+        with provider_use(provider, acquire=lambda: get_task_provider(config, TaskName.REFINE_TEXT)[0]) as provider:
             text = _call_ai(
                 label,
                 provider.provider_id,
@@ -1989,7 +1989,7 @@ def summarize_window_analysis(
     system = _system_context(config)
     prompt = _wrap_with_context(base, config, context_override=context_override, include_spec=False)
     try:
-        with provider_use(provider):
+        with provider_use(provider, acquire=lambda: get_task_provider(config, TaskName.REFINE_TEXT)[0]) as provider:
             text = _call_ai(
                 t("analyze.label.window_summary"),
                 provider.provider_id,
@@ -2075,7 +2075,7 @@ def refine_script(
     system = _system_context(config)
     prompt = _wrap_with_context(base, config, context_override=context_override, include_spec=False)
     try:
-        with provider_use(provider):
+        with provider_use(provider, acquire=lambda: get_task_provider(config, TaskName.REFINE_TEXT)[0]) as provider:
             text = _call_ai(
                 label,
                 provider.provider_id,

@@ -257,7 +257,10 @@ def _review_with_gemini(
             temperature = get_task_config(config, TaskName.VIDEO_ANALYZE).temperature
         except (AttributeError, KeyError, ValueError):
             temperature = None
-        with provider_use(provider):
+        with provider_use(provider, acquire=lambda: get_video_provider(config, TaskName.VIDEO_ANALYZE)[0]) as provider:
+            analyze_images = getattr(provider, "analyze_images", None)
+            if not callable(analyze_images):
+                return original
             response = analyze_images(
                 [str(contact_sheet)],
                 prompt,

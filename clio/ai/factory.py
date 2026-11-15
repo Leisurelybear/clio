@@ -3,10 +3,10 @@ from __future__ import annotations
 import contextlib
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import Any, TypeVar
 
 from clio.ai.base import TaskName, TextAIProvider, VideoAIProvider, provider_supports_video
 from clio.ai.gemini import GeminiProvider
@@ -32,7 +32,8 @@ class _CachedEntry:
 
 _provider_cache: dict[tuple, _CachedEntry] = {}
 _retired_entries: list[_CachedEntry] = []
-_provider_cache_lock = threading.Lock()
+_provider_cache_lock = threading.RLock()
+_ProviderT = TypeVar("_ProviderT", bound=TextAIProvider)
 
 
 def _close_provider(provider: TextAIProvider) -> None:
@@ -48,9 +49,13 @@ def _find_entry(provider: TextAIProvider) -> _CachedEntry | None:
 
 
 @contextmanager
-def provider_use(provider: TextAIProvider) -> Iterator[TextAIProvider]:
+def provider_use(provider: _ProviderT, *, acquire: Callable[[], _ProviderT] | None = None) -> Iterator[_ProviderT]:
     """Keep a cached provider alive while one AI request is using it."""
     with _provider_cache_lock:
+        if acquire is not None:
+            # Reacquire and lease under the same lock: config reload cannot close
+            # a client between lookup and entering its first active call.
+            provider = acquire()
         entry = _find_entry(provider)
         if entry is not None:
             entry.active_calls += 1
@@ -135,13 +140,20 @@ def _build_provider(
     return result
 
 
-def _clear_provider_cache() -> None:
-    """Close all cached providers and clear the cache (for testing / config reload)."""
+def _clear_provider_cache(provider_names: set[str] | None = None) -> None:
+    """Retire matching clients; close them only after their active calls finish."""
+    to_close: list[TextAIProvider] = []
     with _provider_cache_lock:
-        providers = [e.provider for e in _provider_cache.values()] + [e.provider for e in _retired_entries]
-        _provider_cache.clear()
-        _retired_entries.clear()
-    for provider in providers:
+        for key, entry in list(_provider_cache.items()):
+            if provider_names is not None and key[0] not in provider_names:
+                continue
+            del _provider_cache[key]
+            entry.closing = True
+            if entry.active_calls:
+                _retired_entries.append(entry)
+            else:
+                to_close.append(entry.provider)
+    for provider in to_close:
         _close_provider(provider)
 
 

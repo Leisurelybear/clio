@@ -431,7 +431,7 @@ def run_entity_consistency(
         )
     with timed(t("task.consistency.timed_label", {"day": day_label, "count": len(clips)})):
         print(t("task.consistency.material_count", {"day": day_label, "count": len(clips)}))
-        with provider_use(provider):
+        with provider_use(provider, acquire=lambda: get_task_provider(config, TaskName.REFINE_TEXT)[0]) as provider:
             text = _call_ai(
                 t("analyze.label.entity_consistency"),
                 provider.provider_id,
