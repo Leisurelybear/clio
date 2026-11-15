@@ -12,6 +12,8 @@
 #   whisper: enabled, model_size, language, device, max_segments_per_clip, transcripts_subdir, engine
 
 paths:
+  # Credential metadata and values are global-only. Task bindings below inherit
+  # their provider's credential_ref from config.yaml; never add secrets here.
   # 注意：原始视频不再通过 input_dir 配置。
   # 请在 Web UI 中打开项目 → "视频管理" → 内嵌文件浏览器勾选。
   output_dir: "./output"

@@ -943,13 +943,13 @@ class TestLoadDotenv:
         _load_dotenv(tmp_path, override=False)
         assert os.environ["EXISTING_KEY"] == "old"
 
-    def test_override_true_replaces_existing(self, tmp_path, monkeypatch):
+    def test_override_true_preserves_inherited_value(self, tmp_path, monkeypatch):
         monkeypatch.setenv("EXISTING_KEY", "old")
         (tmp_path / ".env").write_text("EXISTING_KEY=new\n", encoding="utf-8")
         from clio.config.loader import _load_dotenv
 
         _load_dotenv(tmp_path, override=True)
-        assert os.environ["EXISTING_KEY"] == "new"
+        assert os.environ["EXISTING_KEY"] == "old"
 
     def test_override_sets_new_keys(self, tmp_path):
         (tmp_path / ".env").write_text("NEW_KEY=val\n", encoding="utf-8")

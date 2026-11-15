@@ -1,6 +1,6 @@
 # packaging/build-desktop.ps1
 # Build the Clio desktop shell as a PyInstaller onedir (R-032c).
-# Requires: pip install pyinstaller pywebview pythonnet
+# Requires: pip install pyinstaller pywebview pythonnet "keyring==25.7.0"
 param(
     [switch]$NoClean
 )

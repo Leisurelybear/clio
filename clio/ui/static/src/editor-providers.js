@@ -5,6 +5,7 @@ import { api, icon } from './api.js';
 import { confirmDialog } from './confirm.js';
 import { t } from './i18n.js';
 import { state } from './state.js';
+import { attachCredentialFields, renderCredentialField, saveCredential } from './credential-field.js';
 import { escapeHtml, markDirty, setStatus } from './utils.js';
 
 export const DEFAULT_PROVIDERS = ['gemini', 'openai', 'deepseek'];
@@ -149,7 +150,7 @@ export function renderProviderList(providers, descs) {
       </div>
       <div class="provider-card-body">
         <div class="provider-card-field"><span class="provider-card-label">${t('settings.provider.field.type')}</span><span>${typeLabel}</span></div>
-        <div class="provider-card-field"><span class="provider-card-label">${t('settings.provider.field.api_key')}</span><span class="provider-key-wrap" data-provider="${escapeHtml(name)}"><span class="provider-key-masked">••••••••••</span><span class="provider-key-value" style="display:none"></span><button class="btn-provider-show-key">${t('settings.provider.show_key')}</button></span></div>
+        <div class="provider-card-field"><span class="provider-card-label">${t('settings.provider.field.api_key')}</span>${renderCredentialField(p.credential_ref || providerEnvName(name).toLowerCase())}</div>
         ${p.type !== 'gemini' ? `<div class="provider-card-field"><span class="provider-card-label">${t('settings.provider.field.base_url')}</span><span>${escapeHtml(p.base_url || t('settings.provider.field.default_value'))}</span></div>` : ''}
         <div class="provider-card-field"><span class="provider-card-label">${t('settings.provider.field.capabilities')}</span><span class="provider-card-models">${capabilityTags}</span></div>
         <div class="provider-card-field"><span class="provider-card-label">${t('settings.provider.field.models')}</span><span class="provider-card-models">${modelTags}</span></div>
@@ -348,37 +349,38 @@ function _showProviderModal(providersObj, name, onSave) {
       return;
     }
     const previousBaseUrl = String(existing?.base_url || '').trim();
-    if (isEdit && !newKey && (newName !== name || newBaseUrl !== previousBaseUrl)) {
+    if (isEdit && !newKey && newType !== 'ollama'
+        && (newName !== name || newBaseUrl !== previousBaseUrl || newType !== existing.type)) {
       setStatus(t('settings.provider.rebind_key_required'), 'warn');
       return;
     }
 
-    // Save API key to .env if provided
+    const credentialRef = existing?.credential_ref || providerEnvName(name || newName).toLowerCase();
+    let credentialProof = existing?.credential_proof || '';
     if (newKey) {
-      const envNameEnv = providerEnvName(newName);
       try {
-        const existing = await api('GET', '/api/env');
-        let envContent = existing.content || '';
-        const lines = envContent.split('\n');
-        let found = false;
-        for (let i = 0; i < lines.length; i++) {
-          if (lines[i].startsWith(envNameEnv + '=')) {
-            lines[i] = `${envNameEnv}=${newKey}`;
-            found = true;
-            break;
-          }
-        }
-        if (!found) lines.push(`${envNameEnv}=${newKey}`);
-        const envResult = await api('PUT', '/api/env', { content: lines.join('\n') });
-        if (!envResult.ok) { setStatus(t('settings.provider.key_save_failed', { detail: envResult.error || '' }), 'err'); return; }
-      } catch (e) { setStatus(t('settings.provider.key_save_failed', { detail: e.message }), 'err'); return; }
+        const result = await saveCredential(credentialRef, newKey, existing?.credential_ref ? undefined : {
+          label: `${newName} API key`, kind: 'api_key', source: 'auto',
+          env_name: providerEnvName(newName), backend_account: credentialRef,
+        }, undefined, isEdit && (newName !== name || newBaseUrl !== previousBaseUrl || newType !== existing.type));
+        credentialProof = result.credential_proof || '';
+        const { label, kind, source, env_name, backend_account } = result.credential;
+        state.configGlobal ||= {};
+        state.configGlobal.credentials ||= {};
+        state.configGlobal.credentials[credentialRef] = { label, kind, source, env_name, backend_account };
+        keyInput.value = '';
+      } catch {
+        setStatus(t('credentials.failed'), 'err');
+        return;
+      }
     }
 
     const envName = providerEnvName(newName);
     const providerData = {
       type: newType,
       api_key_env: envName,
-      api_key: newKey,
+      credential_ref: newKey ? credentialRef : existing?.credential_ref || '',
+      credential_proof: credentialProof,
       base_url: newBaseUrl || '',
       models: modelsList,
       capabilities: capabilitiesList,
@@ -398,7 +400,7 @@ function _showProviderModal(providersObj, name, onSave) {
         // binding when the user leaves the key blank; clearing it would make
         // an ordinary settings edit look like a credential retarget.
         providerData.api_key_env = existing?.api_key_env || providerEnvName(newName);
-        providerData.api_key = existing?.api_key || '';
+        delete providerData.api_key;
       }
       if (newName !== name) {
         delete providersObj[name];
@@ -414,7 +416,8 @@ function _showProviderModal(providersObj, name, onSave) {
         name: newName,
         type: newType,
         api_key_env: envName,
-        api_key: newKey,
+        credential_ref: newKey ? credentialRef : '',
+        credential_proof: credentialProof,
         base_url: newBaseUrl || '',
         models: [...modelsList],
         capabilities: [...capabilitiesList],
@@ -430,6 +433,7 @@ function _showProviderModal(providersObj, name, onSave) {
     }
 
     markDirty();
+    for (const provider of Object.values(providersObj)) delete provider.api_key;
     backdrop.remove();
     onSave();
   };
@@ -447,6 +451,7 @@ function _showProviderModal(providersObj, name, onSave) {
       return;
     }
     const candidate = {
+      credential_ref: existing?.credential_ref || '',
       type: draftType,
       api_key: draftKey,
       api_key_env: providerEnvName(draftName),
@@ -634,24 +639,19 @@ export function attachProviderListHandlers(pane, providersObj, reRender = () => 
     addBtn.onclick = () => _showProviderModal(providersObj, null, reRender);
   }
 
-  // Show/hide key buttons
-  pane.querySelectorAll('.btn-provider-show-key').forEach(btn => {
-    btn.onclick = () => {
-      const wrap = btn.closest('.provider-key-wrap');
-      if (!wrap) return;
-      const masked = wrap.querySelector('.provider-key-masked');
-      const value = wrap.querySelector('.provider-key-value');
-      const isVisible = value?.style.display !== 'none';
-      if (isVisible) {
-        value.style.display = 'none';
-        masked.style.display = '';
-        btn.textContent = t('settings.provider.show_key');
-      } else {
-        value.textContent = t('settings.provider.key_not_exposed');
-        value.style.display = '';
-        masked.style.display = 'none';
-        btn.textContent = t('settings.provider.hide_key');
+  void Promise.resolve(api('GET', '/api/credentials')).then(inventory => {
+    if (inventory?.ok && pane.isConnected) attachCredentialFields(pane, inventory, async result => {
+      const global = await api('GET', '/api/config/global');
+      if (global?.credentials && state.configGlobal) state.configGlobal.credentials = global.credentials;
+      if (result?.credential) {
+        for (const [name, provider] of Object.entries(providersObj)) {
+          const ref = provider.credential_ref || providerEnvName(name).toLowerCase();
+          if (ref === result.credential.id && global?.ai?.providers?.[name]?.credential_ref) {
+            provider.credential_ref = result.credential.id;
+          }
+        }
       }
-    };
-  });
+      reRender();
+    });
+  }).catch(() => {});
 }

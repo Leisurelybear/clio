@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from clio.config.enums import WhisperDevice, WhisperLang, WhisperModelSize
+from clio.credentials.models import CredentialMetadata
 from clio.http_access_log import (
     ACCESS_LOG_MODES,
     DEFAULT_ACCESS_LOG_BODY_BYTES,
@@ -27,8 +28,9 @@ class ProxyConfig:
 class ProviderConfig:
     name: str
     type: str
-    api_key: str = ""
+    api_key: str = field(default="", repr=False)
     api_key_env: str = ""
+    credential_ref: str = ""
     base_url: str = ""
     poll_interval_sec: int = 5
     retry_attempts: int = 2
@@ -202,6 +204,8 @@ class UiConfig:
 
 @dataclass
 class GlobalConfig:
+    credentials: dict[str, CredentialMetadata] = field(default_factory=dict)
+    credential_service: object | None = field(default=None, repr=False, compare=False, metadata={"runtime": True})
     proxy: ProxyConfig = field(default_factory=ProxyConfig)
     server: ServerConfig = field(default_factory=ServerConfig)
     naming: NamingConfig = field(default_factory=NamingConfig)

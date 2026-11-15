@@ -1,22 +1,16 @@
 from __future__ import annotations
 
-import os
-
 from clio.config.models import (
     ProjectWhisperConfig,
     ProviderConfig,
     TaskConfig,
 )
 from clio.config.validators import _filter_dc
+from clio.credentials import CredentialService
 
 
-def _resolve_api_key(provider_raw: dict) -> str:
-    env_name = provider_raw.get("api_key_env", "")
-    if env_name:
-        env_val = os.environ.get(env_name, "")
-        if env_val:
-            return env_val
-    return provider_raw.get("api_key", "")
+def _resolve_api_key(provider_raw: dict, service: CredentialService | None = None, name: str = "") -> str:
+    return (service or CredentialService()).resolve_provider(provider_raw, name)
 
 
 def _infer_provider_capabilities(provider_type: str) -> list[str]:
@@ -25,7 +19,7 @@ def _infer_provider_capabilities(provider_type: str) -> list[str]:
     return ["text"]
 
 
-def _parse_providers(raw: dict) -> dict[str, ProviderConfig]:
+def _parse_providers(raw: dict, service: CredentialService | None = None) -> dict[str, ProviderConfig]:
     providers: dict[str, ProviderConfig] = {}
     for name, cfg in (raw or {}).items():
         typed = _filter_dc(cfg, ProviderConfig)
@@ -33,8 +27,9 @@ def _parse_providers(raw: dict) -> dict[str, ProviderConfig]:
         providers[name] = ProviderConfig(
             name=name,
             type=provider_type,
-            api_key=_resolve_api_key(cfg),
+            api_key=_resolve_api_key(cfg, service, name),
             api_key_env=typed.get("api_key_env", ""),
+            credential_ref=typed.get("credential_ref", ""),
             base_url=typed.get("base_url", ""),
             poll_interval_sec=typed.get("poll_interval_sec", 5),
             retry_attempts=typed.get("retry_attempts", 2),

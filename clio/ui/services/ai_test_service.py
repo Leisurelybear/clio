@@ -1,14 +1,19 @@
 from __future__ import annotations
 
-import os
 import re
 import time
 from typing import Any
 
 from clio.ai.base import AIResponse
 from clio.ai.factory import _build_provider, provider_use
-from clio.ai.provider_security import provider_base_url_error, provider_env_name, provider_key_env_error
+from clio.ai.provider_security import (
+    provider_base_url_error,
+    provider_env_name,
+    provider_key_env_error,
+    provider_rebind_error,
+)
 from clio.config import AppConfig, ProviderConfig
+from clio.credentials import CredentialService
 from clio.i18n import t
 from clio.utils import mask_if_looks_like_key
 
@@ -62,11 +67,19 @@ def test_provider_connection(
     if provider_override is not None:
         try:
             raw = dict(provider_override)
+            service = config.global_cfg.credential_service
+            if not isinstance(service, CredentialService):
+                service = CredentialService()
+            previous_cfg = config.ai.providers.get(provider_name)
+            previous = vars(previous_cfg).copy() if previous_cfg is not None else {}
+            if error := provider_rebind_error(provider_name, previous, raw, service):
+                return {"ok": False, "error": error}
             provider_cfg = ProviderConfig(
                 name=provider_name,
                 type=str(raw.get("type", "gemini") or "gemini"),
                 api_key=str(raw.get("api_key", "") or ""),
                 api_key_env=str(raw.get("api_key_env", "") or ""),
+                credential_ref=str(raw.get("credential_ref", "") or ""),
                 base_url=str(raw.get("base_url", "") or ""),
                 poll_interval_sec=int(raw.get("poll_interval_sec", 5) or 5),
                 retry_attempts=int(raw.get("retry_attempts", 2) or 2),
@@ -77,8 +90,8 @@ def test_provider_connection(
                 models=[str(v) for v in (raw.get("models") or [])],
                 capabilities=[str(v) for v in (raw.get("capabilities") or [])],
             )
-            if not provider_cfg.api_key and provider_cfg.api_key_env:
-                provider_cfg.api_key = os.environ.get(provider_cfg.api_key_env, "")
+            if not provider_cfg.api_key:
+                provider_cfg.api_key = service.resolve_provider(raw)
         except (TypeError, ValueError) as exc:
             return {
                 "ok": False,
@@ -136,7 +149,7 @@ def test_provider_connection(
             global_cfg = replace(global_cfg, ai=replace(global_cfg.ai, providers=providers))
             config = AppConfig(global_cfg=global_cfg, project_cfg=config.project_cfg, project_dir=config.project_dir)
         provider = _build_provider(config, provider_name)
-        with provider_use(provider):
+        with provider_use(provider, acquire=lambda: _build_provider(config, provider_name)) as provider:
             response = provider.generate_text(_TEST_PROMPT, model)
         if not isinstance(response, AIResponse):
             raise TypeError("AI provider returned an invalid response type")

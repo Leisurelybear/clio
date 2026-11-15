@@ -23,7 +23,10 @@ class TestHandleGetEnv:
 
         handle_get_env(handler, {})
 
-        handler._send_json.assert_called_once_with({"content": "KEY=val\n", "path": str(dotenv)})
+        payload = handler._send_json.call_args.args[0]
+        assert payload["content"] == "KEY=val\n"
+        assert payload["path"] == str(dotenv)
+        assert "GEMINI_API_KEY" in payload["managed_credentials"]
 
     def test_masks_allowed_secret_values(self, tmp_path: Path):
         handler = MagicMock()
@@ -228,7 +231,7 @@ class TestHandlePutEnv:
         assert dotenv.read_text(encoding="utf-8") == ""
         handler._send_json.assert_called_once_with({"ok": True, "path": str(dotenv)})
 
-    def test_removed_custom_key_is_deleted_from_process_env(self, tmp_path: Path, monkeypatch):
+    def test_removed_custom_key_preserves_inherited_process_env(self, tmp_path: Path, monkeypatch):
         handler = MagicMock()
         cfg = tmp_path / "config.yaml"
         cfg.write_text("key: val\n", encoding="utf-8")
@@ -244,7 +247,7 @@ class TestHandlePutEnv:
         with patch("clio.ui.routes.env_routes._load_dotenv"):
             handle_put_env(handler, {}, {"content": ""})
 
-        assert "MY_GEMINI_API_KEY" not in os.environ
+        assert os.environ["MY_GEMINI_API_KEY"] == "old"
 
     def test_shell_only_provider_key_is_preserved(self, tmp_path: Path, monkeypatch):
         handler = MagicMock()
@@ -260,7 +263,7 @@ class TestHandlePutEnv:
             handle_put_env(handler, {}, {"content": "DEEPSEEK_API_KEY=from-file\n"})
 
         assert os.environ["GEMINI_SHELL_ONLY"] == "keep-me"
-        assert os.environ["DEEPSEEK_API_KEY"] == "from-file"
+        assert os.environ["DEEPSEEK_API_KEY"] == "old"
 
     def test_overrides_existing_env_var(self, tmp_path: Path):
         handler = MagicMock()

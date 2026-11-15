@@ -122,7 +122,11 @@ def _path_writable(path: Path) -> bool:
 def _provider_has_key(provider, environ: Mapping[str, str]) -> bool:
     if provider.api_key not in PLACEHOLDER_KEYS:
         return True
-    return bool(provider.api_key_env and environ.get(provider.api_key_env))
+    if getattr(provider, "credential_ref", ""):
+        return False
+    from clio.credentials import CredentialService
+
+    return bool(CredentialService(environ=environ).resolve_provider({"api_key_env": provider.api_key_env}))
 
 
 def _provider_key_detail(provider) -> str:
@@ -133,7 +137,9 @@ def _provider_key_detail(provider) -> str:
 
 def provider_key_missing(provider, environ: Mapping[str, str] | None = None) -> str | None:
     """Return a localized detail string when the provider's API key is missing, else None."""
-    if getattr(provider, "type", "") == "ollama":
+    from clio.credentials import credential_required
+
+    if not credential_required(getattr(provider, "type", "")):
         return None
     environ = environ if environ is not None else os.environ
     if _provider_has_key(provider, environ):

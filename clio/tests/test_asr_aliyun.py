@@ -225,6 +225,7 @@ def test_transcribe_passes_cancel_event_to_all_cloud_stages():
         Path("fake.wav"),
         progress_callback=None,
         cancel_event=cancel_event,
+        api_key="test-key",
     )
     submit.assert_called_once_with(
         "oss://test/file.wav",

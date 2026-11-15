@@ -1,6 +1,7 @@
 /**
  * Config page shell: tabs, env editor, model card, and render orchestration.
  */
+import { loadCredentials } from './editor-credentials.js';
 import { api, icon } from './api.js';
 import { confirmDialog } from './confirm.js';
 import { setBrowseButtonsVisible } from './desktop-pick.js';
@@ -82,6 +83,7 @@ function _renderEnvEditor() {
   return `<div style="margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:12px">
     <button id="btn-env-toggle" class="btn-secondary" style="font-size:var(--text-sm)">${icon('file-text', 14)} ${t('settings.env_edit')}</button>
     <div id="env-editor" style="display:none;margin-top:8px">
+      <p class="hint">${t('credentials.env_guidance')} <a href="#credentials-panel">${t('credentials.title')}</a></p>
       <textarea id="env-textarea" style="width:100%;min-height:160px;font-family:var(--font-mono,monospace);font-size:var(--text-xs,12px);padding:8px;background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);border-radius:var(--radius-sm)" spellcheck="false"></textarea>
       <div style="display:flex;gap:8px;margin-top:6px">
         <button id="btn-env-save" class="btn-primary" style="font-size:var(--text-sm)">${icon('check', 14)} ${t('settings.env.save')}</button>
@@ -248,7 +250,7 @@ export function renderConfig() {
   } else if (active === 'global') {
     state.configGlobal = ensureGlobalUiDefaults(state.configGlobal || {});
     const globalData = state.configGlobal;
-    contentHtml = _renderEnvEditor()
+    contentHtml = '<div id="credentials-panel"></div>' + _renderEnvEditor()
       + `<div class="config-form">${_renderConfigGlobal(globalData, descs)}</div>`;
   } else if (active === 'prompts') {
     contentHtml = '<div id="prompt-management-root"></div>';
@@ -295,6 +297,15 @@ export function renderConfig() {
   if (active === 'global') {
     _attachConfigForm(pane, state.configGlobal || {}, descs);
     _attachEnvEditor();
+    const credentialsPanel = pane.querySelector('#credentials-panel');
+    if (credentialsPanel) void loadCredentials(credentialsPanel, async () => {
+      const global = await api('GET', '/api/config/global');
+      // Credential writes update registry metadata immediately; preserve unsaved settings.
+      if (global?.credentials) state.configGlobal.credentials = global.credentials;
+      for (const [name, provider] of Object.entries(state.configGlobal.ai?.providers || {})) {
+        if (global?.ai?.providers?.[name]?.credential_ref) provider.credential_ref = global.ai.providers[name].credential_ref;
+      }
+    });
     attachProviderListHandlers(pane, state.configGlobal?.ai?.providers || {}, renderConfig);
     attachTaskBindingHandlers(pane, state.configGlobal, { tasksField: 'default_tasks' }, renderConfig);
   } else if (active === 'project') {

@@ -39,7 +39,7 @@ _POLLING_GET = {"/api/notifications", "/api/project", "/api/plan/readiness", "/a
 _BINARY_GET = {"/api/video", "/api/cover", "/api/waveform"}
 _STREAM_PATHS = frozenset({"/api/notifications/stream", "/api/tasks/stream"})
 _BODY_DENIED_EXACT = {"/api/env"}
-_BODY_DENIED_PREFIXES = ("/api/config", "/api/providers", "/api/logs")
+_BODY_DENIED_PREFIXES = ("/api/config", "/api/providers", "/api/logs", "/api/credentials")
 
 
 def path_only(target: str) -> str:

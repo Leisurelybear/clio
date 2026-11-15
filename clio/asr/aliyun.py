@@ -33,7 +33,7 @@ class AliyunASRProvider:
         self._config = config
 
     def readiness_error(self, environ=None) -> str | None:
-        if get_api_key(environ):
+        if get_api_key(environ, self._config):
             return None
         return t("asr.aliyun.api_key_missing_readiness")
 
@@ -44,7 +44,7 @@ class AliyunASRProvider:
         progress_callback: Callable[[int], None] | None = None,
         cancel_event: threading.Event | None = None,
     ) -> list[TranscriptSegment]:
-        api_key = get_api_key()
+        api_key = get_api_key(config=self._config)
         if not api_key:
             raise RuntimeError(t("asr.api_key_missing"))
 
@@ -52,6 +52,7 @@ class AliyunASRProvider:
             audio_path,
             progress_callback=progress_callback,
             cancel_event=cancel_event,
+            api_key=api_key,
         )
         if progress_callback:
             progress_callback(6)

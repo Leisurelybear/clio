@@ -82,7 +82,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-locked.txt
-          pip install pyinstaller pywebview pythonnet
+          pip install "keyring==25.7.0" pyinstaller pywebview pythonnet
 
       - name: Build onedir
         run: python -m PyInstaller packaging/clio.spec --noconfirm --clean
@@ -189,7 +189,7 @@ jobs:
           python3 -m pip install --upgrade pip
           # The hash lock is generated on Windows and omits macOS-only pyobjc wheels.
           python3 -m pip install -r requirements.txt
-          python3 -m pip install pyinstaller
+          python3 -m pip install "keyring==25.7.0" pyinstaller
           # macOS GUI backend: Cocoa/WebKit via pyobjc (universal2 wheels).
           python3 -m pip install "pywebview" "pyobjc-core" "pyobjc-framework-Cocoa" "pyobjc-framework-WebKit" "pyobjc-framework-Quartz" "pyobjc-framework-Security"
 

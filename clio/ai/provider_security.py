@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hmac
 import ipaddress
-import os
 import re
 from urllib.parse import urlsplit
 
@@ -116,6 +115,7 @@ def provider_binding_signature(provider: dict) -> tuple[str, ...]:
     provider_type = str(provider.get("type", "gemini") or "gemini").strip().lower()
     effective = effective_provider_base_url(provider_type, str(provider.get("base_url", "") or ""))
     env_name = normalize_provider_key_env(provider.get("api_key_env", ""))
+    env_name += "\0" + str(provider.get("credential_ref") or "")
     try:
         parsed = urlsplit(effective)
         port = parsed.port
@@ -137,14 +137,10 @@ def provider_binding_signature(provider: dict) -> tuple[str, ...]:
     return (provider_type, "invalid", effective, "", "", "", "", env_name)
 
 
-def _resolved_provider_secret(provider: dict) -> str:
-    env_name = normalize_provider_key_env(provider.get("api_key_env", ""))
-    if env_name:
-        env_value = os.environ.get(env_name, "")
-        if env_value:
-            return env_value
-    value = str(provider.get("api_key", "") or "")
-    return "" if value in _MASKED_SECRET_VALUES else value
+def _resolved_provider_secret(provider: dict, service=None) -> str:
+    from clio.credentials import CredentialService
+
+    return (service or CredentialService()).resolve_provider(provider)
 
 
 def _supplied_secret(provider: dict) -> str:
@@ -154,7 +150,7 @@ def _supplied_secret(provider: dict) -> str:
     return "" if value in _MASKED_SECRET_VALUES else value
 
 
-def provider_rebind_error(provider_name: str, previous: dict, candidate: dict) -> str | None:
+def provider_rebind_error(provider_name: str, previous: dict, candidate: dict, service=None) -> str | None:
     """Require proof of possession when a credential target is introduced or changed.
 
     Existing credentials must be proven against the old binding. When the old
@@ -164,11 +160,15 @@ def provider_rebind_error(provider_name: str, previous: dict, candidate: dict) -
     if provider_binding_signature(previous) == provider_binding_signature(candidate):
         return None
 
-    old_secret = _resolved_provider_secret(previous) if previous else ""
-    candidate_secret = _resolved_provider_secret(candidate)
+    old_secret = _resolved_provider_secret(previous, service) if previous else ""
+    candidate_secret = _resolved_provider_secret(candidate, service)
     supplied = _supplied_secret(candidate)
     expected_secret = old_secret or candidate_secret
-    if expected_secret and supplied and hmac.compare_digest(supplied, expected_secret):
+    from clio.credentials.proof import verify_proof
+
+    if verify_proof(candidate.get("credential_proof"), expected_secret):
+        return None
+    if expected_secret and supplied and hmac.compare_digest(supplied.encode(), expected_secret.encode()):
         return None
     if not expected_secret:
         return None

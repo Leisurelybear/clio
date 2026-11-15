@@ -160,6 +160,23 @@ cp config.example.yaml config.yaml
 # 项目配置：在项目目录放置 project.yaml（参考 docs/project.example.yaml）
 ```
 
+### Credential management
+
+Global Settings includes a Credentials panel for provider and Aliyun transcription keys.
+Replace a single credential, reveal it for 30 seconds after confirmation, or explicitly migrate
+legacy keys. Provider forms use the same credential service and never rewrite the full `.env` file.
+
+Automatic resolution uses inherited process environment, OS keyring, `.env`, then legacy inline
+configuration. The panel shows effective and shadowed sources. Saving a credential preserves shell
+values; deleting a backend entry can expose a remaining source. Registered entries in the advanced
+`.env` editor are owned by Credential Manager.
+
+Desktop builds include the native keyring adapter. For a source or wheel installation, enable it
+with `python -m pip install '.[keyring]'`. Headless installations can keep using `.env` without
+keyring. Unavailable OS storage is reported; explicit migration falls back to `.env`. Migration
+copies and verifies the value, adds global `credential_ref` metadata, and retains the old `.env`
+entry until the user explicitly deletes that backend entry. `project.yaml` never owns credentials.
+
 ### 🌐 界面语言
 
 界面支持**中文 / English**，三种切换方式（优先级从低到高）：

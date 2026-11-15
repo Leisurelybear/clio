@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import contextlib
 import json
-import os
 import re
 from copy import deepcopy
 from pathlib import Path
@@ -98,7 +97,15 @@ def parse_dotenv(content: str) -> dict[str, str]:
             line = line[7:].lstrip()
         match = _DOTENV_KEY_RE.match(line)
         if match:
-            values[match.group(1)] = match.group(2).strip().strip('"').strip("'")
+            value = match.group(2).strip()
+            if value.startswith('"') and value.endswith('"'):
+                try:
+                    value = json.loads(value)
+                except (ValueError, TypeError):
+                    value = value[1:-1]
+            elif value.startswith("'") and value.endswith("'"):
+                value = value[1:-1]
+            values[match.group(1)] = value
     return values
 
 
@@ -107,9 +114,9 @@ def _load_dotenv(base: Path, override: bool = False) -> None:
     if not env_file.is_file():
         return
     values = parse_dotenv(env_file.read_text(encoding="utf-8"))
-    for key, value in values.items():
-        if override or key not in os.environ:
-            os.environ[key] = value
+    from clio.credentials.environment import sync_dotenv
+
+    sync_dotenv(values, override=override)
 
 
 def _load_yaml_mapping(yaml_path: Path) -> dict[str, Any]:
@@ -223,7 +230,7 @@ _V2 = "V2"
 _PROJECT_ONLY_SECTIONS = {"analyze", "script", "plan", "export", "preview"}
 
 # Sections entirely global-only (no split)
-_GLOBAL_ONLY_SECTIONS = {"proxy", "server", "naming", "ui"}
+_GLOBAL_ONLY_SECTIONS = {"proxy", "server", "naming", "ui", "credentials"}
 
 # Split-section keys belonging to project
 _SPLIT_PROJECT_KEYS: dict[str, set[str]] = {
@@ -462,11 +469,14 @@ def load_global_config(config_path: str | Path = "config.yaml") -> GlobalConfig:
     except (NotADirectoryError, IsADirectoryError) as exc:
         raise FileNotFoundError(exc) from exc
 
-    # Providers use env var resolution
+    from clio.credentials import CredentialService
+
+    credential_service = CredentialService(raw, base)
+    # Providers receive resolved values without knowing their storage backend.
     ai_raw = raw.get("ai", {})
     ai_typed = _filter_dc(ai_raw, GlobalAIConfig)
     ai_cfg = GlobalAIConfig(
-        providers=_parse_providers(ai_raw.get("providers")),
+        providers=_parse_providers(ai_raw.get("providers"), credential_service),
         default_tasks=_parse_tasks(ai_raw.get("default_tasks")),
         debug_print_prompt=ai_typed.get("debug_print_prompt", False),
         provider_ttl_min=ai_typed.get("provider_ttl_min", 60),
@@ -474,6 +484,8 @@ def load_global_config(config_path: str | Path = "config.yaml") -> GlobalConfig:
 
     compress_typed = _filter_dc(raw.get("compress", {}), GlobalCompressConfig)
     gc = GlobalConfig(
+        credentials={key: credential_service.registry[key] for key in raw.get("credentials") or {}},
+        credential_service=credential_service,
         proxy=ProxyConfig(**_filter_dc(raw.get("proxy", {}), ProxyConfig)),
         server=ServerConfig(**_filter_dc(raw.get("server", {}), ServerConfig)),
         naming=NamingConfig(**_filter_dc(raw.get("naming", {}), NamingConfig)),
@@ -510,6 +522,8 @@ def load_project_config(
         return None
 
     raw = _load_yaml_mapping(project_yaml)
+    if "credentials" in raw:
+        raise ValueError("credentials are global-only; project.yaml cannot define credential metadata")
 
     project_base = project_dir.resolve()
     config_base = config_path.parent if config_path is not None else project_base

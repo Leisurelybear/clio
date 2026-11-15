@@ -75,6 +75,18 @@ def _clear_ai_cache() -> None:
 
 
 @pytest.fixture(autouse=True)
+def _isolate_os_credentials() -> Generator[None, None, None]:
+    """Tests must never read or mutate the developer's OS credential store."""
+    from clio.credentials.stores import KeyringStore
+
+    unavailable = object.__new__(KeyringStore)
+    unavailable.backend = None
+    with pytest.MonkeyPatch.context() as credential_patch:
+        credential_patch.setattr("clio.credentials.service.KeyringStore", lambda: unavailable)
+        yield
+
+
+@pytest.fixture(autouse=True)
 def _clear_session_log() -> None:
     """Clear session log buffer between tests to avoid cross-test pollution."""
     session_log.clear()

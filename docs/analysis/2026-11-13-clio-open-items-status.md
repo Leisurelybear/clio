@@ -8,6 +8,13 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 
 ## Summary
 
+Credential management delivery (2026-11-15): CRED-01 through CRED-08 are implemented via
+the unified service, field APIs/UI, OS keyring, explicit migration and source-aware runtime.
+R11 active-client invalidation is fixed with graceful retirement and atomic acquisition/lease
+handoff. See the [implementation record](../superpowers/reviews/2026-11-15-credential-management-implementation.md)
+for verification, commit scope and concurrent-work limits. These IDs are outside the historical
+117-row totals; the original comprehensive audit below records its pre-remediation baseline.
+
 Run interaction follow-up (2026-11-15): planned voiceover now highlights delivery even when
 runtime reports the shared `voiceover` phase. Full custom pipelines retain the transition
 from clip scripts to planned voiceover. Focused runner tests verify both paths.

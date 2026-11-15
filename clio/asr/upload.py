@@ -18,9 +18,18 @@ class TempUploadStrategy(Protocol):
     def upload(self, audio_path: Path) -> str: ...
 
 
-def get_api_key(environ: Mapping[str, str] | None = None) -> str:
-    env = os.environ if environ is None else environ
-    return env.get("DASHSCOPE_API_KEY", "")
+def get_api_key(environ: Mapping[str, str] | None = None, config=None) -> str:
+    from clio.credentials import CredentialService
+
+    service = getattr(getattr(config, "global_cfg", None), "credential_service", None)
+    if environ is os.environ:
+        environ = None
+    if isinstance(service, CredentialService) and environ is not None:
+        base = service.dotenv.path.parent if service.dotenv else None
+        service = CredentialService(service.raw, base, environ=environ, keyring=service.keyring)
+    elif not isinstance(service, CredentialService):
+        service = CredentialService(environ=environ)
+    return service.resolve("dashscope_api_key")
 
 
 def dashscope_upload(
@@ -28,10 +37,11 @@ def dashscope_upload(
     model: str = "paraformer-v2",
     progress_callback: Callable[[int], None] | None = None,
     cancel_event: threading.Event | None = None,
+    api_key: str | None = None,
 ) -> str:
     if cancel_event is not None and cancel_event.is_set():
         raise RuntimeError(t("asr.upload.cancelled"))
-    api_key = get_api_key()
+    api_key = get_api_key() if api_key is None else api_key
     if not api_key:
         raise RuntimeError(t("asr.api_key_missing"))
 

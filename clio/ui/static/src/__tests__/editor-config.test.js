@@ -319,11 +319,11 @@ describe('_renderProviderList', () => {
     expect(html).toContain('OpenAI 兼容');
   });
 
-  it('renders API key masked with show button', () => {
+  it('renders the shared credential field with an authenticated reveal action', () => {
     const html = _renderProviderList({ gemini: GEMINI_PROVIDER });
-    expect(html).toContain('••••••••••');
-    expect(html).toContain('btn-provider-show-key');
-    expect(html).toContain('查看状态');
+    expect(html).toContain('credential-field');
+    expect(html).toContain('data-credential-reveal');
+    expect(html).not.toContain('btn-provider-show-key');
   });
 
   it('renders edit and delete buttons for non-default providers', () => {
@@ -408,6 +408,38 @@ describe('_renderProviderList', () => {
     expect(modal.querySelector('#modal-provider-name').readOnly).toBe(false);
     expect(modal.querySelector('#modal-test')).not.toBeNull();
     modal.remove();
+  });
+
+  it('saves a new provider key through the credential API without keeping it in provider state', async () => {
+    const configPane = document.createElement('div');
+    configPane.id = 'tab-config';
+    document.body.appendChild(configPane);
+    state.configGlobal = { ai: { providers: {} } };
+    const providers = state.configGlobal.ai.providers;
+    api.mockImplementation(async (method, url) => {
+      if (url === '/api/credentials') return { ok: true, credentials: [], backends: { default_source: 'dotenv' } };
+      if (url === '/api/credentials/custom_api_key') return {
+        ok: true, credential_proof: 'proof', credential: {
+          id: 'custom_api_key', label: 'Custom', kind: 'api_key', source: 'auto',
+          env_name: 'CUSTOM_API_KEY', backend_account: 'custom_api_key',
+        },
+      };
+      return {};
+    });
+    const div = document.createElement('div');
+    div.innerHTML = _renderProviderList(providers);
+    _attachProviderListHandlers(div, providers);
+    div.querySelector('#btn-add-provider').click();
+    const modal = document.querySelector('#modal-provider-name').closest('.modal');
+    modal.querySelector('#modal-provider-name').value = 'custom';
+    modal.querySelector('#modal-provider-key').value = 'private-new-secret';
+    modal.querySelector('#modal-save').click();
+    await vi.waitFor(() => expect(providers.custom?.credential_ref).toBe('custom_api_key'));
+    expect(api).toHaveBeenCalledWith('PUT', '/api/credentials/custom_api_key', expect.objectContaining({ value: 'private-new-secret', source: 'dotenv' }));
+    expect(JSON.stringify(providers)).not.toContain('private-new-secret');
+    expect(providers.custom.api_key).toBeUndefined();
+    expect(providers.custom.credential_proof).toBe('proof');
+    expect(api.mock.calls.some(([, url]) => url === '/api/env')).toBe(false);
   });
 
   it('escapes HTML in provider name', () => {

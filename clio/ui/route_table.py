@@ -19,6 +19,11 @@ POST_HANDLER_PARAMS: dict[str, set[str]] = {
 }
 
 ROUTES: tuple[Route, ...] = (
+    Route("GET", "/api/credentials", "handle_get_credentials"),
+    Route("PUT", "/api/credentials/{credential_id}", "handle_put_credential"),
+    Route("POST", "/api/credentials/{credential_id}/reveal", "handle_post_credential_reveal"),
+    Route("POST", "/api/credentials/{credential_id}/migrate", "handle_post_credential_migrate"),
+    Route("DELETE", "/api/credentials/{credential_id}", "handle_delete_credential"),
     Route("GET", "/api/config", "handle_get_config"),
     Route("GET", "/api/config/raw", "handle_get_config_raw"),
     Route("GET", "/api/config/global", "handle_get_config_global"),

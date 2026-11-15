@@ -17,6 +17,8 @@ WebView2) and macOS (Cocoa + pyobjc) builds.
 import sys
 from pathlib import Path
 
+from PyInstaller.utils.hooks import collect_submodules
+
 ROOT = Path(SPECPATH).parent.resolve()
 
 IS_MAC = sys.platform == "darwin"
@@ -55,6 +57,7 @@ a = Analysis(
     hiddenimports=[
         # Lazy `from tkinter import ...` inside dialogs.py / app.py.
         "tkinter",
+        *collect_submodules("keyring"),
         *_PLATFORM_HIDDENIMPORTS,
     ],
     hookspath=[],

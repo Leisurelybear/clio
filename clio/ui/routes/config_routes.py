@@ -37,6 +37,8 @@ from clio.config.models import (
 )
 from clio.config.parsers import _infer_provider_capabilities
 from clio.config.schema import build_config_schema
+from clio.credentials import CredentialService
+from clio.credentials.stores import serialized_store_write
 from clio.i18n import set_active_locale, t
 from clio.ui.services.file_service import (
     _coerce_config_types,
@@ -123,6 +125,7 @@ def handle_get_config_raw(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     handler._send_json(_mask_secrets_in_raw(raw))
 
 
+@serialized_store_write
 def handle_put_config_raw(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
     """Handle PUT /api/config/raw."""
     config_path = handler.config_path
@@ -172,7 +175,7 @@ def handle_put_config_raw(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
         return handler._send_json({"ok": False, "error": f"cannot read current config: {e}"}, 500)
     coerced = _coerce_config_types(obj, _global_type_reference(ref_raw))
     _coerce_provider_entries(coerced)
-    if error := _validate_provider_bindings(ref_raw, coerced):
+    if error := _validate_provider_bindings(ref_raw, coerced, config_path.parent):
         return handler._send_json({"ok": False, "error": error}, 400)
     _strip_provider_api_keys(coerced)
     try:
@@ -230,7 +233,7 @@ def handle_post_config_init(handler: HandlerProtocol, qs: dict[str, Any], obj: d
 # ---------------------------------------------------------------------------
 
 # Layer field ownership (mirrors loader.py constants)
-_GLOBAL_SECTIONS = {"proxy", "server", "naming", "ui"}
+_GLOBAL_SECTIONS = {"proxy", "server", "naming", "ui", "credentials"}
 _PROJECT_SECTIONS = {"analyze", "script", "plan", "export", "preview"}
 _SPLIT_GLOBAL: dict[str, set[str]] = {
     "paths": {"ffmpeg", "ffprobe", "logs_dir"},
@@ -313,7 +316,9 @@ def _read_raw_yaml(path: Path) -> Any:
 
 
 def _global_type_reference(existing: Any) -> dict[str, Any]:
-    return _type_reference(_json_safe(asdict(GlobalConfig())), existing)
+    defaults = _json_safe(asdict(GlobalConfig()))
+    defaults.pop("credential_service", None)
+    return _type_reference(defaults, existing)
 
 
 def _provider_type_reference() -> dict[str, Any]:
@@ -491,6 +496,7 @@ def _validate_global_against_registry(config_path: Path, candidate: Path) -> lis
     return failures
 
 
+@serialized_store_write
 def handle_put_config_global(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
     """Handle PUT /api/config/global."""
     config_path = handler.config_path
@@ -508,7 +514,7 @@ def handle_put_config_global(handler: HandlerProtocol, qs: dict[str, Any], obj: 
         return handler._send_json({"ok": False, "error": f"cannot read current config: {e}"}, 500)
     coerced = _coerce_config_types(obj, _global_type_reference(ref_raw))
     _coerce_provider_entries(coerced)
-    if error := _validate_provider_bindings(ref_raw, coerced):
+    if error := _validate_provider_bindings(ref_raw, coerced, config_path.parent):
         return handler._send_json({"ok": False, "error": error}, 400)
     _strip_provider_api_keys(coerced)
     try:
@@ -616,6 +622,8 @@ def _normalize_provider(name: str, obj: dict[str, Any]) -> dict[str, Any]:
     data = {
         "type": provider_type,
         "api_key_env": normalize_provider_key_env(obj.get("api_key_env", "")),
+        "credential_ref": obj.get("credential_ref", ""),
+        "credential_proof": obj.get("credential_proof", ""),
         # Keep the client value only long enough to prove a credential retarget; every write strips it.
         "api_key": obj.get("api_key", ""),
         "base_url": obj.get("base_url", ""),
@@ -640,10 +648,19 @@ def _provider_mapping(raw: dict[str, Any]) -> dict[str, Any]:
     return providers if isinstance(providers, dict) else {}
 
 
-def _validate_provider_bindings(previous_raw: dict[str, Any], candidate_raw: dict[str, Any]) -> str | None:
+def _validate_provider_bindings(
+    previous_raw: dict[str, Any], candidate_raw: dict[str, Any], base: Path | None = None
+) -> str | None:
     """Reject non-canonical env bindings and unproven credential retargeting."""
     previous_providers = _provider_mapping(previous_raw)
     candidate_providers = _provider_mapping(candidate_raw)
+    try:
+        service = CredentialService(candidate_raw, base)
+        for ref, meta in (previous_raw.get("credentials") or {}).items():
+            if (candidate_raw.get("credentials") or {}).get(ref) != meta:
+                return "managed credential metadata must be preserved; use the credential API"
+    except (KeyError, TypeError, ValueError):
+        return "invalid credential metadata or reference"
     for raw_name, provider in candidate_providers.items():
         if not isinstance(raw_name, str):
             return "provider names must be strings"
@@ -656,7 +673,7 @@ def _validate_provider_bindings(previous_raw: dict[str, Any], candidate_raw: dic
         previous = previous_providers.get(raw_name, {})
         if not isinstance(previous, dict):
             previous = {}
-        if error := provider_rebind_error(raw_name, previous, provider):
+        if error := provider_rebind_error(raw_name, previous, provider, service):
             return error
     return None
 
@@ -692,6 +709,9 @@ def _strip_provider_api_keys(raw: dict[str, Any]) -> None:
     if not isinstance(providers, dict):
         return
     for p in providers.values():
+        if isinstance(p, dict):
+            p.pop("credential_proof", None)
+            p.pop("credential_status", None)
         if isinstance(p, dict) and p.get("api_key"):
             p["api_key"] = ""
 
@@ -774,9 +794,17 @@ def handle_get_providers(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
         return handler._send_json({"ok": False, "error": error}, 500)
     providers = raw.get("ai", {}).get("providers", {}) if raw else {}
     masked = {n: _mask_provider_dict(p) if isinstance(p, dict) else p for n, p in providers.items()}
+    service = CredentialService(raw, handler.config_path.parent if handler.config_path else None)
+    for name, provider in masked.items():
+        if isinstance(provider, dict):
+            ref = service.provider_refs[name]
+            provider.pop("api_key", None)
+            provider["credential_ref"] = ref
+            provider["credential_status"] = service.status(ref)
     return handler._send_json({"ok": True, "providers": masked})
 
 
+@serialized_store_write
 def handle_post_provider(handler: HandlerProtocol, qs: dict[str, Any], obj: dict[str, Any]) -> None:
     name_value = obj.get("name")
     if not isinstance(name_value, str) or not name_value.strip():
@@ -790,7 +818,9 @@ def handle_post_provider(handler: HandlerProtocol, qs: dict[str, Any], obj: dict
     if name in providers:
         return handler._send_json({"ok": False, "error": f"provider already exists: {name}"}, 409)
     provider = _normalize_provider(name, obj)
-    error = _provider_error(name, provider) or provider_rebind_error(name, {}, provider)
+    error = _provider_error(name, provider) or provider_rebind_error(
+        name, {}, provider, CredentialService(raw, handler.config_path.parent if handler.config_path else None)
+    )
     if error:
         return handler._send_json({"ok": False, "error": error}, 400)
     providers[name] = provider
@@ -800,6 +830,7 @@ def handle_post_provider(handler: HandlerProtocol, qs: dict[str, Any], obj: dict
     return handler._send_json({"ok": True, "name": name, "provider": _mask_provider_dict(provider)})
 
 
+@serialized_store_write
 def handle_put_provider(handler: HandlerProtocol, qs: dict[str, Any], obj: dict[str, Any], name: str) -> None:
     name = unquote(name).strip()
     raw, error = _read_global_config_raw(handler.config_path)
@@ -821,7 +852,12 @@ def handle_put_provider(handler: HandlerProtocol, qs: dict[str, Any], obj: dict[
     if new_name != name and "api_key_env" not in obj:
         merged["api_key_env"] = provider_env_name(new_name)
     provider = _normalize_provider(new_name, merged)
-    error = _provider_error(new_name, provider) or provider_rebind_error(new_name, previous, provider)
+    error = _provider_error(new_name, provider) or provider_rebind_error(
+        new_name,
+        previous,
+        provider,
+        CredentialService(raw, handler.config_path.parent if handler.config_path else None),
+    )
     if error:
         return handler._send_json({"ok": False, "error": error}, 400)
     if new_name != name:
@@ -842,6 +878,7 @@ def handle_put_provider(handler: HandlerProtocol, qs: dict[str, Any], obj: dict[
     return handler._send_json({"ok": True, "name": new_name, "provider": _mask_provider_dict(provider)})
 
 
+@serialized_store_write
 def handle_delete_provider(handler: HandlerProtocol, qs: dict[str, Any], name: str) -> None:
     name = unquote(name).strip()
     if error := _provider_name_error(name):

@@ -36,6 +36,12 @@ Keep this table in sync with the declared dependencies in `pyproject.toml` /
 | pyobjc-framework-WebKit | MIT | macOS |
 | pyobjc-framework-Quartz | MIT | macOS |
 | pyobjc-framework-Security | MIT | macOS |
+| keyring | MIT | Windows / macOS (optional for CLI) |
+| jaraco.classes | MIT | Keyring dependency |
+| jaraco.context | MIT | Keyring dependency |
+| jaraco.functools | MIT | Keyring dependency |
+| more-itertools | MIT | Keyring dependency |
+| pywin32-ctypes | BSD-3-Clause | Windows keyring backend |
 
 ## On-demand installs (NOT bundled)
 

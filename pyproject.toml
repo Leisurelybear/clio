@@ -16,6 +16,9 @@ dependencies = [
 [project.scripts]
 clio = "clio.main:main"
 
+[project.optional-dependencies]
+keyring = ["keyring>=25.7,<26"]
+
 [build-system]
 requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"

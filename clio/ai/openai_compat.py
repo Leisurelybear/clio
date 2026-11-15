@@ -26,7 +26,9 @@ class OpenAICompatProvider:
 
     def __init__(self, cfg: ProviderConfig, proxy: ProxyConfig):
         # Local Ollama endpoints do not require an API key.
-        if not cfg.api_key and cfg.type != "ollama":
+        from clio.credentials import credential_required
+
+        if not cfg.api_key and credential_required(cfg.type):
             env_name = mask_if_looks_like_key(cfg.api_key_env) or t("ai.env_not_set")
             raise ValueError(t("ai.openai_missing_key", {"provider": cfg.name, "env": env_name}))
         self._api_key = cfg.api_key

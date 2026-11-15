@@ -21,6 +21,19 @@
 
 config_version: V2
 
+# Global credential metadata only. Values belong in OS keyring, .env, or the
+# inherited environment. Legacy api_key_env provider entries remain readable.
+# Explicit migration in Settings > Global > Credentials creates these entries:
+# credentials:
+#   gemini_api_key:
+#     label: Gemini API key
+#     kind: api_key
+#     source: auto
+#     env_name: GEMINI_API_KEY
+#     backend_account: gemini_api_key
+# ai.providers.gemini.credential_ref: gemini_api_key
+credentials: {}
+
 proxy:
   enabled: false
   url: "socks5://127.0.0.1:1080"

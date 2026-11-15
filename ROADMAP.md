@@ -10,6 +10,22 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
 
 ## Active backlog (2026-11-13)
 
+### Credential management design (2026-11-15)
+
+- `[x]` Design a unified credential service with field-level UI operations, dotenv compatibility,
+  and an OS keyring backend proposal ([design](docs/superpowers/specs/2026-11-15-credential-management-design.md)).
+- `[x]` Review the current credential architecture, source precedence, UI/API boundaries, and
+  provider cache lifetime ([review](docs/superpowers/reviews/2026-11-15-credential-management-architecture-review.md)).
+- `[x]` Implement the credential service contract and dotenv-backed compatibility adapter.
+- `[x]` Replace Provider dotenv read/modify/write and the non-functional reveal control with the
+  credential API and shared credential field component.
+- `[x]` Add OS keyring storage and explicit migration from legacy `api_key_env` / `.env` values.
+
+Credential delivery includes graceful provider retirement (R11), atomic reacquisition before
+active calls, source/shadowing status, authenticated 30-second reveal, backend-specific cleanup,
+and native desktop keyring packaging. Verification and limits:
+[implementation record](docs/superpowers/reviews/2026-11-15-credential-management-implementation.md).
+
 ### Follow-up review (2026-11-14)
 
 Evidence and reproductions: [recent commits review](docs/analysis/2026-11-14-recent-commits-review.md).

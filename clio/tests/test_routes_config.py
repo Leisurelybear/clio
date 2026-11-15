@@ -78,7 +78,9 @@ class TestProviderCrud:
 
         payload = handler._send_json.call_args[0][0]
         assert payload["ok"] is True
-        assert payload["providers"]["gemini"]["api_key"] == "********"
+        assert "api_key" not in payload["providers"]["gemini"]
+        assert payload["providers"]["gemini"]["credential_status"]["configured"] is True
+        assert payload["providers"]["gemini"]["credential_ref"] == "gemini_api_key"
 
     def test_get_providers_missing_config_returns_500(self, tmp_path):
         handler = self._handler(tmp_path / "no.yaml")

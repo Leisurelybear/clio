@@ -76,6 +76,13 @@ from clio.ui.routes.config_routes import (
     handle_put_config_raw,
     handle_put_provider,
 )
+from clio.ui.routes.credentials import (
+    handle_delete_credential,
+    handle_get_credentials,
+    handle_post_credential_migrate,
+    handle_post_credential_reveal,
+    handle_put_credential,
+)
 from clio.ui.routes.deps import (
     _ensure_ffmpeg_install_handler,
     handle_get_deps_ffmpeg,
