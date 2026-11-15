@@ -15,6 +15,41 @@ handoff. See the [implementation record](../superpowers/reviews/2026-11-15-crede
 for verification, commit scope and concurrent-work limits. These IDs are outside the historical
 117-row totals; the original comprehensive audit below records its pre-remediation baseline.
 
+Credential post-implementation review (2026-11-15): the
+[code review](../superpowers/reviews/2026-11-15-credential-management-code-review.md) reproduced
+CMR-01 through CMR-05 (three P1, two P2). All five were fixed with focused regressions for
+possession validation, synthesized ID collisions, explicit-source migration, failed-save rollback,
+and unsaved connection tests. They remain outside the historical 117-row totals. The reviewed
+commits contain no detected real keys; an acknowledged key from 2026-06-10 remains in reachable
+Git history.
+
+Focused pipeline review (2026-11-15): the
+[UX/reliability assessment](2026-11-15-clio-pipeline-ux-reliability-review.md) records local
+U01-U10 and recovery/acceptance criteria. U01 overlaps comprehensive R01; the other local IDs
+must not be folded into the historical 117-row totals without triage. U01-U10 now have
+production fixes and behavioral regressions: strict managed outcomes, preserved dirty editor
+buffers, task-scoped handoff/idempotent completion, authoritative compression cache previews,
+guarded continuation, shared in-process state and explicit empty-selection rejection. U01 also
+resolves the codec/CRF omission from R02. Full backend: 3472 passed, 12 skipped; full frontend:
+976 passed; typecheck, Ruff, mypy and local environment check passed. Evidence is in the assessment.
+Restart marks interruption; continuation is explicit, validates artifacts/configuration and
+clears prior overwrite approvals. No automatic or in-flight provider-call resume is claimed.
+
+Comprehensive audit (2026-11-15): the [final assessment](2026-11-15-clio-final-review.md),
+[module report](2026-11-15-clio-module-review.md), and
+[repair/optimization matrix](2026-11-15-clio-review-matrix.md)
+([CSV](2026-11-15-clio-review-matrix.csv)) record 17 reproduced defects: 8 P1 and 9 P2,
+plus 10 optimization/validation items. The audit itself implemented no fixes; subsequent pipeline
+remediation resolves R01/R02 and credential work resolves R11 as recorded above.
+The new local IDs R01-R17/O01-O10 belong to that dated matrix and are not included in the
+original 117-row totals below. O01/O02 cross-reference this tracker's open OPT-022/OPT-023
+and must not be counted twice. Earlier fixed/satisfied rows retain their recorded scope;
+new findings include distinct bypasses and boundary cases rather than a blanket reopening.
+Verification: 3409 pytest passed / 12 skipped, 70 final preview cases passed, 951 Vitest
+passed, 13 Python observations and 4 frontend defect probes reproduced; Ruff, mypy,
+frontend typecheck and local `main.py check` passed. Baseline and limitations:
+[verification record](2026-11-15-clio-review-evidence/verification.md).
+
 Run interaction follow-up (2026-11-15): planned voiceover now highlights delivery even when
 runtime reports the shared `voiceover` phase. Full custom pipelines retain the transition
 from clip scripts to planned voiceover. Focused runner tests verify both paths.

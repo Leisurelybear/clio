@@ -62,3 +62,12 @@ build was produced. macOS/Linux native keyring access was not tested on this Win
 The cross-tab mutation lock protects one Clio process; external programs editing the same files
 still require normal coordination. Existing unrelated pipeline work and review evidence were
 preserved and excluded from the credential code commits.
+
+## Follow-up remediation
+
+The post-implementation code review reproduced five edge cases. The follow-up fixes now validate
+implicit bindings against the previous provider identity, reject implicit credential-ID collisions,
+protect raw config from introducing managed metadata, preserve explicit migration source policy,
+roll back backend writes when metadata persistence fails, and resolve implicit credentials in
+unsaved connection tests. Focused coverage is 114 passed; the full Python suite is 3,480 passed and
+12 skipped.

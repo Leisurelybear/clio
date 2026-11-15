@@ -59,10 +59,17 @@ class CredentialService:
         for env in BUILTIN_ENVS:
             self._discover(env.lower(), env)
         providers = (self.raw.get("ai") or {}).get("providers") or {}
+        ref_owners: dict[str, tuple[str, bool]] = {}
         for name, provider in providers.items():
             if not isinstance(provider, dict):
                 continue
-            ref = provider.get("credential_ref") or provider_env_name(name).lower()
+            explicit_ref = provider.get("credential_ref")
+            ref = explicit_ref or provider_env_name(name).lower()
+            owner = ref_owners.get(ref)
+            if owner is not None and (not explicit_ref or not owner[1]):
+                raise ValueError(f"providers '{owner[0]}' and '{name}' share an implicit credential reference")
+            if owner is None:
+                ref_owners[ref] = (name, bool(explicit_ref))
             if provider.get("credential_ref") and ref not in self.registry:
                 raise ValueError("unknown provider credential reference")
             if not provider.get("credential_ref") and ref not in metadata:
@@ -72,6 +79,9 @@ class CredentialService:
             self.consumers.setdefault(ref, []).append(f"ai.providers.{name}")
             inline = provider.get("api_key") or ""
             if inline not in {"***", "********", "••••••••••"}:
+                previous_inline = self.legacy.get(ref)
+                if previous_inline and previous_inline != inline:
+                    raise ValueError("shared credential reference has conflicting inline values")
                 self.legacy[ref] = inline
         self.consumers.setdefault("dashscope_api_key", []).append("asr.aliyun")
 
@@ -100,7 +110,13 @@ class CredentialService:
         return next(iter(values.values()), "") if source == "auto" else values.get(source, "")
 
     def resolve_provider(self, provider: dict, name: str = "") -> str:
+        from clio.ai.provider_security import provider_env_name
+
         ref = provider.get("credential_ref") or self.provider_refs.get(name)
+        if not ref and name and not provider.get("api_key_env"):
+            candidate_ref = provider_env_name(name).lower()
+            if candidate_ref in self.registry:
+                ref = candidate_ref
         if ref:
             return self.resolve(ref)
         env = provider.get("api_key_env") or ""
@@ -151,3 +167,12 @@ class CredentialService:
         else:
             validate_value(value)
             store.set(account, value)
+
+    def read_source(self, ref: str, source: str) -> str | None:
+        """Read one writable source for rollback without changing precedence."""
+        meta = self.metadata(ref)
+        if source == "keyring":
+            return self.keyring.get(meta.backend_account)
+        if source == "dotenv" and self.dotenv is not None and meta.env_name:
+            return self.dotenv.get(meta.env_name)
+        raise ValueError("select an available writable credential source")

@@ -191,6 +191,152 @@ def test_keyring_unavailable_falls_back_only_for_explicit_migration(handler, bac
     assert load_global_config(handler.config_path).ai.providers["gemini"].api_key == "legacy-inline-secret"
 
 
+def test_implicit_provider_retarget_requires_possession(handler, backend):
+    from clio.ui.routes.config_routes import handle_put_config_global
+
+    raw = {
+        "config_version": "V2",
+        "ai": {
+            "providers": {
+                "custom": {"type": "openai", "base_url": "https://old.example/v1", "models": ["test"]},
+            }
+        },
+    }
+    handler.config_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+    backend.set("custom_api_key", "current-secret")
+    candidate = yaml.safe_load(handler.config_path.read_text(encoding="utf-8"))
+    candidate["ai"]["providers"]["custom"]["base_url"] = "https://new.example/v1"
+
+    handle_put_config_global(handler, {}, candidate)
+
+    assert payload(handler)["ok"] is False
+    assert "re-enter the current API key" in payload(handler)["error"]
+    assert yaml.safe_load(handler.config_path.read_text(encoding="utf-8"))["ai"]["providers"]["custom"]["base_url"] == (
+        "https://old.example/v1"
+    )
+
+
+def test_implicit_credential_is_used_by_unsaved_provider_test(tmp_path, backend, monkeypatch):
+    from clio.ai.base import AIResponse
+    from clio.config import AppConfig, load_global_config
+    from clio.ui.services.ai_test_service import test_provider_connection
+
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "config_version": "V2",
+                "ai": {
+                    "providers": {"custom": {"type": "openai", "base_url": "https://example.com/v1", "models": ["m"]}}
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    backend.set("custom_api_key", "current-secret")
+    config = AppConfig(global_cfg=load_global_config(path), project_cfg=None)
+    fake_provider = MagicMock()
+    fake_provider.generate_text.return_value = AIResponse(text="ok")
+    monkeypatch.setattr("clio.ui.services.ai_test_service._build_provider", lambda *_args: fake_provider)
+
+    result = test_provider_connection(
+        config,
+        provider_name="custom",
+        model="m",
+        provider_override={"type": "openai", "base_url": "https://example.com/v1", "models": ["m"]},
+    )
+
+    assert result["ok"] is True
+
+
+def test_candidate_metadata_cannot_retarget_implicit_credential(handler, backend):
+    from clio.ui.routes.config_routes import handle_put_config_global
+
+    raw = {
+        "config_version": "V2",
+        "ai": {
+            "providers": {
+                "custom": {"type": "openai", "base_url": "https://old.example/v1", "models": ["test"]},
+            }
+        },
+    }
+    handler.config_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+    backend.set("custom_api_key", "current-secret")
+    candidate = yaml.safe_load(handler.config_path.read_text(encoding="utf-8"))
+    candidate["credentials"] = {"custom_api_key": {"env_name": "OTHER_API_KEY"}}
+    candidate["ai"]["providers"]["custom"]["base_url"] = "https://new.example/v1"
+
+    handle_put_config_global(handler, {}, candidate)
+
+    assert payload(handler)["ok"] is False
+    assert "credential API" in payload(handler)["error"]
+
+
+def test_implicit_credential_id_collision_is_rejected(tmp_path, backend):
+    raw = {
+        "ai": {
+            "providers": {
+                "my-model": {"type": "openai", "api_key": "first-secret"},
+                "my_model": {"type": "openai", "api_key": "second-secret"},
+            }
+        }
+    }
+
+    with pytest.raises(ValueError, match="share an implicit credential reference"):
+        CredentialService(raw, tmp_path, keyring=backend)
+
+
+def test_migration_preserves_explicit_destination_source(handler, backend):
+    raw = {
+        "config_version": "V2",
+        "credentials": {"custom_api_key": {"source": "inline", "env_name": "CUSTOM_API_KEY"}},
+        "ai": {
+            "providers": {
+                "custom": {
+                    "type": "openai",
+                    "credential_ref": "custom_api_key",
+                    "api_key": "inline-secret",
+                    "models": ["test"],
+                }
+            }
+        },
+    }
+    handler.config_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+    backend.set("custom_api_key", "stale-keyring-secret")
+
+    routes.handle_post_credential_migrate(handler, {}, {"confirmed": True, "source": "dotenv"}, "custom_api_key")
+
+    assert payload(handler)["ok"] is True
+    assert payload(handler)["credential"]["effective_source"] == "dotenv"
+    assert load_global_config(handler.config_path).ai.providers["custom"].api_key == "inline-secret"
+
+
+def test_credential_write_rolls_back_backend_when_metadata_save_fails(handler, backend, monkeypatch):
+    backend.set("gemini_api_key", "old-secret")
+    monkeypatch.setattr(
+        "clio.ui.routes.credentials.write_text_atomic", lambda *args: (_ for _ in ()).throw(PermissionError())
+    )
+
+    routes.handle_put_credential(handler, {}, {"value": "new-secret", "source": "keyring"}, "gemini_api_key")
+
+    assert payload(handler)["ok"] is False
+    assert backend.get("gemini_api_key") == "old-secret"
+
+
+def test_migration_rolls_back_destination_when_metadata_save_fails(handler, backend, monkeypatch):
+    store = DotenvStore(handler.config_path.parent / ".env")
+    store.set("GEMINI_API_KEY", "legacy-secret")
+    monkeypatch.setattr(
+        "clio.ui.routes.credentials.write_text_atomic", lambda *args: (_ for _ in ()).throw(PermissionError())
+    )
+
+    routes.handle_post_credential_migrate(handler, {}, {"confirmed": True, "source": "keyring"}, "gemini_api_key")
+
+    assert payload(handler)["ok"] is False
+    assert backend.get("gemini_api_key") is None
+    assert store.get("GEMINI_API_KEY") == "legacy-secret"
+
+
 def test_delete_selected_backend_reports_remaining_source(handler, backend):
     backend.set("gemini_api_key", "keyring-secret")
     DotenvStore(handler.config_path.parent / ".env").set("GEMINI_API_KEY", "legacy-secret")

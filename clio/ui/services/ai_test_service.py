@@ -91,7 +91,7 @@ def test_provider_connection(
                 capabilities=[str(v) for v in (raw.get("capabilities") or [])],
             )
             if not provider_cfg.api_key:
-                provider_cfg.api_key = service.resolve_provider(raw)
+                provider_cfg.api_key = service.resolve_provider(raw, provider_name)
         except (TypeError, ValueError) as exc:
             return {
                 "ok": False,

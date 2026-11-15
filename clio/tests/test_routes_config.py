@@ -235,6 +235,16 @@ class TestProviderCrud:
         assert "linux_do" in saved["ai"]["providers"]
         assert saved["ai"]["default_tasks"]["voiceover"]["provider"] == "linux_do"
 
+    def test_put_rename_rejects_implicit_credential_retarget_without_key(self, tmp_path, monkeypatch):
+        config_path = _write_provider_config(tmp_path)
+        handler = self._handler(config_path)
+        monkeypatch.setenv("OPENAI_API_KEY", "shell-secret")
+
+        handle_put_provider(handler, {}, {"name": "linux_do", "base_url": "https://gateway.example/v1"}, "openai")
+
+        assert handler._send_json.call_args[0][1] == 400
+        assert "re-enter the current API key" in handler._send_json.call_args[0][0]["error"]
+
     def test_put_rejects_credential_retarget_without_reentered_key(self, tmp_path, monkeypatch):
         config_path = _write_provider_config(tmp_path)
         handler = self._handler(config_path)

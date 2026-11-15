@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hmac
 from dataclasses import asdict, replace
 from typing import Any
@@ -92,8 +93,14 @@ def handle_put_credential(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
             if value == "" and obj.get("confirmed") is not True:
                 raise ValueError("deletion requires confirmation")
             source = obj.get("source", "")
-            service.write(ref, value or None, source)
-            _save_metadata(handler, service, ref)
+            rollback_value = service.read_source(ref, source)
+            try:
+                service.write(ref, value or None, source)
+                _save_metadata(handler, service, ref)
+            except Exception:
+                with contextlib.suppress(Exception):
+                    service.write(ref, rollback_value, source)
+                raise
             _invalidate(handler, service, ref)
             response = {"ok": True, "credential": service.status(ref)}
             if value:
@@ -143,17 +150,25 @@ def handle_post_credential_migrate(handler: HandlerProtocol, qs: dict[str, Any],
             target = requested
             if requested == "keyring" and not service.capabilities()["keyring"]["available"]:
                 target = "dotenv"
-            service.write(ref, value, target)
-            # Verify the destination before updating references or offering cleanup.
             meta = service.metadata(ref)
-            assert service.dotenv is not None
-            copied = (
-                service.keyring.get(meta.backend_account) if target == "keyring" else service.dotenv.get(meta.env_name)
-            )
-            if copied != value:
-                raise ValueError("migration verification failed")
-            service.registry[ref] = replace(meta, source="auto")
-            _save_metadata(handler, service, ref, migrate=True)
+            previous_target = service.read_source(ref, target)
+            previous_meta = meta
+            try:
+                service.write(ref, value, target)
+                # Verify the destination before updating references or offering cleanup.
+                copied = service.read_source(ref, target)
+                if copied != value:
+                    raise ValueError("migration verification failed")
+                # An explicit source policy must follow the destination selected by
+                # migration; auto policy keeps its existing precedence semantics.
+                migrated_source = target if meta.source != "auto" else "auto"
+                service.registry[ref] = replace(meta, source=migrated_source)
+                _save_metadata(handler, service, ref, migrate=True)
+            except Exception:
+                service.registry[ref] = previous_meta
+                with contextlib.suppress(Exception):
+                    service.write(ref, previous_target, target)
+                raise
             service.legacy.pop(ref, None)
             _invalidate(handler, service, ref)
             handler._send_json(

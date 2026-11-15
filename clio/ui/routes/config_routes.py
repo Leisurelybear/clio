@@ -648,6 +648,25 @@ def _provider_mapping(raw: dict[str, Any]) -> dict[str, Any]:
     return providers if isinstance(providers, dict) else {}
 
 
+def _previous_provider_binding(
+    name: str, candidate: dict[str, Any], previous_providers: dict[str, Any]
+) -> tuple[str, dict[str, Any]]:
+    """Find the previous provider when a global save also renames it."""
+    direct = previous_providers.get(name)
+    if isinstance(direct, dict):
+        return name, direct
+    candidate_ref = candidate.get("credential_ref")
+    candidate_env = candidate.get("api_key_env")
+    for previous_name, previous in previous_providers.items():
+        if not isinstance(previous, dict):
+            continue
+        if candidate_ref and previous.get("credential_ref") == candidate_ref:
+            return previous_name, previous
+        if candidate_env and previous.get("api_key_env") == candidate_env:
+            return previous_name, previous
+    return name, {}
+
+
 def _validate_provider_bindings(
     previous_raw: dict[str, Any], candidate_raw: dict[str, Any], base: Path | None = None
 ) -> str | None:
@@ -655,10 +674,16 @@ def _validate_provider_bindings(
     previous_providers = _provider_mapping(previous_raw)
     candidate_providers = _provider_mapping(candidate_raw)
     try:
+        previous_service = CredentialService(previous_raw, base)
         service = CredentialService(candidate_raw, base)
-        for ref, meta in (previous_raw.get("credentials") or {}).items():
-            if (candidate_raw.get("credentials") or {}).get(ref) != meta:
+        previous_metadata = previous_raw.get("credentials") or {}
+        candidate_metadata = candidate_raw.get("credentials") or {}
+        for ref, meta in previous_metadata.items():
+            if candidate_metadata.get(ref) != meta:
                 return "managed credential metadata must be preserved; use the credential API"
+        candidate_providers = _provider_mapping(candidate_raw)
+        if set(candidate_metadata) - set(previous_metadata):
+            return "new managed credential metadata must be written through the credential API"
     except (KeyError, TypeError, ValueError):
         return "invalid credential metadata or reference"
     for raw_name, provider in candidate_providers.items():
@@ -670,10 +695,15 @@ def _validate_provider_bindings(
             provider["api_key_env"] = normalize_provider_key_env(provider["api_key_env"])
         if error := _provider_error(raw_name, provider):
             return error
-        previous = previous_providers.get(raw_name, {})
-        if not isinstance(previous, dict):
-            previous = {}
-        if error := provider_rebind_error(raw_name, previous, provider, service):
+        previous_name, previous = _previous_provider_binding(raw_name, provider, previous_providers)
+        if error := provider_rebind_error(
+            raw_name,
+            previous,
+            provider,
+            service,
+            previous_service=previous_service,
+            previous_name=previous_name,
+        ):
             return error
     return None
 
@@ -857,6 +887,7 @@ def handle_put_provider(handler: HandlerProtocol, qs: dict[str, Any], obj: dict[
         previous,
         provider,
         CredentialService(raw, handler.config_path.parent if handler.config_path else None),
+        previous_name=name,
     )
     if error:
         return handler._send_json({"ok": False, "error": error}, 400)

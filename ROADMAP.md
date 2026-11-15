@@ -10,6 +10,37 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
 
 ## Active backlog (2026-11-13)
 
+### Pipeline UX and recovery review (2026-11-15)
+
+- `[x]` Review guided execution, task lifecycle, partial failures and recovery semantics;
+  publish the [assessment and offline evidence](docs/analysis/2026-11-15-clio-pipeline-ux-reliability-review.md).
+- `[x]` Implement truthful outcomes, safe completion updates, task handoff and
+  authoritative cache previews (local U01-U08; U01 overlaps comprehensive R01).
+- `[x]` Separate guarded cache-based continuation from forced replay; serialize in-process
+  processing state and reject explicit empty steps (local U03/U09/U10).
+- `[x]` Verify persisted interruption, manager recreation, fast retries, repeated terminal events,
+  task-day restoration, dirty-editor preservation and project-switch races.
+- `[ ]` Add transactional per-item checkpoints, cross-process artifact ownership and live
+  process-kill/provider/disconnection fault validation as a separate reliability project.
+
+Local U01-U10 are repaired with behavioral regressions. Full backend: 3472 passed, 12 skipped;
+full frontend: 976 passed. Typecheck, Ruff, mypy and local environment check passed. Evidence and
+recovery boundaries are recorded in the assessment. Restart marks interruption; continuation
+is explicit and reuses validated artifacts. Existing forced approvals are never replayed.
+
+### Comprehensive review (2026-11-15)
+
+- `[x]` Complete the repository-wide module/architecture review and offline reproductions.
+- `[x]` Publish the [final assessment](docs/analysis/2026-11-15-clio-final-review.md),
+  [module report](docs/analysis/2026-11-15-clio-module-review.md), and
+  [repair/optimization matrix](docs/analysis/2026-11-15-clio-review-matrix.md)
+  ([CSV](docs/analysis/2026-11-15-clio-review-matrix.csv)).
+- `[~]` Resolve the remaining 6 confirmed P1 defects (R03-R06/R08/R10) with focused regressions;
+  R01 is fixed by the pipeline repair and R11 by credential retirement work.
+- `[~]` Resolve the remaining 8 confirmed P2 defects (R07/R09/R12-R17); R02 is fixed by the
+  pipeline cache repair.
+- `[ ]` Schedule the 10 optimization/validation items; O01/O02 overlap historical OPT-022/OPT-023.
+
 ### Credential management design (2026-11-15)
 
 - `[x]` Design a unified credential service with field-level UI operations, dotenv compatibility,
@@ -25,6 +56,32 @@ Credential delivery includes graceful provider retirement (R11), atomic reacquis
 active calls, source/shadowing status, authenticated 30-second reveal, backend-specific cleanup,
 and native desktop keyring packaging. Verification and limits:
 [implementation record](docs/superpowers/reviews/2026-11-15-credential-management-implementation.md).
+
+Post-implementation [code review](docs/superpowers/reviews/2026-11-15-credential-management-code-review.md)
+reproduced five defects; all five are fixed with focused regressions:
+
+- `[x]` Fix credential possession checks for implicit bindings and candidate metadata (CMR-01/02).
+- `[x]` Prevent synthesized credential ID collisions between distinct providers (CMR-03).
+- `[x]` Preserve effective credential selection during explicit-source migration (CMR-04).
+- `[x]` Roll back backend mutations when metadata persistence fails (CMR-05).
+
+The reviewed commits contain no detected real keys. A separately identified historical key from
+2026-06-10 remains reachable; confirm revocation before considering any authorized history cleanup.
+
+### AI provider settings usability (2026-11-15)
+
+- `[x]` Allow testing an unsaved provider draft from the add/edit dialog.
+- `[x]` Allow provider renaming and update default task bindings when a provider name changes.
+- `[x]` Preserve credential-target confirmation semantics while generating the new environment binding on rename.
+
+The comprehensive review baseline was `aef5b0a` and initially recorded 17 open defects.
+R01/R02 are resolved by the pipeline remediation above; R11 was resolved by credential work.
+Historical review-only verification: 3409 pytest passed / 12 skipped; final preview module 70 passed;
+951 Vitest passed; 13 Python observations and 4 frontend defect probes reproduced; Ruff,
+mypy, frontend typecheck and local `main.py check` passed. Full evidence and limits are in the
+[verification record](docs/analysis/2026-11-15-clio-review-evidence/verification.md).
+The dated matrix is authoritative for these new findings; the original 117-item tracker
+retains its own historical scope and statuses.
 
 ### Follow-up review (2026-11-14)
 

@@ -137,10 +137,10 @@ def provider_binding_signature(provider: dict) -> tuple[str, ...]:
     return (provider_type, "invalid", effective, "", "", "", "", env_name)
 
 
-def _resolved_provider_secret(provider: dict, service=None) -> str:
+def _resolved_provider_secret(provider: dict, service=None, name: str = "") -> str:
     from clio.credentials import CredentialService
 
-    return (service or CredentialService()).resolve_provider(provider)
+    return (service or CredentialService()).resolve_provider(provider, name)
 
 
 def _supplied_secret(provider: dict) -> str:
@@ -150,7 +150,15 @@ def _supplied_secret(provider: dict) -> str:
     return "" if value in _MASKED_SECRET_VALUES else value
 
 
-def provider_rebind_error(provider_name: str, previous: dict, candidate: dict, service=None) -> str | None:
+def provider_rebind_error(
+    provider_name: str,
+    previous: dict,
+    candidate: dict,
+    service=None,
+    *,
+    previous_service=None,
+    previous_name: str | None = None,
+) -> str | None:
     """Require proof of possession when a credential target is introduced or changed.
 
     Existing credentials must be proven against the old binding. When the old
@@ -160,8 +168,12 @@ def provider_rebind_error(provider_name: str, previous: dict, candidate: dict, s
     if provider_binding_signature(previous) == provider_binding_signature(candidate):
         return None
 
-    old_secret = _resolved_provider_secret(previous, service) if previous else ""
-    candidate_secret = _resolved_provider_secret(candidate, service)
+    old_secret = (
+        _resolved_provider_secret(previous, previous_service or service, previous_name or provider_name)
+        if previous
+        else ""
+    )
+    candidate_secret = _resolved_provider_secret(candidate, service, provider_name)
     supplied = _supplied_secret(candidate)
     expected_secret = old_secret or candidate_secret
     from clio.credentials.proof import verify_proof

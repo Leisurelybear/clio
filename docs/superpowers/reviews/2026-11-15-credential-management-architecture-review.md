@@ -170,3 +170,7 @@ CRED-01 through CRED-08 are implemented as of 2026-11-15. R11 now retires active
 gracefully and runtime callers atomically reacquire their lease. See the
 [implementation record](2026-11-15-credential-management-implementation.md) for behavior,
 verification and delivery limits. The findings above preserve the original review baseline.
+
+The subsequent [code review](2026-11-15-credential-management-code-review.md) reproduced five
+implementation defects (CMR-01 through CMR-05). All five were fixed with focused regression tests;
+the original CRED findings and this follow-up remain separate tracking records.
