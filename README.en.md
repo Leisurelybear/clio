@@ -36,31 +36,40 @@
 **Pure Python stdlib** (`http.server`). No Node.js, no npm, no build step.
 
 <div align="center">
-  <img src="docs/screenshots/pipeline.png" alt="Pipeline runner" width="85%">
-  <br><sub>🏃 Pipeline runner</sub>
+  <img src="docs/screenshots/pipeline.png" alt="Four-stage pipeline runner" width="85%">
+  <br><sub>🏃 Four-stage run: prepare, understand, plan, deliver</sub>
   <br><br>
-  <img src="docs/screenshots/analysis.png" alt="AI analysis editor" width="85%">
-  <br><sub>🤖 AI analysis editor</sub>
+  <img src="docs/screenshots/tasks.png" alt="Cross-project task center" width="85%">
+  <br><sub>🗂️ Cross-project tasks and live events</sub>
   <br><br>
-  <img src="docs/screenshots/voiceover.png" alt="Voiceover editor" width="85%">
-  <br><sub>✍️ Voiceover editor</sub>
+  <img src="docs/screenshots/plan.png" alt="Plan editor and readiness checks" width="85%">
+  <br><sub>📋 Plan editing, preview, and readiness checks</sub>
   <br><br>
-  <img src="docs/screenshots/plan.png" alt="Edit plan" width="85%">
-  <br><sub>📋 Edit plan</sub>
+  <img src="docs/screenshots/settings.png" alt="Global and project settings" width="85%">
+  <br><sub>⚙️ Global / project configuration forms</sub>
   <br><br>
-  <img src="docs/screenshots/new_project.png" alt="Project management" width="85%">
-  <br><sub>📁 Project management</sub>
+  <img src="docs/screenshots/logs.png" alt="Session logs and filters" width="85%">
+  <br><sub>📝 Live session logs and history filters</sub>
 </div>
 
 - 🎥 **HTML5 Player** — seek / jump / speed (0.5x–2x) / Range requests
 - 📂 **Source Toggle** — switch between compressed / original view
-- 📝 **Three Editing Tabs** — Analysis / Voiceover / Plan, Ctrl+S to save
+- 📝 **Editing workspaces** — Analysis / Voiceover / Plan with Ctrl+S save, source toggle, global plan timeline, waveform, and segment selection
 - ⚙ **Visual Config Editor** — Full YAML form, global & per-project modes
-- ▶ **Pipeline Runner** — Step-by-step or full run, live progress + ETA
+- ▶ **Four-stage Pipeline Runner** — Prepare (compress/transcribe), Understand (analysis/consistency), Plan (voiceover/edit plan/planned voiceover), Deliver (labels); run one next stage, rerun, confirm overwrites, and track live progress + ETA
 - 🔄 **Local Whisper Model Download** — One-click in UI, auto-rerun transcription; cloud engines need no model download
-- 🗂️ **Task Center & Notifications** — Browse task history and live status across projects with cancel/retry; task events and UI warnings land in a filterable notification inbox
+- 🗂️ **Task Center & Notifications** — Persistent cross-project task history, stage progress, cancel/retry, and a paginated notification inbox with optional desktop notifications
 
 Launch: `python main.py serve` → open `http://127.0.0.1:8765`
+
+The Run workspace groups execution into four guided stages:
+
+1. **Prepare**: compression and optional transcription; unavailable transcription can be explicitly skipped.
+2. **Understand**: Gemini video analysis plus same-day entity and duplicate-scene consistency.
+3. **Plan**: full voiceover, staged edit planning, and segment-aligned voiceover. Planning validates candidate clips → outline → shot selection → review.
+4. **Deliver**: burn index labels; cutting and JianYing draft export remain on-demand commands.
+
+The plan editor runs readiness checks before saving/cutting/exporting. Errors block the action; warnings can be acknowledged with `--force`. Task and notification history is global, so switching projects or pages does not lose events.
 
 Security notes:
 
@@ -106,7 +115,7 @@ graph LR
 | 8️⃣ 🔧 **AI Refine** | **DeepSeek** / Gemini | `refine` | Existing output + trip context → AI correction |
 | 9️⃣ Cut | | `cut --day day1` | Plan → timestamp-based clip extraction |
 | 🔟 Label | | `label` | Compressed video → burned index watermark |
-| 🚀 Full Pipeline | AI + media | `run --day day1` | Compress → transcribe → analyze → same-day consistency → voiceover → plan → planned voiceover → labels; run `cut` separately |
+| 🚀 Full Pipeline | AI + media | `run --day day1` | Runs the four guided stages (prepare, understand, plan, deliver); choose the next stage in the Run workspace; run `cut`/`export` on demand |
 
 > 💡 Supports **single-file** processing: `python main.py analyze -i "output/compressed/001_GL010685.mp4"`
 > 💡 Each step independently skips existing output; add `--force` to regenerate
@@ -162,7 +171,7 @@ CLI, doctor and Web UI copy all follow the same setting.
 
 ```bash
 # 🏃 Full pipeline
-python main.py run -i "E:/Videos/🇫🇷ParisTrip" --day day1
+python main.py run -p "E:/Videos/🇫🇷ParisTrip" --day day1
 
 # 🔍 Environment check
 python main.py check
@@ -193,7 +202,7 @@ Global task bindings live in `config.yaml` → `ai.default_tasks`, so new projec
 ```
 📹 Home from a shoot, plug in GoPro SD card
 
-> python main.py run -i "E:/2025-10 Paris" --day day1
+> python main.py run -p "E:/2025-10 Paris" --day day1
 >   ⚙️ Compress source files (size budget for short clips, analysis floor for long clips)
 >   ⚙️ Scan 3 logical analysis windows (34min total; no physical slices)
 > ── 🤖 AI takes over ──────────────────

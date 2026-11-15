@@ -36,33 +36,42 @@
 **纯 Python 标准库**（`http.server`），无需 Node.js、无需 npm、无需构建。
 
 <div align="center">
-  <img src="docs/screenshots/pipeline.png" alt="流水线执行界面" width="85%">
-  <br><sub>🏃 流水线执行</sub>
+  <img src="docs/screenshots/pipeline.png" alt="四阶段流水线运行页" width="85%">
+  <br><sub>🏃 四阶段运行：准备、理解、规划、交付</sub>
   <br><br>
-  <img src="docs/screenshots/analysis.png" alt="AI 分析界面" width="85%">
-  <br><sub>🤖 AI 分析编辑</sub>
+  <img src="docs/screenshots/tasks.png" alt="跨项目任务中心" width="85%">
+  <br><sub>🗂️ 跨项目任务中心与实时事件</sub>
   <br><br>
-  <img src="docs/screenshots/voiceover.png" alt="口播文案界面" width="85%">
-  <br><sub>✍️ 口播文案编辑</sub>
+  <img src="docs/screenshots/plan.png" alt="规划编辑与就绪检查" width="85%">
+  <br><sub>📋 规划编辑、预览与就绪检查</sub>
   <br><br>
-  <img src="docs/screenshots/plan.png" alt="剪辑规划界面" width="85%">
-  <br><sub>📋 剪辑规划</sub>
+  <img src="docs/screenshots/settings.png" alt="全局与项目配置" width="85%">
+  <br><sub>⚙️ 全局 / 项目配置表单</sub>
   <br><br>
-  <img src="docs/screenshots/new_project.png" alt="项目管理界面" width="85%">
-  <br><sub>📁 项目管理</sub>
+  <img src="docs/screenshots/logs.png" alt="会话日志与筛选" width="85%">
+  <br><sub>📝 实时会话日志与历史筛选</sub>
 </div>
 
 - 🎥 **HTML5 播放器** — 拖动 / 跳转 / 倍速（0.5x~2x）/ Range 请求
 - 📂 **源切换** — 一键切换「压缩版」/「原视频」视图
-- ✂️ **成片优先预览** — 已裁剪时直接播放标准 `output/cuts/<day>` 片段，缺片自动回退源视频
-- 📝 **三 Tab 编辑** — 分析 / 口播 / 规划，改完 Ctrl+S 保存
+- ✂️ **成片优先预览** — 已裁剪时直接播放标准 `output/cuts/<day>` 片段，缺片自动回退源视频；规划页支持全局时间轴、波形和选区编辑
+- 📝 **编辑工作区** — 分析 / 口播 / 规划，改完 Ctrl+S 保存
 - ⚙ **图形化配置** — 所有 YAML 字段渲染为表单，全局 / 项目双模式
-- ▶ **流水线执行** — 分步跑 / 全跑，实时进度条 + ETA
+- ▶ **四阶段流水线执行** — 准备（压缩/转录）、理解（分析/同日一致性）、规划（口播/剪辑规划/计划段口播）、交付（标号）；支持单阶段下一步、重跑、覆盖确认、实时进度和 ETA
 - 🧰 **ffmpeg 一键安装** — 缺少依赖时在弹窗内下载校验后的静态构建，支持进度、取消与失败回退
 - 🔄 **本地 Whisper 模型下载** — UI 内一键下载，自动重跑转录；云端引擎无需下载模型
-- 🗂️ **任务中心与通知** — 跨项目查看任务历史和实时状态，支持取消/重试；任务事件和 UI 警告进入可分页筛选的通知收件箱。可在「设置 → 全局 → 界面」开启后台系统通知（默认关闭）
+- 🗂️ **任务中心与通知** — 跨项目持久化任务历史、阶段进度、取消/重试；任务事件和 UI 警告进入可分页筛选的通知收件箱，可选桌面系统通知
 
 启动：`python main.py serve` → 浏览器打开 `http://127.0.0.1:8765`
+
+运行页把原来的多步骤列表收敛为四个可独立推进的阶段：
+
+1. **准备**：压缩、可选转录；转录不可用时可明确跳过。
+2. **理解**：Gemini 视频分析、同日实体与重复场景一致性。
+3. **规划**：整片口播、分阶段剪辑规划、计划段口播；规划采用候选片段 → 大纲 → 选镜 → 审阅的校验链。
+4. **交付**：烧录序号；裁剪和 JianYing 草稿导出按需单独执行。
+
+规划保存前会运行就绪检查：错误会阻止裁剪/导出，警告可在确认后用 `--force` 继续。任务中心和通知中心独立于当前项目，页面切换后仍保留历史与实时事件。
 
 安全提示：
 
@@ -108,7 +117,7 @@ graph LR
 | 8️⃣ 🔧 **AI 审阅** | **DeepSeek** / Gemini | `refine` | 已有输出 + trip 上下文 → AI 修正 |
 | 9️⃣ 裁剪 | | `cut --day day1` | 规划完成后单独运行 → 按时间轴截取片段 |
 | 🔟 标号 | | `label` | 压缩视频 → 烧录序号水印 |
-| 🚀 流水线 | AI + 媒体 | `run --day day1` | 依次执行压缩、转录、分析、同日一致性、口播、规划、计划口播和标号；裁剪需另行运行 `cut` |
+| 🚀 流水线 | AI + 媒体 | `run --day day1` | 按四阶段执行准备、理解、规划和交付；支持从运行页选择下一阶段、覆盖已有产物；裁剪/导出按需另行运行 |
 
 > 💡 支持**单个文件**处理：`python main.py analyze -i "output/compressed/001_GL010685.mp4"`
 > 💡 每步独立运行、自动跳过已有输出，加 `--force` 强制重跑
@@ -165,7 +174,7 @@ CLI、doctor、Web UI 的用户可见文案全部跟随同一个语言设置。
 
 ```bash
 # 🏃 全流程
-python main.py run -i "E:/Videos/🇫🇷巴黎之旅" --day day1
+python main.py run -p "E:/Videos/🇫🇷巴黎之旅" --day day1
 
 # 🔍 只看环境
 python main.py check
@@ -206,7 +215,7 @@ python main.py compare-models \
 ```
 📹 下班到家，把 GoPro SD 卡插上电脑
 
-> python main.py run -i "E:/2025-10 巴黎" --day day1
+> python main.py run -p "E:/2025-10 巴黎" --day day1
 >   ⚙️ 压缩原片（短视频按体积预算，长片保底分析码率）
 >   ⚙️ 扫描 3 个逻辑分析窗（共 34min 素材；不生成物理切片）
 > ── 🤖 AI 介入 ──────────────────────
