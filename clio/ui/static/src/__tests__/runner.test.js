@@ -7,7 +7,6 @@ import {
   startRun,
   _completionTargetForSteps,
   getRunButtonText,
-  _shouldResetRunNavigationOnRender,
   updateRunStartButtonState,
   refreshVideosAfterRun,
   staleWarningHtml,
@@ -40,16 +39,6 @@ vi.mock('../api.js', () => ({
 describe('missingMediaDepsForSteps', () => {
   it('does not block label when only ffprobe is missing', () => {
     expect(missingMediaDepsForSteps(['label'], { missing: ['ffprobe'] })).toEqual([]);
-  });
-});
-
-describe('_shouldResetRunNavigationOnRender', () => {
-  it('preserves completion navigation while a run is active', () => {
-    expect(_shouldResetRunNavigationOnRender(true)).toBe(false);
-  });
-
-  it('resets stale navigation flags when idle', () => {
-    expect(_shouldResetRunNavigationOnRender(false)).toBe(true);
   });
 });
 

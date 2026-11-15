@@ -7,6 +7,7 @@ import os
 import threading
 import time
 import weakref
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from clio.schema import ARTIFACT_SCHEMA_VERSION
@@ -17,6 +18,15 @@ _DEFAULT_MAX_PENDING_FLUSHES = 20
 _STATE_INSTANCES: weakref.WeakSet = weakref.WeakSet()
 _STATE_REGISTRY_LOCK = threading.Lock()
 _ATEXIT_REGISTERED = False
+
+
+@dataclass
+class _SharedState:
+    data: dict
+    lock: threading.Lock = field(default_factory=threading.Lock)
+
+
+_STATE_DATA: weakref.WeakValueDictionary[str, _SharedState] = weakref.WeakValueDictionary()
 
 
 def _flush_all_states() -> None:
@@ -49,9 +59,18 @@ class ProcessingState:
         flush_interval_sec: float = _DEFAULT_FLUSH_INTERVAL_SEC,
         max_pending_flushes: int = _DEFAULT_MAX_PENDING_FLUSHES,
     ):
-        self._path = output_dir / ".processing.json"
-        self._lock = threading.Lock()
-        self._data = self._load()
+        self._path = output_dir.resolve() / ".processing.json"
+        # All instances in this process mutate the same snapshot under one lock.
+        # A delayed flush from an earlier stage must never restore older statuses.
+        with _STATE_REGISTRY_LOCK:
+            key = os.path.normcase(str(self._path))
+            shared = _STATE_DATA.get(key)
+            if shared is None:
+                shared = _SharedState(self._load())
+                _STATE_DATA[key] = shared
+            self._shared = shared
+            self._lock = shared.lock
+            self._data = shared.data
         self._flush_interval_sec = flush_interval_sec
         self._max_pending_flushes = max_pending_flushes
         self._dirty = False

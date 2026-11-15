@@ -36,6 +36,7 @@ from clio.ui.services.run_preview import (
     build_run_preview,
     legacy_audio_removal_risk,
 )
+from clio.ui.services.run_recovery import pipeline_config_fingerprint
 from clio.utils import media_dependencies_for_steps, media_dependency_error, preflight_config_media_deps
 from clio.vmeta import VideoMeta
 
@@ -72,6 +73,7 @@ def _ensure_run_handlers(manager: TaskManager) -> None:
         concurrency_key=project_artifact_key,
         max_concurrency=1,
         cancellable=True,
+        prepare_retry=_prepare_pipeline_retry,
     )
     manager.ensure_registered(
         TaskKind.RERUN,
@@ -95,9 +97,60 @@ def _task_config(context) -> Any:
     return cfg
 
 
+def _prepare_pipeline_retry(task, cfg=None) -> dict[str, Any]:
+    """Continue validated caches, without carrying old overwrite approvals forward."""
+    data = dict(task.input_data)
+    if cfg is None:
+        cfg = load_config(
+            data.get("config_path") or "config.yaml", project_dir=Path(task.project_path or data["project_dir"])
+        )
+    cfg = copy.deepcopy(cfg)
+    if "use_transcripts" in data:
+        cfg.plan.use_transcripts = data["use_transcripts"]
+    if not data.get("run_config_fingerprint") or pipeline_config_fingerprint(cfg) != data["run_config_fingerprint"]:
+        raise ValueError(t("task.resume_config_changed"))
+    cfg.analyze.skip_existing = True
+    for key in (
+        "overwrite",
+        "confirm_plan_overwrite",
+        "confirm_artifact_overwrite",
+        "confirm_legacy_audio_removal",
+        "confirm_analysis_rerun",
+    ):
+        data[key] = False
+    data["resume"] = True
+    options = _RunStartOptions(
+        proj_dir=Path(task.project_path or data["project_dir"]),
+        config_path=None,
+        cfg=cfg,
+        day_label=data.get("day_label", "day1"),
+        steps=data.get("steps"),
+        files_list=data.get("files"),
+        all_days=bool(data.get("all_days")),
+        overwrite=False,
+        confirm_plan_overwrite=False,
+        confirm_artifact_overwrite=False,
+        confirm_legacy_audio_removal=False,
+        confirm_analysis_rerun=False,
+        context_override=None,
+        task_prompts=None,
+    )
+    error = _run_start_confirmation_error(options)
+    if error:
+        raise ValueError(t("task.resume_confirmation_required"))
+    preflight = preflight_config_media_deps(cfg, required=media_dependencies_for_steps(options.steps))
+    if not preflight["ok"]:
+        raise ValueError(str(media_dependency_error(preflight)["error"]))
+    return data
+
+
 def _run_pipeline_task(context) -> dict[str, Any]:
     cfg = _task_config(context)
     input_data = context.input_data
+    if input_data.get("resume"):
+        # Revalidate under task ownership as files/config may change after retry submission.
+        _prepare_pipeline_retry(context.task, cfg)
+        cfg.analyze.skip_existing = True
     legacy = ProgressTracker(cfg.paths.output_dir)
     tracker = TaskProgressReporter(context.reporter, legacy)
     try:
@@ -114,6 +167,7 @@ def _run_pipeline_task(context) -> dict[str, Any]:
             confirm_artifact_overwrite=bool(input_data.get("confirm_artifact_overwrite", False)),
             context_override=input_data.get("context_override"),
             task_prompts=input_data.get("task_prompts"),
+            strict=True,
         )
     except TaskCancelled:
         tracker.cancelled(t("task.cancelled"))
@@ -342,6 +396,8 @@ def _validate_run_steps(steps: Any) -> tuple[list[str] | None, str | None]:
         return None, None
     if not isinstance(steps, list):
         return None, "steps must be a list"
+    if not steps:
+        return None, t("run.need_steps")
     if not all(isinstance(step, str) for step in steps):
         return None, "steps items must be strings"
     unknown = sorted(set(steps) - set(PIPELINE_STEPS))
@@ -600,10 +656,11 @@ def _submit_run_start(handler: HandlerProtocol, options: _RunStartOptions) -> No
         "confirm_legacy_audio_removal": options.confirm_legacy_audio_removal,
         "confirm_analysis_rerun": options.confirm_analysis_rerun,
         "use_transcripts": options.cfg.plan.use_transcripts,
+        "run_config_fingerprint": pipeline_config_fingerprint(options.cfg),
     }
     retryable = not (options.context_override or options.task_prompts)
     input_summary = {
-        "steps": list(options.steps or []),
+        "steps": options.selected_steps,
         "file_count": len(options.files_list) if options.files_list is not None else None,
         "day_label": options.day_label,
         "all_days": options.all_days,

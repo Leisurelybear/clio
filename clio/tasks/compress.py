@@ -13,6 +13,7 @@ from clio._constants import VIDEO_EXTS
 from clio.compress import compress_video
 from clio.config import AppConfig
 from clio.i18n import t
+from clio.identity import is_legacy_split_path
 from clio.log import timed
 from clio.processing_state import ProcessingState
 from clio.progress import ProgressReporter
@@ -61,6 +62,8 @@ def _compress_settings_fingerprint(config: AppConfig) -> dict:
         "min_video_kbps": config.compress.min_video_kbps,
         "max_video_kbps": config.compress.max_video_kbps,
         "remove_audio": config.compress.remove_audio,
+        "codec": config.compress.codec,
+        "crf": config.compress.crf if config.compress.target_size_mb <= 0 else None,
     }
 
 
@@ -73,6 +76,10 @@ def _meta_matches_settings(meta: VideoMeta, config: AppConfig) -> bool:
     re-compressed once before being reused.
     """
     stored = meta.compress_settings or {}
+    if stored.get("codec") != config.compress.codec:
+        return False
+    if config.compress.target_size_mb <= 0 and stored.get("crf") != config.compress.crf:
+        return False
     if "remove_audio" not in stored and not config.compress.remove_audio:
         return False
     if config.compress.target_size_mb > 0 and any(key not in stored for key in _BITRATE_FINGERPRINT_KEYS):
@@ -262,6 +269,8 @@ def _select_compress_videos(
 def _scan_existing_compressed(
     config: AppConfig,
     ffprobe: str,
+    *,
+    quiet: bool = False,
 ) -> tuple[dict[str, list[tuple[int, Path, VideoMeta | None]]], dict[str, list[Path]]]:
     # Only include files >= 50KB to skip partially-written files from interrupted runs.
     min_valid_size = 50 * 1024
@@ -272,8 +281,10 @@ def _scan_existing_compressed(
     unverifiable: dict[str, list[Path]] = {}
     if not config.compressed_dir.is_dir():
         return existing_map, unverifiable
-    for f in config.compressed_dir.iterdir():
+    for f in sorted(config.compressed_dir.iterdir()):
         if not f.is_file() or f.suffix.lower() not in VIDEO_EXTS:
+            continue
+        if is_legacy_split_path(f):
             continue
         if f.stat().st_size < min_valid_size:
             continue
@@ -285,7 +296,8 @@ def _scan_existing_compressed(
             meta = VideoMeta.read(f)
             if meta and meta.source_path:
                 unverifiable.setdefault(str(Path(meta.source_path).resolve()), []).append(f)
-            print(t("task.compress.keep_unverifiable", {"name": f.name}))
+            if not quiet:
+                print(t("task.compress.keep_unverifiable", {"name": f.name}))
             continue
         if "_" not in f.stem:
             continue
@@ -372,14 +384,7 @@ def _compress_and_record(
         target=use_out,
         source_duration=src_dur,
         target_duration=tgt_dur,
-        compress_settings={
-            "max_width": config.compress.max_width,
-            "fps": config.compress.fps,
-            "target_size_mb": config.compress.target_size_mb,
-            "min_video_kbps": config.compress.min_video_kbps,
-            "max_video_kbps": config.compress.max_video_kbps,
-            "remove_audio": config.compress.remove_audio,
-        },
+        compress_settings=_compress_settings_fingerprint(config),
         split_info=None,
     )
     meta.write(use_out)

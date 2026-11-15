@@ -80,6 +80,25 @@ describe('videoDisplayName', () => {
   });
 });
 
+describe('project changes during run-completion list refreshes', () => {
+  it.each(['loadPlans', 'loadVideos'])('ignores an old project response in %s', async method => {
+    const { api } = await import('../api.js');
+    const { state } = await import('../state.js');
+    const sidebar = await import('../sidebar-data.js');
+    let finish;
+    api.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    state.currentProjectDir = 'old';
+    state.availablePlans = [{ day_label: 'new-day' }];
+    state.videos = [{ file: 'new.mp4' }];
+    const refresh = sidebar[method]();
+    state.currentProjectDir = 'new';
+    finish({ plans: [{ day_label: 'old-day' }], videos: [{ file: 'old.mp4' }] });
+    await refresh;
+    expect(state.availablePlans).toEqual([{ day_label: 'new-day' }]);
+    expect(state.videos).toEqual([{ file: 'new.mp4' }]);
+  });
+});
+
 describe('updateSelectBtnVisibility', () => {
   beforeEach(async () => {
     document.body.innerHTML = `

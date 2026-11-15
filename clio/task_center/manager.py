@@ -7,6 +7,7 @@ from typing import Any
 
 from clio.i18n import t
 from clio.task_center.executor import (
+    RetryPreparer,
     TaskContext,
     TaskExecutorRegistry,
     TaskHandler,
@@ -92,6 +93,7 @@ class TaskManager:
         concurrency_key=None,
         max_concurrency: int = 1,
         cancellable: bool = False,
+        prepare_retry: RetryPreparer | None = None,
     ):
         with self._lock:
             return self.registry.register(
@@ -100,6 +102,7 @@ class TaskManager:
                 concurrency_key=concurrency_key,
                 max_concurrency=max_concurrency,
                 cancellable=cancellable,
+                prepare_retry=prepare_retry,
             )
 
     def ensure_registered(
@@ -110,6 +113,7 @@ class TaskManager:
         concurrency_key=None,
         max_concurrency: int = 1,
         cancellable: bool = False,
+        prepare_retry: RetryPreparer | None = None,
     ):
         """Register a lazy route handler once, atomically across request threads."""
         with self._lock:
@@ -121,6 +125,7 @@ class TaskManager:
                 concurrency_key=concurrency_key,
                 max_concurrency=max_concurrency,
                 cancellable=cancellable,
+                prepare_retry=prepare_retry,
             )
 
     def submit(
@@ -198,6 +203,8 @@ class TaskManager:
         if original.input_summary.get("retryable") is False:
             reason = original.input_summary.get("retry_blocked_reason")
             raise ValueError(str(reason) if reason else "task cannot be retried without its ephemeral runtime inputs")
+        registration = self.registry.require(original.kind)
+        retry_input = registration.prepare_retry(original) if registration.prepare_retry else original.input_data
         return self.submit(
             original.kind,
             original.title,
@@ -208,7 +215,7 @@ class TaskManager:
             parent_id=original.parent_id,
             retry_of=original.id,
             visibility=original.visibility,
-            input_data=original.input_data,
+            input_data=retry_input,
             input_summary=original.input_summary,
             reject_if_active=True,
         )
@@ -441,6 +448,7 @@ class TaskManager:
         level: TaskEventLevel = TaskEventLevel.INFO,
         error_code: str | None = None,
         error_message: str | None = None,
+        result_summary: dict[str, Any] | None = None,
     ) -> TaskRecord:
         lock = self._task_lock(task_id)
         with lock:
@@ -454,6 +462,8 @@ class TaskManager:
                 error_code=error_code,
                 error_message=error_message,
             )
+            if result_summary is not None:
+                updated = replace(updated, result_summary=sanitize_task_payload(dict(result_summary)))
             event = TaskEvent(
                 task_id=task.id,
                 type=TaskEventType.STATUS,
@@ -518,6 +528,7 @@ class TaskManager:
             level=TaskEventLevel.ERROR,
             error_code="worker_error",
             error_message=str(error) or error.__class__.__name__,
+            result_summary=getattr(error, "result_summary", None),
         )
 
     def _semaphore_for(self, key: str, limit: int) -> threading.BoundedSemaphore:

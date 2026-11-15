@@ -31,6 +31,7 @@ from clio.tasks.analyze import (
     analysis_artifact_overwrite_required,
     analysis_cache_status,
 )
+from clio.tasks.compress import _find_reusable, _scan_existing_compressed
 from clio.tasks.consistency import entity_consistency_paths, load_entity_consistency
 from clio.tasks.plan import (
     _collect_plan_clips,
@@ -775,8 +776,13 @@ def _compress_step(config: AppConfig, source_videos: list[Path], *, force: bool)
     if force:
         return _step("compress", total=total, will_run=total, will_skip=0)
 
-    compressed_original_stems = _compressed_original_stems(config.compressed_dir)
-    skipped = sum(1 for source in source_videos if source.stem.lower() in compressed_original_stems)
+    try:
+        ffprobe = resolve_binary(config.paths.ffprobe, "ffprobe")
+        existing, _ = _scan_existing_compressed(config, ffprobe, quiet=True)
+        skipped = sum(_find_reusable(source, existing, config, ffprobe)[1] is not None for source in source_videos)
+    except (OSError, RuntimeError):
+        # Unverifiable output must remain pending; the start preflight explains missing binaries.
+        skipped = 0
     return _step("compress", total=total, will_run=total - skipped, will_skip=skipped)
 
 
@@ -1084,19 +1090,6 @@ def _video_files(path: Path, *, recursive: bool) -> list[Path]:
         return []
     candidates = path.rglob("*") if recursive else path.iterdir()
     return sorted(item for item in candidates if item.is_file() and _is_video(item))
-
-
-def _compressed_original_stems(compressed_dir: Path) -> set[str]:
-    if not compressed_dir.is_dir():
-        return set()
-    stems = set()
-    for path in sorted(compressed_dir.iterdir()):
-        if not path.is_file() or path.suffix.lower() != ".mp4":
-            continue
-        prefix, stem_part = _indexed_stem_parts(path.stem)
-        if prefix:
-            stems.add(_original_stem_for_compressed_part(stem_part).lower())
-    return stems
 
 
 def _resolvable_analysis_inputs(compressed_videos: list[Path], source_names: dict[str, str]) -> list[Path]:

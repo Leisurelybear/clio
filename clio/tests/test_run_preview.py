@@ -45,6 +45,96 @@ def _config(project_dir: Path, output_dir: Path) -> AppConfig:
     )
 
 
+@pytest.mark.parametrize(
+    ("change", "expected_runs"),
+    [
+        ("valid", 0),
+        ("source", 1),
+        ("target_hash", 1),
+        ("small", 1),
+        ("unplayable", 1),
+        ("width", 1),
+        ("codec", 1),
+        ("crf", 1),
+        ("missing_codec", 1),
+        ("missing_crf", 1),
+        ("same_basename", 1),
+    ],
+)
+def test_compression_preview_agrees_with_runtime_reuse(tmp_path, monkeypatch, change, expected_runs):
+    from clio.tasks._video_loader import save_selected_videos
+    from clio.tasks.compress import _compress_settings_fingerprint, run_compress_all
+
+    cfg = _config(tmp_path, tmp_path / "output")
+    assert cfg.project_cfg is not None
+    cfg.project_cfg.compress.target_size_mb = 0
+    cfg.compressed_dir.mkdir(parents=True)
+    source = tmp_path / "clip.mp4"
+    source.write_bytes(b"source")
+    save_selected_videos(tmp_path, [source])
+    cached = cfg.compressed_dir / "001_clip.mp4"
+    cached.write_bytes(b"a" * 60_000)
+    settings = _compress_settings_fingerprint(cfg)
+    if change == "missing_codec":
+        settings.pop("codec")
+    elif change == "missing_crf":
+        settings.pop("crf")
+    VideoMeta.build(source, cached, 10, 10, compress_settings=settings).write(cached)
+
+    if change == "source":
+        source.write_bytes(b"changed source")
+    elif change == "target_hash":
+        import os
+
+        stat = cached.stat()
+        cached.write_bytes(b"b" * stat.st_size)
+        os.utime(cached, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    elif change == "small":
+        cached.write_bytes(b"partial")
+    elif change == "width":
+        cfg.project_cfg.compress.max_width += 2
+    elif change == "codec":
+        cfg.global_cfg.compress.codec = "libx265"
+    elif change == "crf":
+        cfg.global_cfg.compress.crf += 1
+    elif change == "same_basename":
+        other = tmp_path / "other" / "clip.mp4"
+        other.parent.mkdir()
+        other.write_bytes(b"source")
+        save_selected_videos(tmp_path, [source, other])
+
+    def duration(path, *args, **kwargs):
+        return 0 if change == "unplayable" and path == cached else 10
+
+    encoded = []
+
+    def encode(source, target, *args, **kwargs):
+        encoded.append(source)
+        target.write_bytes(b"c" * 60_000)
+
+    monkeypatch.setattr("clio.tasks.compress.resolve_binary", lambda *a: "ffprobe")
+    monkeypatch.setattr("clio.ui.services.run_preview.resolve_binary", lambda *a: "ffprobe")
+    monkeypatch.setattr("clio.tasks.compress.get_duration_sec", duration)
+    monkeypatch.setattr("clio.tasks.compress.compress_video", encode)
+    monkeypatch.setattr("clio.tasks.compress._sort_items_by_capture_time", lambda items, *a: items)
+    preview = build_run_preview(cfg, steps=["compress"], force=False, use_transcripts=True)["steps"][0]
+    records = run_compress_all(cfg)
+    assert preview["will_run"] == expected_runs
+    assert len(encoded) == expected_runs
+    assert preview["will_skip"] == len(records) - expected_runs
+
+
+def test_size_budget_cache_ignores_ineffective_crf_changes(tmp_path):
+    from clio.tasks.compress import _compress_settings_fingerprint, _meta_matches_settings
+
+    cfg = _config(tmp_path, tmp_path / "output")
+    source = tmp_path / "clip.mp4"
+    source.touch()
+    meta = VideoMeta.build(source, source, 10, 10, compress_settings=_compress_settings_fingerprint(cfg))
+    cfg.global_cfg.compress.crf += 1
+    assert _meta_matches_settings(meta, cfg)
+
+
 def _not_applicable_usage() -> dict[str, Any]:
     return {
         "planned_calls": 0,
@@ -197,7 +287,7 @@ def _current_voiceover_lineage(
     )
 
 
-def test_preview_compress_counts_existing_output_as_skip(tmp_path: Path) -> None:
+def test_preview_compress_counts_existing_output_as_skip(tmp_path: Path, monkeypatch) -> None:
     input_dir = tmp_path / "videos"
     output_dir = tmp_path / "output"
     compressed_dir = output_dir / "compressed"
@@ -205,7 +295,8 @@ def test_preview_compress_counts_existing_output_as_skip(tmp_path: Path) -> None
     compressed_dir.mkdir(parents=True)
     (input_dir / "A.MP4").write_bytes(b"video")
     (input_dir / "B.mov").write_bytes(b"video")
-    (compressed_dir / "001_A.mp4").write_bytes(b"compressed")
+    (compressed_dir / "001_A.mp4").write_bytes(b"x" * 60_000)
+    monkeypatch.setattr("clio.tasks.compress.get_duration_sec", lambda *a: 10)
 
     from clio.tasks._video_loader import save_selected_videos
 
@@ -267,7 +358,7 @@ def test_preview_compress_ignores_indexed_non_mp4_artifacts(tmp_path: Path) -> N
     assert preview["steps"][0]["will_skip"] == 0
 
 
-def test_preview_compress_counts_existing_segment_output_as_skip(tmp_path: Path) -> None:
+def test_preview_compress_rejects_existing_segment_output(tmp_path: Path) -> None:
     input_dir = tmp_path / "videos"
     output_dir = tmp_path / "output"
     compressed_dir = output_dir / "compressed"
@@ -289,11 +380,11 @@ def test_preview_compress_counts_existing_segment_output_as_skip(tmp_path: Path)
         use_transcripts=True,
     )
 
-    assert preview["steps"][0]["will_run"] == 0
-    assert preview["steps"][0]["will_skip"] == 1
+    assert preview["steps"][0]["will_run"] == 1
+    assert preview["steps"][0]["will_skip"] == 0
 
 
-def test_preview_compress_counts_legacy_part_output_as_skip(tmp_path: Path) -> None:
+def test_preview_compress_rejects_legacy_part_output(tmp_path: Path) -> None:
     input_dir = tmp_path / "videos"
     output_dir = tmp_path / "output"
     compressed_dir = output_dir / "compressed"
@@ -312,8 +403,8 @@ def test_preview_compress_counts_legacy_part_output_as_skip(tmp_path: Path) -> N
         use_transcripts=True,
     )
 
-    assert preview["steps"][0]["will_run"] == 0
-    assert preview["steps"][0]["will_skip"] == 1
+    assert preview["steps"][0]["will_run"] == 1
+    assert preview["steps"][0]["will_skip"] == 0
 
 
 def test_preview_force_disables_skip_counts(tmp_path: Path) -> None:
@@ -1100,7 +1191,7 @@ def test_preview_plan_invalid_json_does_not_skip(tmp_path: Path) -> None:
     assert preview["steps"][0]["will_skip"] == 0
 
 
-def test_preview_files_selection_filters_non_plan_steps(tmp_path: Path) -> None:
+def test_preview_files_selection_filters_non_plan_steps(tmp_path: Path, monkeypatch) -> None:
     input_dir = tmp_path / "videos"
     output_dir = tmp_path / "output"
     compressed_dir = output_dir / "compressed"
@@ -1116,8 +1207,9 @@ def test_preview_files_selection_filters_non_plan_steps(tmp_path: Path) -> None:
     labeled_dir.mkdir()
     (input_dir / "A.mp4").write_bytes(b"video")
     (input_dir / "B.mp4").write_bytes(b"video")
-    (compressed_dir / "001_A.mp4").write_bytes(b"compressed")
-    (compressed_dir / "002_B.mp4").write_bytes(b"compressed")
+    (compressed_dir / "001_A.mp4").write_bytes(b"x" * 60_000)
+    (compressed_dir / "002_B.mp4").write_bytes(b"x" * 60_000)
+    monkeypatch.setattr("clio.tasks.compress.get_duration_sec", lambda *a: 10)
     config = _config(input_dir, output_dir)
     _write_current_analysis(config, input_dir / "A.mp4", compressed_dir / "001_A.mp4")
     _write_current_analysis(config, input_dir / "B.mp4", compressed_dir / "002_B.mp4")

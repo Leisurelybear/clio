@@ -258,12 +258,13 @@ export async function loadFfmpegDeps() {
 
 export async function loadPlans() {
   const ac = beginLatest('plans');
+  const project = state.currentProjectDir;
   try {
     const r = await api('GET', '/api/plans', undefined, { signal: ac.signal });
-    if (!isLatest('plans', ac)) return;
+    if (!isLatest('plans', ac) || project !== state.currentProjectDir) return;
     state.availablePlans = r.plans || [];
   } catch (e) {
-    if (isAbortError(e) || !isLatest('plans', ac)) return;
+    if (isAbortError(e) || !isLatest('plans', ac) || project !== state.currentProjectDir) return;
     state.availablePlans = [];
   } finally {
     endLatest('plans', ac);
@@ -288,9 +289,10 @@ export function updateSelectBtnVisibility() {
 export async function loadVideos() {
   showVideoListLoading(state.source === 'compressed' ? t('sidebar.scanning_compressed') : t('sidebar.scanning_original'));
   const ac = beginLatest('videos');
+  const project = state.currentProjectDir;
   try {
     const r = await api('GET', `/api/videos?source=${state.source}`, undefined, { signal: ac.signal });
-    if (!isLatest('videos', ac)) return;
+    if (!isLatest('videos', ac) || project !== state.currentProjectDir) return;
     state.videos = r.videos;
     state.groups = r.groups || {};
     clearVideoInfoCache();
@@ -300,7 +302,7 @@ export async function loadVideos() {
     if (state.source === 'original' && state.videos.length === 0) {
       try {
         const sel = await api('GET', '/api/videos/selected', undefined, { signal: ac.signal });
-        if (!isLatest('videos', ac)) return;
+        if (!isLatest('videos', ac) || project !== state.currentProjectDir) return;
         const n = (sel.videos || []).length;
         if (n === 0) {
           setStatus(t('sidebar.no_videos_hint'), 'ok');
@@ -310,7 +312,7 @@ export async function loadVideos() {
       }
     }
   } catch (e) {
-    if (isAbortError(e) || !isLatest('videos', ac)) return;
+    if (isAbortError(e) || !isLatest('videos', ac) || project !== state.currentProjectDir) return;
     showVideoListError(e.message || String(e));
     throw e;
   } finally {

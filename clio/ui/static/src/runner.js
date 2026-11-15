@@ -1,11 +1,10 @@
-import { state, setArtifactVersion } from './state.js';
+import { state } from './state.js';
 import {
   $,
   escapeHtml,
   setStatus,
-  updateSidebarDay,
 } from './utils.js';
-import { api, apiWithMeta, icon } from './api.js';
+import { api, icon } from './api.js';
 import { beginLatest, endLatest, isLatest, isAbortError } from './latest.js';
 import { addToast } from './toast.js';
 import { registerNotification } from './notification-center.js';
@@ -25,6 +24,7 @@ import { buildSkippedDiagnostics, renderProcessingState, renderSkippedDiagnostic
 
 import { buildRunStageModel, nextIncompleteStage, renderStageBoard, renderCompletionActions } from './runner-stages.js';
 import { resolveRunPhase } from './runner-stage-model.js';
+import { RunTaskSession } from './runner-task-session.js';
 
 let _lastRunPreview = null;
 let _customRun = false;
@@ -37,10 +37,27 @@ let _lastRunDay = 'day1';
 let _runActive = false;
 let _lastProgressSnapshot = null;
 let _lastRunSteps = [];
-let _expectDoneNavigation = false;
-let _seenNonTerminal = false;
 let _managedTaskId = null;
 let _taskEventsUnsubscribe = null;
+const _taskSession = new RunTaskSession();
+let _statusQueue = Promise.resolve();
+let _lastRunAllDays = false;
+
+function currentProject() { return state.currentProjectDir || state.config?.project_dir || ''; }
+
+function syncRunProject() {
+  if (_taskSession.resetProject(currentProject())) {
+    _managedTaskId = null;
+    _runActive = false;
+    _runLogs = [];
+    _activePhase = '';
+    _completedSteps = [];
+    _lastRunSteps = [];
+    _lastRunAllDays = false;
+    _lastProgressSnapshot = null;
+    _statusQueue = Promise.resolve();
+  }
+}
 
 const STEPS_KEY = 'vlog_ui_run_steps';
 
@@ -89,11 +106,8 @@ function saveStepSelection(checks, useTranscripts) {
 }
 
 function renderRun() {
-  if (_shouldResetRunNavigationOnRender(_runActive)) {
-    _expectDoneNavigation = false;
-    _seenNonTerminal = false;
-  }
-  _lastRunDay = state.currentDay || 'day1';
+  syncRunProject();
+  if (!_runActive) _lastRunDay = state.currentDay || 'day1';
   const pane = $('tab-run');
   _lastRunPreview = null;
   _previewFailed = false;
@@ -235,7 +249,6 @@ function renderRun() {
   togglePlanSubOptions();
   updateRunFilesBadge();
   updateRunStartButtonState();
-  refreshRunPreview({ silent: true });
 
   const runBtn = $('btn-run-start');
   runBtn.onclick = () => {
@@ -246,11 +259,16 @@ function renderRun() {
   const cancelBtn = $('btn-run-cancel');
   if (cancelBtn) cancelBtn.onclick = cancelRun;
   _subscribeManagedRunEvents();
+  const task = _taskSession.task;
+  if (task) {
+    const project = currentProject();
+    _statusQueue = _statusQueue.catch(() => {}).then(() => {
+      if (project === currentProject() && task.id === _managedTaskId) {
+        return _handleRunStatus(_taskToRunStatus(task), { restore: true });
+      }
+    });
+  }
   _syncManagedRunTask();
-}
-
-function _shouldResetRunNavigationOnRender(runActive) {
-  return !runActive;
 }
 
 function togglePlanSubOptions() {
@@ -381,6 +399,7 @@ function collectRunOptions() {
 async function refreshRunPreview({ silent = false } = {}) {
   const container = $('run-preview');
   if (!container) return null;
+  const project = currentProject();
   const options = collectRunOptions();
   const ac = beginLatest('run-preview');
   _lastRunPreview = null;
@@ -398,7 +417,7 @@ async function refreshRunPreview({ silent = false } = {}) {
   }
   try {
     const response = await api('POST', '/api/run/preview', options, { signal: ac.signal });
-    if (!isLatest('run-preview', ac)) return null;
+    if (!isLatest('run-preview', ac) || project !== currentProject()) return null;
     _lastRunPreview = response?.preview || null;
     _previewFailed = !_lastRunPreview;
     if (!_runActive) _completedSteps = [];
@@ -415,7 +434,7 @@ async function refreshRunPreview({ silent = false } = {}) {
       container.innerHTML = renderRunPreviewHtml(null);
     }
   } catch (e) {
-    if (isAbortError(e) || !isLatest('run-preview', ac)) return null;
+    if (isAbortError(e) || !isLatest('run-preview', ac) || project !== currentProject()) return null;
     _lastRunPreview = null;
     _previewFailed = true;
     updateRunStartButtonState();
@@ -449,6 +468,8 @@ function updateRunFilesBadge() {
 async function startRun(stageSteps) {
   const btn = $('btn-run-start');
   if (btn.disabled) return;
+  const project = currentProject();
+  const stillCurrent = () => project === currentProject();
   if (state.selectionMode && state.selectedFiles.length === 0) {
     setStatus(t('run.pick_first_title'), 'warn');
     addToast(t('run.btn.pick_first'), 'warning', undefined, { persist: false });
@@ -474,6 +495,7 @@ async function startRun(stageSteps) {
   try {
     if (options.steps.some(step => ['plan', 'voiceover', 'plan_voiceover', 'analyze', 'compress'].includes(step))) {
       const previewResponse = await api('POST', '/api/run/preview', options);
+      if (!stillCurrent()) return;
       const preview = previewResponse?.preview || null;
       if (needsPlanOverwriteConfirmation(preview, options)) {
         const day = preview.plan_overwrite.day_label || options.day_label;
@@ -513,12 +535,15 @@ async function startRun(stageSteps) {
         options.confirm_analysis_rerun = true;
       }
     }
+    if (!stillCurrent()) return;
     _lastRunDay = options.day_label;
+    _lastRunAllDays = !!options.all_days;
     _lastRunSteps = options.steps.slice();
-    _expectDoneNavigation = true;
     const r = await api('POST', '/api/run/start', options);
+    if (!stillCurrent()) return;
     if (r.ok) {
       _managedTaskId = r.task_id || r.task?.id || null;
+      if (_taskSession.finalized.has(_managedTaskId)) return;
       renderManagedTaskLink();
       _runActive = true;
       _activePhase = '';
@@ -537,6 +562,7 @@ async function startRun(stageSteps) {
       throw new Error(r.error || t('run.start_failed'));
     }
   } catch (e) {
+    if (!stillCurrent()) return;
     const display = formatRunStartError(e);
     $('run-progress').innerHTML = `<p class="err">${escapeHtml(display)}</p>`;
     const msg = t('run.start_failed_prefix', { detail: display });
@@ -573,7 +599,7 @@ function renderManagedTaskLink() {
 
 function _taskToRunStatus(task, event = null) {
   const status = task?.status;
-  const mapped = status === 'succeeded' ? 'done'
+  const mapped = status === 'succeeded' ? (Number(task.result_summary?.error_count) > 0 ? 'error' : 'done')
     : status === 'failed' || status === 'interrupted' ? 'error'
       : status === 'cancelled' ? 'cancelled'
         : status === 'queued' || status === 'cancelling' || status === 'running' ? 'running'
@@ -587,17 +613,45 @@ function _taskToRunStatus(task, event = null) {
     total,
     progress_pct: task?.progress_pct,
     phase: task?.phase || '',
-    message: event?.event?.message || task?.message || task?.error_message || '',
+    message: mapped === 'error' && status === 'succeeded' ? t('run.incomplete')
+      : ['failed', 'interrupted', 'succeeded', 'cancelled'].includes(status) ? task.error_message || task.message || ''
+        : event?.event?.message || task?.message || '',
     task_id: task?.id,
     steps: task?.input_summary?.steps || _lastRunSteps,
+    day_label: task?.input_summary?.day_label || task?.input_data?.day_label || _lastRunDay,
+    all_days: !!(task?.input_summary?.all_days || task?.input_data?.all_days),
+    project_id: task?.project_id,
     logs: _runLogs.slice(-20),
     eta_sec: task?.eta_sec,
   };
 }
 
 function _sameRunProject(task) {
-  const project = state.currentProjectDir || state.config?.project_dir;
+  const project = currentProject();
   return !project || !task?.project_id || String(task.project_id) === String(project);
+}
+
+function receiveManagedTask(task, payload = null, attach = false) {
+  syncRunProject();
+  if (!_sameRunProject(task) || !_taskSession.accept(task, { seq: payload?.seq, attach: attach || task.id === _managedTaskId })) return;
+  if (_managedTaskId !== task.id) {
+    _runLogs = [];
+    _activePhase = '';
+    _completedSteps = [];
+  }
+  _managedTaskId = task.id;
+  _lastRunDay = task.input_summary?.day_label || task.input_data?.day_label || _lastRunDay;
+  _lastRunSteps = task.input_summary?.steps || task.input_data?.steps || [];
+  _lastRunAllDays = !!(task.input_summary?.all_days || task.input_data?.all_days);
+  const message = payload?.event?.message;
+  if (message) _runLogs = [..._runLogs, String(message)].slice(-20);
+  const status = _taskToRunStatus(task, payload);
+  renderManagedTaskLink();
+  // Await each finalizer; a snapshot and a stream event may arrive in either order.
+  _statusQueue = _statusQueue.catch(() => {}).then(() => {
+    if (task.id !== _managedTaskId || !_sameRunProject(task)) return;
+    return _handleRunStatus(status);
+  });
 }
 
 function _subscribeManagedRunEvents() {
@@ -605,13 +659,7 @@ function _subscribeManagedRunEvents() {
   _taskEventsUnsubscribe = subscribeTaskEvents(payload => {
     const task = payload?.task;
     if (!task || task.kind !== 'pipeline' || !_sameRunProject(task)) return;
-    if (_managedTaskId && task.id !== _managedTaskId) return;
-    if (_managedTaskId !== task.id) _runLogs = [];
-    _managedTaskId = task.id;
-    const message = payload.event?.message;
-    if (message) _runLogs = [..._runLogs, String(message)].slice(-20);
-    renderManagedTaskLink();
-    _handleRunStatus(_taskToRunStatus(task, payload));
+    receiveManagedTask(task, payload);
   });
 }
 
@@ -619,27 +667,29 @@ async function _syncManagedTaskSnapshot(taskId) {
   try {
     const task = await fetchTask(taskId);
     if (!task || task.id !== _managedTaskId || task.kind !== 'pipeline') return;
-    _handleRunStatus(_taskToRunStatus(task));
+    receiveManagedTask(task, null, true);
   } catch { /* stream remains the primary source */ }
 }
 
 async function _syncManagedRunTask() {
+  const project = currentProject();
+  const taskAtRequest = _managedTaskId;
   try {
     const result = await api('GET', '/api/tasks?kind=pipeline&visibility=all&limit=20');
-    const task = (result.tasks || []).find(item => _sameRunProject(item)
-      && ['queued', 'running', 'cancelling'].includes(item.status));
+    if (project !== currentProject() || taskAtRequest !== _managedTaskId) return;
+    const tasks = (result.tasks || []).filter(item => _sameRunProject(item));
+    const task = tasks.find(item => ['queued', 'running', 'cancelling'].includes(item.status)) || tasks[0];
     if (task) {
-      _managedTaskId = task.id;
-      renderManagedTaskLink();
-      _handleRunStatus(_taskToRunStatus(task));
+      receiveManagedTask(task, null, true);
     }
   } catch { /* compatibility fallback handles older servers */ }
 }
 
 /** Re-fetch the video list so artifacts from a finished/cancelled/failed run show up. */
-async function refreshVideosAfterRun() {
+async function refreshVideosAfterRun(stillCurrent = () => true) {
   try {
-    await import('./sidebar.js').then(mod => mod.loadVideos());
+    const sidebar = await import('./sidebar.js');
+    if (stillCurrent()) await sidebar.loadVideos();
   } catch { /* 刷新失败不阻断完成后的导航/提示 */ }
 }
 
@@ -694,11 +744,18 @@ async function _showTranscriptionFailureNotice(prog) {
   } catch { /* 通知失败不应阻断运行收尾 */ }
 }
 
-export async function _handleRunStatus(s) {
+export async function _handleRunStatus(s, { restore = false } = {}) {
+  if (s.project_id && !_sameRunProject({ project_id: s.project_id })) return;
+  if (!restore && ['done', 'error', 'cancelled'].includes(s.status) && !_taskSession.finalize(s.task_id)) return;
+  const project = currentProject();
+  const taskId = s.task_id;
+  const stillCurrent = () => project === currentProject() && (!taskId || taskId === _managedTaskId);
+  const completedSteps = Array.isArray(s.steps) ? s.steps : _lastRunSteps;
+  const completedDay = s.day_label || _lastRunDay;
+  const completedAllDays = s.all_days ?? _lastRunAllDays;
   const prog = $('run-progress');
   const btn = $('btn-run-start');
-  // Pane may be unmounted (user switched to Plan/video) — still process terminal
-  // status so navigation / plan reload / toast still run; only skip DOM paint.
+  // Terminal outcomes still refresh artifact lists and notify when Run is unmounted.
   const hasRunDom = !!prog;
   if (s.rerun) return;
     if (s.status === 'idle' || s.status === 'unknown') {
@@ -720,6 +777,7 @@ export async function _handleRunStatus(s) {
     }
     if (s.status === 'running') {
       _runActive = !!s.running;
+      if ($('run-completion-actions')) $('run-completion-actions').innerHTML = '';
       _activePhase = resolveRunPhase(s.phase, s.steps || _lastRunSteps, _activePhase);
       updateRunGuide();
       const stale = !s.running;
@@ -740,7 +798,6 @@ export async function _handleRunStatus(s) {
           renderProcessingState($('run-state-container'));
         }
       } else {
-        _seenNonTerminal = true;
         if (btn) { btn.disabled = true; btn.textContent = t('run.btn.running'); }
         const cancelBtn = $('btn-run-cancel');
         if (cancelBtn) { cancelBtn.style.display = ''; cancelBtn.disabled = false; }
@@ -783,23 +840,19 @@ export async function _handleRunStatus(s) {
         const logsHtml = s.logs?.length ? `<div class="run-logs">${s.logs.map(l => `<div class="run-log-line">${escapeHtml(l)}</div>`).join('')}</div>` : '';
         prog.innerHTML = `<p class="ok">✓ ${t('run.done')}</p><p>${escapeHtml(s.message || '')}</p>${logsHtml}`;
       }
-      setStatus(t('run.done'), 'ok', { persist: !_managedTaskId });
-      addToast(s.message || t('run.done'), 'success', undefined, { persist: false });
-      if (hasRunDom) renderProcessingState($('run-state-container'));
-      if (hasRunDom) await _showTranscriptionFailureNotice(prog);
-      state.currentDay = _lastRunDay;
-      state.plan = null;
-      await import('./sidebar.js').then(mod => mod.loadPlans());
-      updateSidebarDay();
-      import('./sidebar.js').then(mod => mod.renderVideoList());
-      import('./sidebar.js').then(mod => mod.saveProject());
-      try {
-        const loaded = await apiWithMeta('GET', `/api/plan?day=${_lastRunDay}`);
-        state.plan = loaded.data;
-        setArtifactVersion('plan', _lastRunDay, loaded.version);
-      } catch {}
-      await refreshVideosAfterRun();
-      const completedSteps = Array.isArray(s.steps) ? s.steps : _lastRunSteps;
+      if (!restore) {
+        setStatus(t('run.done'), 'ok', { persist: !_managedTaskId });
+        addToast(s.message || t('run.done'), 'success', undefined, { persist: false });
+        if (hasRunDom) renderProcessingState($('run-state-container'));
+        if (hasRunDom && completedSteps.includes('transcribe')) await _showTranscriptionFailureNotice(prog);
+        if (!stillCurrent()) return;
+        const sidebar = await import('./sidebar.js');
+        if (!stillCurrent()) return;
+        await sidebar.loadPlans();
+        if (!stillCurrent()) return;
+        await refreshVideosAfterRun(stillCurrent);
+      }
+      if (!stillCurrent()) return;
       _activePhase = '';
       _completedSteps = completedSteps;
       if (hasRunDom) {
@@ -808,7 +861,7 @@ export async function _handleRunStatus(s) {
         if (overwrite) overwrite.checked = false;
         const outputPath = state.config?.output_dir || '';
         renderCompletionActions($('run-completion-actions'), completedSteps,
-          () => _showRunCompletionTarget(completedSteps),
+          () => _showRunCompletionTarget(completedSteps, completedDay, completedAllDays),
           async () => {
             try {
               const result = await api('POST', '/api/fs/reveal', { path: outputPath });
@@ -816,12 +869,8 @@ export async function _handleRunStatus(s) {
             } catch (error) { setStatus(t('project.reveal_failed', { detail: error.message }), 'err'); }
           }, outputPath);
         updateRunGuide();
-        refreshRunPreview({ silent: true });
+        if (!restore) await refreshRunPreview({ silent: true });
       }
-      if (state.currentEntity === 'plan') {
-        import('./sidebar.js').then(mod => mod.selectPlan());
-      }
-      _expectDoneNavigation = false;
     } else if (s.status === 'cancelled') {
       _activePhase = '';
       _lastProgressSnapshot = null;
@@ -833,10 +882,16 @@ export async function _handleRunStatus(s) {
         const logsHtml = s.logs?.length ? `<div class="run-logs">${s.logs.map(l => `<div class="run-log-line">${escapeHtml(l)}</div>`).join('')}</div>` : '';
         prog.innerHTML = `<p class="warn">⏹ ${t('run.cancelled')}</p><p>${escapeHtml(s.message || '')}</p>${logsHtml}`;
       }
-      setStatus(t('run.cancelled'), 'warn', { persist: !_managedTaskId });
-      addToast(s.message || t('run.cancelled'), 'warning', undefined, { persist: false });
-      if (hasRunDom) renderProcessingState($('run-state-container'));
-      await refreshVideosAfterRun();
+      if (!restore) {
+        setStatus(t('run.cancelled'), 'warn', { persist: !_managedTaskId });
+        addToast(s.message || t('run.cancelled'), 'warning', undefined, { persist: false });
+        if (hasRunDom) renderProcessingState($('run-state-container'));
+        await refreshVideosAfterRun(stillCurrent);
+      }
+      if (!restore && stillCurrent() && hasRunDom) {
+        if ($('run-overwrite')) $('run-overwrite').checked = false;
+        await refreshRunPreview({ silent: true });
+      }
     } else if (s.status === 'error') {
       _activePhase = '';
       _lastProgressSnapshot = null;
@@ -848,10 +903,16 @@ export async function _handleRunStatus(s) {
         const logsHtml = s.logs?.length ? `<div class="run-logs">${s.logs.map(l => `<div class="run-log-line">${escapeHtml(l)}</div>`).join('')}</div>` : '';
         prog.innerHTML = `<p class="err">✗ ${t('run.error')}</p><p>${escapeHtml(s.message || '')}</p>${logsHtml}`;
       }
-      setStatus(t('run.error'), 'err', { persist: !_managedTaskId });
-      addToast(s.message || t('run.error'), 'error', 6000, { persist: false });
-      if (hasRunDom) renderProcessingState($('run-state-container'));
-      await refreshVideosAfterRun();
+      if (!restore) {
+        setStatus(t('run.error'), 'err', { persist: !_managedTaskId });
+        addToast(s.message || t('run.error'), 'error', 6000, { persist: false });
+        if (hasRunDom) renderProcessingState($('run-state-container'));
+        await refreshVideosAfterRun(stillCurrent);
+      }
+      if (!restore && stillCurrent() && hasRunDom) {
+        if ($('run-overwrite')) $('run-overwrite').checked = false;
+        await refreshRunPreview({ silent: true });
+      }
     }
 }
 
@@ -865,12 +926,13 @@ function _completionTargetForSteps(steps) {
   return null;
 }
 
-async function _showRunCompletionTarget(steps) {
+async function _showRunCompletionTarget(steps, day = _lastRunDay, allDays = false) {
   const target = _completionTargetForSteps(steps);
   if (!target) return;
   const sidebar = await import('./sidebar.js');
   if (target.entity === 'plan') {
-    await sidebar.selectPlan(_lastRunDay);
+    const targetDay = allDays ? state.availablePlans?.[0]?.day_label || day : day;
+    await sidebar.selectPlan(targetDay);
     return;
   }
   state.currentTab = target.tab;
@@ -900,7 +962,6 @@ export {
   getRunButtonText,
   collectRunOptions,
   _completionTargetForSteps,
-  _shouldResetRunNavigationOnRender,
   renderRunPreviewHtml,
   formatRunStartError,
   buildSkippedDiagnostics,

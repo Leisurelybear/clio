@@ -166,6 +166,7 @@ class AnalyzeResult(list[ClipRecord]):
     def __init__(self, records: list[ClipRecord] | None = None, *, failed: int = 0) -> None:
         super().__init__(records or [])
         self.failed = failed
+        self.failure_details = ""
 
 
 _MAX_FAILURE_DETAILS = 5
@@ -1655,6 +1656,7 @@ def run_analyze_all(
     completed = len(records)
     failed = failure_counter.value
     records.failed = failed
+    records.failure_details = failure_counter.summary()
     if strict and failed > 0:
         message = t("task.analyze.incomplete", {"completed": completed, "failed": failed})
         details = failure_counter.summary()

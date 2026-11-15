@@ -3,6 +3,7 @@ All public symbols are re-exported for backward compatibility."""
 
 from __future__ import annotations
 
+import copy
 import threading
 from collections.abc import Callable
 from typing import Any
@@ -67,6 +68,14 @@ SINGLE_VIDEO_RERUN_STEPS = tuple(
 )
 
 _STEP_DAY_ARG = {"consistency", "plan", "plan_voiceover"}
+
+
+class PipelineStepError(RuntimeError):
+    """An incomplete step with its durable, non-secret result counts."""
+
+    def __init__(self, message: str, summary: dict[str, Any]):
+        super().__init__(message)
+        self.result_summary = copy.deepcopy(summary)
 
 
 def _cancel_pipeline_step(step: str, tracker: ProgressReporter | None) -> None:
@@ -165,7 +174,11 @@ def _record_step_result(
     summary["processed"] += processed
     summary["error_count"] += failed
     if strict and failed > 0:
-        raise RuntimeError(t("task.analyze.incomplete", {"completed": processed, "failed": failed}))
+        message = t("task.analyze.incomplete", {"completed": processed, "failed": failed})
+        details = getattr(result, "failure_details", "")
+        if isinstance(details, str) and details:
+            message += "\n" + t("task.analyze.incomplete_reasons", {"details": details})
+        raise PipelineStepError(message, summary)
 
 
 def run_pipeline_steps(
@@ -184,21 +197,23 @@ def run_pipeline_steps(
     strict: bool = False,
 ) -> dict[str, Any]:
     """Run the requested pipeline steps with optional progress tracking."""
-    config.paths.output_dir.mkdir(parents=True, exist_ok=True)
     if all_days and files is not None:
         raise ValueError(t("pipeline.all_days_files_conflict"))
-    auto_reindex_if_needed(config)
-    if not steps:
+    if steps is None:
         steps = list(_STEP_FUNCS.keys())
-
-    if tracker is None:
-        tracker = ProgressTracker(config.paths.output_dir)
+    elif not steps:
+        raise ValueError(t("run.need_steps"))
 
     unknown = [s for s in steps if s not in _STEP_FUNCS]
     if unknown:
         raise ValueError(
             t("pipeline.unknown_steps", {"unknown": ", ".join(unknown), "available": ", ".join(_STEP_FUNCS)})
         )
+
+    config.paths.output_dir.mkdir(parents=True, exist_ok=True)
+    auto_reindex_if_needed(config)
+    if tracker is None:
+        tracker = ProgressTracker(config.paths.output_dir)
 
     summary: dict[str, Any] = {"steps": [], "processed": 0, "warning_count": 0, "error_count": 0}
     try:

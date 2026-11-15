@@ -24,6 +24,7 @@ class TaskHandler(Protocol):
 
 
 ConcurrencyKey = str | Callable[[TaskRecord], str | None] | None
+RetryPreparer = Callable[[TaskRecord], dict[str, Any]]
 
 
 def project_artifact_key(task: TaskRecord) -> str | None:
@@ -39,6 +40,7 @@ class TaskHandlerRegistration:
     concurrency_key: ConcurrencyKey = None
     max_concurrency: int = 1
     cancellable: bool = False
+    prepare_retry: RetryPreparer | None = None
 
     def __post_init__(self) -> None:
         if self.max_concurrency <= 0:
@@ -70,6 +72,7 @@ class TaskExecutorRegistry:
         concurrency_key: ConcurrencyKey = None,
         max_concurrency: int = 1,
         cancellable: bool = False,
+        prepare_retry: RetryPreparer | None = None,
     ) -> TaskHandlerRegistration:
         if kind in self._registrations:
             raise TaskHandlerAlreadyRegisteredError(f"task handler already registered: {kind.value}")
@@ -79,6 +82,7 @@ class TaskExecutorRegistry:
             concurrency_key=concurrency_key,
             max_concurrency=max_concurrency,
             cancellable=cancellable,
+            prepare_retry=prepare_retry,
         )
         self._registrations[kind] = registration
         return registration

@@ -60,6 +60,14 @@ def _allow_media_preflight(monkeypatch):
     )
 
 
+def test_empty_run_steps_are_rejected_before_task_submission(tmp_path):
+    handler = MagicMock()
+    handler._resolve_project_dir.return_value = tmp_path
+    handle_post_run_start(handler, {}, {"steps": []})
+    assert handler._send_json.call_args.args[1] == 400
+    handler._get_task_manager.assert_not_called()
+
+
 @pytest.fixture
 def _handler():
     """Create a mock handler with _get_state returning a per-project ServerState-like object."""

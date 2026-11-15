@@ -551,3 +551,12 @@ def test_disabled_transcription_is_not_executed(tmp_path: Path):
     with patch("clio.pipeline.auto_reindex_if_needed"), patch("clio.pipeline._STEP_FUNCS", {"transcribe": transcribe}):
         run_pipeline_steps(config, steps=["transcribe"], tracker=MagicMock())
     transcribe.assert_not_called()
+
+
+def test_empty_explicit_steps_fail_before_any_mutation(tmp_path: Path):
+    config = _mock_config(tmp_path / "output")
+    with patch("clio.pipeline.auto_reindex_if_needed") as reindex:
+        with pytest.raises(ValueError, match=t("run.need_steps")):
+            run_pipeline_steps(config, steps=[])
+    reindex.assert_not_called()
+    assert not config.paths.output_dir.exists()
