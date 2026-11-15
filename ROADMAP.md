@@ -51,6 +51,8 @@ is explicit and reuses validated artifacts. Existing forced approvals are never 
 - `[x]` Replace Provider dotenv read/modify/write and the non-functional reveal control with the
   credential API and shared credential field component.
 - `[x]` Add OS keyring storage and explicit migration from legacy `api_key_env` / `.env` values.
+- `[x]` Restore the shared credential manager's dedicated layout, action styling, and narrow-screen
+  responsive behavior with frontend regressions.
 
 Credential delivery includes graceful provider retirement (R11), atomic reacquisition before
 active calls, source/shadowing status, authenticated 30-second reveal, backend-specific cleanup,

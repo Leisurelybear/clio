@@ -26,6 +26,16 @@ function mount(data = inventory) {
 }
 
 describe('credential fields', () => {
+  it('renders dedicated layout hooks for status and credential actions', () => {
+    const root = mount();
+    expect(root.querySelector('.credential-field-main')).not.toBeNull();
+    expect(root.querySelector('.credential-status')).not.toBeNull();
+    expect(root.querySelector('.credential-actions')).not.toBeNull();
+    expect(root.querySelector('.credential-management')).not.toBeNull();
+    expect(root.querySelector('.credential-delete-control')).not.toBeNull();
+    expect(root.querySelector('.credential-error')).not.toBeNull();
+  });
+
   it('shows source and shadowing without rendering any value', () => {
     const root = mount();
     expect(root.textContent).toContain('environment');
@@ -105,6 +115,9 @@ describe('credential fields', () => {
     const root = document.createElement('div');
     document.body.appendChild(root);
     await loadCredentials(root);
+    expect(root.querySelector('.credentials-panel')).not.toBeNull();
+    expect(root.querySelector('.credential-inventory-card')).not.toBeNull();
+    expect(root.querySelector('.credential-inventory-kind')).not.toBeNull();
     expect(root.querySelector('img')).toBeNull();
     expect(root.querySelector('script')).toBeNull();
     expect(root.textContent).toContain('<img src=x>');

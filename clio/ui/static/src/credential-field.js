@@ -5,17 +5,25 @@ import { html } from './utils.js';
 
 export function renderCredentialField(id) {
   return html`<div class="credential-field" data-credential-id="${id}">
-    <span data-credential-status>${t('credentials.loading')}</span>
-    <span data-credential-value></span>
-    <button type="button" data-credential-replace>${t('credentials.replace')}</button>
-    <button type="button" data-credential-reveal>${t('credentials.reveal')}</button>
-    <button type="button" data-credential-migrate>${t('credentials.migrate')}</button>
-    <label>${t('credentials.delete_source')}<select data-delete-source>
-      <option value="dotenv">${t('credentials.dotenv')}</option>
-      <option value="keyring">${t('credentials.keyring')}</option>
-    </select></label>
-    <button type="button" data-credential-delete>${t('credentials.delete')}</button>
-    <span data-credential-error role="status"></span>
+    <div class="credential-field-main">
+      <div class="credential-field-status">
+        <span class="credential-status" data-credential-status>${t('credentials.loading')}</span>
+        <span class="credential-value" data-credential-value aria-live="polite"></span>
+      </div>
+      <div class="credential-actions" data-credential-actions>
+        <button class="credential-action" type="button" data-credential-replace>${t('credentials.replace')}</button>
+        <button class="credential-action" type="button" data-credential-reveal>${t('credentials.reveal')}</button>
+        <button class="credential-action" type="button" data-credential-migrate>${t('credentials.migrate')}</button>
+      </div>
+    </div>
+    <div class="credential-management" data-credential-management>
+      <label class="credential-delete-control">${t('credentials.delete_source')}<select data-delete-source>
+        <option value="dotenv">${t('credentials.dotenv')}</option>
+        <option value="keyring">${t('credentials.keyring')}</option>
+      </select></label>
+      <button class="credential-action credential-action-danger" type="button" data-credential-delete>${t('credentials.delete')}</button>
+    </div>
+    <span class="credential-error" data-credential-error role="status" aria-live="polite"></span>
   </div>`;
 }
 
@@ -72,11 +80,11 @@ export function attachCredentialFields(root, inventory, onChange = () => {}) {
     field.querySelector('[data-credential-replace]').onclick = () => {
       const dialog = document.createElement('div');
       dialog.className = 'modal';
-      dialog.innerHTML = html`<div class="modal-backdrop"></div><div class="modal-dialog">
-        <label>${t('credentials.replace')}<input type="password" autocomplete="new-password" data-new-value></label>
-        <select data-source><option value="dotenv">${t('credentials.dotenv')}</option>
-          <option value="keyring">${t('credentials.keyring')}</option></select>
-        <button data-save>${t('common.save')}</button><button data-cancel>${t('common.cancel')}</button>
+      dialog.innerHTML = html`<div class="modal-backdrop"></div><div class="modal-dialog credential-modal">
+        <label><span>${t('credentials.replace')}</span><input type="password" autocomplete="new-password" data-new-value></label>
+        <label><span>${t('credentials.delete_source')}</span><select data-source><option value="dotenv">${t('credentials.dotenv')}</option>
+          <option value="keyring">${t('credentials.keyring')}</option></select></label>
+        <div class="modal-actions"><button class="btn-secondary" type="button" data-cancel>${t('common.cancel')}</button><button class="btn-primary" type="button" data-save>${t('common.save')}</button></div>
         <span data-error role="status"></span></div>`;
       document.body.appendChild(dialog);
       const input = dialog.querySelector('[data-new-value]');
