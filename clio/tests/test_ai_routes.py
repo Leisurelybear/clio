@@ -90,3 +90,21 @@ def test_ai_test_passes_missing_model_as_none(monkeypatch) -> None:
 
     service.assert_called_once_with(cfg, provider_name="deepseek", model="")
     handler._send_json.assert_called_once_with({"ok": True})
+
+
+def test_ai_test_passes_unsaved_provider_candidate(monkeypatch) -> None:
+    handler = MagicMock()
+    cfg = MagicMock()
+    service = MagicMock(return_value={"ok": True})
+    handler._resolve_project_dir.return_value = Path("G:/trip")
+    handler._get_config.return_value = cfg
+    monkeypatch.setattr("clio.ui.routes.ai.test_provider_connection", service)
+    candidate = {"type": "openai", "base_url": "https://example.com/v1", "models": ["m1"]}
+
+    handle_post_ai_test(
+        handler,
+        {},
+        {"provider": "draft", "model": "m1", "provider_config": candidate},
+    )
+
+    service.assert_called_once_with(cfg, provider_name="draft", model="m1", provider_override=candidate)

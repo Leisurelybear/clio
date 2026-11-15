@@ -830,6 +830,7 @@
   "settings.provider.modal_add": "添加",
   "settings.provider.name_exists": "Provider \"{name}\" 已存在",
   "settings.provider.name_immutable": "名称不可修改（如需重命名请删除后重建）",
+  "settings.provider.rebind_key_required": "接口地址或名称发生变化，请重新输入当前 API Key 以确认凭据目标",
   "settings.provider.name_required": "请填写 Provider 名称",
   "settings.provider.need_video_capability": "需要 capabilities 包含 video 的 Provider",
   "settings.provider.negative_numbers": "数值字段不能为负数",

@@ -397,6 +397,19 @@ describe('_renderProviderList', () => {
     expect(html).toContain('添加 Provider');
   });
 
+  it('opens an editable provider draft with a test action', () => {
+    const div = document.createElement('div');
+    div.innerHTML = _renderProviderList({ gemini: GEMINI_PROVIDER });
+    _attachProviderListHandlers(div, { gemini: GEMINI_PROVIDER });
+
+    div.querySelector('#btn-add-provider').click();
+    const modal = document.querySelector('#modal-provider-name')?.closest('.modal');
+    expect(modal).not.toBeNull();
+    expect(modal.querySelector('#modal-provider-name').readOnly).toBe(false);
+    expect(modal.querySelector('#modal-test')).not.toBeNull();
+    modal.remove();
+  });
+
   it('escapes HTML in provider name', () => {
     const html = _renderProviderList({ '<script>xss</script>': GEMINI_PROVIDER });
     expect(html).toContain('&lt;script&gt;xss&lt;/script&gt;');

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import json
 import tempfile
@@ -14,7 +15,12 @@ from urllib.parse import unquote
 import yaml
 
 from clio.ai.factory import _clear_provider_cache
-from clio.ai.provider_security import normalize_provider_key_env, provider_key_env_error, provider_rebind_error
+from clio.ai.provider_security import (
+    normalize_provider_key_env,
+    provider_env_name,
+    provider_key_env_error,
+    provider_rebind_error,
+)
 from clio.config import CONFIG_DESCRIPTIONS, deep_merge, load_config, load_global_config
 from clio.config.models import (
     AnalyzeConfig,
@@ -717,6 +723,51 @@ def _write_global_config_raw(handler: HandlerProtocol, raw: dict[str, Any]) -> t
     return True, None
 
 
+def _rename_provider_in_projects(
+    handler: HandlerProtocol, old_name: str, new_name: str
+) -> tuple[list[tuple[Path, bytes]], str | None]:
+    """Update project task bindings that refer to a renamed global provider."""
+    paths: set[Path] = set()
+    current = getattr(handler, "project_dir", None)
+    if current:
+        paths.add(Path(current))
+    registry = _registry_path(handler.config_path)
+    if registry.is_file():
+        try:
+            data = json.loads(registry.read_text(encoding="utf-8"))
+            paths.update(Path(value) for value in _registry_project_paths(data))
+        except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):
+            pass
+
+    backups: list[tuple[Path, bytes]] = []
+    try:
+        for project_dir in sorted(paths, key=lambda p: str(p)):
+            project_yaml = project_dir / "project.yaml"
+            if not project_yaml.is_file():
+                continue
+            original = project_yaml.read_bytes()
+            raw = yaml.safe_load(original.decode("utf-8")) or {}
+            tasks = raw.get("ai", {}).get("tasks", {}) if isinstance(raw, dict) else {}
+            changed = False
+            if isinstance(tasks, dict):
+                for task in tasks.values():
+                    if isinstance(task, dict) and task.get("provider") == old_name:
+                        task["provider"] = new_name
+                        changed = True
+            if changed:
+                updated = yaml.dump(
+                    raw, allow_unicode=True, default_flow_style=False, sort_keys=False, indent=2
+                ).encode("utf-8")
+                _save_atomic(project_yaml, updated)
+                backups.append((project_yaml, original))
+    except (OSError, UnicodeError, yaml.YAMLError, TypeError, ValueError) as exc:
+        for path, original in reversed(backups):
+            with contextlib.suppress(OSError):
+                _save_atomic(path, original)
+        return [], f"project provider bindings could not be updated: {exc}"
+    return backups, None
+
+
 def handle_get_providers(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     raw, error = _read_global_config_raw(handler.config_path)
     if error:
@@ -759,16 +810,36 @@ def handle_put_provider(handler: HandlerProtocol, qs: dict[str, Any], obj: dict[
     previous = providers.get(name, {})
     if not isinstance(previous, dict):
         previous = {}
+    new_name = str(obj.get("name", name) or name).strip()
+    renamed_project_backups: list[tuple[Path, bytes]] = []
+    if new_name != name:
+        if _provider_name_error(new_name):
+            return handler._send_json({"ok": False, "error": _provider_name_error(new_name)}, 400)
+        if new_name in providers:
+            return handler._send_json({"ok": False, "error": f"provider already exists: {new_name}"}, 409)
     merged = {**previous, **obj}
-    provider = _normalize_provider(name, merged)
-    error = _provider_error(name, provider) or provider_rebind_error(name, previous, provider)
+    if new_name != name and "api_key_env" not in obj:
+        merged["api_key_env"] = provider_env_name(new_name)
+    provider = _normalize_provider(new_name, merged)
+    error = _provider_error(new_name, provider) or provider_rebind_error(new_name, previous, provider)
     if error:
         return handler._send_json({"ok": False, "error": error}, 400)
-    providers[name] = provider
+    if new_name != name:
+        providers.pop(name, None)
+        for task in (raw.get("ai", {}).get("default_tasks", {}) or {}).values():
+            if isinstance(task, dict) and task.get("provider") == name:
+                task["provider"] = new_name
+        renamed_project_backups, project_error = _rename_provider_in_projects(handler, name, new_name)
+        if project_error:
+            return handler._send_json({"ok": False, "error": project_error}, 400)
+    providers[new_name] = provider
     ok, error = _write_global_config_raw(handler, raw)
     if not ok:
+        for path, original in reversed(renamed_project_backups):
+            with contextlib.suppress(OSError):
+                _save_atomic(path, original)
         return handler._send_json({"ok": False, "error": error}, 400)
-    return handler._send_json({"ok": True, "name": name, "provider": _mask_provider_dict(provider)})
+    return handler._send_json({"ok": True, "name": new_name, "provider": _mask_provider_dict(provider)})
 
 
 def handle_delete_provider(handler: HandlerProtocol, qs: dict[str, Any], name: str) -> None:

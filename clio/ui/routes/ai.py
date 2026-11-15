@@ -27,5 +27,13 @@ def handle_post_ai_test(handler: HandlerProtocol, qs: dict[str, Any], obj: dict[
 
     proj_dir = handler._resolve_project_dir(qs)
     cfg = handler._get_config(proj_dir)
-    result = test_provider_connection(cfg, provider_name=provider, model=model)
+    # The settings dialog can test a provider before it is persisted.  The
+    # candidate is used only for this request and is never written to disk.
+    candidate = obj.get("provider_config")
+    if candidate is not None and not isinstance(candidate, dict):
+        return handler._send_json({"ok": False, "error": "provider_config must be an object"}, 400)
+    if candidate is None:
+        result = test_provider_connection(cfg, provider_name=provider, model=model)
+    else:
+        result = test_provider_connection(cfg, provider_name=provider, model=model, provider_override=candidate)
     return handler._send_json(result)

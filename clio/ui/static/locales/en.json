@@ -830,6 +830,7 @@
   "settings.provider.modal_add": "Add",
   "settings.provider.name_exists": "Provider \"{name}\" already exists",
   "settings.provider.name_immutable": "The name cannot be changed; delete and recreate the provider to rename it",
+  "settings.provider.rebind_key_required": "The URL or name changed. Re-enter the current API key to confirm the credential target",
   "settings.provider.name_required": "Enter a provider name",
   "settings.provider.need_video_capability": "Needs a provider whose capabilities include video",
   "settings.provider.negative_numbers": "Numeric fields cannot be negative",

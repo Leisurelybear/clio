@@ -184,7 +184,7 @@ function _showProviderModal(providersObj, name, onSave) {
       <h3 style="margin:0 0 var(--space-4)">${isEdit ? t('settings.provider.edit_title') : t('settings.provider.add_title')}</h3>
       <div class="form-group">
         <label class="form-label">${t('settings.provider.field.name')} <span class="muted">${t('settings.provider.field.name_hint')}</span></label>
-        <input id="modal-provider-name" class="form-input" value="${escapeHtml(name || '')}" ${isEdit ? 'readonly' : ''} placeholder="${t('settings.provider.field.name_placeholder')}">
+        <input id="modal-provider-name" class="form-input" value="${escapeHtml(name || '')}" placeholder="${t('settings.provider.field.name_placeholder')}">
       </div>
       <div class="form-group">
         <label class="form-label">${t('settings.provider.field.type')}</label>
@@ -266,6 +266,7 @@ function _showProviderModal(providersObj, name, onSave) {
       </div>
       <div class="modal-actions">
         <button id="modal-cancel" class="btn-secondary">${t('common.cancel')}</button>
+        <button id="modal-test" class="btn-secondary">${t('settings.provider.test')}</button>
         <button id="modal-save" class="btn-primary">${isEdit ? t('settings.provider.save_edit') : t('settings.provider.modal_add')}</button>
       </div>
     </div>
@@ -335,8 +336,8 @@ function _showProviderModal(providersObj, name, onSave) {
     const newCompletionPrice = parseNum('#modal-provider-completion-price', 0);
 
     if (!newName) { setStatus(t('settings.provider.name_required'), 'warn'); return; }
-    if (isEdit && newName !== name) { setStatus(t('settings.provider.name_immutable'), 'warn'); return; }
     if (!isEdit && providersObj[newName]) { setStatus(t('settings.provider.name_exists', { name: newName }), 'warn'); return; }
+    if (isEdit && newName !== name && providersObj[newName]) { setStatus(t('settings.provider.name_exists', { name: newName }), 'warn'); return; }
     if (newMaxTokens < 0 || newTimeout < 0 || newRetry < 0 || newRpm < 0 || newPoll < 0
         || newPromptPrice < 0 || newCompletionPrice < 0) {
       setStatus(t('settings.provider.negative_numbers'), 'warn');
@@ -344,6 +345,11 @@ function _showProviderModal(providersObj, name, onSave) {
     }
     if (newType === 'gemini' && newUploadMax < 1) {
       setStatus(t('settings.provider.upload_limit_positive'), 'warn');
+      return;
+    }
+    const previousBaseUrl = String(existing?.base_url || '').trim();
+    if (isEdit && !newKey && (newName !== name || newBaseUrl !== previousBaseUrl)) {
+      setStatus(t('settings.provider.rebind_key_required'), 'warn');
       return;
     }
 
@@ -372,7 +378,7 @@ function _showProviderModal(providersObj, name, onSave) {
     const providerData = {
       type: newType,
       api_key_env: envName,
-      api_key: '',
+      api_key: newKey,
       base_url: newBaseUrl || '',
       models: modelsList,
       capabilities: capabilitiesList,
@@ -388,16 +394,27 @@ function _showProviderModal(providersObj, name, onSave) {
 
     if (isEdit) {
       if (!newKey) {
-        delete providerData.api_key_env;
-        delete providerData.api_key;
+        // The API intentionally masks the stored secret. Keep the existing
+        // binding when the user leaves the key blank; clearing it would make
+        // an ordinary settings edit look like a credential retarget.
+        providerData.api_key_env = existing?.api_key_env || providerEnvName(newName);
+        providerData.api_key = existing?.api_key || '';
       }
-      Object.assign(providersObj[name], providerData);
+      if (newName !== name) {
+        delete providersObj[name];
+        providersObj[newName] = { name: newName, ...providerData };
+        for (const task of Object.values(state.configGlobal?.ai?.default_tasks || {})) {
+          if (task?.provider === name) task.provider = newName;
+        }
+      } else {
+        Object.assign(providersObj[name], providerData);
+      }
     } else {
       providersObj[newName] = {
         name: newName,
         type: newType,
         api_key_env: envName,
-        api_key: '',
+        api_key: newKey,
         base_url: newBaseUrl || '',
         models: [...modelsList],
         capabilities: [...capabilitiesList],
@@ -415,6 +432,51 @@ function _showProviderModal(providersObj, name, onSave) {
     markDirty();
     backdrop.remove();
     onSave();
+  };
+
+  // Test the current draft without requiring a prior save. The API receives
+  // the candidate only for this request and never persists it.
+  backdrop.querySelector('#modal-test').onclick = async () => {
+    const draftName = backdrop.querySelector('#modal-provider-name').value.trim();
+    const draftType = backdrop.querySelector('#modal-provider-type').value;
+    const draftKey = backdrop.querySelector('#modal-provider-key').value.trim();
+    const draftBaseUrl = backdrop.querySelector('#modal-provider-base-url').value.trim();
+    const modelValues = [...modelsList];
+    if (!draftName || !modelValues.length) {
+      void setStatus(!draftName ? t('settings.provider.name_required') : t('settings.provider.test_need_models'), 'warn');
+      return;
+    }
+    const candidate = {
+      type: draftType,
+      api_key: draftKey,
+      api_key_env: providerEnvName(draftName),
+      base_url: draftBaseUrl,
+      models: modelValues,
+      capabilities: [...capabilitiesList],
+      max_tokens: Number(backdrop.querySelector('#modal-provider-max-tokens')?.value || 0),
+      timeout_sec: Number(backdrop.querySelector('#modal-provider-timeout')?.value || 120),
+      retry_attempts: Number(backdrop.querySelector('#modal-provider-retry')?.value || 2),
+      requests_per_minute: Number(backdrop.querySelector('#modal-provider-rpm')?.value || 0),
+      poll_interval_sec: Number(backdrop.querySelector('#modal-provider-poll')?.value || 5),
+      video_upload_max_mb: Number(backdrop.querySelector('#modal-provider-upload-max')?.value || 200),
+    };
+    const choice = await _chooseProviderTestModel({ models: modelValues });
+    if (!choice.ok) return void setStatus(choice.error, 'warn');
+    const btn = backdrop.querySelector('#modal-test');
+    btn.disabled = true;
+    btn.textContent = t('settings.provider.testing');
+    try {
+      const result = await api('POST', '/api/ai/test', { provider: draftName, model: choice.model, provider_config: candidate });
+      const message = result?.ok
+        ? t('settings.provider.test_ok', { ms: result.elapsed_ms ?? '?' })
+        : t('settings.provider.test_failed', { detail: result?.error || t('common.unknown_error') });
+      void setStatus(message, result?.ok ? 'ok' : 'err');
+    } catch (e) {
+      void setStatus(t('settings.provider.test_failed', { detail: e.message || e }), 'err');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = t('settings.provider.test');
+    }
   };
 
   backdrop.querySelector('#modal-cancel').onclick = () => backdrop.remove();

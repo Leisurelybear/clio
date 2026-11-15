@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import time
 from typing import Any
@@ -45,13 +46,46 @@ def _error_secrets(provider_cfg: ProviderConfig) -> list[str]:
     return secrets
 
 
-def test_provider_connection(config: AppConfig, *, provider_name: str, model: str | None = None) -> dict[str, Any]:
+def test_provider_connection(
+    config: AppConfig,
+    *,
+    provider_name: str,
+    model: str | None = None,
+    provider_override: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     provider_name = (provider_name or "").strip()
     model = (model or "").strip()
     display_provider = _sanitize_display_value(provider_name)
     display_model = _sanitize_display_value(model)
 
     provider_cfg = config.ai.providers.get(provider_name)
+    if provider_override is not None:
+        try:
+            raw = dict(provider_override)
+            provider_cfg = ProviderConfig(
+                name=provider_name,
+                type=str(raw.get("type", "gemini") or "gemini"),
+                api_key=str(raw.get("api_key", "") or ""),
+                api_key_env=str(raw.get("api_key_env", "") or ""),
+                base_url=str(raw.get("base_url", "") or ""),
+                poll_interval_sec=int(raw.get("poll_interval_sec", 5) or 5),
+                retry_attempts=int(raw.get("retry_attempts", 2) or 2),
+                requests_per_minute=int(raw.get("requests_per_minute", 0) or 0),
+                timeout_sec=float(raw.get("timeout_sec", 120) or 120),
+                max_tokens=int(raw.get("max_tokens", 0) or 0),
+                video_upload_max_mb=int(raw.get("video_upload_max_mb", 200) or 200),
+                models=[str(v) for v in (raw.get("models") or [])],
+                capabilities=[str(v) for v in (raw.get("capabilities") or [])],
+            )
+            if not provider_cfg.api_key and provider_cfg.api_key_env:
+                provider_cfg.api_key = os.environ.get(provider_cfg.api_key_env, "")
+        except (TypeError, ValueError) as exc:
+            return {
+                "ok": False,
+                "provider": display_provider,
+                "model": display_model,
+                "error": f"invalid provider configuration: {exc}",
+            }
     if provider_cfg is None:
         return {
             "ok": False,
@@ -93,6 +127,14 @@ def test_provider_connection(config: AppConfig, *, provider_name: str, model: st
 
     started = time.monotonic()
     try:
+        if provider_override is not None:
+            from dataclasses import replace
+
+            global_cfg = config.global_cfg
+            providers = dict(global_cfg.ai.providers)
+            providers[provider_name] = provider_cfg
+            global_cfg = replace(global_cfg, ai=replace(global_cfg.ai, providers=providers))
+            config = AppConfig(global_cfg=global_cfg, project_cfg=config.project_cfg, project_dir=config.project_dir)
         provider = _build_provider(config, provider_name)
         with provider_use(provider):
             response = provider.generate_text(_TEST_PROMPT, model)

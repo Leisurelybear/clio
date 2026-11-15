@@ -214,6 +214,25 @@ class TestProviderCrud:
         saved = yaml.safe_load(config_path.read_text(encoding="utf-8"))
         assert saved["ai"]["providers"]["openai"]["models"] == ["new-model"]
 
+    def test_put_allows_rename_and_updates_default_task_binding(self, tmp_path):
+        from unittest.mock import patch as mock_patch
+
+        config_path = _write_provider_config(tmp_path)
+        raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        raw["ai"]["default_tasks"] = {"voiceover": {"provider": "openai", "model": "gpt-4o"}}
+        config_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+        handler = self._handler(config_path)
+
+        with mock_patch("clio.ui.routes.config_routes.load_global_config"):
+            handle_put_provider(handler, {}, {"name": "linux_do", "api_key": ""}, "openai")
+
+        payload = handler._send_json.call_args[0][0]
+        assert payload["ok"] is True
+        saved = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        assert "openai" not in saved["ai"]["providers"]
+        assert "linux_do" in saved["ai"]["providers"]
+        assert saved["ai"]["default_tasks"]["voiceover"]["provider"] == "linux_do"
+
     def test_put_rejects_credential_retarget_without_reentered_key(self, tmp_path, monkeypatch):
         config_path = _write_provider_config(tmp_path)
         handler = self._handler(config_path)
