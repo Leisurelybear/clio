@@ -297,6 +297,7 @@ def test_preview_compress_counts_existing_output_as_skip(tmp_path: Path, monkeyp
     (input_dir / "B.mov").write_bytes(b"video")
     (compressed_dir / "001_A.mp4").write_bytes(b"x" * 60_000)
     monkeypatch.setattr("clio.tasks.compress.get_duration_sec", lambda *a: 10)
+    monkeypatch.setattr("clio.ui.services.run_preview.resolve_binary", lambda *a: "ffprobe")
 
     from clio.tasks._video_loader import save_selected_videos
 
@@ -330,6 +331,29 @@ def test_preview_compress_counts_existing_output_as_skip(tmp_path: Path, monkeyp
             **_not_applicable_usage(),
         }
     ]
+
+
+def test_preview_compress_without_ffprobe_keeps_cached_output_pending(tmp_path: Path, monkeypatch) -> None:
+    from clio.tasks._video_loader import save_selected_videos
+
+    config = _config(tmp_path, tmp_path / "output")
+    source = tmp_path / "A.mp4"
+    source.write_bytes(b"source")
+    save_selected_videos(tmp_path, [source])
+    config.compressed_dir.mkdir(parents=True)
+    cached = config.compressed_dir / "001_A.mp4"
+    content = b"x" * 60_000
+    cached.write_bytes(content)
+
+    def missing_probe(*args):
+        raise FileNotFoundError("ffprobe unavailable")
+
+    monkeypatch.setattr("clio.ui.services.run_preview.resolve_binary", missing_probe)
+    preview = build_run_preview(config, steps=["compress"], force=False, use_transcripts=True)
+
+    assert preview["steps"][0]["will_run"] == 1
+    assert preview["steps"][0]["will_skip"] == 0
+    assert cached.read_bytes() == content
 
 
 def test_preview_compress_ignores_indexed_non_mp4_artifacts(tmp_path: Path) -> None:
@@ -1210,6 +1234,7 @@ def test_preview_files_selection_filters_non_plan_steps(tmp_path: Path, monkeypa
     (compressed_dir / "001_A.mp4").write_bytes(b"x" * 60_000)
     (compressed_dir / "002_B.mp4").write_bytes(b"x" * 60_000)
     monkeypatch.setattr("clio.tasks.compress.get_duration_sec", lambda *a: 10)
+    monkeypatch.setattr("clio.ui.services.run_preview.resolve_binary", lambda *a: "ffprobe")
     config = _config(input_dir, output_dir)
     _write_current_analysis(config, input_dir / "A.mp4", compressed_dir / "001_A.mp4")
     _write_current_analysis(config, input_dir / "B.mp4", compressed_dir / "002_B.mp4")

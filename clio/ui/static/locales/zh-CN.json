@@ -1,4 +1,7 @@
 {
+  "task.resume_config_changed": "运行配置或提示词已变化，无法安全续跑。请回到运行页检查预览后重新提交。",
+  "task.resume_confirmation_required": "续跑需要新的覆盖确认。请回到运行页检查受影响产物后重新提交。",
+  "run.incomplete": "部分处理失败，已保留完成的产物。请检查失败详情后继续运行。",
   "app.title": "Vlog 剪辑 UI",
   "common.add": "添加",
   "common.adding": "添加中...",
@@ -1404,7 +1407,7 @@
   "run.guide.open_output": "打开输出目录",
   "run.guide.retry_preview": "重新检查",
   "run.guide.preview_failed": "预览失败，请重新检查",
-  "run.guide.overwrite_once": "覆盖仅作用于本次提交的步骤，成功结束后自动关闭；失败或取消后保留以便重试。",
+  "run.guide.overwrite_once": "覆盖仅作用于本次提交的步骤，运行成功、失败或取消后均会自动关闭。",
   "run.guide.skip_transcribe": "跳过转录继续",
   "run.guide.skip_transcribe_hint": "不生成新的转录，保留已有转录供后续使用；可以在自定义步骤中重新勾选转录。",
   "credentials.delete_source": "删除来源",

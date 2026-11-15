@@ -1,4 +1,7 @@
 {
+  "task.resume_config_changed": "Run settings or prompts changed. Review the preview and submit a new run to continue safely.",
+  "task.resume_confirmation_required": "Continuation requires fresh overwrite approval. Review the affected outputs on the Run page.",
+  "run.incomplete": "Some processing failed. Completed outputs were preserved; review the failures before continuing.",
   "app.title": "Vlog Editing UI",
   "common.add": "Add",
   "common.adding": "Adding...",
@@ -1404,7 +1407,7 @@
   "run.guide.open_output": "Open output folder",
   "run.guide.retry_preview": "Retry preview",
   "run.guide.preview_failed": "Preview unavailable; retry",
-  "run.guide.overwrite_once": "Overwrite applies to this submission only and turns off after success; it remains enabled after failure or cancellation for retry.",
+  "run.guide.overwrite_once": "Overwrite applies to this submission only and turns off when the run succeeds, fails, or is cancelled.",
   "run.guide.skip_transcribe": "Skip transcription and continue",
   "run.guide.skip_transcribe_hint": "Do not generate new transcripts; keep existing transcripts available. Re-enable transcription in custom steps when needed.",
   "credentials.delete_source": "Delete from",

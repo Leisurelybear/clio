@@ -180,3 +180,16 @@ is restarted, not resumed. ProcessingState sharing is in-process; concurrent CLI
 not acquire a cross-process artifact lock. Transactional per-item checkpoints, automatic resume,
 connection-state UI, and the separate export defects remain outside this repair. These limits
 prevent an absolute zero-bug or arbitrary-failure recovery guarantee.
+
+## Pushed-tree CI follow-up
+
+The local counts above included working-tree changes omitted from `b9999e1`: the three
+recovery locale keys and credential-test environment/ownership isolation. CI run `43706586669`
+on `45ca135` exposed those omissions. It also found two preview fixtures relying on local
+ffprobe discovery on Windows/macOS. The follow-up includes the omitted dependencies, updates
+overwrite help to match all terminal outcomes, and mocks discovery in those cache fixtures.
+An additional regression
+checks that an unavailable probe leaves existing output pending and untouched.
+
+Local working-tree success alone did not establish that the pushed tree passed. The follow-up
+is verified from a separate checkout of the committed tree before push, then monitored in CI.

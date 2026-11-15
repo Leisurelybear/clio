@@ -35,6 +35,10 @@ resolves the codec/CRF omission from R02. Full backend: 3472 passed, 12 skipped;
 Restart marks interruption; continuation is explicit, validates artifacts/configuration and
 clears prior overwrite approvals. No automatic or in-flight provider-call resume is claimed.
 
+Pipeline CI follow-up: the first pushed tree missed the recovery locale entries and shared
+credential-test environment isolation used during local validation. The follow-up includes
+both, removes local ffprobe discovery from cache fixtures, and tests the unavailable-probe path.
+
 Comprehensive audit (2026-11-15): the [final assessment](2026-11-15-clio-final-review.md),
 [module report](2026-11-15-clio-module-review.md), and
 [repair/optimization matrix](2026-11-15-clio-review-matrix.md)

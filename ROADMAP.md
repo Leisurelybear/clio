@@ -28,6 +28,10 @@ full frontend: 976 passed. Typecheck, Ruff, mypy and local environment check pas
 recovery boundaries are recorded in the assessment. Restart marks interruption; continuation
 is explicit and reuses validated artifacts. Existing forced approvals are never replayed.
 
+CI follow-up: the first pushed tree omitted recovery translations and credential-test
+environment isolation. Those dependencies are now included; compression preview fixtures
+also mock binary discovery so cache tests do not require a locally installed ffprobe.
+
 ### Comprehensive review (2026-11-15)
 
 - `[x]` Complete the repository-wide module/architecture review and offline reproductions.

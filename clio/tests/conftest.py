@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import time as _real_time
 from collections.abc import Generator
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -77,11 +78,14 @@ def _clear_ai_cache() -> None:
 @pytest.fixture(autouse=True)
 def _isolate_os_credentials() -> Generator[None, None, None]:
     """Tests must never read or mutate the developer's OS credential store."""
+    from clio.credentials import environment
     from clio.credentials.stores import KeyringStore
 
     unavailable = object.__new__(KeyringStore)
     unavailable.backend = None
-    with pytest.MonkeyPatch.context() as credential_patch:
+    # Dotenv writes also mutate process entries and their ownership registry.
+    # Restore both: a later CLI check must not inherit another test's API key.
+    with patch.dict(os.environ), patch.dict(environment._injected), pytest.MonkeyPatch.context() as credential_patch:
         credential_patch.setattr("clio.credentials.service.KeyringStore", lambda: unavailable)
         yield
 
