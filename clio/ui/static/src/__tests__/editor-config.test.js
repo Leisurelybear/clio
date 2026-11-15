@@ -840,6 +840,27 @@ describe('_renderPromptManagement', () => {
 });
 
 describe('renderConfig global tab', () => {
+  it('collapses credentials and preserves the state through inventory and page refreshes', async () => {
+    const pane = renderGlobalTab({});
+    const card = () => pane.querySelector('[data-section-key="global.credentials"]');
+    expect(card().classList.contains('collapsed')).toBe(false);
+    card().querySelector('.config-card-header').click();
+    expect(card().classList.contains('collapsed')).toBe(true);
+
+    api.mockResolvedValue({ ok: true, credentials: [], backends: {} });
+    const { loadCredentials } = await import('../editor-credentials.js');
+    await loadCredentials(card().querySelector('#credentials-panel'));
+    expect(card().classList.contains('collapsed')).toBe(true);
+    expect(card().querySelector('.credentials-panel')).not.toBeNull();
+
+    renderConfig();
+    expect(card().classList.contains('collapsed')).toBe(true);
+    card().querySelector('.config-card-header').click();
+    expect(card().classList.contains('collapsed')).toBe(false);
+    renderConfig();
+    expect(card().classList.contains('collapsed')).toBe(false);
+  });
+
   function renderGlobalTab(global) {
     document.body.innerHTML = '<div id="tab-config"></div><span id="status"></span>';
     state.configRaw = { _config_source: 'split', paths: { output_dir: 'out' } };

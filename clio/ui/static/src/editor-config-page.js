@@ -30,6 +30,7 @@ import {
   _renderConfigProject,
   _setAdvancedVisible,
   setSectionCollapsed,
+  getSectionCollapsed,
 } from './editor-config-form.js';
 
 // Labels and tooltips are rebuilt from the catalogs on every language switch.
@@ -209,7 +210,7 @@ function _bindSectionCollapse(pane) {
           const isNowCollapsed = card.classList.toggle('collapsed');
           const sectionKey = card.dataset.sectionKey;
           if (sectionKey) {
-            setSectionCollapsed(sectionKey, !isNowCollapsed);
+            setSectionCollapsed(sectionKey, isNowCollapsed);
           }
         }
       }
@@ -250,7 +251,13 @@ export function renderConfig() {
   } else if (active === 'global') {
     state.configGlobal = ensureGlobalUiDefaults(state.configGlobal || {});
     const globalData = state.configGlobal;
-    contentHtml = '<div id="credentials-panel"></div>' + _renderEnvEditor()
+    contentHtml = `<div class="config-card${getSectionCollapsed('global.credentials') ? ' collapsed' : ''}" data-section-key="global.credentials">
+      <div class="config-card-header" tabindex="0" role="button">
+        <span class="config-card-arrow">▶</span>
+        <span class="config-card-title">${t('credentials.title')}</span>
+      </div>
+      <div class="config-card-body" id="credentials-panel"></div>
+    </div>` + _renderEnvEditor()
       + `<div class="config-form">${_renderConfigGlobal(globalData, descs)}</div>`;
   } else if (active === 'prompts') {
     contentHtml = '<div id="prompt-management-root"></div>';

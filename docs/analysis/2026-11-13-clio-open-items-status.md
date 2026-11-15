@@ -8,6 +8,11 @@ A `Fixed` row must include the commit and focused verification. `Satisfied` rows
 
 ## Summary
 
+Credential settings UI follow-up (2026-11-15): credential management now uses the shared
+collapsible configuration card. Collapse state survives inventory refreshes and page rerenders;
+the shared click handler now stores the actual collapsed state. Verification: 93 focused tests,
+979 full frontend tests, frontend typecheck, and `git diff --check` passed.
+
 Credential management delivery (2026-11-15): CRED-01 through CRED-08 are implemented via
 the unified service, field APIs/UI, OS keyring, explicit migration and source-aware runtime.
 R11 active-client invalidation is fixed with graceful retirement and atomic acquisition/lease

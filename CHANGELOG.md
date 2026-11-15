@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-15
+
+Credential management now uses the same collapsible card as other settings groups. Its
+expanded/collapsed state survives credential refreshes and settings rerenders. The shared
+collapse handler now remembers the actual state. Verification: 979 frontend tests,
+frontend typecheck, and `git diff --check` passed.
+
 ## 2026-11-14
 
 Guided run previews now validate cache lineage before skipping stages. All-day

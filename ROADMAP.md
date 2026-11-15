@@ -57,6 +57,8 @@ also mock binary discovery so cache tests do not require a locally installed ffp
 - `[x]` Add OS keyring storage and explicit migration from legacy `api_key_env` / `.env` values.
 - `[x]` Restore the shared credential manager's dedicated layout, action styling, and narrow-screen
   responsive behavior with frontend regressions.
+- `[x]` Use the shared collapsible settings card for credentials and retain its state across
+  inventory refreshes and settings rerenders (979 frontend tests and typecheck passed).
 
 Credential delivery includes graceful provider retirement (R11), atomic reacquisition before
 active calls, source/shadowing status, authenticated 30-second reveal, backend-specific cleanup,

@@ -1906,22 +1906,8 @@ body.video-drag-active {
 }
 
 /* ── Credential Manager ───────────────────────────────────── */
-#credentials-panel {
-  margin-bottom: var(--space-4);
-}
 .credentials-panel {
   margin: 0;
-  padding: var(--space-3);
-  border: 1px solid var(--border-light);
-  border-left: 3px solid var(--accent);
-  border-radius: var(--radius-md);
-  background: var(--bg-surface-2);
-}
-.credentials-panel > legend {
-  padding: 0 var(--space-2);
-  color: var(--accent);
-  font-size: var(--text-sm);
-  font-weight: 650;
 }
 .credentials-intro {
   margin: 0 0 var(--space-3);
@@ -2092,7 +2078,6 @@ body.video-drag-active {
 .credential-modal .modal-actions { margin-top: var(--space-2); }
 
 @media (max-width: 600px) {
-  .credentials-panel { padding: var(--space-2); }
   .credential-field-main,
   .credential-actions { align-items: stretch; flex-direction: column; }
   .credential-action { flex: 1 1 auto; }

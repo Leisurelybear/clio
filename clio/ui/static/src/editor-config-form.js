@@ -247,6 +247,10 @@ export function setSectionCollapsed(sectionKey, collapsed) {
   _collapsedCards.set(sectionKey, collapsed);
 }
 
+export function getSectionCollapsed(sectionKey, fallback = false) {
+  return _collapsedCards.get(sectionKey) ?? fallback;
+}
+
 function _sectionLabel(key) {
   const i18nKey = `settings.section.${key}`;
   return hasKey(i18nKey) ? t(i18nKey) : key;
