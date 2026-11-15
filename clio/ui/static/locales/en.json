@@ -1423,7 +1423,7 @@
   "credentials.reveal_confirm": "Reveal this credential for 30 seconds?",
   "credentials.reveal_environment": "This credential comes from the inherited process environment. Reveal it for 30 seconds?",
   "credentials.migrate_confirm": "Copy the effective credential to OS keyring, or dotenv when unavailable? Legacy dotenv entries are retained.",
-  "credentials.delete_confirm": "Delete the stored {source} entry? Other sources may become effective.",
+  "credentials.delete_confirm": "Delete the stored credential? Other sources may become effective.",
   "credentials.dotenv": "Dotenv compatibility file",
   "credentials.keyring": "OS keyring",
   "credentials.env_guidance": "Managed secret entries belong to Credential Manager. Use the credential panel for replacement, reveal, and migration; this editor remains available for advanced environment settings."

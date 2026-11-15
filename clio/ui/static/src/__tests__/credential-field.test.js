@@ -31,8 +31,8 @@ describe('credential fields', () => {
     expect(root.querySelector('.credential-field-main')).not.toBeNull();
     expect(root.querySelector('.credential-status')).not.toBeNull();
     expect(root.querySelector('.credential-actions')).not.toBeNull();
-    expect(root.querySelector('.credential-management')).not.toBeNull();
-    expect(root.querySelector('.credential-delete-control')).not.toBeNull();
+    expect(root.querySelector('[data-credential-delete]')).not.toBeNull();
+    expect(root.querySelector('[data-delete-source]')).toBeNull();
     expect(root.querySelector('.credential-error')).not.toBeNull();
   });
 
@@ -91,7 +91,7 @@ describe('credential fields', () => {
     expect(input.value).toBe('');
   });
 
-  it('confirms migration and selected-backend deletion', async () => {
+  it('confirms migration and deletes the effective writable backend', async () => {
     api.mockResolvedValue({ ok: true });
     const root = mount();
     root.querySelector('[data-credential-migrate]').click();
@@ -99,6 +99,20 @@ describe('credential fields', () => {
     root.querySelector('[data-credential-delete]').click();
     await vi.waitFor(() => expect(api).toHaveBeenCalledWith('PUT', '/api/credentials/gemini_api_key', {
       value: '', source: 'dotenv', confirmed: true,
+    }));
+  });
+
+  it('deletes keyring when keyring is the effective source', async () => {
+    const keyringInventory = {
+      ...inventory,
+      credentials: [{ ...inventory.credentials[0], effective_source: 'keyring' }],
+      backends: { default_source: 'dotenv', keyring: { available: true } },
+    };
+    api.mockResolvedValue({ ok: true });
+    const root = mount(keyringInventory);
+    root.querySelector('[data-credential-delete]').click();
+    await vi.waitFor(() => expect(api).toHaveBeenCalledWith('PUT', '/api/credentials/gemini_api_key', {
+      value: '', source: 'keyring', confirmed: true,
     }));
   });
 

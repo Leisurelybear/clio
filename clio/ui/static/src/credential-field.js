@@ -14,14 +14,8 @@ export function renderCredentialField(id) {
         <button class="credential-action" type="button" data-credential-replace>${t('credentials.replace')}</button>
         <button class="credential-action" type="button" data-credential-reveal>${t('credentials.reveal')}</button>
         <button class="credential-action" type="button" data-credential-migrate>${t('credentials.migrate')}</button>
+        <button class="credential-action credential-action-danger" type="button" data-credential-delete>${t('credentials.delete')}</button>
       </div>
-    </div>
-    <div class="credential-management" data-credential-management>
-      <label class="credential-delete-control">${t('credentials.delete_source')}<select data-delete-source>
-        <option value="dotenv">${t('credentials.dotenv')}</option>
-        <option value="keyring">${t('credentials.keyring')}</option>
-      </select></label>
-      <button class="credential-action credential-action-danger" type="button" data-credential-delete>${t('credentials.delete')}</button>
     </div>
     <span class="credential-error" data-credential-error role="status" aria-live="polite"></span>
   </div>`;
@@ -47,9 +41,9 @@ export function attachCredentialFields(root, inventory, onChange = () => {}) {
     const revealed = field.querySelector('[data-credential-value]');
     const error = field.querySelector('[data-credential-error]');
     const source = entry?.effective_source || t('credentials.none');
-    const deleteSource = field.querySelector('[data-delete-source]');
-    deleteSource.querySelector('[value="keyring"]').disabled = !inventory.backends.keyring.available;
-    deleteSource.value = entry?.effective_source === 'keyring' ? 'keyring' : 'dotenv';
+    const deleteSource = ['dotenv', 'keyring'].includes(entry?.effective_source)
+      ? entry.effective_source
+      : (inventory.backends.default_source || 'dotenv');
     status.textContent = `${t(entry?.configured ? 'credentials.configured' : 'credentials.missing')} · ${source}`
       + (entry?.shadowed_sources?.length ? ` · ${t('credentials.shadowed')}: ${entry.shadowed_sources.join(', ')}` : '');
     let timer;
@@ -82,7 +76,7 @@ export function attachCredentialFields(root, inventory, onChange = () => {}) {
       dialog.className = 'modal';
       dialog.innerHTML = html`<div class="modal-backdrop"></div><div class="modal-dialog credential-modal">
         <label><span>${t('credentials.replace')}</span><input type="password" autocomplete="new-password" data-new-value></label>
-        <label><span>${t('credentials.delete_source')}</span><select data-source><option value="dotenv">${t('credentials.dotenv')}</option>
+        <label><span>${t('credentials.store_in')}</span><select data-source><option value="dotenv">${t('credentials.dotenv')}</option>
           <option value="keyring">${t('credentials.keyring')}</option></select></label>
         <div class="modal-actions"><button class="btn-secondary" type="button" data-cancel>${t('common.cancel')}</button><button class="btn-primary" type="button" data-save>${t('common.save')}</button></div>
         <span data-error role="status"></span></div>`;
@@ -114,9 +108,8 @@ export function attachCredentialFields(root, inventory, onChange = () => {}) {
       await onChange(result);
     });
     field.querySelector('[data-credential-delete]').onclick = () => run(async () => {
-      const target = deleteSource.value;
-      if (!await confirmDialog(t('credentials.delete_confirm', { source: target }), { danger: true })) return;
-      const result = await api('PUT', `/api/credentials/${encodeURIComponent(id)}`, { value: '', source: target, confirmed: true });
+      if (!await confirmDialog(t('credentials.delete_confirm'), { danger: true })) return;
+      const result = await api('PUT', `/api/credentials/${encodeURIComponent(id)}`, { value: '', source: deleteSource, confirmed: true });
       if (!result?.ok) throw new Error();
       await onChange(result);
     });

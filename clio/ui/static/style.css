@@ -1980,8 +1980,7 @@ body.video-drag-active {
   border-radius: var(--radius-sm);
   background: var(--bg-surface-2);
 }
-.credential-field-main,
-.credential-management {
+.credential-field-main {
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -2010,17 +2009,11 @@ body.video-drag-active {
   overflow-wrap: anywhere;
   user-select: text;
 }
-.credential-actions,
-.credential-management {
+.credential-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-1);
-}
-.credential-management {
-  justify-content: flex-end;
-  padding-top: var(--space-2);
-  border-top: 1px solid var(--border);
 }
 .credential-action {
   display: inline-flex;
@@ -2054,29 +2047,6 @@ body.video-drag-active {
   border-color: var(--error);
   background: var(--error-bg);
   color: var(--error);
-}
-.credential-delete-control {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  min-width: 0;
-  color: var(--text-tertiary);
-  font-size: var(--text-xs);
-}
-.credential-delete-control select {
-  max-width: 140px;
-  padding: 4px 7px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  font: inherit;
-  font-size: var(--text-xs);
-}
-.credential-delete-control select:focus {
-  outline: none;
-  border-color: var(--border-focus);
-  box-shadow: 0 0 0 3px var(--accent-bg);
 }
 .credential-error {
   min-height: 0;
@@ -2124,12 +2094,8 @@ body.video-drag-active {
 @media (max-width: 600px) {
   .credentials-panel { padding: var(--space-2); }
   .credential-field-main,
-  .credential-management { align-items: stretch; flex-direction: column; }
-  .credential-actions,
-  .credential-management { justify-content: stretch; }
+  .credential-actions { align-items: stretch; flex-direction: column; }
   .credential-action { flex: 1 1 auto; }
-  .credential-delete-control { justify-content: space-between; }
-  .credential-delete-control select { flex: 1; max-width: none; }
 }
 
 

@@ -1423,7 +1423,7 @@
   "credentials.reveal_confirm": "查看此凭据 30 秒？",
   "credentials.reveal_environment": "此凭据来自启动时继承的进程环境。查看 30 秒？",
   "credentials.migrate_confirm": "将生效凭据复制到系统凭据库（不可用时使用 dotenv）？旧 .env 项将保留。",
-  "credentials.delete_confirm": "删除 {source} 存储项？其他来源可能随后生效。",
+  "credentials.delete_confirm": "删除已保存的凭据？其他来源可能随后生效。",
   "credentials.dotenv": "Dotenv 兼容文件",
   "credentials.keyring": "系统凭据库",
   "credentials.env_guidance": "托管密钥由凭据管理器管理。请在凭据面板替换、查看或迁移；此编辑器供高级环境设置使用。"
