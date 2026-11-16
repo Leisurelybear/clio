@@ -89,6 +89,7 @@ ROUTES: tuple[Route, ...] = (
     Route("POST", "/api/run/preview", "handle_post_run_preview"),
     Route("POST", "/api/desktop/focus", "handle_post_desktop_focus", auth_required=False),
     Route("POST", "/api/ai/test", "handle_post_ai_test"),
+    Route("POST", "/api/ai/models", "handle_post_ai_models"),
     Route("POST", "/api/deps/ffmpeg/install", "handle_post_deps_ffmpeg_install"),
     Route("POST", "/api/config/init", "handle_post_config_init"),
     Route("POST", "/api/providers", "handle_post_provider"),

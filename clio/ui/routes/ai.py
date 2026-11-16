@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from clio.ui.handler_protocol import HandlerProtocol
+from clio.ui.services.ai_models_service import list_provider_models
 from clio.ui.services.ai_test_service import test_provider_connection
 
 
@@ -36,4 +37,23 @@ def handle_post_ai_test(handler: HandlerProtocol, qs: dict[str, Any], obj: dict[
         result = test_provider_connection(cfg, provider_name=provider, model=model)
     else:
         result = test_provider_connection(cfg, provider_name=provider, model=model, provider_override=candidate)
+    return handler._send_json(result)
+
+
+def handle_post_ai_models(handler: HandlerProtocol, qs: dict[str, Any], obj: dict[str, Any]) -> None:
+    raw_provider = obj.get("provider")
+    if raw_provider is None:
+        return handler._send_json({"ok": False, "error": "provider is required"}, 400)
+    if not isinstance(raw_provider, str) or not raw_provider.strip():
+        return handler._send_json({"ok": False, "error": "provider must be a non-empty string"}, 400)
+    candidate = obj.get("provider_config")
+    if candidate is not None and not isinstance(candidate, dict):
+        return handler._send_json({"ok": False, "error": "provider_config must be an object"}, 400)
+    proj_dir = handler._resolve_project_dir(qs)
+    cfg = handler._get_config(proj_dir)
+    result = list_provider_models(
+        cfg,
+        provider_name=raw_provider.strip(),
+        provider_override=candidate,
+    )
     return handler._send_json(result)

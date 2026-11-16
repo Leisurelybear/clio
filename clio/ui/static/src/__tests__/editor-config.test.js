@@ -28,6 +28,7 @@ describe('providerEnvName', () => {
   it('normalizes provider names into valid environment variable names', () => {
     expect(providerEnvName('my-gemini')).toBe('MY_GEMINI_API_KEY');
     expect(providerEnvName(' my local.proxy ')).toBe('MY_LOCAL_PROXY_API_KEY');
+    expect(providerEnvName('123-cloud')).toBe('PROVIDER_123_CLOUD_API_KEY');
   });
 
   it('adds a stable, distinct hash suffix to non-ASCII provider names', () => {
@@ -410,6 +411,118 @@ describe('_renderProviderList', () => {
     modal.remove();
   });
 
+  it('loads existing provider models and applies the selected models', async () => {
+    api.mockResolvedValue({ ok: true, models: ['remote-a', 'remote-b'] });
+    const div = document.createElement('div');
+    div.innerHTML = _renderProviderList({});
+    _attachProviderListHandlers(div, {});
+
+    div.querySelector('#btn-add-provider').click();
+    const modal = document.querySelector('#modal-provider-name').closest('.modal');
+    modal.querySelector('#modal-provider-name').value = 'custom';
+    modal.querySelector('#modal-load-models').click();
+
+    await vi.waitFor(() => expect(api).toHaveBeenCalledWith('POST', '/api/ai/models', expect.objectContaining({
+      provider: 'custom',
+    })));
+    const picker = document.querySelector('[data-model-choice]')?.closest('.modal');
+    expect(picker).not.toBeNull();
+    picker.querySelector('[data-model-choice="remote-b"]').checked = true;
+    picker.querySelector('[data-model-confirm]').click();
+
+    await vi.waitFor(() => expect(modal.querySelector('#modal-provider-models .tag-chip').textContent).toContain('remote-b'));
+    modal.remove();
+  });
+
+  it('ignores a model response after the provider dialog is closed', async () => {
+    let resolveApi;
+    api.mockImplementation(() => new Promise(resolve => { resolveApi = resolve; }));
+    const div = document.createElement('div');
+    div.innerHTML = _renderProviderList({});
+    _attachProviderListHandlers(div, {});
+
+    div.querySelector('#btn-add-provider').click();
+    const modal = document.querySelector('#modal-provider-name').closest('.modal');
+    modal.querySelector('#modal-provider-name').value = 'custom';
+    modal.querySelector('#modal-load-models').click();
+    await vi.waitFor(() => expect(api).toHaveBeenCalledWith('POST', '/api/ai/models', expect.any(Object)));
+
+    modal.remove();
+    resolveApi({ ok: true, models: ['remote-a'] });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(document.querySelector('[data-model-choice]')).toBeNull();
+  });
+
+  it('ignores a model response after the provider draft changes', async () => {
+    let resolveApi;
+    api.mockImplementation(() => new Promise(resolve => { resolveApi = resolve; }));
+    const div = document.createElement('div');
+    div.innerHTML = _renderProviderList({});
+    _attachProviderListHandlers(div, {});
+
+    div.querySelector('#btn-add-provider').click();
+    const modal = document.querySelector('#modal-provider-name').closest('.modal');
+    const nameInput = modal.querySelector('#modal-provider-name');
+    nameInput.value = 'custom';
+    nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+    modal.querySelector('#modal-load-models').click();
+    await vi.waitFor(() => expect(api).toHaveBeenCalledWith('POST', '/api/ai/models', expect.any(Object)));
+
+    nameInput.value = 'renamed';
+    nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+    resolveApi({ ok: true, models: ['remote-a'] });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(document.querySelector('[data-model-choice]')).toBeNull();
+    modal.remove();
+  });
+
+  it('cancels model selection with Escape without changing the draft', async () => {
+    api.mockResolvedValue({ ok: true, models: ['remote-a'] });
+    const div = document.createElement('div');
+    div.innerHTML = _renderProviderList({});
+    _attachProviderListHandlers(div, {});
+
+    div.querySelector('#btn-add-provider').click();
+    const modal = document.querySelector('#modal-provider-name').closest('.modal');
+    modal.querySelector('#modal-provider-name').value = 'custom';
+    modal.querySelector('#modal-load-models').click();
+    const picker = await vi.waitFor(() => {
+      const value = document.querySelector('[data-model-choice]')?.closest('.modal');
+      if (!value) throw new Error('picker not open');
+      return value;
+    });
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await Promise.resolve();
+
+    expect(picker.isConnected).toBe(false);
+    expect(modal.querySelector('#modal-provider-models .tag-chip')).toBeNull();
+    modal.remove();
+  });
+
+  it('reports when provider model discovery returns an empty list', async () => {
+    api.mockResolvedValue({ ok: true, models: [] });
+    const div = document.createElement('div');
+    div.innerHTML = _renderProviderList({});
+    _attachProviderListHandlers(div, {});
+
+    div.querySelector('#btn-add-provider').click();
+    const modal = document.querySelector('#modal-provider-name').closest('.modal');
+    modal.querySelector('#modal-provider-name').value = 'custom';
+    modal.querySelector('#modal-load-models').click();
+
+    await vi.waitFor(() => {
+      expect(api).toHaveBeenCalledWith('POST', '/api/notifications', expect.objectContaining({
+        message: '接口没有返回可用模型', severity: 'warning', source_type: 'ui_status',
+      }));
+    });
+    modal.remove();
+  });
+
   it('saves a new provider key through the credential API without keeping it in provider state', async () => {
     const configPane = document.createElement('div');
     configPane.id = 'tab-config';
@@ -569,6 +682,55 @@ describe('_renderProviderList', () => {
       expect(status.textContent).toBe('测试失败：<img src=x onerror=alert(1)>');
       expect(status.innerHTML).toBe('测试失败：&lt;img src=x onerror=alert(1)&gt;');
     });
+  });
+
+  it('ignores an unsaved provider test response after the editor closes', async () => {
+    let resolveApi;
+    api.mockImplementation(() => new Promise(resolve => { resolveApi = resolve; }));
+    const div = document.createElement('div');
+    div.innerHTML = _renderProviderList({ gemini: GEMINI_PROVIDER });
+    _attachProviderListHandlers(div, { gemini: GEMINI_PROVIDER });
+
+    div.querySelector('.btn-provider-edit').click();
+    const editor = document.querySelector('#modal-provider-name').closest('.modal');
+    editor.querySelector('#modal-test').click();
+    const picker = await vi.waitFor(() => {
+      const value = document.querySelector('[data-provider-test-model]')?.closest('.modal');
+      if (!value) throw new Error('test model picker not open');
+      return value;
+    });
+    picker.querySelector('[data-provider-test-confirm]').click();
+    await vi.waitFor(() => expect(api).toHaveBeenCalledWith('POST', '/api/ai/test', expect.any(Object)));
+
+    editor.remove();
+    resolveApi({ ok: true, elapsed_ms: 9 });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(api.mock.calls.some(([, url]) => url === '/api/notifications')).toBe(false);
+  });
+
+  it('ignores an unsaved provider test response after the draft changes', async () => {
+    let resolveApi;
+    api.mockImplementation(() => new Promise(resolve => { resolveApi = resolve; }));
+    const div = document.createElement('div');
+    div.innerHTML = _renderProviderList({ deepseek: { ...OPENAI_PROVIDER, models: ['deepseek-chat'] } });
+    _attachProviderListHandlers(div, { deepseek: { ...OPENAI_PROVIDER, models: ['deepseek-chat'] } });
+
+    div.querySelector('.btn-provider-edit').click();
+    const editor = document.querySelector('#modal-provider-name').closest('.modal');
+    editor.querySelector('#modal-test').click();
+    await vi.waitFor(() => expect(api).toHaveBeenCalledWith('POST', '/api/ai/test', expect.any(Object)));
+
+    const nameInput = editor.querySelector('#modal-provider-name');
+    nameInput.value = 'renamed';
+    nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+    resolveApi({ ok: true, elapsed_ms: 9 });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(api.mock.calls.some(([, url]) => url === '/api/notifications')).toBe(false);
+    editor.remove();
   });
 });
 

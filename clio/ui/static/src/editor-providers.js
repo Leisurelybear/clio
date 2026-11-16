@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Provider list rendering, modal editing, connection tests, and handlers.
  */
 import { api, icon } from './api.js';
@@ -39,6 +39,7 @@ export function providerEnvName(name) {
     .replace(/[^A-Z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '');
   const base = slug || 'CUSTOM_PROVIDER';
+  if (/^\d/.test(base)) return `PROVIDER_${base}_API_KEY`;
   if (NON_ASCII_RE.test(trimmed)) {
     return `${base}_${_fnv1aCodePoints(trimmed)}_API_KEY`;
   }
@@ -206,7 +207,10 @@ function _showProviderModal(providersObj, name, onSave) {
         <span class="hint">${t('settings.provider.field.base_url_hint')}</span>
       </div>
       <div class="form-group">
-        <label class="form-label">${t('settings.provider.field.models_label')} <span class="muted">${t('settings.provider.field.enter_to_add')}</span></label>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+          <label class="form-label" style="margin:0">${t('settings.provider.field.models_label')} <span class="muted">${t('settings.provider.field.enter_to_add')}</span></label>
+          <button id="modal-load-models" type="button" class="btn-secondary" style="font-size:var(--text-xs)">${icon('refresh', 13)} ${t('settings.provider.load_models')}</button>
+        </div>
         <div id="modal-provider-models"></div>
         <span class="hint">${t('settings.provider.field.models_hint')}</span>
       </div>
@@ -282,14 +286,87 @@ function _showProviderModal(providersObj, name, onSave) {
   } else {
     modelsList = [];
   }
-  renderTagInput(modelsContainer, modelsList, () => {});
+  let draftRevision = 0;
+  const renderModelsInput = () => {
+    modelsContainer.innerHTML = '';
+    renderTagInput(modelsContainer, modelsList, () => { draftRevision += 1; });
+  };
+  renderModelsInput();
+
+  const draftRevisionFields = [
+    '#modal-provider-name',
+    '#modal-provider-type',
+    '#modal-provider-key',
+    '#modal-provider-base-url',
+    '#modal-provider-timeout',
+    '#modal-provider-max-tokens',
+    '#modal-provider-retry',
+    '#modal-provider-rpm',
+    '#modal-provider-poll',
+    '#modal-provider-upload-max',
+    '#modal-provider-prompt-price',
+    '#modal-provider-completion-price',
+  ];
+  for (const selector of draftRevisionFields) {
+    const field = backdrop.querySelector(selector);
+    field?.addEventListener('input', () => { draftRevision += 1; });
+    field?.addEventListener('change', () => { draftRevision += 1; });
+  }
+
+  backdrop.querySelector('#modal-load-models').onclick = async () => {
+    const loadBtn = backdrop.querySelector('#modal-load-models');
+    const providerName = backdrop.querySelector('#modal-provider-name').value.trim();
+    const providerType = backdrop.querySelector('#modal-provider-type').value;
+    const providerKey = backdrop.querySelector('#modal-provider-key').value.trim();
+    const providerBaseUrl = backdrop.querySelector('#modal-provider-base-url').value.trim();
+    if (!providerName) {
+      void setStatus(t('settings.provider.name_required'), 'warn');
+      return;
+    }
+    const requestRevision = draftRevision;
+    loadBtn.disabled = true;
+    loadBtn.textContent = t('settings.provider.loading_models');
+    try {
+      const result = await api('POST', '/api/ai/models', {
+        provider: providerName,
+        provider_config: {
+          credential_ref: existing?.credential_ref || '',
+          type: providerType,
+          api_key: providerKey,
+          api_key_env: providerEnvName(providerName),
+          base_url: providerBaseUrl,
+          timeout_sec: Number(backdrop.querySelector('#modal-provider-timeout')?.value || 120),
+        },
+      });
+      if (!backdrop.isConnected || requestRevision !== draftRevision) return;
+      if (!result?.ok) throw new Error(result?.error || t('settings.provider.load_models_failed'));
+      const choice = await _chooseProviderModels(result.models || [], modelsList);
+      if (!backdrop.isConnected || requestRevision !== draftRevision) return;
+      if (choice.ok) {
+        modelsList = choice.models;
+        renderModelsInput();
+        void setStatus(t('settings.provider.models_loaded', { count: modelsList.length }), 'ok');
+      } else if (choice.error) {
+        void setStatus(choice.error, 'warn');
+      }
+    } catch (e) {
+      if (backdrop.isConnected && requestRevision === draftRevision) {
+        void setStatus(t('settings.provider.load_models_failed_detail', { detail: e.message || e }), 'err');
+      }
+    } finally {
+      if (loadBtn.isConnected) {
+        loadBtn.disabled = false;
+        loadBtn.innerHTML = `${icon('refresh', 13)} ${t('settings.provider.load_models')}`;
+      }
+    }
+  };
   const capabilitiesContainer = backdrop.querySelector('#modal-provider-capabilities');
   let capabilitiesList = existing
     ? [...providerCapabilities(existing)]
     : [...providerCapabilities({ type: backdrop.querySelector('#modal-provider-type').value })];
   function renderCapabilitiesInput() {
     capabilitiesContainer.innerHTML = '';
-    renderTagInput(capabilitiesContainer, capabilitiesList, () => {});
+    renderTagInput(capabilitiesContainer, capabilitiesList, () => { draftRevision += 1; });
   }
   renderCapabilitiesInput();
 
@@ -317,6 +394,8 @@ function _showProviderModal(providersObj, name, onSave) {
 
   // Save
   backdrop.querySelector('#modal-save').onclick = async () => {
+    // Invalidate any in-flight discovery before the draft can be persisted.
+    draftRevision += 1;
     const newName = backdrop.querySelector('#modal-provider-name').value.trim();
     const newType = backdrop.querySelector('#modal-provider-type').value;
     const newKey = backdrop.querySelector('#modal-provider-key').value.trim();
@@ -466,21 +545,29 @@ function _showProviderModal(providersObj, name, onSave) {
       video_upload_max_mb: Number(backdrop.querySelector('#modal-provider-upload-max')?.value || 200),
     };
     const choice = await _chooseProviderTestModel({ models: modelValues });
+    if (!backdrop.isConnected) return;
     if (!choice.ok) return void setStatus(choice.error, 'warn');
+    const requestRevision = draftRevision;
     const btn = backdrop.querySelector('#modal-test');
+    if (!btn) return;
     btn.disabled = true;
     btn.textContent = t('settings.provider.testing');
     try {
       const result = await api('POST', '/api/ai/test', { provider: draftName, model: choice.model, provider_config: candidate });
+      if (!backdrop.isConnected || requestRevision !== draftRevision) return;
       const message = result?.ok
         ? t('settings.provider.test_ok', { ms: result.elapsed_ms ?? '?' })
         : t('settings.provider.test_failed', { detail: result?.error || t('common.unknown_error') });
       void setStatus(message, result?.ok ? 'ok' : 'err');
     } catch (e) {
-      void setStatus(t('settings.provider.test_failed', { detail: e.message || e }), 'err');
+      if (backdrop.isConnected && requestRevision === draftRevision) {
+        void setStatus(t('settings.provider.test_failed', { detail: e.message || e }), 'err');
+      }
     } finally {
-      btn.disabled = false;
-      btn.textContent = t('settings.provider.test');
+      if (btn.isConnected) {
+        btn.disabled = false;
+        btn.textContent = t('settings.provider.test');
+      }
     }
   };
 
@@ -540,6 +627,54 @@ function _chooseProviderTestModel(provider) {
   });
 }
 
+function _chooseProviderModels(models, selected = []) {
+  const uniqueModels = [...new Set((models || []).map(value => String(value || '').trim()).filter(Boolean))];
+  if (!uniqueModels.length) return { ok: false, error: t('settings.provider.load_models_empty') };
+  return new Promise(resolve => {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal';
+    backdrop.setAttribute('role', 'dialog');
+    backdrop.setAttribute('aria-modal', 'true');
+    const selectedSet = new Set(selected);
+    const options = uniqueModels.map(model => `
+      <label style="display:flex;align-items:center;gap:8px;padding:5px 0">
+        <input type="checkbox" data-model-choice="${escapeHtml(model)}"${selectedSet.has(model) ? ' checked' : ''}>
+        <span>${escapeHtml(model)}</span>
+      </label>`).join('');
+    backdrop.innerHTML = `
+      <div class="modal-backdrop"></div>
+      <div class="modal-dialog" role="document">
+        <h3>${escapeHtml(t('settings.provider.load_models_pick'))}</h3>
+        <p class="hint">${escapeHtml(t('settings.provider.load_models_pick_hint'))}</p>
+        <div style="max-height:300px;overflow:auto">${options}</div>
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" data-model-cancel>${escapeHtml(t('common.cancel'))}</button>
+          <button type="button" class="btn-primary" data-model-confirm>${escapeHtml(t('common.confirm'))}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(backdrop);
+    const finish = result => {
+      document.removeEventListener('keydown', onKeyDown);
+      backdrop.remove();
+      resolve(result);
+    };
+    const cancel = () => finish({ ok: false, canceled: true });
+    const onKeyDown = event => {
+      if (event.key === 'Escape') cancel();
+    };
+    backdrop.querySelector('[data-model-cancel]').onclick = cancel;
+    backdrop.querySelector('.modal-backdrop').onclick = cancel;
+    backdrop.querySelector('[data-model-confirm]').onclick = () => {
+      const values = [...backdrop.querySelectorAll('[data-model-choice]:checked')]
+        .map(input => input.dataset.modelChoice)
+        .filter(Boolean);
+      if (!values.length) return void setStatus(t('settings.provider.load_models_select_one'), 'warn');
+      finish({ ok: true, models: values });
+    };
+    document.addEventListener('keydown', onKeyDown);
+  });
+}
+
 export async function testProvider(providersObj, providerName) {
   const provider = providersObj?.[providerName];
   const choice = await _chooseProviderTestModel(provider);
@@ -559,6 +694,10 @@ export function attachProviderListHandlers(pane, providersObj, reRender = () => 
       const providerName = btn.dataset.provider;
       const card = btn.closest('.provider-card');
       const status = card?.querySelector('.provider-test-status');
+      // Only treat a response as stale when the card was mounted and then went away;
+      // a detached fragment under test is still the caller's live tree.
+      const wasMounted = btn.isConnected;
+      const isCurrent = () => !wasMounted || (btn.isConnected && (!card || card.isConnected));
       btn.disabled = true;
       if (status) {
         status.className = 'provider-test-status';
@@ -566,6 +705,7 @@ export function attachProviderListHandlers(pane, providersObj, reRender = () => 
       }
       try {
         const result = await testProvider(providersObj, providerName);
+        if (!isCurrent()) return;
         if (result?.canceled) {
           const message = result.error || t('settings.provider.test_canceled');
           if (status) status.textContent = message;
@@ -588,6 +728,7 @@ export function attachProviderListHandlers(pane, providersObj, reRender = () => 
           void setStatus(message, 'err');
         }
       } catch (e) {
+        if (!isCurrent()) return;
         const message = t('settings.provider.test_failed', { detail: e.message || e });
         if (status) {
           status.className = 'provider-test-status err';
@@ -595,7 +736,7 @@ export function attachProviderListHandlers(pane, providersObj, reRender = () => 
         }
         void setStatus(message, 'err');
       } finally {
-        btn.disabled = false;
+        if (!wasMounted || btn.isConnected) btn.disabled = false;
       }
     };
   });

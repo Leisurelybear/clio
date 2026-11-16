@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from clio.ui.routes.ai import handle_post_ai_test
+from clio.ui.routes.ai import handle_post_ai_models, handle_post_ai_test
 
 
 def test_ai_test_requires_provider() -> None:
@@ -108,3 +108,42 @@ def test_ai_test_passes_unsaved_provider_candidate(monkeypatch) -> None:
     )
 
     service.assert_called_once_with(cfg, provider_name="draft", model="m1", provider_override=candidate)
+
+
+def test_ai_models_requires_provider(monkeypatch) -> None:
+    handler = MagicMock()
+    service = MagicMock()
+    monkeypatch.setattr("clio.ui.routes.ai.list_provider_models", service)
+
+    handle_post_ai_models(handler, {}, {})
+
+    handler._send_json.assert_called_once_with({"ok": False, "error": "provider is required"}, 400)
+    service.assert_not_called()
+
+
+def test_ai_models_calls_service_with_unsaved_candidate(monkeypatch) -> None:
+    handler = MagicMock()
+    cfg = MagicMock()
+    result = {"ok": True, "provider": "draft", "models": ["m1", "m2"]}
+    service = MagicMock(return_value=result)
+    handler._resolve_project_dir.return_value = Path("G:/trip")
+    handler._get_config.return_value = cfg
+    monkeypatch.setattr("clio.ui.routes.ai.list_provider_models", service)
+    candidate = {"type": "openai", "base_url": "https://example.com/v1", "api_key": "secret"}
+
+    handle_post_ai_models(handler, {"project": ["trip"]}, {"provider": " draft ", "provider_config": candidate})
+
+    service.assert_called_once_with(cfg, provider_name="draft", provider_override=candidate)
+    handler._send_json.assert_called_once_with(result)
+
+
+def test_ai_models_returns_service_failure(monkeypatch) -> None:
+    handler = MagicMock()
+    handler._resolve_project_dir.return_value = Path("G:/trip")
+    handler._get_config.return_value = MagicMock()
+    result = {"ok": False, "provider": "draft", "error": "connection failed"}
+    monkeypatch.setattr("clio.ui.routes.ai.list_provider_models", MagicMock(return_value=result))
+
+    handle_post_ai_models(handler, {}, {"provider": "draft"})
+
+    handler._send_json.assert_called_once_with(result)

@@ -60,7 +60,7 @@ from clio.ui.request_body import (
     parse_json_content_length as _parse_json_content_length,
 )
 from clio.ui.route_table import POST_HANDLER_PARAMS, build_router
-from clio.ui.routes.ai import handle_post_ai_test
+from clio.ui.routes.ai import handle_post_ai_models, handle_post_ai_test
 from clio.ui.routes.config_routes import (
     handle_delete_provider,
     handle_get_config,
