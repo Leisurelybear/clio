@@ -136,7 +136,7 @@ def _list_gemini_models(provider: ProviderConfig, config: AppConfig) -> list[str
         kwargs["async_client_args"] = {"transport": httpx.AsyncHTTPTransport(proxy=proxy.url)}
     client = genai.Client(api_key=provider.api_key, http_options=types.HttpOptions(**kwargs))
     try:
-        models = []
+        models: list[Any] = []
         for index, model in enumerate(client.models.list()):
             if index >= _MAX_GEMINI_MODEL_SCAN or len(models) >= _MAX_MODEL_COUNT:
                 break
