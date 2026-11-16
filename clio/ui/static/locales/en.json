@@ -1410,7 +1410,7 @@
   "run.guide.overwrite_once": "Overwrite applies to this submission only and turns off when the run succeeds, fails, or is cancelled.",
   "run.guide.skip_transcribe": "Skip transcription and continue",
   "run.guide.skip_transcribe_hint": "Do not generate new transcripts; keep existing transcripts available. Re-enable transcription in custom steps when needed.",
-  "credentials.delete_source": "Delete from",
+  "credentials.store_in": "Store in",
   "credentials.loading": "Loading credential status...",
   "credentials.title": "Credentials",
   "credentials.intro": "Manage provider and cloud transcription credentials. Process environment takes precedence; saves may remain shadowed.",

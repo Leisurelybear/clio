@@ -1410,7 +1410,7 @@
   "run.guide.overwrite_once": "覆盖仅作用于本次提交的步骤，运行成功、失败或取消后均会自动关闭。",
   "run.guide.skip_transcribe": "跳过转录继续",
   "run.guide.skip_transcribe_hint": "不生成新的转录，保留已有转录供后续使用；可以在自定义步骤中重新勾选转录。",
-  "credentials.delete_source": "删除来源",
+  "credentials.store_in": "保存到",
   "credentials.loading": "正在读取凭据状态…",
   "credentials.title": "凭据管理",
   "credentials.intro": "管理 AI 厂家与云端转写凭据。进程环境优先，保存的值可能被遮蔽。",
