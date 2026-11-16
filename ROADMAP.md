@@ -10,6 +10,23 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
 
 ## Active backlog (2026-11-13)
 
+### AI provider model discovery (2026-11-16)
+
+- `[x]` Load available models from configured Gemini and OpenAI-compatible providers in the
+  AI settings editor, then let users select which models to keep in the task-binding registry.
+
+### Run workflow simplification (2026-11-16)
+
+- `[x]` Keep guided Run mode on the complete four-stage workflow and prevent a prior custom
+  step selection from silently changing the next guided run.
+- `[x]` Reduce the default Run surface to scope, stage status, and one next action while
+  retaining custom steps and detailed execution controls behind expandable sections.
+- `[x]` Add a stage-level preview contract so the backend is the authoritative source for
+  `next_stage`, blockers, estimates, and output links.
+- `[x]` Persist a resumable guided run session with explicit failure recovery and result
+  navigation: mode, skipped steps, and scope survive reloads per project, failed runs keep
+  the retry handoff, and reusable stages plus completion actions open their output.
+
 ### Pipeline UX and recovery review (2026-11-15)
 
 - `[x]` Review guided execution, task lifecycle, partial failures and recovery semantics;
