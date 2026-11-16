@@ -10,7 +10,7 @@ vi.mock('../sidebar.js', () => ({
   saveProject: () => {}, selectPlan: vi.fn(),
 }));
 import { api } from '../api.js';
-import { renderRun, _handleRunStatus } from '../runner.js';
+import { renderRun, _handleRunStatus, collectRunOptions } from '../runner.js';
 import { state } from '../state.js';
 
 const allSteps = RUN_STAGES.flatMap(stage => stage.steps);
@@ -27,6 +27,8 @@ describe('guided run stages', () => {
     document.body.innerHTML = '';
     await _handleRunStatus({ status: 'idle' });
     localStorage.removeItem('vlog_ui_run_steps');
+    localStorage.removeItem('vlog_ui_run_session');
+    state.currentProjectDir = '';
     state.currentEntity = 'run';
     state.selectionMode = false;
     state.selectedFiles = [];
@@ -283,4 +285,91 @@ it('advances past explicitly disabled optional steps while retaining missing-inp
   p.stages[0].status = 'blocked';
   p.next_stage = 'source_prep';
   expect(nextIncompleteStage(buildRunStageModel({ selectedSteps: allSteps, preview: p }), p).status).toBe('blocked');
+});
+
+describe('guided run session persistence', () => {
+  const SESSION_KEY = 'vlog_ui_run_session';
+  const session = () => JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
+
+  beforeEach(async () => {
+    document.body.innerHTML = '';
+    await _handleRunStatus({ status: 'idle' });
+    localStorage.clear();
+    state.currentEntity = 'run';
+    state.currentDay = 'day1';
+    state.currentProjectDir = '';
+    state.selectionMode = false;
+    state.selectedFiles = [];
+    state.deps = null;
+    state.config = { output_dir: 'output' };
+    vi.mocked(api).mockReset();
+    vi.mocked(api).mockImplementation(async () => ({ files: {} }));
+  });
+
+  async function renderWithSkipAvailable(project = 'session-project') {
+    state.currentProjectDir = project;
+    state.currentDay = 'day3';
+    vi.mocked(api).mockImplementation(async (method, url, options) => {
+      if (url !== '/api/run/preview') return { files: {} };
+      const p = preview();
+      p.steps[0] = { name: 'compress', total: 2, will_run: 0, will_skip: 2 };
+      p.steps[1] = { name: 'transcribe', total: 2, will_run: 2, will_skip: 0 };
+      p.steps = p.steps.filter(row => options.steps.includes(row.name));
+      p.stages[0].status = options.steps.includes('transcribe') ? 'ready' : 'reusable';
+      p.stages[0].steps = options.steps.filter(step => RUN_STAGES[0].steps.includes(step));
+      p.stages[0].will_run = options.steps.includes('transcribe') ? 2 : 0;
+      p.stages[0].will_skip = 2;
+      p.next_stage = options.steps.includes('transcribe') ? 'source_prep' : 'ai_analysis';
+      return { preview: p };
+    });
+    document.body.innerHTML = '<div id="tab-run"></div>';
+    renderRun();
+    await vi.waitFor(() => expect(document.getElementById('btn-run-skip-transcribe').hidden).toBe(false));
+    document.getElementById('btn-run-skip-transcribe').click();
+    await vi.waitFor(() => expect(document.getElementById('btn-run-start').textContent).toContain('AI 看素材'));
+  }
+
+  it('restores the skipped step and scope after a reload', async () => {
+    await renderWithSkipAvailable();
+    expect(session()).toMatchObject({ project: 'session-project', day: 'day3', custom: false });
+    expect(session().skipped).toEqual(['transcribe']);
+
+    document.body.innerHTML = '<div id="tab-run"></div>';
+    renderRun();
+    expect(document.querySelector('.run-step-cb[data-step="transcribe"]').checked).toBe(false);
+    expect(document.getElementById('run-day').value).toBe('day3');
+    expect(collectRunOptions().steps).not.toContain('transcribe');
+  });
+
+  it('does not leak a guided session into another project', async () => {
+    await renderWithSkipAvailable('session-project');
+    document.body.innerHTML = '<div id="tab-run"></div>';
+    state.currentProjectDir = 'other-project';
+    renderRun();
+    expect(document.querySelector('.run-step-cb[data-step="transcribe"]').checked).toBe(true);
+    expect(collectRunOptions().steps).toContain('transcribe');
+  });
+
+  it('restores custom execution mode after a reload', async () => {
+    await renderWithSkipAvailable();
+    const analyze = document.querySelector('.run-step-cb[data-step="analyze"]');
+    analyze.checked = false;
+    analyze.dispatchEvent(new Event('change'));
+    await vi.waitFor(() => expect(session()?.custom).toBe(true));
+
+    document.body.innerHTML = '<div id="tab-run"></div>';
+    renderRun();
+    expect(document.getElementById('run-custom-steps').open).toBe(true);
+    expect(document.querySelector('.run-step-cb[data-step="analyze"]').checked).toBe(false);
+  });
+
+  it('clears the persisted skip when returning to guided stages', async () => {
+    await renderWithSkipAvailable();
+    document.getElementById('btn-run-guided').click();
+    await vi.waitFor(() => expect(session()?.skipped).toEqual([]));
+
+    document.body.innerHTML = '<div id="tab-run"></div>';
+    renderRun();
+    expect(document.querySelector('.run-step-cb[data-step="transcribe"]').checked).toBe(true);
+  });
 });

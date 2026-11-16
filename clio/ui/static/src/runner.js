@@ -61,6 +61,7 @@ function syncRunProject() {
 }
 
 const STEPS_KEY = 'vlog_ui_run_steps';
+const SESSION_KEY = 'vlog_ui_run_session';
 
 const RUN_STEPS = [
   { key: 'compress' },
@@ -106,6 +107,43 @@ function saveStepSelection(checks, useTranscripts) {
   } catch { /* ignore */ }
 }
 
+/**
+ * Guided run session: which mode the page was in, which optional steps the
+ * user skipped, and the processing scope. Keeping it per project means a
+ * reload, a tab switch, or a task-center restore lands on the same next stage
+ * instead of silently reverting to a full-pipeline run.
+ */
+function loadRunSession() {
+  const project = currentProject();
+  if (!project) return null;
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (!parsed || typeof parsed !== 'object' || parsed.project !== project) return null;
+    return parsed;
+  } catch { return null; }
+}
+
+function saveRunSession() {
+  const project = currentProject();
+  // Unnamed projects stay in memory so one editor session cannot inherit
+  // another project's skipped steps.
+  if (!project) return;
+  try {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      project,
+      custom: _customRun,
+      skipped: [..._guidedSkippedSteps],
+      day: $('run-day')?.value.trim() || _lastRunDay || 'day1',
+      all_days: !!$('run-all-days')?.checked,
+    }));
+  } catch { /* ignore */ }
+}
+
+function clearRunSession() {
+  try { localStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
+}
+
 function renderRun() {
   syncRunProject();
   if (!_runActive) _lastRunDay = state.currentDay || 'day1';
@@ -113,14 +151,19 @@ function renderRun() {
   _lastRunPreview = null;
   _previewFailed = false;
   const saved = loadStepSelection();
-  _customRun = false;
-  _guidedSkippedSteps = new Set();
+  const savedSteps = saved.steps || {};
+  const session = loadRunSession();
+  // Guided mode always starts from the complete user-facing workflow, but a
+  // persisted session may restore an explicit skip or a custom selection.
+  _customRun = Boolean(session?.custom);
+  _guidedSkippedSteps = new Set(Array.isArray(session?.skipped) ? session.skipped : []);
+  const sessionDay = typeof session?.day === 'string' ? session.day : '';
+  if (sessionDay && !_runActive) _lastRunDay = sessionDay;
+  const sessionAllDays = Boolean(session?.all_days);
   const savedUseTrans = saved.use_transcripts !== false;
 
   const stepChecks = RUN_STEPS.map(s => {
-    // Guided mode always starts from the complete user-facing workflow. A
-    // previous custom selection must not silently change the next guided run.
-    const checked = true;
+    const checked = _customRun ? savedSteps[s.key] !== false : !_guidedSkippedSteps.has(s.key);
     const isConsistency = s.key === 'consistency';
     const isPlan = s.key === 'plan';
     return `
@@ -134,10 +177,10 @@ function renderRun() {
         <div class="run-step-sub run-step-day-sub">
           <label class="run-option">
             <span class="run-option-label">${t('run.day_label')}</span>
-            <input id="run-day" class="run-option-input" value="${escapeHtml(state.currentDay)}">
+            <input id="run-day" class="run-option-input" value="${escapeHtml(sessionDay || state.currentDay)}">
           </label>
           <label class="run-option run-option-check">
-            <input type="checkbox" id="run-all-days">
+            <input type="checkbox" id="run-all-days" ${sessionAllDays ? 'checked' : ''}>
             <span>${t('run.all_days')}</span>
           </label>
         </div>
@@ -210,6 +253,7 @@ function renderRun() {
     const checks = {};
     pane.querySelectorAll('.run-step-cb').forEach(cb => { checks[cb.dataset.step] = cb.checked; });
     saveStepSelection(checks, $('run-use-transcripts')?.checked ?? true);
+    saveRunSession();
     return refreshRunPreview({ silent: true });
   };
 
@@ -222,6 +266,7 @@ function renderRun() {
         checks[c.dataset.step] = c.checked;
       });
       saveStepSelection(checks, $('run-use-transcripts')?.checked ?? true);
+      saveRunSession();
       togglePlanSubOptions();
       updateRunStartButtonState();
       refreshRunPreview({ silent: true });
@@ -246,6 +291,7 @@ function renderRun() {
   const allDaysCb = $('run-all-days');
   if (allDaysCb) {
     allDaysCb.addEventListener('change', () => {
+      saveRunSession();
       toggleDayScopeInputs();
       refreshRunPreview({ silent: true });
     });
@@ -256,11 +302,16 @@ function renderRun() {
     _guidedSkippedSteps = new Set();
     pane.querySelectorAll('.run-step-cb').forEach(cb => { cb.checked = true; });
     saveStepSelection(Object.fromEntries(RUN_STEPS.map(step => [step.key, true])), $('run-use-transcripts')?.checked ?? true);
+    clearRunSession();
+    saveRunSession();
     togglePlanSubOptions();
     updateRunGuide();
     refreshRunPreview({ silent: true });
   };
-  $('run-day')?.addEventListener('input', () => refreshRunPreview({ silent: true }));
+  $('run-day')?.addEventListener('input', () => {
+    saveRunSession();
+    refreshRunPreview({ silent: true });
+  });
   $('run-context-override')?.addEventListener('change', () => refreshRunPreview({ silent: true }));
   togglePlanSubOptions();
   updateRunFilesBadge();
