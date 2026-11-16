@@ -2247,6 +2247,15 @@ body.video-drag-active {
 .run-stage-card.excluded { opacity: .55; }
 .run-next-card { border-color: var(--accent); }
 .run-next-card .hint { margin-top: 0; }
+.run-scope-card {
+  margin: 12px 0;
+  padding: 12px 14px;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.run-scope-heading { font-size: var(--text-sm); font-weight: 600; color: var(--text-primary); }
+.run-scope-card > .hint { margin: 4px 0 10px; }
 .run-done-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 #tab-run .run-prompt-section { margin: 10px 0; }
 #tab-run .run-prompt-section[open] > summary { margin-bottom: 10px; }

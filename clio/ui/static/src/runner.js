@@ -42,6 +42,7 @@ let _taskEventsUnsubscribe = null;
 const _taskSession = new RunTaskSession();
 let _statusQueue = Promise.resolve();
 let _lastRunAllDays = false;
+let _guidedSkippedSteps = new Set();
 
 function currentProject() { return state.currentProjectDir || state.config?.project_dir || ''; }
 
@@ -111,13 +112,15 @@ function renderRun() {
   const pane = $('tab-run');
   _lastRunPreview = null;
   _previewFailed = false;
-  _customRun = false;
   const saved = loadStepSelection();
-  const savedSteps = saved.steps || {};
+  _customRun = false;
+  _guidedSkippedSteps = new Set();
   const savedUseTrans = saved.use_transcripts !== false;
 
   const stepChecks = RUN_STEPS.map(s => {
-    const checked = savedSteps[s.key] !== false;
+    // Guided mode always starts from the complete user-facing workflow. A
+    // previous custom selection must not silently change the next guided run.
+    const checked = true;
     const isConsistency = s.key === 'consistency';
     const isPlan = s.key === 'plan';
     return `
@@ -155,7 +158,11 @@ function renderRun() {
     <h3>${t('run.title')}</h3>
     <p class="hint">${t('run.subtitle')}</p>
     <p class="hint">${t('run.current_project', { path: escapeHtml(state.currentProjectDir || state.config?.project_dir || t('run.unset')) })}</p>
-    <div id="run-scope"></div>
+    <section class="run-scope-card">
+      <div class="run-scope-heading">${t('run.scope.heading')}</div>
+      <p class="hint">${t('run.scope.hint')}</p>
+      <div id="run-scope"></div>
+    </section>
     <section id="run-stage-board" class="run-stage-board"></section>
     <section class="run-next-card">
       <p id="run-next-description" class="hint"></p>
@@ -166,7 +173,7 @@ function renderRun() {
       <span id="run-files-badge" class="run-files-badge" style="display:none"></span>
       <button id="btn-run-cancel" class="btn-secondary" style="display:none">${t('common.cancel')}</button>
     </section>
-    <details id="run-custom-steps" class="run-prompt-section">
+    <details id="run-custom-steps" class="run-prompt-section"${_customRun ? ' open' : ''}>
       <summary>${t('run.guide.custom')}</summary>
       <p class="hint">${t('run.guide.custom_hint')}</p>
       <button id="btn-run-guided" class="btn-secondary">${t('run.guide.resume')}</button>
@@ -198,6 +205,7 @@ function renderRun() {
     if (_runActive) return;
     const transcribe = pane.querySelector('.run-step-cb[data-step="transcribe"]');
     if (!transcribe) return;
+    _guidedSkippedSteps.add('transcribe');
     transcribe.checked = false;
     const checks = {};
     pane.querySelectorAll('.run-step-cb').forEach(cb => { checks[cb.dataset.step] = cb.checked; });
@@ -243,7 +251,15 @@ function renderRun() {
     });
   }
 
-  $('btn-run-guided').onclick = () => { _customRun = false; updateRunGuide(); };
+  $('btn-run-guided').onclick = () => {
+    _customRun = false;
+    _guidedSkippedSteps = new Set();
+    pane.querySelectorAll('.run-step-cb').forEach(cb => { cb.checked = true; });
+    saveStepSelection(Object.fromEntries(RUN_STEPS.map(step => [step.key, true])), $('run-use-transcripts')?.checked ?? true);
+    togglePlanSubOptions();
+    updateRunGuide();
+    refreshRunPreview({ silent: true });
+  };
   $('run-day')?.addEventListener('input', () => refreshRunPreview({ silent: true }));
   $('run-context-override')?.addEventListener('change', () => refreshRunPreview({ silent: true }));
   togglePlanSubOptions();
@@ -325,12 +341,20 @@ function currentStageModel() {
     activePhase: _activePhase, completedSteps: _completedSteps });
 }
 
+function guidedStepKeys() {
+  return RUN_STEPS.map(step => step.key).filter(step => !_guidedSkippedSteps.has(step));
+}
+
 function updateRunGuide() {
   const board = $('run-stage-board');
   if (!board) return;
   const model = currentStageModel();
-  renderStageBoard(board, model);
-  const next = nextIncompleteStage(model);
+  renderStageBoard(board, model, stage => {
+    if (stage?.output?.steps?.length) {
+      _showRunCompletionTarget(stage.output.steps, _lastRunDay, $('run-all-days')?.checked, stage.output.target);
+    }
+  });
+  const next = nextIncompleteStage(model, _lastRunPreview);
   const skipTranscribe = $('btn-run-skip-transcribe');
   if (skipTranscribe) {
     const row = _lastRunPreview?.steps?.find(step => step.name === 'transcribe');
@@ -343,11 +367,10 @@ function updateRunGuide() {
   if (retry) retry.hidden = !_previewFailed;
   const estimate = $('run-next-estimate');
   if (estimate) {
-    const rows = (_lastRunPreview?.steps || []).filter(row => _customRun || next?.steps.includes(row.name));
-    const calls = rows.reduce((sum, row) => sum + (Number(row.planned_calls) || 0), 0);
-    const priced = rows.filter(row => Number(row.planned_calls) > 0).every(row => row.estimate_status === 'estimated');
-    const cost = rows.reduce((sum, row) => sum + (Number(row.estimated_cost_usd) || 0), 0);
-    estimate.textContent = calls ? `${t('run.preview.ai_calls', { count: calls })} · ${priced
+    const usage = next?.estimate;
+    const calls = Number(usage?.planned_calls) || 0;
+    const cost = Number(usage?.estimated_cost_usd) || 0;
+    estimate.textContent = calls ? `${t('run.preview.ai_calls', { count: calls })} · ${usage.estimate_status === 'estimated'
       ? t('run.preview.ai_cost', { cost: `$${cost.toFixed(4)}` }) : t('run.preview.cost_unconfigured')}` : '';
   }
   const description = $('run-next-description');
@@ -376,7 +399,11 @@ function updateRunStartButtonState() {
 }
 
 function collectRunOptions() {
-  const steps = [...document.querySelectorAll('.run-step-cb:checked')].map(cb => cb.dataset.step);
+  const checkedSteps = [...document.querySelectorAll('.run-step-cb:checked')].map(cb => cb.dataset.step);
+  // Unit callers and small embedded forms may not render the Run page shell;
+  // in that case their checked boxes are the explicit custom selection.
+  const guided = Boolean(document.getElementById('run-custom-steps')) && !_customRun;
+  const steps = guided ? guidedStepKeys() : checkedSteps;
   const options = {
     day_label: ($('run-day')?.value.trim() || state.currentDay || 'day1'),
     steps,
@@ -417,7 +444,7 @@ async function refreshRunPreview({ silent = false } = {}) {
   }
   try {
     const response = await api('POST', '/api/run/preview', options, { signal: ac.signal });
-    if (!isLatest('run-preview', ac) || project !== currentProject()) return null;
+      if (!isLatest('run-preview', ac) || project !== currentProject()) return null;
     _lastRunPreview = response?.preview || null;
     _previewFailed = !_lastRunPreview;
     if (!_runActive) _completedSteps = [];
@@ -926,8 +953,11 @@ function _completionTargetForSteps(steps) {
   return null;
 }
 
-async function _showRunCompletionTarget(steps, day = _lastRunDay, allDays = false) {
-  const target = _completionTargetForSteps(steps);
+async function _showRunCompletionTarget(steps, day = _lastRunDay, allDays = false, outputTarget = '') {
+  const target = outputTarget ? {
+    entity: outputTarget === 'plan' ? 'plan' : 'video',
+    tab: outputTarget === 'voiceover' ? 'voiceover' : 'texts',
+  } : _completionTargetForSteps(steps);
   if (!target) return;
   const sidebar = await import('./sidebar.js');
   if (target.entity === 'plan') {

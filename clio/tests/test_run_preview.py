@@ -1989,6 +1989,19 @@ def test_preview_aggregates_ai_usage_across_steps(tmp_path: Path) -> None:
     assert by_name["consistency"]["planned_calls"] == 1
     assert by_name["plan_voiceover"]["planned_calls"] == 2
     assert by_name["plan_voiceover"]["estimated_prompt_tokens"] == 5000
+    by_stage = {stage["key"]: stage for stage in preview["stages"]}
+    assert by_stage["plan_alignment"]["estimate"]["planned_calls"] == 1
+    assert by_stage["plan_alignment"]["estimate"]["estimated_cost_usd"] == pytest.approx(
+        by_name["consistency"]["estimated_cost_usd"]
+    )
+    assert by_stage["voiceover_delivery"]["estimate"]["planned_calls"] == 2
+    assert by_stage["voiceover_delivery"]["estimate"]["estimated_cost_usd"] == pytest.approx(
+        by_name["plan_voiceover"]["estimated_cost_usd"]
+    )
+    assert by_stage["voiceover_delivery"]["output"] == {
+        "target": "plan",
+        "steps": ["plan_voiceover"],
+    }
 
 
 def test_preview_reports_unknown_cost_when_prices_are_unconfigured(tmp_path: Path) -> None:
@@ -2008,6 +2021,101 @@ def test_preview_reports_unknown_cost_when_prices_are_unconfigured(tmp_path: Pat
     assert step["estimated_cost_usd"] is None
     assert preview["totals"]["estimated_cost_usd"] is None
     assert preview["totals"]["estimate_status"] == "unknown"
+
+
+def test_preview_exposes_user_facing_stage_summary(tmp_path: Path) -> None:
+    config = _config(tmp_path, tmp_path / "output")
+    preview = build_run_preview(config, steps=["compress", "analyze"], force=False, use_transcripts=True)
+
+    assert [stage["key"] for stage in preview["stages"]] == [
+        "source_prep",
+        "ai_analysis",
+        "plan_alignment",
+        "voiceover_delivery",
+    ]
+    assert preview["stages"][0]["steps"] == ["compress"]
+    assert preview["stages"][1]["steps"] == ["analyze"]
+    assert preview["stages"][2]["status"] == "excluded"
+    assert preview["next_stage"] == "source_prep"
+    assert preview["blockers"] == []
+    assert preview["stages"][0]["estimate"]["planned_calls"] == 0
+    assert preview["stages"][0]["output"] == {"target": "video", "steps": ["compress"]}
+    assert preview["outputs"] == []
+
+
+def test_preview_stage_summary_does_not_block_disabled_transcribe(tmp_path: Path) -> None:
+    input_dir = tmp_path / "videos"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+    (input_dir / "A.mp4").write_bytes(b"video")
+
+    from clio.tasks._video_loader import save_selected_videos
+
+    save_selected_videos(input_dir, [input_dir / "A.mp4"])
+    preview = build_run_preview(
+        _config(input_dir, output_dir),
+        steps=["transcribe"],
+        force=False,
+        use_transcripts=False,
+    )
+
+    source_prep = preview["stages"][0]
+    assert preview["steps"][0]["disabled"] is True
+    assert source_prep["status"] == "reusable"
+    assert source_prep["warnings"] == preview["steps"][0]["warnings"]
+    assert source_prep["warnings"] != []
+    assert preview["next_stage"] is None
+    assert preview["blockers"] == []
+    assert preview["outputs"] == []
+
+
+def test_stage_summary_blocks_on_missing_required_input() -> None:
+    from clio.ui.services.run_preview import _build_stage_summary
+
+    summary = _build_stage_summary(
+        ["compress", "transcribe"],
+        [
+            {"name": "compress", "total": 0, "will_run": 0, "will_skip": 0, "warnings": ["no sources"]},
+            {
+                "name": "transcribe",
+                "total": 0,
+                "will_run": 0,
+                "will_skip": 0,
+                "warnings": ["transcription disabled"],
+                "disabled": True,
+            },
+        ],
+    )
+
+    source_prep = summary["stages"][0]
+    assert source_prep["status"] == "blocked"
+    assert summary["next_stage"] == "source_prep"
+    # A disabled optional step explains itself but must not become a blocker.
+    assert summary["blockers"] == ["no sources"]
+
+
+def test_stage_summary_reuses_compress_when_transcribe_is_disabled() -> None:
+    from clio.ui.services.run_preview import _build_stage_summary
+
+    summary = _build_stage_summary(
+        ["compress", "transcribe"],
+        [
+            {"name": "compress", "total": 2, "will_run": 0, "will_skip": 2, "warnings": []},
+            {
+                "name": "transcribe",
+                "total": 0,
+                "will_run": 0,
+                "will_skip": 0,
+                "warnings": ["transcription disabled"],
+                "disabled": True,
+            },
+        ],
+    )
+
+    source_prep = summary["stages"][0]
+    assert source_prep["status"] == "reusable"
+    assert source_prep["warnings"] == ["transcription disabled"]
+    assert summary["blockers"] == []
 
 
 @pytest.mark.parametrize("step", ["plan", "consistency", "voiceover", "plan_voiceover"])

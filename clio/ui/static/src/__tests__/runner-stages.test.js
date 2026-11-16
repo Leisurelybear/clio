@@ -14,7 +14,13 @@ import { renderRun, _handleRunStatus } from '../runner.js';
 import { state } from '../state.js';
 
 const allSteps = RUN_STAGES.flatMap(stage => stage.steps);
-const preview = () => ({ steps: allSteps.map(name => ({ name, total: 2, will_run: 2, will_skip: 0 })) });
+const preview = () => ({
+  steps: allSteps.map(name => ({ name, total: 2, will_run: 2, will_skip: 0 })),
+  stages: RUN_STAGES.map(stage => ({ key: stage.key, steps: stage.steps, status: 'ready',
+    total: stage.steps.length * 2, will_run: stage.steps.length * 2, will_skip: 0, warnings: [],
+    estimate: { planned_calls: 0 }, output: null })),
+  next_stage: RUN_STAGES[0].key, blockers: [], outputs: [],
+});
 
 describe('guided run stages', () => {
   beforeEach(async () => {
@@ -37,22 +43,54 @@ describe('guided run stages', () => {
   it('skips reusable stages but does not treat missing inputs as completed', () => {
     const p = preview();
     p.steps.slice(0, 2).forEach(row => { row.will_run = 0; row.will_skip = 2; });
+    p.stages[0].status = 'reusable';
+    p.next_stage = 'ai_analysis';
     const model = buildRunStageModel({ selectedSteps: allSteps, preview: p });
     expect(model[0].status).toBe('reusable');
-    expect(nextIncompleteStage(model).steps).toEqual(['analyze']);
+    expect(nextIncompleteStage(model, p).steps).toEqual(['analyze']);
     p.steps[2] = { name: 'analyze', total: 0, warnings: ['Missing compressed input'] };
-    expect(nextIncompleteStage(buildRunStageModel({ selectedSteps: allSteps, preview: p })).status).toBe('blocked');
+    p.stages[1].status = 'blocked';
+    p.stages[1].warnings = ['Missing compressed input'];
+    p.next_stage = 'ai_analysis';
+    expect(nextIncompleteStage(buildRunStageModel({ selectedSteps: allSteps, preview: p }), p).status).toBe('blocked');
+  });
+
+  it('uses backend stage decisions and estimates instead of deriving them from step rows', () => {
+    const p = preview();
+    p.steps[0] = { name: 'compress', total: 0, will_run: 0, will_skip: 0, warnings: ['step row disagrees'] };
+    p.stages[0].status = 'ready';
+    p.stages[0].estimate = { planned_calls: 3, estimate_status: 'estimated', estimated_cost_usd: 0.12 };
+    p.next_stage = 'source_prep';
+    const model = buildRunStageModel({ selectedSteps: allSteps, preview: p });
+    expect(model[0].status).toBe('ready');
+    expect(model[0].estimate.planned_calls).toBe(3);
+    expect(nextIncompleteStage(model, p).key).toBe('source_prep');
   });
 
   it('highlights only the current stage and escapes warning content', () => {
     const p = preview();
-    p.steps[2].warnings = ['<img src=x onerror=alert(1)>'];
+    p.stages[1].warnings = ['<img src=x onerror=alert(1)>'];
     const board = document.createElement('div');
     renderStageBoard(board, buildRunStageModel({ selectedSteps: allSteps, preview: p, activePhase: 'analyze' }));
     expect(board.querySelectorAll('[aria-current="step"]')).toHaveLength(1);
     expect(board.querySelector('[aria-current="step"]').dataset.stage).toBe('ai_analysis');
     expect(board.querySelector('img')).toBeNull();
     expect(board.textContent).toContain('<img');
+  });
+
+  it('passes the authoritative output target from reusable stages', () => {
+    const p = preview();
+    p.stages[0].status = 'reusable';
+    p.stages[0].output = { target: 'texts', steps: ['compress'] };
+    const board = document.createElement('div');
+    const openOutput = vi.fn();
+    renderStageBoard(board, buildRunStageModel({ selectedSteps: allSteps, preview: p }), openOutput);
+
+    board.querySelector('[data-stage-output="source_prep"]').click();
+    expect(openOutput).toHaveBeenCalledWith(expect.objectContaining({
+      key: 'source_prep',
+      output: { target: 'texts', steps: ['compress'] },
+    }));
   });
 
   it('submits only the advertised next stage and preserves the custom selections', async () => {
@@ -65,6 +103,21 @@ describe('guided run stages', () => {
     const call = vi.mocked(api).mock.calls.find(([, url]) => url === '/api/run/start');
     expect(call[2].steps).toEqual(['compress', 'transcribe']);
     expect(document.querySelectorAll('.run-step-cb:checked')).toHaveLength(8);
+  });
+
+  it('does not inherit a previous custom step selection into guided mode', async () => {
+    localStorage.setItem('vlog_ui_run_steps', JSON.stringify({
+      steps: { compress: false, transcribe: false, analyze: true, consistency: false,
+        voiceover: false, plan: false, plan_voiceover: false, label: false },
+      use_transcripts: true,
+    }));
+    document.body.innerHTML = '<div id="tab-run"></div>';
+    renderRun();
+
+    await vi.waitFor(() => expect(document.getElementById('btn-run-start').disabled).toBe(false));
+    expect(document.querySelectorAll('.run-step-cb:checked')).toHaveLength(8);
+    expect(document.getElementById('run-custom-steps').open).toBe(false);
+    expect(document.getElementById('btn-run-start').textContent).toContain('素材准备');
   });
 
   it('keeps the run page after completion and opens results only on click', async () => {
@@ -135,6 +188,12 @@ describe('guided run stages', () => {
       if (prepared && !options.overwrite) p.steps.slice(0, 2).forEach(row => {
         row.will_run = 0; row.will_skip = 2;
       });
+      if (prepared && !options.overwrite) {
+        p.stages[0].status = 'reusable';
+        p.stages[0].will_run = 0;
+        p.stages[0].will_skip = 4;
+        p.next_stage = 'ai_analysis';
+      }
       return { preview: p };
     });
     document.body.innerHTML = '<div id="tab-run"></div>';
@@ -170,7 +229,13 @@ describe('guided run stages', () => {
       if (url !== '/api/run/preview') return { files: {} };
       const p = preview();
       p.steps[0] = { name: 'compress', total: 2, will_run: 0, will_skip: 2 };
+      p.steps[1] = { name: 'transcribe', total: 2, will_run: 2, will_skip: 0 };
       p.steps = p.steps.filter(row => options.steps.includes(row.name));
+      p.stages[0].status = options.steps.includes('transcribe') ? 'ready' : 'reusable';
+      p.stages[0].steps = options.steps.filter(step => RUN_STAGES[0].steps.includes(step));
+      p.stages[0].will_run = options.steps.includes('transcribe') ? 2 : 0;
+      p.stages[0].will_skip = 2;
+      p.next_stage = options.steps.includes('transcribe') ? 'source_prep' : 'ai_analysis';
       return { preview: p };
     });
     document.body.innerHTML = '<div id="tab-run"></div>';
@@ -188,6 +253,10 @@ describe('guided run stages', () => {
     const p = preview();
     p.steps[0] = { name: 'compress', total: 2, will_run: 0, will_skip: 2 };
     p.steps[1] = { name: 'transcribe', total: 0, disabled: true, warnings: ['Disabled by option'] };
+    p.stages[0].status = 'reusable';
+    p.stages[0].will_run = 0;
+    p.stages[0].will_skip = 2;
+    p.next_stage = 'ai_analysis';
     vi.mocked(api).mockResolvedValue({ preview: p });
     document.body.innerHTML = '<div id="tab-run"></div>';
     renderRun();
@@ -202,9 +271,16 @@ it('advances past explicitly disabled optional steps while retaining missing-inp
   const p = preview();
   p.steps[0] = { name: 'compress', total: 2, will_run: 0, will_skip: 2, warnings: [] };
   p.steps[1] = { name: 'transcribe', total: 0, will_run: 0, will_skip: 0, disabled: true, warnings: ['disabled'] };
+  p.stages[0].status = 'reusable';
+  p.stages[0].steps = ['compress', 'transcribe'];
+  p.stages[0].will_run = 0;
+  p.stages[0].will_skip = 2;
+  p.next_stage = 'ai_analysis';
   const m = buildRunStageModel({ selectedSteps: allSteps, preview: p });
   expect(m[0].status).toBe('reusable');
-  expect(nextIncompleteStage(m).steps).toEqual(['analyze']);
+  expect(nextIncompleteStage(m, p).steps).toEqual(['analyze']);
   p.steps[1].disabled = false;
-  expect(nextIncompleteStage(buildRunStageModel({ selectedSteps: allSteps, preview: p })).status).toBe('blocked');
+  p.stages[0].status = 'blocked';
+  p.next_stage = 'source_prep';
+  expect(nextIncompleteStage(buildRunStageModel({ selectedSteps: allSteps, preview: p }), p).status).toBe('blocked');
 });

@@ -69,6 +69,94 @@ def _step_label(name: str) -> str:
     return t(f"run.step.{name}.label", fallback=name)
 
 
+_RUN_PREVIEW_STAGES = (
+    ("source_prep", ("compress", "transcribe")),
+    ("ai_analysis", ("analyze",)),
+    ("plan_alignment", ("consistency", "voiceover", "plan")),
+    ("voiceover_delivery", ("plan_voiceover", "label")),
+)
+
+
+def _build_stage_summary(selected_steps: list[str], preview_steps: list[dict[str, Any]]) -> dict[str, Any]:
+    """Project step previews into the four user-facing stages.
+
+    The detailed step rows remain in the response for custom execution and
+    compatibility. This compact projection gives the guided UI one authoritative
+    status/next-action contract without making it repeat cache rules locally.
+    """
+    rows_by_name = {str(row.get("name")): row for row in preview_steps}
+    selected = set(selected_steps)
+    stages: list[dict[str, Any]] = []
+    blockers: list[str] = []
+    for key, stage_steps in _RUN_PREVIEW_STAGES:
+        steps = [step for step in stage_steps if step in selected]
+        rows = [rows_by_name[step] for step in steps if step in rows_by_name]
+        required_rows = [row for row in rows if not row.get("disabled")]
+        total = sum(int(row.get("total") or 0) for row in rows)
+        will_run = sum(int(row.get("will_run") or 0) for row in rows)
+        will_skip = sum(int(row.get("will_skip") or 0) for row in rows)
+        warnings = [str(item) for row in rows for item in (row.get("warnings") or [])]
+        # Optional steps that are disabled for this run must not block the stage:
+        # they carry an explanatory warning but no work or artifact requirement.
+        required_warnings = [str(item) for row in required_rows for item in (row.get("warnings") or [])]
+        known = len(rows) == len(steps)
+        reusable = (
+            bool(steps)
+            and known
+            and all(
+                int(row.get("total") or 0) > 0
+                and int(row.get("will_run") or 0) == 0
+                and int(row.get("will_skip") or 0) == int(row.get("total") or 0)
+                and not row.get("warnings")
+                for row in required_rows
+            )
+        )
+        missing = list(required_warnings)
+        if not steps:
+            status = "excluded"
+        elif not known:
+            status = "unknown"
+        elif will_run == 0 and (
+            any(int(row.get("total") or 0) == 0 for row in required_rows) or (required_warnings and not reusable)
+        ):
+            status = "blocked"
+        elif reusable:
+            status = "reusable"
+        else:
+            status = "ready"
+        if status in {"unknown", "blocked"}:
+            blockers.extend(item for item in missing if item not in blockers)
+        usage = combine_usage(rows)
+        output_steps = [str(row["name"]) for row in required_rows]
+        output_target = {
+            "source_prep": "video",
+            "ai_analysis": "texts",
+            "plan_alignment": ("plan" if "plan" in steps else "voiceover" if "voiceover" in steps else "texts"),
+            "voiceover_delivery": "plan" if "plan_voiceover" in steps else "video",
+        }[key]
+        stages.append(
+            {
+                "key": key,
+                "steps": steps,
+                "status": status,
+                "total": total,
+                "will_run": will_run,
+                "will_skip": will_skip,
+                "warnings": warnings,
+                "blockers": missing if status in {"unknown", "blocked"} else [],
+                "estimate": usage,
+                "output": {"target": output_target, "steps": output_steps} if output_steps else None,
+            }
+        )
+    next_stage = next((stage["key"] for stage in stages if stage["status"] not in {"excluded", "reusable"}), None)
+    return {
+        "stages": stages,
+        "next_stage": next_stage,
+        "blockers": blockers,
+        "outputs": [stage["output"] for stage in stages if stage["status"] == "reusable" and stage["output"]],
+    }
+
+
 def build_run_preview(
     config: AppConfig,
     steps: Iterable[str],
@@ -156,6 +244,7 @@ def build_run_preview(
         "steps": preview_steps,
         "totals": totals,
     }
+    result.update(_build_stage_summary(selected_steps, preview_steps))
     if "plan" in selected_steps and plan_overwrite_confirmation_required(config, day_label, files):
         result["plan_overwrite"] = {"required": True, "day_label": day_label}
     overwrite_paths = artifact_overwrite_paths(

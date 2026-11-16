@@ -4,7 +4,7 @@ import { buildRunStageModel, nextIncompleteStage } from './runner-stage-model.js
 
 export { buildRunStageModel, nextIncompleteStage };
 
-export function renderStageBoard(container, model) {
+export function renderStageBoard(container, model, onOpenOutput) {
   if (!container) return;
   container.innerHTML = String(html`
     <h4>${t('run.guide.heading')}</h4>
@@ -18,8 +18,12 @@ export function renderStageBoard(container, model) {
           <p>${t(`run.stage.${stage.key}.hint`)}</p>
           ${stage.total > 0 ? html`<small>${t('run.guide.counts', { pending: stage.pending, skipped: stage.skipped })}</small>` : ''}
           ${stage.warnings.map(warning => html`<p class="warn">${warning}</p>`)}
+          ${stage.output && stage.status === 'reusable' ? html`<button class="btn-secondary run-stage-output" data-stage-output="${stage.key}">${t('run.guide.view_output')}</button>` : ''}
         </div>
       </li>`)}</ol>`);
+  container.querySelectorAll('[data-stage-output]').forEach(button => {
+    button.addEventListener('click', () => onOpenOutput?.(model.find(stage => stage.key === button.dataset.stageOutput)));
+  });
 }
 
 export function renderCompletionActions(container, steps, onView, onReveal, outputPath) {
