@@ -27,6 +27,17 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
   navigation: mode, skipped steps, and scope survive reloads per project, failed runs keep
   the retry handoff, and reusable stages plus completion actions open their output.
 
+### Run UX clarification (2026-11-18)
+
+- `[x]` Show preview failures inside the preview pane with an inline retry action.
+- `[x]` Explain blocked stages and the next-stage blockers on the guided Run page.
+- `[x]` Add plain-language status descriptions to every stage card.
+- `[x]` Label the guided next-stage card with progress and a reassurance line.
+- `[x]` Surface execution-option details and cost estimates by default instead of hiding them.
+- `[x]` Summarize run outputs on the completion card after a run finishes.
+- `[x]` Unify run cost formatting across the next-stage card and preview.
+- `[x]` Surface custom step mode with an inline guided-mode recovery action.
+
 ### Pipeline UX and recovery review (2026-11-15)
 
 - `[x]` Review guided execution, task lifecycle, partial failures and recovery semantics;
