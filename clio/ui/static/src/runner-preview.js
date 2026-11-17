@@ -10,7 +10,7 @@ function formatNumber(value) {
   return Math.trunc(safeNumber(value)).toLocaleString('en-US');
 }
 
-function formatCost(value) {
+export function formatCost(value) {
   const cost = safeNumber(value);
   const decimals = cost >= 1 ? 2 : cost >= 0.01 ? 4 : 6;
   return `$${cost.toFixed(decimals)}`;

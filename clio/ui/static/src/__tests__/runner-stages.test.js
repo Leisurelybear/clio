@@ -138,6 +138,20 @@ describe('guided run stages', () => {
     }));
   });
 
+  it('uses the shared dynamic precision for next-stage cost estimates', async () => {
+    const p = preview();
+    p.stages[0].estimate = {
+      planned_calls: 2,
+      estimate_status: 'estimated',
+      estimated_cost_usd: 0.013,
+    };
+    p.next_stage = 'source_prep';
+    vi.mocked(api).mockResolvedValue({ preview: p });
+    document.body.innerHTML = '<div id="tab-run"></div>';
+    renderRun();
+    await vi.waitFor(() => expect(document.getElementById('run-next-estimate').textContent).toContain('$0.0130'));
+  });
+
   it('submits only the advertised next stage and preserves the custom selections', async () => {
     document.body.innerHTML = '<div id="tab-run"></div>';
     renderRun();

@@ -20,6 +20,7 @@ import {
   needsPlanOverwriteConfirmation,
   renderRunPreviewHtml,
   renderRunPreviewErrorHtml,
+  formatCost,
 } from './runner-preview.js';
 import { buildSkippedDiagnostics, renderProcessingState, renderSkippedDiagnosticsHtml, STEP_KEYS, stepShortLabel } from './runner-diagnostics.js';
 
@@ -427,7 +428,7 @@ function updateRunGuide() {
     const calls = Number(usage?.planned_calls) || 0;
     const cost = Number(usage?.estimated_cost_usd) || 0;
     estimate.textContent = calls ? `${t('run.preview.ai_calls', { count: calls })} · ${usage.estimate_status === 'estimated'
-      ? t('run.preview.ai_cost', { cost: `$${cost.toFixed(4)}` }) : t('run.preview.cost_unconfigured')}` : '';
+      ? t('run.preview.ai_cost', { cost: formatCost(cost) }) : t('run.preview.cost_unconfigured')}` : '';
   }
   const kicker = $('run-next-kicker');
   const title = $('run-next-title');
