@@ -1423,6 +1423,8 @@
   "run.guide.all_current": "Selected stages processed or reusable",
   "run.guide.view_output": "View output",
   "run.guide.completed_hint": "This run has finished. View the results or continue to the next stage; see processing records below for skipped items.",
+  "run.guide.outputs_heading": "Outputs from this run",
+  "run.guide.outputs_empty": "This run did not produce new files.",
   "run.guide.view_plan": "View edit plan",
   "run.guide.view_result": "View results",
   "run.guide.open_output": "Open output folder",

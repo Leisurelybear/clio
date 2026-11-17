@@ -173,8 +173,23 @@ describe('guided run stages', () => {
     expect(selectPlan).not.toHaveBeenCalled();
     expect(state.currentEntity).toBe('run');
     expect(document.querySelector('script')).toBeNull();
+    expect(document.getElementById('run-completion-actions').textContent).toContain('本次运行未产生新的文件');
     document.getElementById('btn-run-view-result').click();
     await vi.waitFor(() => expect(selectPlan).toHaveBeenCalled());
+  });
+
+  it('summarizes processed outputs on the completion card', async () => {
+    document.body.innerHTML = '<div id="run-progress"></div><div id="run-completion-actions"></div>';
+    await _handleRunStatus({
+      status: 'done',
+      steps: ['analyze'],
+      message: 'done',
+      result_summary: { steps: [{ name: 'analyze', processed: 3, failed: 0 }] },
+    });
+    const actions = document.getElementById('run-completion-actions');
+    expect(actions.textContent).toContain('本次产出');
+    expect(actions.textContent).toContain('AI 分析');
+    expect(actions.textContent).toContain('待执行 3 项');
   });
 
   it('switches to custom execution when checkboxes change', async () => {

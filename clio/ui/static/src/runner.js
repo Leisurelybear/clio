@@ -986,7 +986,7 @@ export async function _handleRunStatus(s, { restore = false } = {}) {
               const result = await api('POST', '/api/fs/reveal', { path: outputPath });
               if (!result.ok) throw new Error(result.error || t('project.open_failed_bare'));
             } catch (error) { setStatus(t('project.reveal_failed', { detail: error.message }), 'err'); }
-          }, outputPath);
+          }, outputPath, _runOutputSummary(completedSteps, s));
         updateRunGuide();
         if (!restore) await refreshRunPreview({ silent: true });
       }
@@ -1033,6 +1033,16 @@ export async function _handleRunStatus(s, { restore = false } = {}) {
         await refreshRunPreview({ silent: true });
       }
     }
+}
+
+function _runOutputSummary(steps, status) {
+  const processed = (status?.result_summary?.steps || [])
+    .map(row => ({ name: row?.name, count: Number(row?.processed) || 0 }))
+    .filter(row => row.count > 0 && steps.includes(row.name));
+  return processed.map(row => ({
+    label: t(`run.step.${row.name}.label`),
+    detail: t('run.guide.counts', { pending: row.count, skipped: 0 }),
+  }));
 }
 
 function _completionTargetForSteps(steps) {

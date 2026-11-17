@@ -32,11 +32,17 @@ export function renderStageBoard(container, model, onOpenOutput) {
   });
 }
 
-export function renderCompletionActions(container, steps, onView, onReveal, outputPath) {
+export function renderCompletionActions(container, steps, onView, onReveal, outputPath, outputs = []) {
   if (!container) return;
   const hasTarget = steps.some(step => ['plan', 'plan_voiceover', 'voiceover', 'transcribe', 'analyze', 'compress', 'label'].includes(step));
+  const outputRows = (Array.isArray(outputs) ? outputs : []).filter(item => item?.label);
   container.innerHTML = String(html`
     <p class="hint">${t('run.guide.completed_hint')}</p>
+    <div class="run-outputs-card">
+      <small>${t('run.guide.outputs_heading')}</small>
+      ${outputRows.length ? html`<ul>${outputRows.map(item => html`<li><span>${item.label}</span>${item.detail ? html`<small>${item.detail}</small>` : ''}</li>`)}</ul>`
+        : html`<p class="muted">${t('run.guide.outputs_empty')}</p>`}
+    </div>
     <div class="run-done-actions">
       ${hasTarget ? html`<button id="btn-run-view-result" class="btn-primary">${t(steps.includes('plan') || steps.includes('plan_voiceover') ? 'run.guide.view_plan' : 'run.guide.view_result')}</button>` : ''}
       ${outputPath ? html`<button id="btn-run-reveal-output" class="btn-secondary">${t('run.guide.open_output')}</button>` : ''}

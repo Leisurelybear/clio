@@ -1423,6 +1423,8 @@
   "run.guide.all_current": "所选阶段已执行或可复用",
   "run.guide.view_output": "查看产物",
   "run.guide.completed_hint": "本次运行已结束。可以查看结果，或继续下一阶段；跳过原因见下方处理记录。",
+  "run.guide.outputs_heading": "本次产出",
+  "run.guide.outputs_empty": "本次运行未产生新的文件。",
   "run.guide.view_plan": "查看剪辑方案",
   "run.guide.view_result": "查看本次结果",
   "run.guide.open_output": "打开输出目录",
