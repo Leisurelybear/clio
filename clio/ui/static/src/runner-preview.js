@@ -87,6 +87,20 @@ export function needsArtifactOverwriteConfirmation(preview, options) {
   );
 }
 
+/**
+ * Failure state shown inside the preview pane so the user sees why a preview
+ * failed next to the retry action, instead of a contradictory empty prompt.
+ */
+export function renderRunPreviewErrorHtml() {
+  return `
+    <section class="run-preview-box run-preview-error">
+      <h4 style="margin:0 0 6px">${t('run.preview.title')}</h4>
+      <p class="err">${t('run.preview.failed_detail')}</p>
+      <button class="btn-secondary run-preview-retry">${t('run.guide.retry_preview')}</button>
+    </section>
+  `;
+}
+
 export function renderRunPreviewHtml(preview) {
   if (!preview) {
     return `<p class="muted">${t('run.preview.empty')}</p>`;

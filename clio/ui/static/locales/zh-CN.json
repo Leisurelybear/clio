@@ -496,6 +496,7 @@
   "run.preview.estimate_note": "估算值，不代表实际用量；不含重试和可选审阅。",
   "run.preview.upload": "预计上传 {size}",
   "run.preview.empty": "选择步骤后显示预览",
+  "run.preview.failed_detail": "预览生成失败，请检查项目配置或稍后重试。",
   "run.preview.generating": "正在生成运行预览...",
   "run.preview.input": "输入：{path}（{count} 个）",
   "run.preview.legacy_audio_removal": "检测到旧配置曾保留音频：本次将重跑分析 {analyze_count} 项、口播 {voiceover_count} 项、压缩 {compress_count} 项。开始前会再次确认。",

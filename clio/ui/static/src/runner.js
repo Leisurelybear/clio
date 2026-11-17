@@ -19,6 +19,7 @@ import {
   needsLegacyAudioRemovalConfirmation,
   needsPlanOverwriteConfirmation,
   renderRunPreviewHtml,
+  renderRunPreviewErrorHtml,
 } from './runner-preview.js';
 import { buildSkippedDiagnostics, renderProcessingState, renderSkippedDiagnosticsHtml, STEP_KEYS, stepShortLabel } from './runner-diagnostics.js';
 
@@ -474,6 +475,10 @@ function collectRunOptions() {
   return options;
 }
 
+/** Retry button rendered inside the preview pane failure state. */
+function _bindPreviewRetry(container) {
+  container.querySelector('.run-preview-retry')?.addEventListener('click', () => refreshRunPreview());
+}
 async function refreshRunPreview({ silent = false } = {}) {
   const container = $('run-preview');
   if (!container) return null;
@@ -487,6 +492,7 @@ async function refreshRunPreview({ silent = false } = {}) {
     _lastRunPreview = null;
     updateRunGuide();
     container.innerHTML = renderRunPreviewHtml(null);
+    _bindPreviewRetry(container);
     endLatest('run-preview', ac);
     return null;
   }
@@ -509,14 +515,17 @@ async function refreshRunPreview({ silent = false } = {}) {
         if (details) details.open = true;
       }
     } else {
-      container.innerHTML = renderRunPreviewHtml(null);
+      _previewFailed = true;
+      container.innerHTML = renderRunPreviewErrorHtml();
+      _bindPreviewRetry(container);
     }
   } catch (e) {
     if (isAbortError(e) || !isLatest('run-preview', ac) || project !== currentProject()) return null;
     _lastRunPreview = null;
     _previewFailed = true;
     updateRunStartButtonState();
-    container.innerHTML = renderRunPreviewHtml(null);
+    container.innerHTML = renderRunPreviewErrorHtml();
+    _bindPreviewRetry(container);
   } finally {
     endLatest('run-preview', ac);
   }

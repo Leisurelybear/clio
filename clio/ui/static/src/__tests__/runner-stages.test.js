@@ -151,6 +151,8 @@ describe('guided run stages', () => {
     renderRun();
     await vi.waitFor(() => expect(document.getElementById('btn-run-retry-preview').hidden).toBe(false));
     expect(document.getElementById('btn-run-start').disabled).toBe(true);
+    expect(document.getElementById('run-preview').textContent).toContain('预览生成失败');
+    expect(document.querySelector('.run-preview-retry')).not.toBeNull();
     vi.mocked(api).mockResolvedValue({ preview: preview() });
     await document.getElementById('btn-run-retry-preview').onclick();
     expect(document.getElementById('btn-run-start').disabled).toBe(false);
