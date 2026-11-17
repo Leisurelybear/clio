@@ -2328,6 +2328,7 @@ body.video-drag-active {
 #tab-run .run-prompt-section[open] > summary { margin-bottom: 10px; }
 #run-state-container { overflow-x: auto; }
 .run-next-card button { max-width: 100%; white-space: normal; }
+.run-guided-resume { margin-top: 10px; }
 @media (max-width: 600px) {
   #tab-run .run-step { flex-wrap: wrap; }
   #tab-run .run-step-hint { flex-basis: 100%; padding-left: 24px; }

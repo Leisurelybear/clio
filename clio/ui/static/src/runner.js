@@ -221,11 +221,11 @@ function renderRun() {
       <button id="btn-run-skip-transcribe" class="btn-secondary" hidden>${t('run.guide.skip_transcribe')}</button>
       <span id="run-files-badge" class="run-files-badge" style="display:none"></span>
       <button id="btn-run-cancel" class="btn-secondary" style="display:none">${t('common.cancel')}</button>
+      <button id="btn-run-guided" class="btn-secondary run-guided-resume"${_customRun ? '' : ' hidden'}>${t('run.guide.resume')}</button>
     </section>
     <details id="run-custom-steps" class="run-prompt-section"${_customRun ? ' open' : ''}>
       <summary>${t('run.guide.custom')}</summary>
       <p class="hint">${t('run.guide.custom_hint')}</p>
-      <button id="btn-run-guided" class="btn-secondary">${t('run.guide.resume')}</button>
       <div class="run-step-list">${stepChecks}</div>
     </details>
     <details class="run-prompt-section" style="margin:12px 0">
@@ -273,6 +273,8 @@ function renderRun() {
       });
       saveStepSelection(checks, $('run-use-transcripts')?.checked ?? true);
       saveRunSession();
+      const customSteps = $('run-custom-steps');
+      if (customSteps) customSteps.open = true;
       togglePlanSubOptions();
       updateRunStartButtonState();
       refreshRunPreview({ silent: true });
@@ -437,10 +439,12 @@ function updateRunGuide() {
     const total = model.filter(stage => stage.status !== 'excluded').length;
     const order = total > 0 ? model.slice(0, stageIndex >= 0 ? stageIndex + 1 : 0)
       .filter(stage => stage.status !== 'excluded').length : 0;
-    kicker.textContent = _customRun ? t('run.guide.custom')
+    kicker.textContent = _customRun ? t('run.guide.custom_mode')
       : next && order > 0 ? `${t('run.guide.next_kicker')} · ${t('run.guide.stage_progress', { current: order, total })}`
         : next ? t('run.guide.next_kicker') : '';
   }
+  const resumeGuided = $('btn-run-guided');
+  if (resumeGuided) resumeGuided.hidden = !_customRun;
   if (title) {
     title.textContent = !_customRun && next && _lastRunPreview
       ? t('run.guide.next', { stage: t(`run.stage.${next.key}`) }) : '';

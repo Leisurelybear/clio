@@ -217,6 +217,25 @@ describe('guided run stages', () => {
     expect(call[2].steps).toEqual(['analyze']);
   });
 
+  it('surfaces custom mode with an inline recovery action', async () => {
+    document.body.innerHTML = '<div id="tab-run"></div>';
+    renderRun();
+    await vi.waitFor(() => expect(document.getElementById('btn-run-start').disabled).toBe(false));
+    expect(document.getElementById('btn-run-guided').hidden).toBe(true);
+
+    document.querySelectorAll('.run-step-cb').forEach(cb => { cb.checked = cb.dataset.step === 'analyze'; });
+    document.querySelector('.run-step-cb').dispatchEvent(new Event('change'));
+    await vi.waitFor(() => expect(document.getElementById('run-next-kicker').textContent).toContain('自定义模式'));
+    expect(document.getElementById('run-next-description').textContent).toContain('按下方勾选执行');
+    expect(document.getElementById('btn-run-guided').hidden).toBe(false);
+    expect(document.getElementById('run-custom-steps').open).toBe(true);
+
+    await document.getElementById('btn-run-guided').click();
+    await vi.waitFor(() => expect(document.getElementById('run-next-kicker').textContent).not.toContain('自定义模式'));
+    expect(document.getElementById('btn-run-guided').hidden).toBe(true);
+    expect(document.querySelectorAll('.run-step-cb:checked')).toHaveLength(8);
+  });
+
   it('offers recovery after a failed preview and does not start an unknown stage', async () => {
     vi.mocked(api).mockRejectedValue(new Error('offline'));
     document.body.innerHTML = '<div id="tab-run"></div>';

@@ -1411,6 +1411,7 @@
   "run.guide.status_desc.ready": "This stage is ready; start it with the button below.",
   "run.guide.counts": "{pending} to run, {skipped} to skip",
   "run.guide.custom": "Custom steps",
+  "run.guide.custom_mode": "Custom mode",
   "run.guide.custom_hint": "Run the checked steps; overwrite risks are checked before starting.",
   "run.guide.resume": "Use guided stages",
   "run.guide.advanced": "Advanced prompt",

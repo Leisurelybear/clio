@@ -1411,6 +1411,7 @@
   "run.guide.status_desc.ready": "该阶段可以执行，点击下方按钮开始。",
   "run.guide.counts": "待执行 {pending} 项，可跳过 {skipped} 项",
   "run.guide.custom": "自定义步骤",
+  "run.guide.custom_mode": "自定义模式",
   "run.guide.custom_hint": "按下方勾选执行；开始前仍会检查覆盖风险。",
   "run.guide.resume": "恢复分阶段引导",
   "run.guide.advanced": "高级提示词",
