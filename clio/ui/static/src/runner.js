@@ -540,8 +540,9 @@ async function refreshRunPreview({ silent = false } = {}) {
     if (response?.preview) {
       container.innerHTML = renderRunPreviewHtml(response.preview);
       const p = response.preview;
-      if (p.preflight?.ok === false || p.totals?.warnings > 0 || p.artifact_overwrite?.required
-        || p.plan_overwrite?.required || p.analysis_rerun?.required || p.legacy_audio_removal?.required) {
+      if (p.preflight?.ok === false || p.totals?.warnings > 0 || Number(p.totals?.planned_calls) > 0
+        || p.artifact_overwrite?.required || p.plan_overwrite?.required
+        || p.analysis_rerun?.required || p.legacy_audio_removal?.required) {
         const details = $('run-execution-options');
         if (details) details.open = true;
       }

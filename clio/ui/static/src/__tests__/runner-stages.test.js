@@ -210,6 +210,15 @@ describe('guided run stages', () => {
     expect(document.getElementById('run-scope').contains(document.getElementById('run-day'))).toBe(true);
   });
 
+  it('opens detailed estimates by default when the run will call AI', async () => {
+    const p = preview();
+    p.totals = { warnings: 0, planned_calls: 3, estimate_status: 'unknown', estimated_cost_usd: null };
+    vi.mocked(api).mockResolvedValue({ preview: p });
+    document.body.innerHTML = '<div id="tab-run"></div>';
+    renderRun();
+    await vi.waitFor(() => expect(document.getElementById('run-execution-options').open).toBe(true));
+  });
+
   it('uses real progress and omits an absent ETA', async () => {
     document.body.innerHTML = '<div id="run-progress"></div><button id="btn-run-start"></button>';
     await _handleRunStatus({ status: 'running', running: true, phase: 'analyze', current: 1, total: 4, progress_pct: 37 });
