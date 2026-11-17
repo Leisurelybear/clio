@@ -18,6 +18,11 @@ export function renderStageBoard(container, model, onOpenOutput) {
           <p>${t(`run.stage.${stage.key}.hint`)}</p>
           ${stage.total > 0 ? html`<small>${t('run.guide.counts', { pending: stage.pending, skipped: stage.skipped })}</small>` : ''}
           ${stage.warnings.map(warning => html`<p class="warn">${warning}</p>`)}
+          ${stage.blockers.length ? html`
+            <div class="run-stage-blockers">
+              <small>${t('run.guide.blockers_heading')}</small>
+              <ul>${stage.blockers.map(reason => html`<li>${reason}</li>`)}</ul>
+            </div>` : ''}
           ${stage.output && stage.status === 'reusable' ? html`<button class="btn-secondary run-stage-output" data-stage-output="${stage.key}">${t('run.guide.view_output')}</button>` : ''}
         </div>
       </li>`)}</ol>`);

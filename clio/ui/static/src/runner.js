@@ -210,6 +210,7 @@ function renderRun() {
     <section id="run-stage-board" class="run-stage-board"></section>
     <section class="run-next-card">
       <p id="run-next-description" class="hint"></p>
+      <div id="run-next-blockers" class="run-next-blockers" hidden></div>
       <p id="run-next-estimate" class="hint"></p>
       <button id="btn-run-start" class="btn-primary">${getRunButtonText()}</button>
       <button id="btn-run-retry-preview" class="btn-secondary" hidden>${t('run.guide.retry_preview')}</button>
@@ -428,6 +429,16 @@ function updateRunGuide() {
   const description = $('run-next-description');
   if (description) description.textContent = t(_customRun ? 'run.guide.custom_hint'
     : next ? 'run.guide.next_hint' : 'run.guide.all_current');
+  const blockersEl = $('run-next-blockers');
+  if (blockersEl) {
+    const blockedReasons = !_customRun && next && ['blocked', 'unknown'].includes(next.status)
+      ? [...new Set(next.blockers || [])]
+      : [];
+    blockersEl.hidden = blockedReasons.length === 0;
+    blockersEl.innerHTML = blockedReasons.length
+      ? `<small>${escapeHtml(t('run.guide.blockers_heading'))}</small><ul>${blockedReasons.map(reason => `<li>${escapeHtml(reason)}</li>`).join('')}</ul>`
+      : '';
+  }
   const btn = $('btn-run-start');
   if (btn && !_runActive && !_customRun && !_lastRunPreview) {
     btn.disabled = true;

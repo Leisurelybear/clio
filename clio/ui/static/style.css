@@ -2247,6 +2247,25 @@ body.video-drag-active {
 .run-stage-card.excluded { opacity: .55; }
 .run-next-card { border-color: var(--accent); }
 .run-next-card .hint { margin-top: 0; }
+.run-stage-blockers, .run-next-blockers {
+  margin: 6px 0;
+  padding: 8px 10px;
+  background: var(--warning-bg, rgba(234, 179, 8, .10));
+  border: 1px solid var(--warning-border, #b8860b);
+  border-radius: var(--radius-sm, 6px);
+}
+.run-stage-blockers small, .run-next-blockers small {
+  display: block;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--warning);
+}
+.run-stage-blockers ul, .run-next-blockers ul { margin: 4px 0 0; padding-left: 18px; }
+.run-stage-blockers li, .run-next-blockers li {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
 .run-scope-card {
   margin: 12px 0;
   padding: 12px 14px;

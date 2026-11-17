@@ -86,6 +86,7 @@ export function buildRunStageModel({ selectedSteps, preview, activePhase = '', c
       skipped: Number(summary?.will_skip) || 0,
       total: Number(summary?.total) || 0,
       warnings: summary?.warnings || [],
+      blockers: summary?.blockers || [],
     };
   });
 }

@@ -1416,6 +1416,7 @@
   "run.guide.view_plan": "View edit plan",
   "run.guide.view_result": "View results",
   "run.guide.open_output": "Open output folder",
+  "run.guide.blockers_heading": "Why it is blocked",
   "run.guide.retry_preview": "Retry preview",
   "run.guide.preview_failed": "Preview unavailable; retry",
   "run.guide.overwrite_once": "Overwrite applies to this submission only and turns off when the run succeeds, fails, or is cancelled.",

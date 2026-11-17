@@ -69,6 +69,28 @@ describe('guided run stages', () => {
     expect(nextIncompleteStage(model, p).key).toBe('source_prep');
   });
 
+  it('explains why a blocked stage cannot run and mirrors blockers on the next card', async () => {
+    const p = preview();
+    p.steps[2] = { name: 'analyze', total: 0, warnings: ['Missing compressed input'] };
+    p.stages[1].status = 'blocked';
+    p.stages[1].warnings = ['Missing compressed input'];
+    p.stages[1].blockers = ['Missing compressed input'];
+    p.next_stage = 'ai_analysis';
+    const board = document.createElement('div');
+    renderStageBoard(board, buildRunStageModel({ selectedSteps: allSteps, preview: p }));
+    expect(board.textContent).toContain('阻塞原因');
+    expect(board.textContent).toContain('Missing compressed input');
+
+    vi.mocked(api).mockResolvedValue({ preview: p });
+    document.body.innerHTML = '<div id="tab-run"></div>';
+    renderRun();
+    await vi.waitFor(() => expect(document.getElementById('run-next-blockers').hidden).toBe(false));
+    const blockers = document.getElementById('run-next-blockers');
+    expect(document.getElementById('btn-run-start').disabled).toBe(true);
+    expect(blockers.textContent).toContain('阻塞原因');
+    expect(blockers.textContent).toContain('Missing compressed input');
+  });
+
   it('highlights only the current stage and escapes warning content', () => {
     const p = preview();
     p.stages[1].warnings = ['<img src=x onerror=alert(1)>'];
