@@ -209,9 +209,12 @@ function renderRun() {
     </section>
     <section id="run-stage-board" class="run-stage-board"></section>
     <section class="run-next-card">
+      <div id="run-next-kicker" class="run-next-kicker"></div>
+      <p id="run-next-title" class="run-next-title"></p>
       <p id="run-next-description" class="hint"></p>
       <div id="run-next-blockers" class="run-next-blockers" hidden></div>
       <p id="run-next-estimate" class="hint"></p>
+      <p id="run-next-reassure" class="run-next-reassure hint"></p>
       <button id="btn-run-start" class="btn-primary">${getRunButtonText()}</button>
       <button id="btn-run-retry-preview" class="btn-secondary" hidden>${t('run.guide.retry_preview')}</button>
       <button id="btn-run-skip-transcribe" class="btn-secondary" hidden>${t('run.guide.skip_transcribe')}</button>
@@ -426,9 +429,26 @@ function updateRunGuide() {
     estimate.textContent = calls ? `${t('run.preview.ai_calls', { count: calls })} · ${usage.estimate_status === 'estimated'
       ? t('run.preview.ai_cost', { cost: `$${cost.toFixed(4)}` }) : t('run.preview.cost_unconfigured')}` : '';
   }
+  const kicker = $('run-next-kicker');
+  const title = $('run-next-title');
+  if (kicker) {
+    const stageIndex = next ? model.findIndex(stage => stage.key === next.key) : -1;
+    const total = model.filter(stage => stage.status !== 'excluded').length;
+    const order = total > 0 ? model.slice(0, stageIndex >= 0 ? stageIndex + 1 : 0)
+      .filter(stage => stage.status !== 'excluded').length : 0;
+    kicker.textContent = _customRun ? t('run.guide.custom')
+      : next && order > 0 ? `${t('run.guide.next_kicker')} · ${t('run.guide.stage_progress', { current: order, total })}`
+        : next ? t('run.guide.next_kicker') : '';
+  }
+  if (title) {
+    title.textContent = !_customRun && next && _lastRunPreview
+      ? t('run.guide.next', { stage: t(`run.stage.${next.key}`) }) : '';
+  }
   const description = $('run-next-description');
   if (description) description.textContent = t(_customRun ? 'run.guide.custom_hint'
     : next ? 'run.guide.next_hint' : 'run.guide.all_current');
+  const reassure = $('run-next-reassure');
+  if (reassure) reassure.textContent = _customRun ? '' : t('run.guide.reassure');
   const blockersEl = $('run-next-blockers');
   if (blockersEl) {
     const blockedReasons = !_customRun && next && ['blocked', 'unknown'].includes(next.status)

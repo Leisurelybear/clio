@@ -69,6 +69,16 @@ describe('guided run stages', () => {
     expect(nextIncompleteStage(model, p).key).toBe('source_prep');
   });
 
+  it('enriches the next-stage card with kicker, progress, and reassurance', async () => {
+    document.body.innerHTML = '<div id="tab-run"></div>';
+    renderRun();
+    await vi.waitFor(() => expect(document.getElementById('btn-run-start').disabled).toBe(false));
+    expect(document.getElementById('run-next-kicker').textContent).toContain('下一步');
+    expect(document.getElementById('run-next-kicker').textContent).toContain('1 / 4');
+    expect(document.getElementById('run-next-title').textContent).toContain('素材准备');
+    expect(document.getElementById('run-next-reassure').textContent).toContain('不会重复执行');
+  });
+
   it('renders a plain-language description for each stage status', () => {
     const p = preview();
     p.stages[0].status = 'reusable';

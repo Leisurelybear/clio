@@ -2248,6 +2248,26 @@ body.video-drag-active {
 .run-stage-card.excluded { opacity: .55; }
 .run-next-card { border-color: var(--accent); }
 .run-next-card .hint { margin-top: 0; }
+.run-next-kicker {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+.run-next-title { margin: 0 0 4px; font-size: var(--text-lg); font-weight: 600; color: var(--text-primary); }
+.run-next-title:empty { display: none; }
+.run-next-reassure {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 6px 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+.run-next-reassure::before { content: "✓"; color: var(--success); font-weight: 600; }
+.run-next-reassure:empty { display: none; }
 .run-stage-blockers, .run-next-blockers {
   margin: 6px 0;
   padding: 8px 10px;
