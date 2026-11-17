@@ -900,3 +900,80 @@ class TestRunPlanAllDays:
         _write_analysis(loaded_config, _analysis("001", day="day1"))
         with patch("clio.tasks.plan.run_plan_vlog", return_value=None):
             assert run_plan_all_days(loaded_config) is None
+
+
+class TestPlanClipProbeCaching:
+    """Plan/preview input collection must not re-spawn ffprobe per clip and pass."""
+
+    @staticmethod
+    def _clip_with_source(config: AppConfig, tmp_path: Path, index: str, stem: str) -> Path:
+        source = tmp_path / f"{stem}.mp4"
+        source.write_bytes(b"video")
+        analysis = _analysis(
+            index,
+            source=stem,
+            media_identity={
+                "original_stem": stem,
+                "original_path": str(source),
+                "compressed_stem": f"{index}_{stem}",
+                "compressed_path": f"{index}_{stem}.mp4",
+                "index": index,
+                "segment_index": None,
+                "segment_offset_sec": 0.0,
+            },
+        )
+        _write_analysis(config, analysis)
+        return source
+
+    @staticmethod
+    def _probe_result() -> object:
+        return type("ProbeResult", (), {"stdout": '{"format":{"tags":{"creation_time":"2026-11-08T09:30:00Z"}}}'})()
+
+    def test_ffprobe_resolved_once_for_every_clip(self, loaded_config: AppConfig, tmp_path: Path) -> None:
+        for index, stem in (("001", "SRC1"), ("002", "SRC2"), ("003", "SRC3")):
+            self._clip_with_source(loaded_config, tmp_path, index, stem)
+
+        with (
+            patch("clio.tasks.plan.resolve_binary", return_value="ffprobe-test") as resolve,
+            patch("clio.tasks._helpers.run_probe", return_value=self._probe_result()),
+        ):
+            clips, _, _ = _collect_plan_clips(
+                loaded_config, "day1", None, filter_by_day=True, cancel_event=None, report=False
+            )
+
+        assert len(clips) == 3
+        assert resolve.call_count == 1
+        assert {clip["capture_time"] for clip in clips} == {_localize_capture_time_text("2026-11-08T09:30:00Z")}
+
+    def test_capture_time_probes_are_reused_across_collect_calls(
+        self, loaded_config: AppConfig, tmp_path: Path
+    ) -> None:
+        for index, stem in (("001", "SRC1"), ("002", "SRC2")):
+            self._clip_with_source(loaded_config, tmp_path, index, stem)
+
+        with (
+            patch("clio.tasks.plan.resolve_binary", return_value="ffprobe-test"),
+            patch("clio.tasks._helpers.run_probe", return_value=self._probe_result()) as probe,
+        ):
+            first, _, _ = _collect_plan_clips(
+                loaded_config, "day1", None, filter_by_day=True, cancel_event=None, report=False
+            )
+            second, _, _ = _collect_plan_clips(
+                loaded_config, "day1", None, filter_by_day=True, cancel_event=None, report=False
+            )
+
+        assert probe.call_count == 2
+        assert [clip["capture_time"] for clip in first] == [clip["capture_time"] for clip in second]
+
+    def test_replaced_source_is_probed_again(self, loaded_config: AppConfig, tmp_path: Path) -> None:
+        source = self._clip_with_source(loaded_config, tmp_path, "001", "SRC1")
+
+        with (
+            patch("clio.tasks.plan.resolve_binary", return_value="ffprobe-test"),
+            patch("clio.tasks._helpers.run_probe", return_value=self._probe_result()) as probe,
+        ):
+            _collect_plan_clips(loaded_config, "day1", None, filter_by_day=True, cancel_event=None, report=False)
+            source.write_bytes(b"video-with-different-size")
+            _collect_plan_clips(loaded_config, "day1", None, filter_by_day=True, cancel_event=None, report=False)
+
+        assert probe.call_count == 2

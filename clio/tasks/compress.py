@@ -25,7 +25,7 @@ from clio.tasks._helpers import (
     _next_index,
     _selection_from_files,
 )
-from clio.utils import format_index, get_duration_sec, resolve_binary
+from clio.utils import format_index, get_duration_sec, parallel_map, resolve_binary
 from clio.vmeta import VMETA_EXT, SegmentEntry, VideoIndex, VideoMeta
 
 _PROBE_FAILURES = (OSError, subprocess.SubprocessError, TypeError, ValueError)
@@ -281,6 +281,7 @@ def _scan_existing_compressed(
     unverifiable: dict[str, list[Path]] = {}
     if not config.compressed_dir.is_dir():
         return existing_map, unverifiable
+    candidates: list[Path] = []
     for f in sorted(config.compressed_dir.iterdir()):
         if not f.is_file() or f.suffix.lower() not in VIDEO_EXTS:
             continue
@@ -288,11 +289,13 @@ def _scan_existing_compressed(
             continue
         if f.stat().st_size < min_valid_size:
             continue
-        try:
-            dur = get_duration_sec(f, ffprobe)
-            if dur <= 0:
-                raise ValueError("zero duration")
-        except _PROBE_FAILURES:
+        candidates.append(f)
+    # One ffprobe spawn per output is the scan bottleneck; batch the probes so
+    # preview/scan wall time stays bounded while probe failures keep the
+    # per-file unverifiable semantics below.
+    durations = parallel_map(lambda f: _safe_duration(f, ffprobe), candidates)
+    for f, dur in zip(candidates, durations, strict=True):
+        if dur <= 0:
             meta = VideoMeta.read(f)
             if meta and meta.source_path:
                 unverifiable.setdefault(str(Path(meta.source_path).resolve()), []).append(f)

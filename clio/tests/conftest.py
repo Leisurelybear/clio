@@ -14,6 +14,8 @@ import pytest
 from clio import session_log
 from clio.ai.factory import _clear_provider_cache
 from clio.config import AppConfig, ProviderConfig, ProxyConfig, load_config
+from clio.tasks._helpers import clear_capture_time_cache
+from clio.utils import clear_binary_cache
 
 
 class FakeTime:
@@ -73,6 +75,16 @@ def _mock_ctranslate2() -> None:
 def _clear_ai_cache() -> None:
     """Clear the AI provider cache between tests to avoid cross-test pollution."""
     _clear_provider_cache()
+
+
+@pytest.fixture(autouse=True)
+def _clear_binary_and_capture_time_caches() -> Generator[None, None, None]:
+    """Keep memoized binary and capture-time lookups from leaking across tests."""
+    clear_binary_cache()
+    clear_capture_time_cache()
+    yield
+    clear_binary_cache()
+    clear_capture_time_cache()
 
 
 @pytest.fixture(autouse=True)

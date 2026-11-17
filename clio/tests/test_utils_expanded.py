@@ -10,10 +10,13 @@ import pytest
 
 from clio.utils import (
     JsonValue,
+    _ffmpeg_glob_patterns,
+    clear_binary_cache,
     discover_ffmpeg_bin,
     get_duration_sec,
     plan_day_stem,
     popen_subprocess,
+    resolve_binary,
     run_ffmpeg,
     run_subprocess,
     safe_basename,
@@ -312,3 +315,41 @@ class TestPlanDayStem:
 
     def test_caps_the_stem_length(self):
         assert plan_day_stem("a" * 80) == "a" * 60
+
+
+class TestBinaryLookupCache:
+    """resolve_binary runs once per media file, so discovery results are memoized."""
+
+    def test_search_patterns_never_walk_unbounded(self):
+        patterns = _ffmpeg_glob_patterns("ffprobe")
+        assert patterns
+        assert all("**" not in pattern for pattern in patterns)
+
+    def test_repeated_resolve_reuses_discovery(self, tmp_path: Path):
+        exe = tmp_path / "ffprobe.exe"
+        exe.write_text("fake")
+        clear_binary_cache()
+        with patch("clio.utils.discover_ffmpeg_bin", return_value=str(exe)) as discover:
+            assert resolve_binary("", "ffprobe") == str(exe)
+            assert resolve_binary("", "ffprobe") == str(exe)
+        assert discover.call_count == 1
+
+    def test_missing_binary_is_not_memoized(self):
+        clear_binary_cache()
+        with patch("clio.utils.discover_ffmpeg_bin", return_value=None):
+            with pytest.raises(FileNotFoundError):
+                resolve_binary("", "ffprobe")
+        with patch("clio.utils.discover_ffmpeg_bin", return_value="C:/fake/ffprobe.exe"):
+            assert resolve_binary("", "ffprobe") == "C:/fake/ffprobe.exe"
+
+    def test_deleted_cached_binary_is_rediscovered(self, tmp_path: Path):
+        exe = tmp_path / "ffprobe.exe"
+        exe.write_text("fake")
+        replacement = tmp_path / "ffprobe-new.exe"
+        replacement.write_text("fake")
+        clear_binary_cache()
+        with patch("clio.utils.discover_ffmpeg_bin", side_effect=[str(exe), str(replacement)]) as discover:
+            assert resolve_binary("", "ffprobe") == str(exe)
+            exe.unlink()
+            assert resolve_binary("", "ffprobe") == str(replacement)
+        assert discover.call_count == 2

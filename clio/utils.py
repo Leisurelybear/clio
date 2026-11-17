@@ -8,7 +8,8 @@ import shutil
 import subprocess
 import threading
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from datetime import timezone
 from email.utils import parsedate_to_datetime
@@ -21,6 +22,7 @@ from clio.i18n import t
 from clio.shutdown import register_process, unregister_process
 
 T = TypeVar("T")
+R = TypeVar("R")
 JsonValue = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
 MAX_EXTRACT_JSON_SCAN_CHARS = 2_000_000
 _PROBE_INFO_CACHE_MAX = 512
@@ -31,6 +33,24 @@ _MEDIA_DETAILS_CACHE_LOCK = threading.Lock()
 _MEDIA_DETAILS_CACHE: dict[tuple[str, str, int, int], dict[str, Any]] = {}
 _PATH_WRITE_LOCKS: dict[str, threading.RLock] = {}
 _PATH_WRITE_LOCKS_GUARD = threading.Lock()
+_BINARY_PATH_CACHE: dict[str, str] = {}
+_BINARY_PATH_CACHE_LOCK = threading.Lock()
+
+
+def parallel_map(func: Callable[[T], R], items: Sequence[T], *, max_workers: int = 8) -> list[R]:
+    """Map *func* over *items* with bounded threads, preserving order.
+
+    Per-file ffprobe spawns dominate scan/preview loops against network
+    shares; a small pool cuts wall time while keeping per-item semantics,
+    including exceptions (re-raised in input order by ``pool.map``).
+    """
+    if not items:
+        return []
+    workers = max(1, min(max_workers, len(items)))
+    if workers == 1:
+        return [func(item) for item in items]
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        return list(pool.map(func, items))
 
 
 def path_write_lock(path: Path) -> threading.RLock:
@@ -349,6 +369,39 @@ def mask_if_looks_like_key(value: str) -> str:
     return value
 
 
+def _ffmpeg_search_roots() -> list[Path]:
+    local_app = Path(os.environ.get("LOCALAPPDATA", ""))
+    user_home = Path(os.environ.get("USERPROFILE", ""))
+    search_roots = [
+        local_app / "Microsoft/WinGet/Packages",
+        Path("C:/ProgramData/chocolatey/lib/ffmpeg/tools/ffmpeg/bin"),
+        user_home / "scoop/apps/ffmpeg/current/bin",
+        Path("C:/Program Files/ffmpeg/bin"),
+        Path("C:/Tools/ffmpeg/bin"),
+    ]
+    ffmpeg_home = os.environ.get("FFMPEG_HOME")
+    if ffmpeg_home:
+        search_roots.append(Path(ffmpeg_home))
+    return search_roots
+
+
+def _ffmpeg_glob_patterns(name: str) -> tuple[str, ...]:
+    """Depth-bounded layouts used by WinGet, Chocolatey, Scoop, and manual installs.
+
+    An unbounded ``**`` walk through a package cache costs tens of thousands of
+    stat calls, which is painful because this lookup runs once per media file
+    in planning and preview paths. Probe the known layouts instead.
+    """
+    suffixes = (".exe", "") if os.name == "nt" else ("",)
+    patterns: list[str] = []
+    for suffix in suffixes:
+        binary = f"{name}{suffix}"
+        patterns.append(binary)
+        for depth in (1, 2, 3, 4):
+            patterns.append("/".join(["*"] * depth + ["bin", binary]))
+    return tuple(patterns)
+
+
 def discover_ffmpeg_bin(name: str) -> str | None:
     found = shutil.which(name)
     if found:
@@ -363,25 +416,43 @@ def discover_ffmpeg_bin(name: str) -> str | None:
     except Exception:  # noqa: BLE001 - managed lookup must not break legacy discovery
         pass
 
-    local_app = Path(os.environ.get("LOCALAPPDATA", ""))
-    user_home = Path(os.environ.get("USERPROFILE", ""))
-    search_roots = [
-        local_app / "Microsoft/WinGet/Packages",
-        Path("C:/ProgramData/chocolatey/lib/ffmpeg/tools/ffmpeg/bin"),
-        user_home / "scoop/apps/ffmpeg/current/bin",
-        Path("C:/Program Files/ffmpeg/bin"),
-        Path("C:/Tools/ffmpeg/bin"),
-    ]
-    ffmpeg_home = os.environ.get("FFMPEG_HOME")
-    if ffmpeg_home:
-        search_roots.append(Path(ffmpeg_home))
-    for root in search_roots:
-        if not root.is_dir():
+    for search_root in _ffmpeg_search_roots():
+        if not search_root.is_dir():
             continue
-        matches = sorted(root.glob(f"**/{name}.exe"))
-        if matches:
-            return str(matches[0])
+        for pattern in _ffmpeg_glob_patterns(name):
+            matches = sorted(search_root.glob(pattern))
+            if matches:
+                return str(matches[0])
     return None
+
+
+def clear_binary_cache() -> None:
+    """Forget memoized binary lookups (call after installing ffmpeg)."""
+    with _BINARY_PATH_CACHE_LOCK:
+        _BINARY_PATH_CACHE.clear()
+
+
+def _discover_ffmpeg_bin_cached(name: str) -> str | None:
+    """Memoized :func:`discover_ffmpeg_bin` for per-file call sites.
+
+    Only successful lookups are cached, so installing ffmpeg at runtime is
+    still picked up by the next call, and a vanished binary is re-discovered.
+    """
+    with _BINARY_PATH_CACHE_LOCK:
+        cached = _BINARY_PATH_CACHE.get(name)
+    if cached is not None:
+        try:
+            if Path(cached).is_file():
+                return cached
+        except OSError:
+            pass
+        with _BINARY_PATH_CACHE_LOCK:
+            _BINARY_PATH_CACHE.pop(name, None)
+    found = discover_ffmpeg_bin(name)
+    if found:
+        with _BINARY_PATH_CACHE_LOCK:
+            _BINARY_PATH_CACHE[name] = found
+    return found
 
 
 def resolve_binary(configured: str, fallback: str) -> str:
@@ -391,7 +462,7 @@ def resolve_binary(configured: str, fallback: str) -> str:
             return str(path)
         raise FileNotFoundError(t("utils.binary.configured_missing", {"path": configured}))
 
-    found = discover_ffmpeg_bin(fallback)
+    found = _discover_ffmpeg_bin_cached(fallback)
     if found:
         return found
     setup_script = "setup.ps1" if os.name == "nt" else "setup.sh"

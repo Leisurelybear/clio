@@ -8,6 +8,7 @@ import json
 import os
 import re
 import subprocess
+import threading
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, tzinfo
@@ -19,6 +20,7 @@ from clio.identity import SEGMENT_SUFFIX_RE, MediaIdentity
 from clio.log import format_duration
 from clio.utils import (
     format_index,
+    parallel_map,
     probe_video_info,
     resolve_binary,
     run_probe,
@@ -128,10 +130,41 @@ def _filename_capture_time(stem: str) -> datetime | None:
     return _parse_capture_time_text("".join(match.groups()))
 
 
+_CAPTURE_TIME_CACHE_MAX = 512
+_CAPTURE_TIME_CACHE_LOCK = threading.Lock()
+_CAPTURE_TIME_CACHE: dict[tuple[str, str, int, int], str] = {}
+
+
+def clear_capture_time_cache() -> None:
+    """Forget memoized container creation_time probes."""
+    with _CAPTURE_TIME_CACHE_LOCK:
+        _CAPTURE_TIME_CACHE.clear()
+
+
+def _creation_time_cache_key(path: Path, ffprobe: str) -> tuple[str, str, int, int] | None:
+    """Cache key that changes when the probed file is replaced or rewritten."""
+    try:
+        st = path.stat()
+        return (ffprobe, str(path.resolve()), st.st_size, st.st_mtime_ns)
+    except OSError:
+        return None
+
+
 def _probe_creation_time_text(path: Path, ffprobe: str) -> str:
-    """Return the container creation_time tag exactly as written, or ``""``."""
+    """Return the container creation_time tag exactly as written, or ``""``.
+
+    One ffprobe process per clip is expensive (remote sources make it far worse)
+    and planning/preview paths probe the same files repeatedly, so successful
+    probes are memoized by file identity (path, size, mtime_ns).
+    """
     if not ffprobe:
         return ""
+    key = _creation_time_cache_key(path, ffprobe)
+    if key is not None:
+        with _CAPTURE_TIME_CACHE_LOCK:
+            cached = _CAPTURE_TIME_CACHE.get(key)
+        if cached is not None:
+            return cached
     try:
         result = run_probe(
             [
@@ -151,21 +184,46 @@ def _probe_creation_time_text(path: Path, ffprobe: str) -> str:
         return ""
     if not isinstance(probe_data, dict):
         return ""
+    found = ""
     fmt = probe_data.get("format")
     format_tags = (fmt.get("tags") if isinstance(fmt, dict) else None) or {}
     if isinstance(format_tags, dict):
-        for key, value in format_tags.items():
-            if str(key).lower() == "creation_time" and isinstance(value, str) and value.strip():
-                return value.strip()
-    for stream in probe_data.get("streams") or []:
-        if not isinstance(stream, dict):
-            continue
-        tags = stream.get("tags") or {}
-        if isinstance(tags, dict):
-            for key, value in tags.items():
-                if str(key).lower() == "creation_time" and isinstance(value, str) and value.strip():
-                    return value.strip()
-    return ""
+        for tag_key, value in format_tags.items():
+            if str(tag_key).lower() == "creation_time" and isinstance(value, str) and value.strip():
+                found = value.strip()
+                break
+    if not found:
+        for stream in probe_data.get("streams") or []:
+            if not isinstance(stream, dict):
+                continue
+            tags = stream.get("tags") or {}
+            if isinstance(tags, dict):
+                for tag_key, value in tags.items():
+                    if str(tag_key).lower() == "creation_time" and isinstance(value, str) and value.strip():
+                        found = value.strip()
+                        break
+            if found:
+                break
+    if key is not None:
+        with _CAPTURE_TIME_CACHE_LOCK:
+            if len(_CAPTURE_TIME_CACHE) >= _CAPTURE_TIME_CACHE_MAX and key not in _CAPTURE_TIME_CACHE:
+                _CAPTURE_TIME_CACHE.pop(next(iter(_CAPTURE_TIME_CACHE)))
+            _CAPTURE_TIME_CACHE[key] = found
+    return found
+
+
+def _probe_creation_time_texts(paths: Iterable[str], ffprobe: str) -> dict[str, str]:
+    """Batch :func:`_probe_creation_time_text` with bounded concurrency.
+
+    One ffprobe spawn per clip is slow enough on network shares that the
+    plan/preview collectors stall on a sequential first pass; run the
+    batch on a small pool and keep the per-path memoized helper.
+    """
+    wanted = [p for p in paths if p and Path(p).is_file()]
+    if not ffprobe or not wanted:
+        return {}
+    probed = parallel_map(lambda p: _probe_creation_time_text(Path(p), ffprobe), wanted)
+    return dict(zip(wanted, probed, strict=True))
 
 
 def _media_capture_time(path: Path, ffprobe: str = "") -> datetime | None:

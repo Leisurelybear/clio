@@ -7,6 +7,7 @@ import hashlib
 import json
 import math
 import threading
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +24,7 @@ from clio.config import AppConfig
 from clio.cut_snap import snap_plan_ranges
 from clio.gpmf import load_telemetry_summary
 from clio.i18n import t
-from clio.identity import SEGMENT_SUFFIX_RE, legacy_segment_offset_sec, load_identity
+from clio.identity import SEGMENT_SUFFIX_RE, MediaIdentity, legacy_segment_offset_sec, load_identity
 from clio.log import timed
 from clio.plan_input import build_plan_clips
 from clio.processing_state import ProcessingState
@@ -45,6 +46,7 @@ from clio.tasks._helpers import (
     _localize_capture_time_text,
     _matches_selected_artifact,
     _probe_creation_time_text,
+    _probe_creation_time_texts,
     _project_selection_stems,
     _selection_from_files,
     _task_lineage_settings,
@@ -160,6 +162,8 @@ def _capture_time(
     source_path: str = "",
     ffprobe: str = "",
     gpmf_capture_time: str | None = None,
+    *,
+    probed_capture_time: str | None = None,
 ) -> str:
     raw_metadata = data.get("metadata")
     metadata: dict[str, Any] = raw_metadata if isinstance(raw_metadata, dict) else {}
@@ -173,7 +177,11 @@ def _capture_time(
         return _localize_capture_time_text(gpmf_capture_time)
 
     if source_path and ffprobe and Path(source_path).is_file():
-        probed = _probe_creation_time_text(Path(source_path), ffprobe)
+        probed = (
+            probed_capture_time
+            if probed_capture_time is not None
+            else _probe_creation_time_text(Path(source_path), ffprobe)
+        )
         if probed:
             return _localize_capture_time_text(probed)
 
@@ -380,6 +388,21 @@ def _discover_day_labels_with_errors(config: AppConfig) -> tuple[list[str], list
     return sorted(labels), skipped
 
 
+@dataclass(slots=True)
+class _PlanClipEntry:
+    """One validated analysis JSON row collected before clip assembly."""
+
+    json_file: Path
+    data: dict[str, Any]
+    index: int
+    source_stem: str
+    match_stem: str
+    segment_offset_sec: float
+    capture_source: str
+    compressed_source: str
+    identity: MediaIdentity | None
+
+
 def _collect_plan_clips(
     config: AppConfig,
     day_label: str,
@@ -396,6 +419,9 @@ def _collect_plan_clips(
 
     clips: list[dict[str, Any]] = []
     skipped_inputs: list[tuple[str, str]] = []
+    entries: list[_PlanClipEntry] = []
+    ffprobe = ""
+    ffprobe_resolved = False
     for json_file in sorted(config.texts_dir.glob("*.json")):
         if cancel_event and cancel_event.is_set():
             return clips, skipped_inputs, True
@@ -433,35 +459,59 @@ def _collect_plan_clips(
             segment_offset = 0.0
         capture_source = str(getattr(identity, "original_path", "") or data.get("source_file", "") or "")
         compressed_source = str(getattr(identity, "compressed_path", "") or data.get("compressed_file", "") or "")
-        ffprobe = ""
-        if capture_source and Path(capture_source).is_file():
+        if capture_source and Path(capture_source).is_file() and not ffprobe_resolved:
+            ffprobe_resolved = True
             with contextlib.suppress(OSError):
                 ffprobe = resolve_binary(config.paths.ffprobe, "ffprobe")
+        entries.append(
+            _PlanClipEntry(
+                json_file=json_file,
+                data=data,
+                index=idx,
+                source_stem=source_stem,
+                match_stem=match_stem,
+                segment_offset_sec=segment_offset,
+                capture_source=capture_source,
+                compressed_source=compressed_source,
+                identity=identity,
+            )
+        )
+
+    if cancel_event and cancel_event.is_set():
+        return clips, skipped_inputs, True
+    # Container creation_time probes cost one ffprobe spawn per clip and are
+    # far worse against network shares; batch the first pass on a small pool.
+    probed_capture_times = _probe_creation_time_texts((entry.capture_source for entry in entries), ffprobe)
+    for entry in entries:
+        if cancel_event and cancel_event.is_set():
+            return clips, skipped_inputs, True
+        capture_source = entry.capture_source
         telemetry = load_telemetry_summary(Path(capture_source)) if capture_source else None
         clip: dict[str, Any] = {
-            "index": format_index(idx, config.naming.index_width),
-            "title": data.get("title", ""),
-            "summary": data.get("summary", ""),
-            "location": data.get("location", ""),
-            "duration_sec": _clip_duration_sec(config, data, identity),
+            "index": format_index(entry.index, config.naming.index_width),
+            "title": entry.data.get("title", ""),
+            "summary": entry.data.get("summary", ""),
+            "location": entry.data.get("location", ""),
+            "duration_sec": _clip_duration_sec(config, entry.data, entry.identity),
             "capture_time": _capture_time(
-                data,
-                source_stem,
+                entry.data,
+                entry.source_stem,
                 capture_source,
                 ffprobe,
                 telemetry.capture_time if telemetry is not None else None,
+                probed_capture_time=probed_capture_times.get(capture_source),
             ),
-            "mood": data.get("mood", ""),
-            "voiceover": _read_voiceover(config, json_file),
-            "timeline": data.get("timeline", []),
-            "highlights": data.get("highlights", []),
-            "key_moments": data.get("key_moments", []),
-            "suggested_use": data.get("suggested_use", ""),
-            "source_stem": source_stem,
-            "match_stem": match_stem,
-            "segment_offset_sec": segment_offset,
+            "mood": entry.data.get("mood", ""),
+            "voiceover": _read_voiceover(config, entry.json_file),
+            "timeline": entry.data.get("timeline", []),
+            "highlights": entry.data.get("highlights", []),
+            "key_moments": entry.data.get("key_moments", []),
+            "suggested_use": entry.data.get("suggested_use", ""),
+            "source_stem": entry.source_stem,
+            "match_stem": entry.match_stem,
+            "segment_offset_sec": entry.segment_offset_sec,
             "_original_path": capture_source,
-            "_compressed_path": compressed_source,
+            "_compressed_path": entry.compressed_source,
         }
         if telemetry is not None and telemetry.latitude is not None and telemetry.longitude is not None:
             clip["gps"] = {"latitude": telemetry.latitude, "longitude": telemetry.longitude}

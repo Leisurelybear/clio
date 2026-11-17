@@ -12,7 +12,11 @@ from typing import Any, cast
 import pytest
 
 from clio.config import AppConfig
-from clio.tasks.compress import _compress_settings_fingerprint, run_compress_all
+from clio.tasks.compress import (
+    _compress_settings_fingerprint,
+    _scan_existing_compressed,
+    run_compress_all,
+)
 
 
 def _project_dir(cfg: AppConfig) -> Path:
@@ -62,6 +66,67 @@ def _add_video(cfg, name: str, data: bytes = b"\x00" * 1000):
         existing.append(src)
     save_selected_videos(project_dir, existing)
     return src
+
+
+class TestScanExistingCompressedProbes:
+    """Existing-output scans must not spawn one blocking ffprobe per file sequentially."""
+
+    def test_scan_probes_run_with_bounded_concurrency(self, monkeypatch, tmp_path: Path):
+        import threading
+
+        cfg = _cfg(tmp_path)
+        calls: list[float] = []
+        started = 0
+        peak = 0
+        lock = threading.Lock()
+
+        def _probe(path, *args, **kwargs):
+            nonlocal started, peak
+            with lock:
+                started += 1
+                peak = max(peak, started)
+            time.sleep(0.05)
+            calls.append(time.perf_counter())
+            with lock:
+                started -= 1
+            return 10.0
+
+        for i in range(4):
+            out = cfg.compressed_dir / f"{i + 1:03d}_clip.mp4"
+            out.write_bytes(b"\x00" * 60_000)
+        monkeypatch.setattr("clio.tasks.compress.get_duration_sec", _probe)
+
+        existing, unverifiable = _scan_existing_compressed(cfg, "ffprobe", quiet=True)
+
+        assert peak > 1, "scan should run probes concurrently"
+        assert len(calls) == 4
+        assert not unverifiable
+        assert sum(len(entries) for entries in existing.values()) == 4
+
+    def test_scan_probe_failure_marks_only_failed_file_unverifiable(self, monkeypatch, tmp_path: Path):
+        from clio.vmeta import VideoMeta
+
+        cfg = _cfg(tmp_path)
+        src = _add_video(cfg, "clip.mp4")
+        bad = cfg.compressed_dir / "001_clip.mp4"
+        bad.write_bytes(b"\x00" * 60_000)
+        VideoMeta.build(src, bad, 10.0, 10.0).write(bad)
+
+        good = cfg.compressed_dir / "002_other.mp4"
+        good.write_bytes(b"\x00" * 60_000)
+
+        def _probe(path, *args, **kwargs):
+            if Path(path).name == bad.name:
+                raise TimeoutError("probe timeout")
+            return 10.0
+
+        monkeypatch.setattr("clio.tasks.compress.get_duration_sec", _probe)
+
+        existing, unverifiable = _scan_existing_compressed(cfg, "ffprobe", quiet=True)
+
+        assert str(src.resolve()) in unverifiable
+        assert list(unverifiable[str(src.resolve())]) == [bad]
+        assert len(existing) == 1
 
 
 class TestRunCompressAll:
