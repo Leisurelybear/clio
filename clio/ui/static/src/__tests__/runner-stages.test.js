@@ -69,6 +69,17 @@ describe('guided run stages', () => {
     expect(nextIncompleteStage(model, p).key).toBe('source_prep');
   });
 
+  it('renders a plain-language description for each stage status', () => {
+    const p = preview();
+    p.stages[0].status = 'reusable';
+    const board = document.createElement('div');
+    renderStageBoard(board, buildRunStageModel({ selectedSteps: allSteps, preview: p }));
+    const reusableCard = board.querySelector('[data-stage="source_prep"]');
+    expect(reusableCard.querySelector('.run-stage-status-desc').textContent)
+      .toContain('不会重复执行');
+    expect(board.querySelectorAll('.run-stage-status-desc')).toHaveLength(4);
+  });
+
   it('explains why a blocked stage cannot run and mirrors blockers on the next card', async () => {
     const p = preview();
     p.steps[2] = { name: 'analyze', total: 0, warnings: ['Missing compressed input'] };

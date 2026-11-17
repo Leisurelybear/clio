@@ -2241,6 +2241,7 @@ body.video-drag-active {
 .run-stage-row { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .run-stage-row span, .run-stage-main small { font-size: var(--text-xs); color: var(--text-secondary); }
 .run-stage-main p { margin: 5px 0; font-size: var(--text-sm); color: var(--text-tertiary); overflow-wrap: anywhere; }
+.run-stage-status-desc { margin-top: 2px !important; font-size: var(--text-xs) !important; color: var(--text-secondary) !important; }
 .run-stage-card.active .run-stage-dot { background: var(--accent); color: white; }
 .run-stage-card.done .run-stage-dot, .run-stage-card.reusable .run-stage-dot { color: var(--success); border-color: var(--success); }
 .run-stage-card.blocked .run-stage-row span { color: var(--warning); }

@@ -15,6 +15,7 @@ export function renderStageBoard(container, model, onOpenOutput) {
         <div class="run-stage-main">
           <div class="run-stage-row"><strong>${t(`run.stage.${stage.key}`)}</strong>
             <span>${t(`run.guide.status.${stage.status}`)}</span></div>
+          <p class="run-stage-status-desc">${t(`run.guide.status_desc.${stage.status}`)}</p>
           <p>${t(`run.stage.${stage.key}.hint`)}</p>
           ${stage.total > 0 ? html`<small>${t('run.guide.counts', { pending: stage.pending, skipped: stage.skipped })}</small>` : ''}
           ${stage.warnings.map(warning => html`<p class="warn">${warning}</p>`)}
