@@ -2442,3 +2442,12 @@ def test_preview_plan_voiceover_waits_even_with_stale_existing_output(tmp_path: 
     assert deferred["will_skip"] == 0
     assert deferred["will_run_max"] == 1
     assert deferred["estimate_is_minimum"] is True
+    assert deferred["planned_calls"] == 0
+    assert deferred["estimated_prompt_tokens"] == 0
+    assert deferred["estimated_completion_tokens"] == 0
+    assert deferred["estimated_cost_usd"] == 0.0
+    assert deferred["estimate_status"] == "not_applicable"
+    delivery = next(stage for stage in preview["stages"] if stage["key"] == "voiceover_delivery")
+    assert delivery["estimate"]["planned_calls"] == 0
+    assert delivery["estimate"]["estimate_status"] == "not_applicable"
+    assert preview["totals"]["planned_calls"] == _row(preview, "plan")["planned_calls"]

@@ -232,6 +232,7 @@ def _defer_same_run_inputs(
                     "will_run_max": total,
                     "will_skip_min": 0,
                     "estimate_is_minimum": True,
+                    **not_applicable_usage(),
                 }
             )
             may_run.add(name)
