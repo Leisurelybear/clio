@@ -79,6 +79,14 @@ instead of pending wording; preview failures expose one inline retry action and 
 detailed preview area. Focused runner regressions and the full frontend suite (1001 tests),
 frontend typecheck, and `git diff --check` passed.
 
+Run preview cascade follow-up (2026-11-18): same-run upstream invalidation now flows through
+canonical pipeline order and is exposed as minimum/maximum ranges; planned voiceover defers
+behind a same-run plan instead of blocking; consistency no longer depends on generated clip
+voiceover; and disabled-only stages report `disabled` rather than reusable. The copied-project
+regression also exposed a UTF-8 BOM failure in `videos.json`, now fixed with `utf-8-sig`.
+Verification covered focused pytest and Vitest suites, real and copied project previews, and a
+read-only artifact check. Details: [cascade plan](2026-11-18-run-preview-cascade-plan.md).
+
 Follow-up audit (2026-11-14): [recent commits review](2026-11-14-recent-commits-review.md)
 records five additional findings, now fixed: preview/runtime reuse disagreement, stale
 all-day discovery, disabled-transcription stage blocking, missing analysis

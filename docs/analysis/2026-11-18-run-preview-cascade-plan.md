@@ -189,3 +189,56 @@ Transcript cache validation against compressed media identity is intentionally e
 correctness depends on `compress.remove_audio`: with audio retained, a changed compressed file
 can change transcription; with audio removed, transcription comes from the original video.
 That policy needs its own defect record, tests, and commit.
+
+## Implementation record (2026-11-18)
+
+Delivered:
+
+- `RP-01`: preview steps are evaluated in canonical pipeline order, and same-run upstream
+  runs invalidate downstream reuse as minimum/maximum ranges instead of definite skips.
+- `RP-02`: `plan_voiceover` is deferred with `waiting_on: ["plan"]` when planning runs in the
+  same batch, and deferred stages no longer act as final blockers.
+- `RP-03`: entity consistency now consumes a projection without generated clip voiceover, so a
+  voiceover-only change invalidates the plan but not the consistency report.
+- Stage summaries expose `cascade_from` and `waiting_on`; partially waiting stages stay
+  runnable while explaining which steps wait.
+- Stages whose selected steps are all disabled now report `disabled` instead of `reusable`.
+  `all([])` previously made a disabled-only stage look satisfied; `next_stage` and the guided
+  progress now skip disabled stages, and no reusable-output action is offered.
+- `videos.json` is read with `utf-8-sig`, so a copied project whose selection file carries a
+  UTF-8 BOM no longer silently previews as zero selected videos.
+
+### Regression evidence
+
+Focused backend:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest clio\tests\test_run_preview.py clio\tests\test_video_loader.py -q
+# 104 passed
+```
+
+Focused frontend and locales:
+
+```powershell
+npx vitest run src/__tests__/runner-stages.test.js src/__tests__/runner-preview.test.js `
+  src/__tests__/i18n-catalog.test.js src/__tests__/i18n-inventory.test.js
+# 67 passed
+```
+
+Full repository verification:
+
+- pytest: 3520 passed, 12 skipped (3532 collected).
+- Vitest: 1012 passed across 92 files.
+- `npm run typecheck`, Ruff format/check, mypy (300 source files), `main.py check`,
+  and `git diff --check` passed.
+
+Real-project preview (`D:\vlog_projects\202610_Italy`, read-only): 181 inputs,
+`will_run=724`, `will_run_max=908`, `will_skip=183`, one deferred step, no blockers; 1524
+files kept identical size/mtime.
+
+Small copied project: after the BOM fix the selection reports 3 inputs, 13 minimum /
+18 maximum runs, 4 maximum skips, one deferred step, no blockers, and `next_stage` is
+`source_prep`.
+
+Remaining known limitation: malformed `videos.json` still behaves like an empty selection;
+syntax errors are not surfaced to the user and should be handled in a separate change.
