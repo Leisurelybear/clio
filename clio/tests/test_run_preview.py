@@ -317,6 +317,10 @@ def test_preview_compress_counts_existing_output_as_skip(tmp_path: Path, monkeyp
         "selected_steps": 1,
         "will_run": 1,
         "will_skip": 1,
+        "will_run_max": 1,
+        "will_skip_min": 1,
+        "deferred_steps": 0,
+        "estimate_is_minimum": False,
         "warnings": 0,
         **_not_applicable_usage(),
     }
@@ -2170,3 +2174,271 @@ def test_plan_voiceover_preview_rejects_non_object_plan(tmp_path: Path, payload:
     step = build_run_preview(config, ["plan_voiceover"], force=False, use_transcripts=True)["steps"][0]
     assert step["will_run"] == 0
     assert step["warnings"]
+
+
+# ---------------------------------------------------------------------------
+# Same-run cascade / deferred plan voiceover regression coverage
+# ---------------------------------------------------------------------------
+
+
+def _write_current_voiceover(config: AppConfig, analysis_path: Path, *, text: str = "harbor walk") -> Path:
+    data = json.loads(analysis_path.read_text(encoding="utf-8"))
+    data["index"] = data.get("index", analysis_path.stem[:3])
+    out = config.scripts_dir / f"{analysis_path.stem}_voiceover.json"
+    out.write_text(
+        json.dumps({"voiceover": text, "_lineage": _current_voiceover_lineage(config, data)}),
+        encoding="utf-8",
+    )
+    return out
+
+
+def _write_current_plan(config: AppConfig, day: str = "day1") -> Path:
+    from clio.tasks.plan import _collect_plan_clips, _plan_lineage_fingerprint
+
+    config.plans_dir.mkdir(parents=True, exist_ok=True)
+    clips, _, _ = _collect_plan_clips(config, day, None, filter_by_day=False, cancel_event=None, report=False)
+    plan: dict[str, Any] = {
+        "day_title": "Day 1",
+        "theme": "harbor",
+        "sequence": [{"index": "001", "title": "A", "use_timeline": "00:00-00:10"}],
+        "source_inputs": [{"index": "001", "source_stem": "001_A", "match_stem": "A", "segment_offset_sec": 0}],
+        "_lineage": _plan_lineage_fingerprint(config, clips, day_label=day),
+    }
+    path = config.plans_dir / f"{day}_plan.json"
+    path.write_text(json.dumps(plan), encoding="utf-8")
+    path.with_suffix(".md").write_text("# plan", encoding="utf-8")
+    return path
+
+
+def _prepare_reusable_downstream(tmp_path: Path) -> tuple[AppConfig, Path, Path]:
+    """One analyzed clip with current voiceover, plan, and plan voiceover artifacts."""
+    config, sources = _prepare_legacy_audio_project(tmp_path)
+    analysis_path = _write_current_analysis(config, *sources[0])
+    _write_current_voiceover(config, analysis_path)
+    _write_current_plan(config)
+    _write_current_planned_voiceover(config)
+    return config, analysis_path, sources[0][1]
+
+
+def _make_analysis_stale(analysis_path: Path) -> None:
+    data = json.loads(analysis_path.read_text(encoding="utf-8"))
+    data["_lineage_components"]["prompt"] = "stale-prompt"
+    analysis_path.write_text(json.dumps(data), encoding="utf-8")
+
+
+def _make_plan_stale(config: AppConfig, day: str = "day1") -> None:
+    path = config.plans_dir / f"{day}_plan.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["_lineage"] = "stale-plan"
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+
+def _read_output_snapshot(config: AppConfig) -> dict[Path, tuple[int, int]]:
+    return {
+        path: (path.stat().st_size, path.stat().st_mtime_ns)
+        for path in config.paths.output_dir.rglob("*")
+        if path.is_file()
+    }
+
+
+def _row(preview: dict[str, Any], name: str) -> dict[str, Any]:
+    return next(step for step in preview["steps"] if step["name"] == name)
+
+
+def test_preview_compress_rerun_cascades_to_reusable_analyze(tmp_path: Path, monkeypatch) -> None:
+    config, sources = _prepare_legacy_audio_project(tmp_path)
+    original, compressed = sources[0]
+    _write_current_analysis(config, original, compressed)
+
+    def missing_probe(*args):
+        raise FileNotFoundError("ffprobe unavailable")
+
+    monkeypatch.setattr("clio.ui.services.run_preview.resolve_binary", missing_probe)
+    before = _read_output_snapshot(config)
+    preview = build_run_preview(config, ["compress", "analyze"], force=False, use_transcripts=True)
+
+    compress_row = _row(preview, "compress")
+    analyze_row = _row(preview, "analyze")
+    assert compress_row["will_run"] == 1
+    assert analyze_row["cascade_from"] == ["compress"]
+    assert analyze_row["cascade_assumed"] == 1
+    assert analyze_row["will_run"] == 0
+    assert analyze_row["will_skip"] == 1
+    assert analyze_row["will_run_max"] == 1
+    assert analyze_row["will_skip_min"] == 0
+    assert analyze_row["estimate_is_minimum"] is True
+    assert preview["totals"]["will_run"] == 1
+    assert preview["totals"]["will_run_max"] == 2
+    assert preview["totals"]["will_skip_min"] == 0
+    assert preview["totals"]["estimate_is_minimum"] is True
+    assert preview["analysis_rerun"] == {
+        "required": True,
+        "count": 1,
+        "reasons": [{"key": "upstream", "count": 1}],
+    }
+    assert _read_output_snapshot(config) == before
+
+
+def test_preview_transcribe_rerun_cascades_to_reusable_analyze(tmp_path: Path, monkeypatch) -> None:
+    config, sources = _prepare_legacy_audio_project(tmp_path)
+    original, compressed = sources[0]
+    _write_current_analysis(config, original, compressed)
+
+    def missing_probe(*args):
+        raise FileNotFoundError("ffprobe unavailable")
+
+    monkeypatch.setattr("clio.ui.services.run_preview.resolve_binary", missing_probe)
+    preview = build_run_preview(config, ["transcribe", "analyze"], force=False, use_transcripts=True)
+
+    assert _row(preview, "transcribe")["will_run"] == 1
+    analyze_row = _row(preview, "analyze")
+    assert analyze_row["cascade_from"] == ["transcribe"]
+    assert analyze_row["will_run_max"] == 1
+    assert analyze_row["will_skip_min"] == 0
+    assert preview["analysis_rerun"]["reasons"] == [{"key": "upstream", "count": 1}]
+
+
+def test_preview_analyze_rerun_cascades_to_reusable_voiceover_and_plan(tmp_path: Path) -> None:
+    config, analysis_path, _compressed = _prepare_reusable_downstream(tmp_path)
+    _make_analysis_stale(analysis_path)
+    # Rebuild downstream artifacts against the stale analysis so they are
+    # currently reusable and only become uncertain because analyze will rerun.
+    _write_current_voiceover(config, analysis_path)
+    _write_current_plan(config)
+
+    preview = build_run_preview(
+        config,
+        ["analyze", "voiceover", "plan"],
+        force=False,
+        use_transcripts=True,
+    )
+
+    assert _row(preview, "analyze")["will_run"] == 1
+    voiceover = _row(preview, "voiceover")
+    assert voiceover["cascade_from"] == ["analyze"]
+
+    plan = _row(preview, "plan")
+    # Plan consumes both analysis and voiceover. Since the selected voiceover
+    # step can rerun after analysis changes, plan must show the whole chain.
+    assert plan["cascade_from"] == ["analyze", "voiceover"]
+    for row in (voiceover, plan):
+        assert row["will_run"] == 0
+        assert row["will_skip"] == 1
+        assert row["will_run_max"] == 1
+        assert row["will_skip_min"] == 0
+        assert row["estimate_is_minimum"] is True
+
+
+def test_preview_selecting_only_downstream_steps_does_not_cascade(tmp_path: Path) -> None:
+    config, _analysis, _compressed = _prepare_reusable_downstream(tmp_path)
+    preview = build_run_preview(
+        config,
+        ["voiceover", "plan", "plan_voiceover"],
+        force=False,
+        use_transcripts=True,
+    )
+
+    for name in ("voiceover", "plan", "plan_voiceover"):
+        row = _row(preview, name)
+        assert row["will_run"] == 0
+        assert row["will_skip"] == 1
+        assert "cascade_from" not in row
+        assert "cascade_assumed" not in row
+    assert preview["totals"]["will_run_max"] == 0
+    assert preview["totals"]["will_skip_min"] == 3
+    assert preview["totals"]["estimate_is_minimum"] is False
+
+
+def test_preview_plan_and_plan_voiceover_wait_for_same_run_plan(tmp_path: Path) -> None:
+    config, _analysis, _compressed = _prepare_reusable_downstream(tmp_path)
+    _make_plan_stale(config)
+
+    preview = build_run_preview(config, ["plan", "plan_voiceover"], force=False, use_transcripts=True)
+
+    assert _row(preview, "plan")["will_run"] == 1
+    deferred = _row(preview, "plan_voiceover")
+    assert deferred["deferred"] is True
+    assert deferred["waiting_on"] == ["plan"]
+    assert deferred["warnings"] == []
+    assert deferred["will_run"] == 0
+    assert deferred["will_skip"] == 0
+    assert deferred["will_run_max"] == 1
+    assert deferred["will_skip_min"] == 0
+    assert deferred["estimate_is_minimum"] is True
+    assert "cascade_from" not in deferred
+    assert "cascade_assumed" not in deferred
+
+    delivery = next(stage for stage in preview["stages"] if stage["key"] == "voiceover_delivery")
+    assert delivery["status"] == "waiting"
+    assert delivery["deferred"] is True
+    assert delivery["waiting_on"] == ["plan"]
+    assert delivery["blockers"] == []
+    assert preview["next_stage"] == "plan_alignment"
+    assert preview["blockers"] == []
+    assert preview["totals"]["deferred_steps"] == 1
+    assert preview["totals"]["estimate_is_minimum"] is True
+
+
+def test_preview_plan_voiceover_without_selected_or_existing_plan_stays_blocked(tmp_path: Path) -> None:
+    config, _analysis, _compressed = _prepare_reusable_downstream(tmp_path)
+    (config.plans_dir / "day1_plan.json").unlink()
+    (config.plans_dir / "day1_plan.md").unlink()
+
+    preview = build_run_preview(config, ["plan_voiceover"], force=False, use_transcripts=True)
+
+    row = _row(preview, "plan_voiceover")
+    assert row["will_run"] == 0
+    assert row["warnings"]
+    assert "waiting_on" not in row
+    delivery = next(stage for stage in preview["stages"] if stage["key"] == "voiceover_delivery")
+    assert delivery["status"] == "blocked"
+    assert preview["blockers"]
+    assert preview["next_stage"] == "voiceover_delivery"
+
+
+def test_preview_plan_voiceover_waits_when_cascade_makes_plan_possibly_run(tmp_path: Path) -> None:
+    config, analysis_path, _compressed = _prepare_reusable_downstream(tmp_path)
+    _make_analysis_stale(analysis_path)
+    # Keep voiceover and plan deterministic to preview, while analysis itself
+    # is confirmed to rerun. Their fate depends on the new analysis output.
+    _write_current_voiceover(config, analysis_path)
+    _write_current_plan(config)
+
+    preview = build_run_preview(
+        config,
+        ["analyze", "plan", "plan_voiceover"],
+        force=False,
+        use_transcripts=True,
+    )
+
+    plan_row = _row(preview, "plan")
+    assert plan_row["will_run"] == 0
+    assert plan_row["cascade_from"] == ["analyze"]
+    assert plan_row["will_run_max"] == 1
+    deferred = _row(preview, "plan_voiceover")
+    assert deferred["deferred"] is True
+    assert deferred["waiting_on"] == ["plan"]
+    assert deferred["warnings"] == []
+    assert deferred["will_run_max"] == 1
+    assert "cascade_from" not in deferred
+    delivery = next(stage for stage in preview["stages"] if stage["key"] == "voiceover_delivery")
+    assert delivery["status"] == "waiting"
+    assert preview["blockers"] == []
+    assert preview["next_stage"] == "ai_analysis"
+
+
+def test_preview_plan_voiceover_waits_even_with_stale_existing_output(tmp_path: Path) -> None:
+    config, _analysis, _compressed = _prepare_reusable_downstream(tmp_path)
+    _make_plan_stale(config)
+    (config.scripts_dir / "day1_plan_voiceover.json").write_text(
+        json.dumps({"_lineage": "stale-plan-voiceover"}),
+        encoding="utf-8",
+    )
+
+    preview = build_run_preview(config, ["plan", "plan_voiceover"], force=False, use_transcripts=True)
+
+    deferred = _row(preview, "plan_voiceover")
+    assert deferred["deferred"] is True
+    assert deferred["will_skip"] == 0
+    assert deferred["will_run_max"] == 1
+    assert deferred["estimate_is_minimum"] is True

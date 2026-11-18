@@ -76,6 +76,251 @@ _RUN_PREVIEW_STAGES = (
     ("voiceover_delivery", ("plan_voiceover", "label")),
 )
 
+# Runtime order. Preview rows follow what the pipeline will actually execute so
+# cascade review cannot report a downstream artifact as safely reusable.
+PIPELINE_PREVIEW_ORDER = (
+    "compress",
+    "transcribe",
+    "analyze",
+    "consistency",
+    "voiceover",
+    "plan",
+    "plan_voiceover",
+    "label",
+)
+
+# Upstream step -> steps whose cached artifacts its rerun can invalidate.
+# ``label`` is intentionally absent: runtime reuses labeled videos by existence
+# only, so a changed analysis does not invalidate an existing labeled output.
+_PIPELINE_CASCADE_EDGES = {
+    "compress": ("analyze", "transcribe"),
+    "transcribe": ("analyze",),
+    "analyze": ("consistency", "voiceover", "plan"),
+    "consistency": ("plan",),
+    "voiceover": ("plan",),
+    "plan": ("plan_voiceover",),
+}
+
+# Step -> upstream steps that must produce their artifact before the step has an
+# input at all. Unlike the cascade graph this ignores cache identity rules: a
+# missing transcript or analysis is simply unproducible until its producer runs.
+_PIPELINE_INPUT_EDGES = {
+    "transcribe": ("compress",),
+    "analyze": ("compress", "transcribe"),
+    "consistency": ("analyze",),
+    "voiceover": ("analyze",),
+    "plan": ("analyze",),
+    "plan_voiceover": ("plan",),
+    "label": ("analyze",),
+}
+
+_DAY_SCOPED_PREVIEW_STEPS = frozenset({"consistency", "plan", "plan_voiceover"})
+
+# Rows whose whole input artifact is rewritten by a same-run producer. Even
+# with a stale artifact on disk their reuse cannot be decided before that
+# producer finishes, so they wait instead of being reported as reusable.
+_DEFER_WHEN_PRODUCER_RUNS = frozenset({"plan_voiceover"})
+
+
+def _ordered_steps(steps: Iterable[str]) -> list[str]:
+    """Return unique step names in canonical pipeline order; unknown steps last."""
+    unique: list[str] = []
+    for step in steps:
+        if step not in unique:
+            unique.append(step)
+    in_order = [step for step in PIPELINE_PREVIEW_ORDER if step in unique]
+    return in_order + [step for step in unique if step not in PIPELINE_PREVIEW_ORDER]
+
+
+def _cascade_sources(config: AppConfig, *, use_transcripts: bool) -> dict[str, tuple[str, ...]]:
+    """Reverse the cascade graph, dropping edges that do not apply to this run.
+
+    Transcript audio comes from the compressed video only while compression keeps
+    audio; with ``remove_audio`` transcription reads the original footage, so a
+    compress rerun cannot invalidate an existing transcript.
+    """
+    sources: dict[str, list[str]] = {}
+    for upstream, targets in _PIPELINE_CASCADE_EDGES.items():
+        for target in targets:
+            if upstream == "compress" and target == "transcribe" and config.compress.remove_audio:
+                continue
+            if upstream == "transcribe" and not use_transcripts:
+                continue
+            sources.setdefault(target, []).append(upstream)
+    return {target: tuple(items) for target, items in sources.items()}
+
+
+def _input_sources(config: AppConfig, *, use_transcripts: bool) -> dict[str, tuple[str, ...]]:
+    """Reverse the input graph: which earlier steps unlock a step's missing input."""
+    sources: dict[str, list[str]] = {}
+    for target, upstreams in _PIPELINE_INPUT_EDGES.items():
+        for upstream in upstreams:
+            if upstream == "transcribe" and not use_transcripts:
+                continue
+            sources.setdefault(target, []).append(upstream)
+    return {target: tuple(items) for target, items in sources.items()}
+
+
+def _row_is_reusable(row: dict[str, Any]) -> bool:
+    """A row is reusable only when every item is a verified existing artifact."""
+    total = int(row.get("total") or 0)
+    return (
+        total > 0
+        and not row.get("disabled")
+        and not row.get("deferred")
+        and not row.get("warnings")
+        and not row.get("cascade_assumed")
+        and int(row.get("will_run") or 0) == 0
+        and int(row.get("will_skip") or 0) == total
+    )
+
+
+def _steps_that_run(preview_steps: list[dict[str, Any]]) -> set[str]:
+    """Steps with confirmed work in this request."""
+    return {
+        str(row.get("name")) for row in preview_steps if not row.get("disabled") and int(row.get("will_run") or 0) > 0
+    }
+
+
+def _defer_same_run_inputs(
+    *,
+    sources: dict[str, tuple[str, ...]],
+    selected_steps: list[str],
+    producers: set[str],
+    preview_steps: list[dict[str, Any]],
+    day_labels: list[str],
+    media_max: int,
+) -> set[str]:
+    """Turn "input not produced yet" into a wait instead of a blocker.
+
+    When the same request runs the step that creates the missing input, the row is
+    not actionable and not blocked: it simply follows that upstream step. Volume
+    stays a maximum because it depends on output that does not exist yet.
+    Returns every step that may produce output in this run, including the rows
+    that were just deferred.
+    """
+    rows_by_name = {str(row.get("name")): row for row in preview_steps}
+    selected = set(selected_steps)
+    may_run = set(producers)
+    for name in PIPELINE_PREVIEW_ORDER:
+        row = rows_by_name.get(name)
+        if row is None:
+            continue
+        if row.get("disabled"):
+            may_run.discard(name)
+            continue
+        providers = [src for src in sources.get(name, ()) if src in selected and src in may_run]
+        if not providers:
+            continue
+        total = int(row.get("total") or 0)
+        if total > 0 and name not in _DEFER_WHEN_PRODUCER_RUNS:
+            # A stale artifact may be invalidated by the producer, but the row
+            # still has a usable input shape, so the cascade pass covers it.
+            continue
+        # Waiting is the only user-facing meaning for a deferred row, so a
+        # cascade marker left by an earlier pass must not survive it.
+        row.pop("cascade_from", None)
+        row.pop("cascade_assumed", None)
+        if total > 0:
+            # Keep the current skip count as a maximum, never as a promise.
+            row.update(
+                {
+                    "deferred": True,
+                    "waiting_on": providers,
+                    "warnings": [],
+                    "will_run": 0,
+                    "will_run_max": total,
+                    "will_skip_min": 0,
+                    "estimate_is_minimum": True,
+                }
+            )
+            may_run.add(name)
+            continue
+        row.update(
+            {
+                "deferred": True,
+                "waiting_on": providers,
+                "warnings": [],
+                "estimate_is_minimum": True,
+            }
+        )
+        # The expected volume follows upstream output that does not exist yet, so
+        # it stays an upper bound; the confirmed minimum remains zero.
+        expected = len(day_labels) if name in _DAY_SCOPED_PREVIEW_STEPS and day_labels else media_max
+        if expected > 0:
+            row.update(
+                {
+                    "total": expected,
+                    "will_run": 0,
+                    "will_skip": 0,
+                    "will_run_max": expected,
+                    "will_skip_min": 0,
+                }
+            )
+        may_run.add(name)
+    return may_run
+
+
+def _apply_run_cascade(
+    *,
+    sources: dict[str, tuple[str, ...]],
+    selected_steps: list[str],
+    producers: set[str],
+    preview_steps: list[dict[str, Any]],
+) -> set[str]:
+    """Mark reusable artifacts that same-run upstream work may invalidate.
+
+    ``will_run`` stays the confirmed minimum. A cascaded row keeps its reusable
+    count in ``will_skip`` as a maximum, so ``will_run_max``/``will_skip_min``
+    describe the real range instead of pretending the cache is final. Only a
+    selected step that may actually run propagates the risk.
+    """
+    rows_by_name = {str(row.get("name")): row for row in preview_steps}
+    selected = set(selected_steps)
+    may_run = set(producers)
+    for name in PIPELINE_PREVIEW_ORDER:
+        row = rows_by_name.get(name)
+        if row is None:
+            continue
+        if row.get("deferred"):
+            # Waiting rows already expose their own maximum; a cascade marker
+            # would describe the same uncertainty twice.
+            may_run.add(name)
+            continue
+        will_run = int(row.get("will_run") or 0)
+        will_skip = int(row.get("will_skip") or 0)
+        upstream = tuple(src for src in sources.get(name, ()) if src in selected and src in may_run)
+        if upstream and will_skip > 0 and not row.get("disabled") and int(row.get("total") or 0) > 0:
+            row["cascade_from"] = list(upstream)
+            row["cascade_assumed"] = will_skip
+            row["will_run_max"] = will_run + will_skip
+            row["will_skip_min"] = 0
+            row["estimate_is_minimum"] = True
+        if will_run > 0 or row.get("cascade_assumed"):
+            may_run.add(name)
+    return may_run
+
+
+def _preview_signature(preview_steps: list[dict[str, Any]]) -> tuple[Any, ...]:
+    """Snapshot the fields that defer/cascade passes can change."""
+    fields = (
+        "total",
+        "will_run",
+        "will_run_max",
+        "will_skip",
+        "will_skip_min",
+        "deferred",
+        "waiting_on",
+        "cascade_from",
+        "cascade_assumed",
+        "estimate_is_minimum",
+        "warnings",
+        "disabled",
+    )
+    return tuple(
+        (str(row.get("name")), tuple((field, repr(row.get(field))) for field in fields)) for row in preview_steps
+    )
+
 
 def _build_stage_summary(selected_steps: list[str], preview_steps: list[dict[str, Any]]) -> dict[str, Any]:
     """Project step previews into the four user-facing stages.
@@ -92,34 +337,36 @@ def _build_stage_summary(selected_steps: list[str], preview_steps: list[dict[str
         steps = [step for step in stage_steps if step in selected]
         rows = [rows_by_name[step] for step in steps if step in rows_by_name]
         required_rows = [row for row in rows if not row.get("disabled")]
+        deferred_rows = [row for row in required_rows if row.get("deferred")]
         total = sum(int(row.get("total") or 0) for row in rows)
         will_run = sum(int(row.get("will_run") or 0) for row in rows)
         will_skip = sum(int(row.get("will_skip") or 0) for row in rows)
+        will_run_max = sum(int(row.get("will_run_max", row.get("will_run") or 0)) for row in rows)
+        will_skip_min = sum(int(row.get("will_skip_min", row.get("will_skip") or 0)) for row in rows)
+        cascade_assumed = sum(int(row.get("cascade_assumed") or 0) for row in rows)
         warnings = [str(item) for row in rows for item in (row.get("warnings") or [])]
         # Optional steps that are disabled for this run must not block the stage:
         # they carry an explanatory warning but no work or artifact requirement.
         required_warnings = [str(item) for row in required_rows for item in (row.get("warnings") or [])]
+        waiting_on = sorted({str(item) for row in deferred_rows for item in (row.get("waiting_on") or [])})
         known = len(rows) == len(steps)
-        reusable = (
-            bool(steps)
-            and known
-            and all(
-                int(row.get("total") or 0) > 0
-                and int(row.get("will_run") or 0) == 0
-                and int(row.get("will_skip") or 0) == int(row.get("total") or 0)
-                and not row.get("warnings")
-                for row in required_rows
-            )
-        )
+        reusable = bool(steps) and known and all(_row_is_reusable(row) for row in required_rows)
+        missing_inputs = any(int(row.get("total") or 0) == 0 for row in required_rows if not row.get("deferred"))
+        # Missing inputs or unresolved warnings block a stage only when nothing
+        # in it can run right now.
+        blocked = will_run == 0 and (missing_inputs or (bool(required_warnings) and not reusable))
+        # A deferred stage is satisfied later in the same run, so it waits instead
+        # of acting as a final blocker while nothing is actionable yet.
+        waiting = not blocked and will_run == 0 and bool(deferred_rows)
         missing = list(required_warnings)
         if not steps:
             status = "excluded"
         elif not known:
             status = "unknown"
-        elif will_run == 0 and (
-            any(int(row.get("total") or 0) == 0 for row in required_rows) or (required_warnings and not reusable)
-        ):
+        elif blocked:
             status = "blocked"
+        elif waiting:
+            status = "waiting"
         elif reusable:
             status = "reusable"
         else:
@@ -141,14 +388,22 @@ def _build_stage_summary(selected_steps: list[str], preview_steps: list[dict[str
                 "status": status,
                 "total": total,
                 "will_run": will_run,
+                "will_run_max": will_run_max,
                 "will_skip": will_skip,
+                "will_skip_min": will_skip_min,
                 "warnings": warnings,
                 "blockers": missing if status in {"unknown", "blocked"} else [],
                 "estimate": usage,
+                "estimate_is_minimum": bool(cascade_assumed or deferred_rows),
+                "deferred": bool(deferred_rows) and len(deferred_rows) == len(required_rows),
+                "waiting_on": waiting_on,
                 "output": {"target": output_target, "steps": output_steps} if output_steps else None,
             }
         )
-    next_stage = next((stage["key"] for stage in stages if stage["status"] not in {"excluded", "reusable"}), None)
+    next_stage = next(
+        (stage["key"] for stage in stages if stage["status"] not in {"excluded", "reusable", "waiting"}),
+        None,
+    )
     return {
         "stages": stages,
         "next_stage": next_stage,
@@ -172,7 +427,8 @@ def build_run_preview(
     config = copy.deepcopy(config)
     config.plan.use_transcripts = use_transcripts
     force = force or not config.analyze.skip_existing
-    selected_steps = list(steps)
+    # Report rows in the order the pipeline executes so cascade review matches runtime.
+    selected_steps = _ordered_steps(steps)
     selected = _selection_from_files(files) if files is not None else None
     preview_day_labels = _preview_day_labels(config, day_label, all_days)
 
@@ -222,6 +478,32 @@ def build_run_preview(
         for step in selected_steps
     ]
 
+    # A cascade can turn an initially reusable row into "may run", which can in
+    # turn unlock another row that must wait on it. Iterate to a fixed point so
+    # the reported status does not depend on the order of the two passes.
+    input_sources = _input_sources(config, use_transcripts=use_transcripts)
+    cascade_sources = _cascade_sources(config, use_transcripts=use_transcripts)
+    media_max = max(len(filtered_source_videos), len(compressed_videos))
+    may_run = _steps_that_run(preview_steps)
+    for _ in range(len(PIPELINE_PREVIEW_ORDER) + 1):
+        before = _preview_signature(preview_steps)
+        may_run = _defer_same_run_inputs(
+            sources=input_sources,
+            selected_steps=selected_steps,
+            producers=may_run,
+            preview_steps=preview_steps,
+            day_labels=preview_day_labels,
+            media_max=media_max,
+        )
+        may_run = _apply_run_cascade(
+            sources=cascade_sources,
+            selected_steps=selected_steps,
+            producers=may_run,
+            preview_steps=preview_steps,
+        )
+        if _preview_signature(preview_steps) == before:
+            break
+
     # Surface empty selection so UI/CLI can prompt migrate / add-videos.
     # Attach once on input, not per-step, so totals.warnings stays step-scoped.
     empty_selection_note: str | None = None
@@ -236,7 +518,11 @@ def build_run_preview(
         "selected_steps": len(selected_steps),
         "will_run": sum(step["will_run"] for step in preview_steps),
         "will_skip": sum(step["will_skip"] for step in preview_steps),
+        "will_run_max": sum(int(step.get("will_run_max", step["will_run"])) for step in preview_steps),
+        "will_skip_min": sum(int(step.get("will_skip_min", step["will_skip"])) for step in preview_steps),
         "warnings": sum(len(step["warnings"]) for step in preview_steps),
+        "deferred_steps": sum(1 for step in preview_steps if step.get("deferred")),
+        "estimate_is_minimum": any(step.get("estimate_is_minimum") for step in preview_steps),
     }
     totals.update(combine_usage(preview_steps))
     result = {
@@ -299,8 +585,44 @@ ANALYSIS_RERUN_REASON_ORDER = (
     "compressed_media",
     "window",
     "legacy",
+    "upstream",
     "unknown",
 )
+
+
+def _pending_compressed_originals(config: AppConfig, source_videos: list[Path], *, force: bool) -> set[str]:
+    """Original stems whose compressed output this run will rewrite."""
+    stems = {source.stem.lower() for source in source_videos}
+    if force:
+        return stems
+    try:
+        ffprobe = resolve_binary(config.paths.ffprobe, "ffprobe")
+        existing, _ = _scan_existing_compressed(config, ffprobe, quiet=True)
+    except (OSError, RuntimeError):
+        # Unverifiable output is treated as pending, matching the compress preview.
+        return stems
+    return {
+        source.stem.lower() for source in source_videos if _find_reusable(source, existing, config, ffprobe)[1] is None
+    }
+
+
+def _pending_transcript_stems(config: AppConfig, compressed_videos: list[Path]) -> set[str]:
+    """Compressed stems whose transcript this run will regenerate."""
+    index = ArtifactIndex(
+        output_dir=config.paths.output_dir,
+        project_dir=config.project_dir or Path(),
+        compressed_dir=config.compressed_dir,
+        texts_dir=config.texts_dir,
+        scripts_dir=config.scripts_dir,
+        transcripts_dir=config.transcripts_dir,
+    )
+    index.build()
+    pending: set[str] = set()
+    for compressed in compressed_videos:
+        entry = index.lookup(compressed_stem=compressed.stem)
+        if entry is None or not entry.transcript:
+            pending.add(compressed.stem)
+    return pending
 
 
 def analysis_rerun_risk(
@@ -329,7 +651,21 @@ def analysis_rerun_risk(
             if _matches_selected_stem(compressed, selected, artifact=True)
         ]
     source_videos = list(_source_input_info(config)[1])
+    filtered_sources = _filter_stem_paths(source_videos, selected) if selected is not None else source_videos
     pairs = _analysis_input_pairs(config, compressed_videos, source_videos, stem_cache, selected_paths)
+
+    # Same-run upstream work can rewrite analysis input even when the current
+    # cache would otherwise be accepted; that is not a safe "reusable" answer.
+    selected = set(steps)
+    at_risk_stems: set[str] = set()
+    if "compress" in selected:
+        pending_originals = _pending_compressed_originals(config, filtered_sources, force=force)
+        at_risk_stems |= {
+            compressed.stem for compressed, original in pairs if original.stem.lower() in pending_originals
+        }
+    if "transcribe" in selected and use_transcripts and config.whisper.enabled:
+        pending_transcripts = _pending_transcript_stems(config, compressed_videos)
+        at_risk_stems |= {compressed.stem for compressed, _original in pairs if compressed.stem in pending_transcripts}
 
     reason_counts = {reason: 0 for reason in ANALYSIS_RERUN_REASON_ORDER}
     rerun_count = 0
@@ -346,6 +682,9 @@ def analysis_rerun_risk(
             use_transcripts=use_transcripts,
         )
         if not status.rerun_required:
+            if compressed.stem in at_risk_stems:
+                rerun_count += 1
+                reason_counts["upstream"] = reason_counts.get("upstream", 0) + 1
             continue
         reasons = list(status.reasons)
         if status.invalid:
