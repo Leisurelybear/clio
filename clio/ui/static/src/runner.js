@@ -217,7 +217,6 @@ function renderRun() {
       <p id="run-next-estimate" class="hint"></p>
       <p id="run-next-reassure" class="run-next-reassure hint"></p>
       <button id="btn-run-start" class="btn-primary">${getRunButtonText()}</button>
-      <button id="btn-run-retry-preview" class="btn-secondary" hidden>${t('run.guide.retry_preview')}</button>
       <button id="btn-run-skip-transcribe" class="btn-secondary" hidden>${t('run.guide.skip_transcribe')}</button>
       <span id="run-files-badge" class="run-files-badge" style="display:none"></span>
       <button id="btn-run-cancel" class="btn-secondary" style="display:none">${t('common.cancel')}</button>
@@ -249,7 +248,6 @@ function renderRun() {
   `;
   const dayScope = pane.querySelector('.run-step-day-sub');
   if (dayScope) $('run-scope').appendChild(dayScope);
-  $('btn-run-retry-preview').onclick = () => refreshRunPreview();
   $('btn-run-skip-transcribe').onclick = () => {
     if (_runActive) return;
     const transcribe = pane.querySelector('.run-step-cb[data-step="transcribe"]');
@@ -422,8 +420,6 @@ function updateRunGuide() {
     skipTranscribe.disabled = _runActive;
     skipTranscribe.title = t('run.guide.skip_transcribe_hint');
   }
-  const retry = $('btn-run-retry-preview');
-  if (retry) retry.hidden = !_previewFailed;
   const estimate = $('run-next-estimate');
   if (estimate) {
     const usage = next?.estimate;
@@ -553,6 +549,8 @@ async function refreshRunPreview({ silent = false } = {}) {
       }
     } else {
       _previewFailed = true;
+      const details = $('run-execution-options');
+      if (details) details.open = true;
       container.innerHTML = renderRunPreviewErrorHtml();
       _bindPreviewRetry(container);
     }
@@ -561,6 +559,8 @@ async function refreshRunPreview({ silent = false } = {}) {
     _lastRunPreview = null;
     _previewFailed = true;
     updateRunStartButtonState();
+    const details = $('run-execution-options');
+    if (details) details.open = true;
     container.innerHTML = renderRunPreviewErrorHtml();
     _bindPreviewRetry(container);
   } finally {

@@ -236,18 +236,20 @@ describe('guided run stages', () => {
     expect(document.querySelectorAll('.run-step-cb:checked')).toHaveLength(8);
   });
 
-  it('offers recovery after a failed preview and does not start an unknown stage', async () => {
+  it('offers one inline recovery after a failed preview and does not start an unknown stage', async () => {
     vi.mocked(api).mockRejectedValue(new Error('offline'));
     document.body.innerHTML = '<div id="tab-run"></div>';
     renderRun();
-    await vi.waitFor(() => expect(document.getElementById('btn-run-retry-preview').hidden).toBe(false));
+    await vi.waitFor(() => expect(document.querySelector('.run-preview-retry')).not.toBeNull());
     expect(document.getElementById('btn-run-start').disabled).toBe(true);
+    expect(document.getElementById('run-execution-options').open).toBe(true);
     expect(document.getElementById('run-preview').textContent).toContain('预览生成失败');
-    expect(document.querySelector('.run-preview-retry')).not.toBeNull();
+    expect(document.querySelectorAll('.run-preview-retry')).toHaveLength(1);
+    expect(document.getElementById('btn-run-retry-preview')).toBeNull();
     vi.mocked(api).mockResolvedValue({ preview: preview() });
-    await document.getElementById('btn-run-retry-preview').onclick();
-    expect(document.getElementById('btn-run-start').disabled).toBe(false);
-    expect(document.getElementById('btn-run-retry-preview').hidden).toBe(true);
+    document.querySelector('.run-preview-retry').click();
+    await vi.waitFor(() => expect(document.getElementById('btn-run-start').disabled).toBe(false));
+    expect(document.querySelector('.run-preview-retry')).toBeNull();
   });
 
   it('reveals scope and automatically opens warnings for review', async () => {
