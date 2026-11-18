@@ -43,3 +43,11 @@ def test_load_skips_null_and_empty_entries(tmp_path: Path) -> None:
     )
     loaded = load_selected_videos(tmp_path)
     assert loaded == [Path("D:/ok.mp4")]
+
+
+def test_load_accepts_utf8_bom(tmp_path: Path) -> None:
+    (tmp_path / "videos.json").write_text(
+        json.dumps(["D:/ok.mp4"], ensure_ascii=False),
+        encoding="utf-8-sig",
+    )
+    assert load_selected_videos(tmp_path) == [Path("D:/ok.mp4")]

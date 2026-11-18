@@ -21,7 +21,7 @@ def load_selected_videos(project_dir: Path | None) -> list[Path]:
     if not video_file.is_file():
         return []
     try:
-        data = json.loads(video_file.read_text(encoding="utf-8"))
+        data = json.loads(video_file.read_text(encoding="utf-8-sig"))
     except (json.JSONDecodeError, OSError):
         return []
     if not isinstance(data, list):
