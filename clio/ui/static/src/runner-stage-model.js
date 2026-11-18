@@ -61,6 +61,7 @@ function deriveStageSummary(stage, selected, previewRows) {
   const status = !steps.length ? 'excluded' : !known ? 'unknown' : requiredRows.length === 0 ? 'disabled'
     : reusable ? 'reusable' : blocked ? 'blocked' : waiting ? 'waiting' : 'ready';
   const waitingOn = [...new Set(deferredRows.flatMap(row => row?.waiting_on || []).map(String))].sort();
+  const cascadeFrom = [...new Set(requiredRows.flatMap(row => row?.cascade_from || []).map(String))].sort();
   return {
     key: stage.key,
     steps,
@@ -76,6 +77,7 @@ function deriveStageSummary(stage, selected, previewRows) {
     estimate_is_minimum: requiredRows.some(row => row?.estimate_is_minimum || row?.cascade_assumed || row?.deferred),
     deferred: waiting,
     waiting_on: waitingOn,
+    cascade_from: cascadeFrom,
     output: null,
   };
 }
@@ -105,6 +107,7 @@ export function buildRunStageModel({ selectedSteps, preview, activePhase = '', c
       blockers: summary?.blockers || [],
       estimateIsMinimum: Boolean(summary?.estimate_is_minimum),
       waitingOn: Array.isArray(summary?.waiting_on) ? summary.waiting_on : [],
+      cascadeFrom: Array.isArray(summary?.cascade_from) ? summary.cascade_from : [],
     };
   });
 }

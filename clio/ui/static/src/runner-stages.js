@@ -38,8 +38,13 @@ export function renderStageBoard(container, model, onOpenOutput) {
           <p class="run-stage-status-desc">${t(`run.guide.status_desc.${stage.status}`)}</p>
           <p>${t(`run.stage.${stage.key}.hint`)}</p>
           ${renderStageCounts(stage)}
-          ${stage.status === 'waiting' && stage.waitingOn.length
-            ? html`<small class="run-stage-waiting">${t('run.guide.waiting_on', {
+          ${stage.cascadeFrom?.length
+            ? html`<small class="run-stage-cascade">${t('run.preview.cascade_from', {
+              steps: stageNamesText(stage.cascadeFrom),
+            })}</small>` : ''}
+          ${stage.waitingOn.length
+            ? html`<small class="run-stage-waiting">${t(stage.status === 'waiting'
+              ? 'run.guide.waiting_on' : 'run.guide.deferred_partial', {
               steps: stageNamesText(stage.waitingOn),
             })}</small>` : ''}
           ${stage.estimateIsMinimum

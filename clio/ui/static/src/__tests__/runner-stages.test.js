@@ -148,6 +148,15 @@ describe('guided run stages', () => {
     expect(card.textContent).toContain('估算为下限');
   });
 
+  it('explains which steps caused a stage to rerun', () => {
+    const p = preview();
+    p.stages[1].cascade_from = ['compress'];
+    const board = document.createElement('div');
+    renderStageBoard(board, buildRunStageModel({ selectedSteps: allSteps, preview: p }));
+    expect(board.querySelector('[data-stage="ai_analysis"] .run-stage-cascade').textContent)
+      .toContain('同批次');
+  });
+
   it('renders the disabled stage status without a reusable-action affordance', () => {
     const p = preview();
     p.stages[0].status = 'disabled';
@@ -157,6 +166,17 @@ describe('guided run stages', () => {
     const card = board.querySelector('[data-stage="source_prep"]');
     expect(card.textContent).toContain('本次已关闭');
     expect(card.querySelector('[data-stage-output]')).toBeNull();
+  });
+
+  it('explains partial waiting inside an otherwise ready stage', () => {
+    const p = preview();
+    p.stages[3].waiting_on = ['plan'];
+    const board = document.createElement('div');
+    renderStageBoard(board, buildRunStageModel({ selectedSteps: allSteps, preview: p }));
+    expect(board.querySelector('[data-stage="voiceover_delivery"] .run-stage-waiting').textContent)
+      .toContain('部分步骤');
+    expect(board.querySelector('[data-stage="voiceover_delivery"] .run-stage-waiting').textContent)
+      .toContain('规划');
   });
 
   it('renders a plain-language description for each stage status', () => {

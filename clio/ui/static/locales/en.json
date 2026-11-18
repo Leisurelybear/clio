@@ -1423,6 +1423,7 @@
   "run.guide.counts": "{pending} to run, {skipped} to skip",
   "run.guide.count_ranges": "{run_min}–{run_max} to run, {skip_min}–{skip_max} to skip",
   "run.guide.waiting_on": "Waiting on: {steps}",
+  "run.guide.deferred_partial": "Some steps will wait on: {steps}",
   "run.guide.estimate_minimum": "estimate is a lower bound",
   "run.guide.outputs_processed": "{count} processed",
   "run.guide.custom": "Custom steps",

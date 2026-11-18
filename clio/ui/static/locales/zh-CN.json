@@ -1423,6 +1423,7 @@
   "run.guide.counts": "待执行 {pending} 项，可跳过 {skipped} 项",
   "run.guide.count_ranges": "待执行 {run_min}–{run_max}，跳过 {skip_min}–{skip_max}",
   "run.guide.waiting_on": "等待：{steps}",
+  "run.guide.deferred_partial": "其中部分步骤将等待：{steps}",
   "run.guide.estimate_minimum": "估算为下限",
   "run.guide.outputs_processed": "已处理 {count} 项",
   "run.guide.custom": "自定义步骤",

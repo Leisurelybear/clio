@@ -2073,6 +2073,63 @@ def test_preview_stage_summary_does_not_block_disabled_transcribe(tmp_path: Path
     assert preview["outputs"] == []
 
 
+def test_stage_summary_surfaces_cascade_sources() -> None:
+    from clio.ui.services.run_preview import _build_stage_summary
+
+    summary = _build_stage_summary(
+        ["compress", "analyze"],
+        [
+            {"name": "compress", "total": 1, "will_run": 1, "will_skip": 0, "warnings": []},
+            {
+                "name": "analyze",
+                "total": 1,
+                "will_run": 0,
+                "will_skip": 1,
+                "cascade_from": ["compress"],
+                "cascade_assumed": 1,
+                "warnings": [],
+            },
+        ],
+    )
+
+    ai_analysis = next(stage for stage in summary["stages"] if stage["key"] == "ai_analysis")
+    assert ai_analysis["status"] == "ready"
+    assert ai_analysis["cascade_from"] == ["compress"]
+    assert ai_analysis["estimate_is_minimum"] is True
+
+
+def test_stage_summary_keeps_mixed_runnable_and_deferred_stage_ready() -> None:
+    from clio.ui.services.run_preview import _build_stage_summary
+
+    summary = _build_stage_summary(
+        ["plan_voiceover", "label"],
+        [
+            {
+                "name": "plan_voiceover",
+                "total": 1,
+                "will_run": 0,
+                "will_run_max": 1,
+                "will_skip": 1,
+                "will_skip_min": 0,
+                "deferred": True,
+                "waiting_on": ["plan"],
+                "warnings": [],
+            },
+            {"name": "label", "total": 1, "will_run": 1, "will_skip": 0, "warnings": []},
+        ],
+    )
+
+    delivery = next(stage for stage in summary["stages"] if stage["key"] == "voiceover_delivery")
+    assert delivery["status"] == "ready"
+    # A partially waiting stage still exposes why part of it is not runnable yet.
+    assert delivery["waiting_on"] == ["plan"]
+    assert delivery["deferred"] is False
+    assert delivery["blockers"] == []
+    assert delivery["will_run"] == 1
+    assert delivery["will_run_max"] == 2
+    assert summary["next_stage"] == "voiceover_delivery"
+
+
 def test_stage_summary_blocks_on_missing_required_input() -> None:
     from clio.ui.services.run_preview import _build_stage_summary
 

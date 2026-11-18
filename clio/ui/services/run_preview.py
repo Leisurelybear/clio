@@ -351,6 +351,7 @@ def _build_stage_summary(selected_steps: list[str], preview_steps: list[dict[str
         required_warnings = [str(item) for row in required_rows for item in (row.get("warnings") or [])]
         waiting_on = sorted({str(item) for row in deferred_rows for item in (row.get("waiting_on") or [])})
         known = len(rows) == len(steps)
+        cascade_from = sorted({str(item) for row in required_rows for item in (row.get("cascade_from") or [])})
         reusable = bool(required_rows) and known and all(_row_is_reusable(row) for row in required_rows)
         missing_inputs = any(int(row.get("total") or 0) == 0 for row in required_rows if not row.get("deferred"))
         # Missing inputs or unresolved warnings block a stage only when nothing
@@ -400,6 +401,7 @@ def _build_stage_summary(selected_steps: list[str], preview_steps: list[dict[str
                 "estimate_is_minimum": bool(cascade_assumed or deferred_rows),
                 "deferred": bool(deferred_rows) and len(deferred_rows) == len(required_rows),
                 "waiting_on": waiting_on,
+                "cascade_from": cascade_from,
                 "output": {"target": output_target, "steps": output_steps} if output_steps else None,
             }
         )

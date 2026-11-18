@@ -2249,7 +2249,8 @@ body.video-drag-active {
 .run-stage-card.disabled { opacity: .7; }
 .run-stage-card.waiting .run-stage-row span { color: var(--text-secondary); }
 .run-stage-card.waiting .run-stage-dot { border-style: dashed; }
-.run-stage-waiting, .run-stage-estimate-note { display: block; margin-top: 4px; }
+.run-stage-waiting, .run-stage-cascade, .run-stage-estimate-note { display: block; margin-top: 4px; }
+.run-stage-cascade { color: var(--text-tertiary); }
 .run-stage-estimate-note { color: var(--text-tertiary); font-style: italic; }
 .run-preview-step { padding: 4px 0; }
 .run-preview-step > span { margin-right: 10px; }
