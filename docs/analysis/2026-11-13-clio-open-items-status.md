@@ -73,6 +73,12 @@ typecheck, focused Ruff check/format, and diff checks passed. The cache regressi
 changes upstream analysis on disk and asserts all four downstream tasks become runnable.
 Resolution details: [Run interaction review](2026-11-14-run-interaction-review.md).
 
+Run UX clarification follow-up (2026-11-18): managed task result summaries now survive the
+Run event adapter and populate completion cards; completed output counts use processed wording
+instead of pending wording; preview failures expose one inline retry action and auto-open the
+detailed preview area. Focused runner regressions and the full frontend suite (1001 tests),
+frontend typecheck, and `git diff --check` passed.
+
 Follow-up audit (2026-11-14): [recent commits review](2026-11-14-recent-commits-review.md)
 records five additional findings, now fixed: preview/runtime reuse disagreement, stale
 all-day discovery, disabled-transcription stage blocking, missing analysis

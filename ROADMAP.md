@@ -35,6 +35,9 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
 - `[x]` Label the guided next-stage card with progress and a reassurance line.
 - `[x]` Surface execution-option details and cost estimates by default instead of hiding them.
 - `[x]` Summarize run outputs on the completion card after a run finishes.
+- `[x]` Preserve managed-task result summaries through the Run event adapter.
+- `[x]` Label completed output counts as processed instead of pending.
+- `[x]` Keep one visible inline preview retry and auto-open the preview on failure.
 - `[x]` Unify run cost formatting across the next-stage card and preview.
 - `[x]` Surface custom step mode with an inline guided-mode recovery action.
 
