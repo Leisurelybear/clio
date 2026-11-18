@@ -351,7 +351,7 @@ def _build_stage_summary(selected_steps: list[str], preview_steps: list[dict[str
         required_warnings = [str(item) for row in required_rows for item in (row.get("warnings") or [])]
         waiting_on = sorted({str(item) for row in deferred_rows for item in (row.get("waiting_on") or [])})
         known = len(rows) == len(steps)
-        reusable = bool(steps) and known and all(_row_is_reusable(row) for row in required_rows)
+        reusable = bool(required_rows) and known and all(_row_is_reusable(row) for row in required_rows)
         missing_inputs = any(int(row.get("total") or 0) == 0 for row in required_rows if not row.get("deferred"))
         # Missing inputs or unresolved warnings block a stage only when nothing
         # in it can run right now.
@@ -364,6 +364,8 @@ def _build_stage_summary(selected_steps: list[str], preview_steps: list[dict[str
             status = "excluded"
         elif not known:
             status = "unknown"
+        elif not required_rows:
+            status = "disabled"
         elif blocked:
             status = "blocked"
         elif waiting:
@@ -402,7 +404,7 @@ def _build_stage_summary(selected_steps: list[str], preview_steps: list[dict[str
             }
         )
     next_stage = next(
-        (stage["key"] for stage in stages if stage["status"] not in {"excluded", "reusable", "waiting"}),
+        (stage["key"] for stage in stages if stage["status"] not in {"excluded", "disabled", "reusable", "waiting"}),
         None,
     )
     return {
@@ -657,14 +659,14 @@ def analysis_rerun_risk(
 
     # Same-run upstream work can rewrite analysis input even when the current
     # cache would otherwise be accepted; that is not a safe "reusable" answer.
-    selected = set(steps)
+    selected_names = set(steps)
     at_risk_stems: set[str] = set()
-    if "compress" in selected:
+    if "compress" in selected_names:
         pending_originals = _pending_compressed_originals(config, filtered_sources, force=force)
         at_risk_stems |= {
             compressed.stem for compressed, original in pairs if original.stem.lower() in pending_originals
         }
-    if "transcribe" in selected and use_transcripts and config.whisper.enabled:
+    if "transcribe" in selected_names and use_transcripts and config.whisper.enabled:
         pending_transcripts = _pending_transcript_stems(config, compressed_videos)
         at_risk_stems |= {compressed.stem for compressed, _original in pairs if compressed.stem in pending_transcripts}
 

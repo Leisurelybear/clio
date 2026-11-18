@@ -2246,6 +2246,7 @@ body.video-drag-active {
 .run-stage-card.done .run-stage-dot, .run-stage-card.reusable .run-stage-dot { color: var(--success); border-color: var(--success); }
 .run-stage-card.blocked .run-stage-row span { color: var(--warning); }
 .run-stage-card.excluded { opacity: .55; }
+.run-stage-card.disabled { opacity: .7; }
 .run-stage-card.waiting .run-stage-row span { color: var(--text-secondary); }
 .run-stage-card.waiting .run-stage-dot { border-style: dashed; }
 .run-stage-waiting, .run-stage-estimate-note { display: block; margin-top: 4px; }

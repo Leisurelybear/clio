@@ -111,6 +111,28 @@ describe('guided run stages', () => {
     expect(nextIncompleteStage(model, p)).toBeNull();
   });
 
+  it('marks a stage containing only disabled steps as disabled', () => {
+    const p = { ...preview(), stages: undefined, next_stage: undefined };
+    p.steps = [{
+      name: 'transcribe', total: 0, will_run: 0, will_skip: 0, disabled: true,
+      warnings: ['disabled'],
+    }];
+    const model = buildRunStageModel({ selectedSteps: ['transcribe'], preview: p });
+    expect(model[0].status).toBe('disabled');
+    expect(nextIncompleteStage(model, p)).toBeNull();
+  });
+
+  it('does not count disabled stages in guided progress', async () => {
+    const p = preview();
+    p.stages[0].status = 'disabled';
+    p.next_stage = 'ai_analysis';
+    vi.mocked(api).mockResolvedValue({ preview: p });
+    document.body.innerHTML = '<div id="tab-run"></div>';
+    renderRun();
+    await vi.waitFor(() => expect(document.getElementById('run-next-kicker').textContent).toContain('1 / 3'));
+    expect(document.getElementById('run-next-kicker').textContent).toContain('下一步');
+  });
+
   it('shows count ranges and a minimum-estimate note on cascaded stages', () => {
     const p = preview();
     p.stages[0].will_run = 1;
@@ -124,6 +146,17 @@ describe('guided run stages', () => {
     expect(card.textContent).toContain('待执行 1–3');
     expect(card.textContent).toContain('跳过 1–3');
     expect(card.textContent).toContain('估算为下限');
+  });
+
+  it('renders the disabled stage status without a reusable-action affordance', () => {
+    const p = preview();
+    p.stages[0].status = 'disabled';
+    p.stages[0].output = { target: 'video', steps: ['transcribe'] };
+    const board = document.createElement('div');
+    renderStageBoard(board, buildRunStageModel({ selectedSteps: allSteps, preview: p }));
+    const card = board.querySelector('[data-stage="source_prep"]');
+    expect(card.textContent).toContain('本次已关闭');
+    expect(card.querySelector('[data-stage-output]')).toBeNull();
   });
 
   it('renders a plain-language description for each stage status', () => {

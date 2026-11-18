@@ -58,8 +58,8 @@ function deriveStageSummary(stage, selected, previewRows) {
     || (requiredRows.some(row => row?.warnings?.length) && deferredRows.length === 0));
   const waiting = known && !reusable && !blocked && pending === 0
     && deferredRows.length > 0 && deferredRows.length === requiredRows.length;
-  const status = !steps.length ? 'excluded' : !known ? 'unknown' : reusable ? 'reusable'
-    : blocked ? 'blocked' : waiting ? 'waiting' : 'ready';
+  const status = !steps.length ? 'excluded' : !known ? 'unknown' : requiredRows.length === 0 ? 'disabled'
+    : reusable ? 'reusable' : blocked ? 'blocked' : waiting ? 'waiting' : 'ready';
   const waitingOn = [...new Set(deferredRows.flatMap(row => row?.waiting_on || []).map(String))].sort();
   return {
     key: stage.key,
@@ -113,5 +113,5 @@ export function nextIncompleteStage(stages, preview) {
   if (preview && Object.hasOwn(preview, 'next_stage')) {
     return stages.find(stage => stage.key === preview.next_stage) || null;
   }
-  return stages.find(stage => !['excluded', 'done', 'reusable', 'waiting'].includes(stage.status)) || null;
+  return stages.find(stage => !['excluded', 'disabled', 'done', 'reusable', 'waiting'].includes(stage.status)) || null;
 }

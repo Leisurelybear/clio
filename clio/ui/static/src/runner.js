@@ -436,9 +436,10 @@ function updateRunGuide() {
   const title = $('run-next-title');
   if (kicker) {
     const stageIndex = next ? model.findIndex(stage => stage.key === next.key) : -1;
-    const total = model.filter(stage => stage.status !== 'excluded').length;
+    const countable = stage => !['excluded', 'disabled'].includes(stage.status);
+    const total = model.filter(countable).length;
     const order = total > 0 ? model.slice(0, stageIndex >= 0 ? stageIndex + 1 : 0)
-      .filter(stage => stage.status !== 'excluded').length : 0;
+      .filter(countable).length : 0;
     kicker.textContent = _customRun ? t('run.guide.custom_mode')
       : next && order > 0 ? `${t('run.guide.next_kicker')} · ${t('run.guide.stage_progress', { current: order, total })}`
         : next ? t('run.guide.next_kicker') : '';

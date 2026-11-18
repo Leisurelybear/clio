@@ -2065,7 +2065,7 @@ def test_preview_stage_summary_does_not_block_disabled_transcribe(tmp_path: Path
 
     source_prep = preview["stages"][0]
     assert preview["steps"][0]["disabled"] is True
-    assert source_prep["status"] == "reusable"
+    assert source_prep["status"] == "disabled"
     assert source_prep["warnings"] == preview["steps"][0]["warnings"]
     assert source_prep["warnings"] != []
     assert preview["next_stage"] is None
