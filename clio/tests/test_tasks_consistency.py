@@ -180,6 +180,21 @@ def test_normalize_duplicate_scenes_validates_timestamps_and_ranges(start: str, 
         normalize_entity_consistency(payload, _clips())
 
 
+def test_entity_consistency_lineage_ignores_voiceover_text_without_mutating_clips(cfg: AppConfig) -> None:
+    from clio.tasks.consistency import entity_consistency_lineage_fingerprint
+
+    clips = _clips()
+    clips[0]["voiceover"] = "Original generated narration"
+    snapshot = json.loads(json.dumps(clips))
+
+    base = entity_consistency_lineage_fingerprint(cfg, clips)
+    assert clips == snapshot
+
+    changed = json.loads(json.dumps(clips))
+    changed[0]["voiceover"] = "Rewritten narration with the same visual evidence"
+    assert entity_consistency_lineage_fingerprint(cfg, changed) == base
+
+
 def test_entity_consistency_lineage_changes_with_clips_context_and_prompt(cfg: AppConfig) -> None:
     from clio.tasks.consistency import entity_consistency_lineage_fingerprint
 

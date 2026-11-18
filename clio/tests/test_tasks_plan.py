@@ -112,6 +112,15 @@ def test_plan_lineage_changes_with_analysis_timeline(cfg: AppConfig):
     assert _plan_lineage_fingerprint(cfg, first) != _plan_lineage_fingerprint(cfg, second)
 
 
+def test_plan_lineage_changes_with_voiceover_text(cfg: AppConfig) -> None:
+    from clio.tasks.plan import _plan_lineage_fingerprint
+
+    base = [{"index": "001", "source_stem": "A", "title": "A", "voiceover": "first"}]
+    changed = [{"index": "001", "source_stem": "A", "title": "A", "voiceover": "second"}]
+
+    assert _plan_lineage_fingerprint(cfg, base) != _plan_lineage_fingerprint(cfg, changed)
+
+
 def test_planner_uses_projection_while_validation_keeps_full_clips(cfg: AppConfig, capsys) -> None:
     from clio.tasks.plan import run_plan_vlog
 

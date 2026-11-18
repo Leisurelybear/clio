@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import math
@@ -256,12 +257,30 @@ def normalize_entity_consistency(data: Any, clips: list[dict[str, Any]]) -> dict
     }
 
 
+def _consistency_projection(clips: list[dict[str, Any]], config: AppConfig) -> list[dict[str, Any]]:
+    """Build the visual/text projection used by the consistency task.
+
+    Per-clip voiceover is generated from planning and is not source evidence for
+    entity or duplicate-scene detection. Copy before stripping it so lineage
+    checks never mutate the caller's clips and plan lineage still tracks
+    voiceover through its own fingerprint.
+    """
+    consistency_clips: list[dict[str, Any]] = []
+    for clip in clips:
+        if not isinstance(clip, dict):
+            continue
+        item = copy.deepcopy(clip)
+        item.pop("voiceover", None)
+        consistency_clips.append(item)
+    return build_plan_clips(consistency_clips, config)
+
+
 def _rendered_consistency_prompt(
     config: AppConfig,
     clips: list[dict[str, Any]],
     task_prompts: dict[str, str] | None,
 ) -> tuple[list[dict[str, Any]], str]:
-    projected = build_plan_clips(clips, config)
+    projected = _consistency_projection(clips, config)
     template = resolve_prompt_template(
         "entity_consistency",
         ENTITY_CONSISTENCY_PROMPT,
