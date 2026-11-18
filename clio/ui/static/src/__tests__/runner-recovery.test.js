@@ -86,7 +86,7 @@ it('preserves managed task result summary on the completion card', async () => {
     seq: 1,
   });
   await vi.waitFor(() => expect(document.getElementById('run-completion-actions').textContent).toContain('AI 分析'));
-  expect(document.getElementById('run-completion-actions').textContent).toContain('3');
+  expect(document.getElementById('run-completion-actions').textContent).toContain('已处理 3 项');
 });
 
 it('restores completed task controls on render without repeating completion side effects', async () => {

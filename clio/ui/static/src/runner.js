@@ -1047,7 +1047,7 @@ function _runOutputSummary(steps, status) {
     .filter(row => row.count > 0 && steps.includes(row.name));
   return processed.map(row => ({
     label: t(`run.step.${row.name}.label`),
-    detail: t('run.guide.counts', { pending: row.count, skipped: 0 }),
+    detail: t('run.guide.outputs_processed', { count: row.count }),
   }));
 }
 

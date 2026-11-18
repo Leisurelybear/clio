@@ -203,7 +203,7 @@ describe('guided run stages', () => {
     const actions = document.getElementById('run-completion-actions');
     expect(actions.textContent).toContain('本次产出');
     expect(actions.textContent).toContain('AI 分析');
-    expect(actions.textContent).toContain('待执行 3 项');
+    expect(actions.textContent).toContain('已处理 3 项');
   });
 
   it('switches to custom execution when checkboxes change', async () => {
