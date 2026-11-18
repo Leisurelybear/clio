@@ -75,6 +75,20 @@ it('attaches a retry that is already terminal in its first stream snapshot', asy
   expect(loadPlans).toHaveBeenCalledTimes(1);
 });
 
+it('preserves managed task result summary on the completion card', async () => {
+  await start();
+  hooks.listener({
+    task: {
+      ...task('old-run', 'succeeded'),
+      input_summary: { steps: ['analyze'], day_label: 'day2' },
+      result_summary: { steps: [{ name: 'analyze', processed: 3, failed: 0 }] },
+    },
+    seq: 1,
+  });
+  await vi.waitFor(() => expect(document.getElementById('run-completion-actions').textContent).toContain('AI 分析'));
+  expect(document.getElementById('run-completion-actions').textContent).toContain('3');
+});
+
 it('restores completed task controls on render without repeating completion side effects', async () => {
   await start();
   hooks.listener({ task: task('old-run', 'succeeded'), seq: 1 });

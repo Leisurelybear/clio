@@ -745,6 +745,7 @@ function _taskToRunStatus(task, event = null) {
     day_label: task?.input_summary?.day_label || task?.input_data?.day_label || _lastRunDay,
     all_days: !!(task?.input_summary?.all_days || task?.input_data?.all_days),
     project_id: task?.project_id,
+    result_summary: task?.result_summary || {},
     logs: _runLogs.slice(-20),
     eta_sec: task?.eta_sec,
   };
