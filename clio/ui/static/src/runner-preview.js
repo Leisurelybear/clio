@@ -32,6 +32,46 @@ function formatByteSize(value) {
   return `${formatted} ${units[unitIndex]}`;
 }
 
+function numericRange(minValue, maxValue) {
+  const min = Math.trunc(safeNumber(minValue));
+  const max = Math.max(min, Math.trunc(safeNumber(maxValue ?? minValue)));
+  return { min, max, isRange: max !== min };
+}
+
+function stepNamesText(names) {
+  const list = (Array.isArray(names) ? names : [])
+    .map(name => t(`run.step_short.${String(name)}`))
+    .join(t('common.list_separator'));
+  return list;
+}
+
+function renderCountSpan(key, singleKey, minValue, maxValue) {
+  const range = numericRange(minValue, maxValue);
+  return range.isRange
+    ? `<span>${escapeHtml(t(key, { min: formatNumber(range.min), max: formatNumber(range.max) }))}</span>`
+    : `<span>${escapeHtml(t(singleKey, { count: formatNumber(range.min) }))}</span>`;
+}
+
+function renderStepCounts(step) {
+  if (step.deferred) {
+    return `<span class="run-preview-waiting">${escapeHtml(t('run.preview.waiting', {
+      steps: stepNamesText(step.waiting_on),
+    }))}</span>`;
+  }
+  return [
+    renderCountSpan('run.preview.will_run_range', 'run.preview.will_run', step.will_run, step.will_run_max),
+    renderCountSpan('run.preview.will_skip_range', 'run.preview.will_skip', step.will_skip_min, step.will_skip),
+  ].join('');
+}
+
+function renderCascadeLine(step) {
+  const cascadeFrom = Array.isArray(step.cascade_from) ? step.cascade_from : [];
+  if (!cascadeFrom.length) return '';
+  return `<div class="run-preview-cascade">${escapeHtml(t('run.preview.cascade_from', {
+    steps: stepNamesText(cascadeFrom),
+  }))}</div>`;
+}
+
 function renderUsageMetrics(usage) {
   const plannedCalls = Math.trunc(safeNumber(usage?.planned_calls));
   if (plannedCalls <= 0) {
@@ -149,12 +189,12 @@ export function renderRunPreviewHtml(preview) {
   const stepRows = steps.map(step => {
     const warnings = (step.warnings || []).map(w => `<div class="warn">${escapeHtml(w)}</div>`).join('');
     return `
-      <div class="run-preview-step">
+      <div class="run-preview-step ${step.deferred ? 'run-preview-step-waiting' : ''}">
         <span class="run-preview-name">${escapeHtml(step.label || step.name || '')}</span>
         <span>${t('run.preview.total', { count: Number(step.total || 0) })}</span>
-        <span>${t('run.preview.will_run', { count: Number(step.will_run || 0) })}</span>
-        <span>${t('run.preview.will_skip', { count: Number(step.will_skip || 0) })}</span>
+        ${renderStepCounts(step)}
         ${renderUsageMetrics(step)}
+        ${renderCascadeLine(step)}
         ${warnings}
       </div>
     `;
@@ -162,19 +202,27 @@ export function renderRunPreviewHtml(preview) {
   const warningLine = Number(totals.warnings || 0) > 0
     ? `<p class="warn">${t('run.preview.warnings', { count: Number(totals.warnings || 0) })}</p>`
     : '';
+  const minimumEstimate = Boolean(totals.estimate_is_minimum);
+  const deferredLine = Number(totals.deferred_steps || 0) > 0
+    ? `<p class="muted run-preview-deferred-note">${t('run.preview.deferred_steps', {
+      count: Number(totals.deferred_steps || 0),
+    })}</p>`
+    : '';
   return `
     <section class="run-preview-box">
       <h4 style="margin:0 0 6px">${t('run.preview.title')}</h4>
       <p class="muted">${t('run.preview.input', { path: escapeHtml(input.path || ''), count: Number(input.count || 0) })}</p>
       <div class="run-preview-totals">
         <span>${t('run.preview.steps', { count: Number(totals.selected_steps || 0) })}</span>
-        <span>${t('run.preview.will_run', { count: Number(totals.will_run || 0) })}</span>
-        <span>${t('run.preview.will_skip', { count: Number(totals.will_skip || 0) })}</span>
+        ${renderCountSpan('run.preview.will_run_range', 'run.preview.will_run', totals.will_run, totals.will_run_max)}
+        ${renderCountSpan('run.preview.will_skip_range', 'run.preview.will_skip', totals.will_skip_min, totals.will_skip)}
         ${renderUsageMetrics(totals)}
       </div>
-      ${Number(totals.planned_calls || 0) > 0
-        ? `<p class="muted run-preview-estimate-note">${t('run.preview.estimate_note')}</p>`
+      ${Number(totals.planned_calls || 0) > 0 || minimumEstimate
+        ? `<p class="muted run-preview-estimate-note">${t(minimumEstimate
+          ? 'run.preview.estimate_note_minimum' : 'run.preview.estimate_note')}</p>`
         : ''}
+      ${deferredLine}
       ${preflightLine}
       ${warningLine}
       ${planOverwrite}

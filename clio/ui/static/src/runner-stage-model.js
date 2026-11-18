@@ -42,26 +42,40 @@ function deriveStageSummary(stage, selected, previewRows) {
   const rows = steps.map(step => previewRows.find(row => row?.name === step));
   const known = steps.length > 0 && rows.every(Boolean);
   const requiredRows = rows.filter(row => !row?.disabled);
+  const deferredRows = requiredRows.filter(row => row?.deferred);
   const total = rows.reduce((sum, row) => sum + (Number(row?.total) || 0), 0);
   const pending = rows.reduce((sum, row) => sum + (Number(row?.will_run) || 0), 0);
+  const pendingMax = rows.reduce((sum, row) => sum + (Number(row?.will_run_max ?? row?.will_run) || 0), 0);
   const skipped = rows.reduce((sum, row) => sum + (Number(row?.will_skip) || 0), 0);
+  const skippedMin = rows.reduce((sum, row) => sum + (Number(row?.will_skip_min ?? row?.will_skip) || 0), 0);
   const warnings = rows.flatMap(row => row?.warnings || []);
   // A skip is not proof of a usable artifact: warnings and empty inputs stay visible.
-  const reusable = known && requiredRows.every(row => Number(row?.total) > 0
+  const reusable = known && requiredRows.length > 0 && requiredRows.every(row => Number(row?.total) > 0
     && Number(row?.will_run) === 0 && Number(row?.will_skip) === Number(row?.total)
-    && !row?.warnings?.length);
+    && !row?.warnings?.length && !row?.cascade_assumed && !row?.deferred);
+  const missingInput = requiredRows.some(row => Number(row?.total) === 0 && !row?.deferred);
+  const blocked = known && !reusable && pending === 0 && (missingInput
+    || (requiredRows.some(row => row?.warnings?.length) && deferredRows.length === 0));
+  const waiting = known && !reusable && !blocked && pending === 0
+    && deferredRows.length > 0 && deferredRows.length === requiredRows.length;
   const status = !steps.length ? 'excluded' : !known ? 'unknown' : reusable ? 'reusable'
-    : total === 0 || (requiredRows.some(row => row?.warnings?.length) && pending === 0) ? 'blocked' : 'ready';
+    : blocked ? 'blocked' : waiting ? 'waiting' : 'ready';
+  const waitingOn = [...new Set(deferredRows.flatMap(row => row?.waiting_on || []).map(String))].sort();
   return {
     key: stage.key,
     steps,
     status,
     total,
     will_run: pending,
+    will_run_max: pendingMax,
     will_skip: skipped,
+    will_skip_min: skippedMin,
     warnings,
     blockers: status === 'blocked' || status === 'unknown' ? [...warnings] : [],
     estimate: sumUsage(rows),
+    estimate_is_minimum: requiredRows.some(row => row?.estimate_is_minimum || row?.cascade_assumed || row?.deferred),
+    deferred: waiting,
+    waiting_on: waitingOn,
     output: null,
   };
 }
@@ -83,10 +97,14 @@ export function buildRunStageModel({ selectedSteps, preview, activePhase = '', c
       steps,
       status,
       pending: Number(summary?.will_run) || 0,
+      pendingMax: Number(summary?.will_run_max ?? summary?.will_run) || 0,
       skipped: Number(summary?.will_skip) || 0,
+      skippedMin: Number(summary?.will_skip_min ?? summary?.will_skip) || 0,
       total: Number(summary?.total) || 0,
       warnings: summary?.warnings || [],
       blockers: summary?.blockers || [],
+      estimateIsMinimum: Boolean(summary?.estimate_is_minimum),
+      waitingOn: Array.isArray(summary?.waiting_on) ? summary.waiting_on : [],
     };
   });
 }
@@ -95,5 +113,5 @@ export function nextIncompleteStage(stages, preview) {
   if (preview && Object.hasOwn(preview, 'next_stage')) {
     return stages.find(stage => stage.key === preview.next_stage) || null;
   }
-  return stages.find(stage => !['excluded', 'done', 'reusable'].includes(stage.status)) || null;
+  return stages.find(stage => !['excluded', 'done', 'reusable', 'waiting'].includes(stage.status)) || null;
 }

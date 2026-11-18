@@ -2246,6 +2246,20 @@ body.video-drag-active {
 .run-stage-card.done .run-stage-dot, .run-stage-card.reusable .run-stage-dot { color: var(--success); border-color: var(--success); }
 .run-stage-card.blocked .run-stage-row span { color: var(--warning); }
 .run-stage-card.excluded { opacity: .55; }
+.run-stage-card.waiting .run-stage-row span { color: var(--text-secondary); }
+.run-stage-card.waiting .run-stage-dot { border-style: dashed; }
+.run-stage-waiting, .run-stage-estimate-note { display: block; margin-top: 4px; }
+.run-stage-estimate-note { color: var(--text-tertiary); font-style: italic; }
+.run-preview-step { padding: 4px 0; }
+.run-preview-step > span { margin-right: 10px; }
+.run-preview-step-waiting .run-preview-waiting { color: var(--text-secondary); }
+.run-preview-cascade, .run-preview-waiting {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  overflow-wrap: anywhere;
+}
+.run-preview-deferred-note { margin-top: 4px; }
 .run-next-card { border-color: var(--accent); }
 .run-next-card .hint { margin-top: 0; }
 .run-next-kicker {

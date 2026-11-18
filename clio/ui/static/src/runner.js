@@ -425,8 +425,12 @@ function updateRunGuide() {
     const usage = next?.estimate;
     const calls = Number(usage?.planned_calls) || 0;
     const cost = Number(usage?.estimated_cost_usd) || 0;
-    estimate.textContent = calls ? `${t('run.preview.ai_calls', { count: calls })} · ${usage.estimate_status === 'estimated'
-      ? t('run.preview.ai_cost', { cost: formatCost(cost) }) : t('run.preview.cost_unconfigured')}` : '';
+    const estimateParts = calls ? [`${t('run.preview.ai_calls', { count: calls })} · ${usage.estimate_status === 'estimated'
+      ? t('run.preview.ai_cost', { cost: formatCost(cost) }) : t('run.preview.cost_unconfigured')}`] : [];
+    // A stage affected by same-run cascades only has a lower bound, so the
+    // number must not read as the final call count.
+    if (next?.estimateIsMinimum) estimateParts.push(t('run.guide.estimate_minimum'));
+    estimate.textContent = estimateParts.join(' · ');
   }
   const kicker = $('run-next-kicker');
   const title = $('run-next-title');

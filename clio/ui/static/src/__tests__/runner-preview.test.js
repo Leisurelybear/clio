@@ -121,6 +121,97 @@ describe('renderRunPreviewHtml', () => {
   it('renders a neutral state without preview data', () => {
     expect(renderRunPreviewHtml(null)).toContain('选择步骤后显示预览');
   });
+  it('renders confirmed and possible counts with cascade context', () => {
+    const html = renderRunPreviewHtml({
+      input: { mode: 'directory', path: 'D:/trip/videos', count: 2 },
+      totals: {
+        selected_steps: 2,
+        will_run: 1,
+        will_run_max: 3,
+        will_skip: 3,
+        will_skip_min: 1,
+        deferred_steps: 0,
+        estimate_is_minimum: true,
+        warnings: 0,
+      },
+      steps: [
+        { name: 'compress', label: '压缩视频', total: 2, will_run: 2, will_skip: 0, warnings: [] },
+        {
+          name: 'analyze',
+          label: 'AI 分析',
+          total: 2,
+          will_run: 0,
+          will_skip: 2,
+          will_run_max: 2,
+          will_skip_min: 0,
+          cascade_from: ['compress'],
+          cascade_assumed: 2,
+          estimate_is_minimum: true,
+          warnings: [],
+        },
+      ],
+    });
+
+    expect(html).toContain('待执行 1–3');
+    expect(html).toContain('跳过 1–3');
+    expect(html).toContain('受 压缩 同批次重跑影响');
+    expect(html).toContain('估算值为下限');
+  });
+
+  it('renders a deferred row as waiting instead of a final blocker count', () => {
+    const html = renderRunPreviewHtml({
+      input: { mode: 'directory', path: 'D:/trip/videos', count: 1 },
+      totals: {
+        selected_steps: 1,
+        will_run: 0,
+        will_run_max: 1,
+        will_skip: 0,
+        will_skip_min: 0,
+        deferred_steps: 1,
+        estimate_is_minimum: true,
+        warnings: 0,
+      },
+      steps: [{
+        name: 'plan_voiceover',
+        label: '计划口播',
+        total: 1,
+        will_run: 0,
+        will_run_max: 1,
+        will_skip: 0,
+        will_skip_min: 0,
+        deferred: true,
+        waiting_on: ['plan'],
+        estimate_is_minimum: true,
+        warnings: [],
+      }],
+    });
+
+    expect(html).toContain('等待 规划 完成后才能确定');
+    expect(html).toContain('run-preview-step-waiting');
+  });
+
+  it('escapes cascade step names in dynamic copy', () => {
+    const html = renderRunPreviewHtml({
+      input: { mode: 'directory', path: 'x', count: 1 },
+      totals: { selected_steps: 1, will_run: 0, will_skip: 1, warnings: 0 },
+      steps: [{
+        name: 'plan',
+        label: 'Plan',
+        total: 1,
+        will_run: 0,
+        will_skip: 1,
+        will_run_max: 1,
+        will_skip_min: 0,
+        cascade_from: ['<img src=x onerror=alert(1)>'],
+        cascade_assumed: 1,
+        warnings: [],
+      }],
+    });
+
+    expect(html).not.toContain('<img src=x');
+    expect(html).toContain('&lt;img src=x');
+  });
+
 
   it('renders backend media preflight failures before the run can start', () => {
     const html = renderRunPreviewHtml({

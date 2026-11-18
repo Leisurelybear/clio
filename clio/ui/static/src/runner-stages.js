@@ -4,6 +4,26 @@ import { buildRunStageModel, nextIncompleteStage } from './runner-stage-model.js
 
 export { buildRunStageModel, nextIncompleteStage };
 
+function stageNamesText(names) {
+  return (Array.isArray(names) ? names : [])
+    .map(name => t(`run.step_short.${String(name)}`))
+    .join(t('common.list_separator'));
+}
+
+function renderStageCounts(stage) {
+  const pending = Number(stage.pending || 0);
+  const pendingMax = Math.max(pending, Number(stage.pendingMax ?? pending) || 0);
+  const skipped = Number(stage.skipped || 0);
+  const skippedMin = Math.min(skipped, Number(stage.skippedMin ?? skipped) || 0);
+  if (Number(stage.total) <= 0) return '';
+  return html`<small>${t('run.guide.count_ranges', {
+    run_min: pending,
+    run_max: pendingMax,
+    skip_min: skippedMin,
+    skip_max: skipped,
+  })}</small>`;
+}
+
 export function renderStageBoard(container, model, onOpenOutput) {
   if (!container) return;
   container.innerHTML = String(html`
@@ -17,7 +37,13 @@ export function renderStageBoard(container, model, onOpenOutput) {
             <span>${t(`run.guide.status.${stage.status}`)}</span></div>
           <p class="run-stage-status-desc">${t(`run.guide.status_desc.${stage.status}`)}</p>
           <p>${t(`run.stage.${stage.key}.hint`)}</p>
-          ${stage.total > 0 ? html`<small>${t('run.guide.counts', { pending: stage.pending, skipped: stage.skipped })}</small>` : ''}
+          ${renderStageCounts(stage)}
+          ${stage.status === 'waiting' && stage.waitingOn.length
+            ? html`<small class="run-stage-waiting">${t('run.guide.waiting_on', {
+              steps: stageNamesText(stage.waitingOn),
+            })}</small>` : ''}
+          ${stage.estimateIsMinimum
+            ? html`<small class="run-stage-estimate-note">${t('run.guide.estimate_minimum')}</small>` : ''}
           ${stage.warnings.map(warning => html`<p class="warn">${warning}</p>`)}
           ${stage.blockers.length ? html`
             <div class="run-stage-blockers">

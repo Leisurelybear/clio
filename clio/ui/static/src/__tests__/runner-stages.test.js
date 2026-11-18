@@ -79,6 +79,53 @@ describe('guided run stages', () => {
     expect(document.getElementById('run-next-reassure').textContent).toContain('不会重复执行');
   });
 
+  it('keeps waiting stages out of the guided next action', () => {
+    const p = preview();
+    p.stages[3].status = 'waiting';
+    p.stages[3].deferred = true;
+    p.stages[3].waiting_on = ['plan'];
+    p.next_stage = null;
+    const model = buildRunStageModel({ selectedSteps: allSteps, preview: p });
+    expect(model[3].status).toBe('waiting');
+    expect(model[3].waitingOn).toEqual(['plan']);
+    expect(nextIncompleteStage(model, p)).toBeNull();
+  });
+
+  it('derives waiting status without treating deferred rows as blockers', () => {
+    const p = { ...preview(), stages: undefined, next_stage: undefined };
+    p.steps = p.steps.map(row => ({ ...row }));
+    p.steps[6] = {
+      name: 'plan_voiceover',
+      total: 1,
+      will_run: 0,
+      will_run_max: 1,
+      will_skip: 0,
+      will_skip_min: 0,
+      deferred: true,
+      waiting_on: ['plan'],
+      warnings: [],
+    };
+    const model = buildRunStageModel({ selectedSteps: ['plan_voiceover'], preview: p });
+    expect(model[3].status).toBe('waiting');
+    expect(model[3].blockers).toEqual([]);
+    expect(nextIncompleteStage(model, p)).toBeNull();
+  });
+
+  it('shows count ranges and a minimum-estimate note on cascaded stages', () => {
+    const p = preview();
+    p.stages[0].will_run = 1;
+    p.stages[0].will_run_max = 3;
+    p.stages[0].will_skip = 3;
+    p.stages[0].will_skip_min = 1;
+    p.stages[0].estimate_is_minimum = true;
+    const board = document.createElement('div');
+    renderStageBoard(board, buildRunStageModel({ selectedSteps: allSteps, preview: p }));
+    const card = board.querySelector('[data-stage="source_prep"]');
+    expect(card.textContent).toContain('待执行 1–3');
+    expect(card.textContent).toContain('跳过 1–3');
+    expect(card.textContent).toContain('估算为下限');
+  });
+
   it('renders a plain-language description for each stage status', () => {
     const p = preview();
     p.stages[0].status = 'reusable';
