@@ -40,6 +40,10 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
 - `[x]` Keep one visible inline preview retry and auto-open the preview on failure.
 - `[x]` Unify run cost formatting across the next-stage card and preview.
 - `[x]` Surface custom step mode with an inline guided-mode recovery action.
+- `[~]` Propagate same-run upstream invalidation through guided Run preview.
+- `[~]` Defer plan voiceover behind a same-run plan instead of reporting a final blocker.
+- `[~]` Explain cascade risk and minimum estimates in the Run UI.
+- `[~]` Confirm consistency/voiceover lineage ordering and fix if unintended.
 
 ### Pipeline UX and recovery review (2026-11-15)
 
