@@ -279,3 +279,9 @@ existing behavior. Focused verification: 146 pytest and 95 runner Vitest passed.
 3524 passed, 12 skipped. Frontend typecheck, Ruff, mypy, and `main.py check` from `.venv`
 passed. Full npm test reached 1023 passed with one pre-existing editor-config price-label failure
 outside this change.
+Labeled-delivery preview consistency (2026-11-19): the final Run stage now mirrors the label
+runtime's compressed-input lookup. Analyses with stale index numbers are counted as skipped
+when no matching compressed video exists, instead of remaining permanently pending while the
+runtime skips them. Malformed analysis JSON stays runnable so the runtime can surface the
+concrete error. Focused verification: 204 pytest passed; Ruff format/check and git diff check
+passed.

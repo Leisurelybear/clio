@@ -33,6 +33,7 @@ from clio.tasks.analyze import (
 )
 from clio.tasks.compress import _find_reusable, _scan_existing_compressed
 from clio.tasks.consistency import entity_consistency_paths, load_entity_consistency
+from clio.tasks.label import _find_compressed_video, _label_index
 from clio.tasks.plan import (
     _collect_plan_clips,
     _no_analyzed_media_for_day_message,
@@ -1475,16 +1476,37 @@ def _plan_voiceover_step(
     )
 
 
+def _label_has_compressed_input(config: AppConfig, analysis_json: Path) -> bool:
+    """Mirror run_label_videos input resolution for preview counts.
+
+    Malformed or unreadable analysis should remain runnable in the preview so the
+    runtime surfaces its concrete error instead of the row being silently reusable.
+    """
+    try:
+        data = json.loads(analysis_json.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeError):
+        return True
+    if not isinstance(data, dict):
+        return True
+    index = _label_index(data, analysis_json, config.naming.index_width)
+    compressed = _find_compressed_video(config.compressed_dir, index)
+    return compressed is not None and compressed.exists()
+
+
 def _label_step(config: AppConfig, analysis_jsons: list[Path], *, force: bool) -> dict[str, Any]:
     total = len(analysis_jsons)
     if total == 0:
         return _warning_step("label", t("api.preview_missing_analyze_label"))
     labeled_dir = config.paths.output_dir / "labeled"
-    skipped = (
-        0
-        if force
-        else sum(1 for analysis_json in analysis_jsons if (labeled_dir / f"{analysis_json.stem}_labeled.mp4").exists())
-    )
+
+    def will_skip(analysis_json: Path) -> bool:
+        if not _label_has_compressed_input(config, analysis_json):
+            return True
+        if force or not config.analyze.skip_existing:
+            return False
+        return (labeled_dir / f"{analysis_json.stem}_labeled.mp4").exists()
+
+    skipped = sum(1 for analysis_json in analysis_jsons if will_skip(analysis_json))
     return _step("label", total=total, will_run=total - skipped, will_skip=skipped)
 
 

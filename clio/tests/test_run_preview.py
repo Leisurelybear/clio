@@ -1074,8 +1074,12 @@ def test_preview_label_counts_labeled_outputs_per_analysis_json(tmp_path: Path) 
     input_dir.mkdir()
     texts_dir.mkdir(parents=True)
     labeled_dir.mkdir()
-    (texts_dir / "001_A.json").write_text("{}", encoding="utf-8")
-    (texts_dir / "002_B.json").write_text("{}", encoding="utf-8")
+    (texts_dir / "001_A.json").write_text('{"index": 1}', encoding="utf-8")
+    (texts_dir / "002_B.json").write_text('{"index": 2}', encoding="utf-8")
+    compressed_dir = output_dir / "compressed"
+    compressed_dir.mkdir()
+    (compressed_dir / "001_A.mp4").write_bytes(b"compressed")
+    (compressed_dir / "002_B.mp4").write_bytes(b"compressed")
     (labeled_dir / "001_A_labeled.mp4").write_bytes(b"labeled")
 
     from clio.tasks._video_loader import save_selected_videos
@@ -2329,6 +2333,34 @@ def _read_output_snapshot(config: AppConfig) -> dict[Path, tuple[int, int]]:
 
 def _row(preview: dict[str, Any], name: str) -> dict[str, Any]:
     return next(step for step in preview["steps"] if step["name"] == name)
+
+
+@pytest.mark.parametrize(("force", "expected_run", "expected_skip"), [(False, 0, 2), (True, 1, 1)])
+def test_label_preview_skips_analyses_without_compressed_input(
+    tmp_path: Path,
+    force: bool,
+    expected_run: int,
+    expected_skip: int,
+) -> None:
+    config = _config(tmp_path / "videos", tmp_path / "output")
+    config.texts_dir.mkdir(parents=True)
+    (config.texts_dir / "001_stale.json").write_text(json.dumps({"index": 1}), encoding="utf-8")
+    config.compressed_dir.mkdir()
+    (config.compressed_dir / "002_current.mp4").write_bytes(b"compressed")
+    (config.texts_dir / "002_current.json").write_text(json.dumps({"index": 2}), encoding="utf-8")
+    labeled_dir = config.paths.output_dir / "labeled"
+    labeled_dir.mkdir()
+    (labeled_dir / "002_current_labeled.mp4").write_bytes(b"labeled")
+
+    preview = build_run_preview(config, ["label"], force=force, use_transcripts=True)
+    row = _row(preview, "label")
+
+    assert row["total"] == 2
+    assert row["will_run"] == expected_run
+    assert row["will_skip"] == expected_skip
+    delivery = next(stage for stage in preview["stages"] if stage["key"] == "voiceover_delivery")
+    assert delivery["status"] == ("ready" if force else "reusable")
+    assert preview["next_stage"] == ("voiceover_delivery" if force else None)
 
 
 def test_preview_compress_rerun_cascades_to_reusable_analyze(tmp_path: Path, monkeypatch) -> None:

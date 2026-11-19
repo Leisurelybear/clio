@@ -51,6 +51,12 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
   block guided Run preview with the requested and available day labels instead of silently
   completing the same work again.
 
+### Run delivery preview consistency (2026-11-19)
+
+- `[x]` Align labeled-video preview availability with runtime compressed-input resolution so
+  stale analysis indexes cannot leave the final delivery stage permanently pending; analyses
+  without a matching compressed video are now reported as skipped instead of runnable.
+
 ### Capture-day scope identity (2026-11-19)
 
 - `[~]` Replace mutable `dayN` scope drift for both existing and new projects with canonical
