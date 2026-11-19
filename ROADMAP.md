@@ -45,6 +45,12 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
 - `[x]` Explain cascade risk and minimum estimates in the Run UI.
 - `[x]` Confirm consistency/voiceover lineage ordering and fix if unintended.
 
+### Run scope validation (2026-11-19)
+
+- `[x]` Reject consistency and planning for a requested day label that has no analyzed media, and
+  block guided Run preview with the requested and available day labels instead of silently
+  completing the same work again.
+
 ### Pipeline UX and recovery review (2026-11-15)
 
 - `[x]` Review guided execution, task lifecycle, partial failures and recovery semantics;

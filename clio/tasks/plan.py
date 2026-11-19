@@ -366,6 +366,27 @@ def discover_day_labels(config: AppConfig) -> list[str]:
     return labels
 
 
+def _no_analyzed_media_for_day_message(
+    config: AppConfig,
+    day_label: str,
+    *,
+    available: list[str] | None = None,
+) -> str | None:
+    """Explain an invalid requested day without treating an empty project as invalid."""
+    available_days = discover_day_labels(config) if available is None else available
+    if not available_days or day_label in available_days:
+        return None
+    return t(
+        "task.day_scope.no_analyzed_media",
+        {"day": day_label, "available": ", ".join(available_days)},
+    )
+
+
+def _no_analyzed_media_for_day_error(config: AppConfig, day_label: str) -> RuntimeError | None:
+    message = _no_analyzed_media_for_day_message(config, day_label)
+    return RuntimeError(message) if message is not None else None
+
+
 def _discover_day_labels(config: AppConfig) -> list[str]:
     return discover_day_labels(config)
 
@@ -716,6 +737,10 @@ def run_plan_vlog(
     if not clips:
         if skipped_inputs:
             raise _unusable_inputs_error(skipped_inputs)
+        if filter_by_day:
+            scope_error = _no_analyzed_media_for_day_error(config, day_label)
+            if scope_error is not None:
+                raise scope_error
         print(t("task.plan.no_usable_media"))
         return None
 

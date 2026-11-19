@@ -269,3 +269,13 @@ plan diagnostic (3405 passed, 12 skipped, 1 failed). Restored the specific corru
 message; all 81 planning tests and full Ruff/mypy checks pass after the correction.
 Final full pytest: 3409 passed, 12 skipped. All five follow-up findings are closed;
 the two original confirmed P3 items remain open.
+
+Unknown day-scope handling (2026-11-19): consistency and planning now fail with an actionable
+message when a requested day label has no analyzed media, instead of returning no work and
+letting the task report success. Guided Run preview marks those rows as blocking and reports
+the requested and available day labels, so the next-stage Run button stays disabled. Explicit
+empty selections (`files=[]`) remain a no-op, and a project with no analyzed media keeps its
+existing behavior. Focused verification: 146 pytest and 95 runner Vitest passed. Full backend:
+3524 passed, 12 skipped. Frontend typecheck, Ruff, mypy, and `main.py check` from `.venv`
+passed. Full npm test reached 1023 passed with one pre-existing editor-config price-label failure
+outside this change.

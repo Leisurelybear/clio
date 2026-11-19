@@ -320,6 +320,54 @@ def test_run_entity_consistency_cancels_before_ai(cfg: AppConfig) -> None:
     get_provider.assert_not_called()
 
 
+def test_run_entity_consistency_rejects_unknown_day_scope(cfg: AppConfig) -> None:
+    from clio.tasks.consistency import run_entity_consistency
+
+    (cfg.texts_dir / "001_A.json").write_text(
+        json.dumps(
+            {
+                "index": 1,
+                "title": "A",
+                "summary": "day one",
+                "source_file": "A.mp4",
+                "day_label": "day1",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with patch("clio.tasks.consistency.get_task_provider") as get_provider:
+        with pytest.raises(RuntimeError) as exc:
+            run_entity_consistency(cfg, day_label="new")
+
+    get_provider.assert_not_called()
+    assert "new" in str(exc.value)
+    assert "day1" in str(exc.value)
+
+
+def test_run_entity_consistency_empty_selection_is_noop(cfg: AppConfig) -> None:
+    from clio.tasks.consistency import run_entity_consistency
+
+    (cfg.texts_dir / "001_A.json").write_text(
+        json.dumps(
+            {
+                "index": 1,
+                "title": "A",
+                "summary": "day one",
+                "source_file": "A.mp4",
+                "day_label": "day1",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with patch("clio.tasks.consistency.get_task_provider") as get_provider:
+        result = run_entity_consistency(cfg, day_label="day1", files=[])
+
+    assert result is None
+    get_provider.assert_not_called()
+
+
 def test_run_entity_consistency_rejects_malformed_ai_output(cfg: AppConfig) -> None:
     from clio.tasks.consistency import entity_consistency_paths, run_entity_consistency
 

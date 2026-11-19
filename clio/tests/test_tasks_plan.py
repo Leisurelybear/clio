@@ -54,19 +54,23 @@ def _project_dir(cfg: AppConfig) -> Path:
     return project_dir
 
 
-def _write_text(cfg: AppConfig, name: str, stem: str, index: int) -> Path:
+def _write_text(
+    cfg: AppConfig,
+    name: str,
+    stem: str,
+    index: int,
+    day_label: str | None = None,
+) -> Path:
     path = cfg.texts_dir / name
-    path.write_text(
-        json.dumps(
-            {
-                "index": index,
-                "title": stem,
-                "summary": f"summary {stem}",
-                "source_file": f"{stem}.mp4",
-            }
-        ),
-        encoding="utf-8",
-    )
+    payload = {
+        "index": index,
+        "title": stem,
+        "summary": f"summary {stem}",
+        "source_file": f"{stem}.mp4",
+    }
+    if day_label is not None:
+        payload["day_label"] = day_label
+    path.write_text(json.dumps(payload), encoding="utf-8")
     return path
 
 
@@ -386,6 +390,21 @@ class TestRunPlanVlogProjectSelection:
 
         mock_plan.assert_not_called()
         assert result is None
+
+    def test_unknown_day_scope_fails_before_planning(self, cfg: AppConfig):
+        from clio.tasks.plan import run_plan_vlog
+
+        _write_text(cfg, "001_A.json", "A", 1, day_label="day1")
+        _write_text(cfg, "002_B.json", "B", 2, day_label="day2")
+
+        with patch("clio.tasks.plan.plan_daily_vlog") as mock_plan:
+            with pytest.raises(RuntimeError) as exc:
+                run_plan_vlog(cfg, day_label="new", overwrite=True)
+
+        mock_plan.assert_not_called()
+        assert "new" in str(exc.value)
+        assert "day1" in str(exc.value)
+        assert "day2" in str(exc.value)
 
 
 class TestPlanArtifactProtection:

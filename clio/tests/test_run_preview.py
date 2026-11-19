@@ -1134,7 +1134,7 @@ def test_preview_plan_skips_only_when_day_outputs_exist_and_json_valid(tmp_path:
     input_dir.mkdir()
     texts_dir.mkdir(parents=True)
     plans_dir.mkdir()
-    (texts_dir / "001_A.json").write_text("{}", encoding="utf-8")
+    (texts_dir / "001_A.json").write_text('{"day_label": "day2"}', encoding="utf-8")
     (plans_dir / "day2_plan.json").write_text("{}", encoding="utf-8")
     (plans_dir / "day2_plan.md").write_text("# plan", encoding="utf-8")
 
@@ -1165,7 +1165,7 @@ def test_preview_plan_skips_sanitized_day_outputs(tmp_path: Path) -> None:
     input_dir.mkdir()
     texts_dir.mkdir(parents=True)
     plans_dir.mkdir()
-    (texts_dir / "001_A.json").write_text("{}", encoding="utf-8")
+    (texts_dir / "001_A.json").write_text('{"day_label": "Ep2 - agnes-3-flash"}', encoding="utf-8")
     (plans_dir / "Ep2_-_agnes-3-flash_plan.json").write_text("{}", encoding="utf-8")
     (plans_dir / "Ep2_-_agnes-3-flash_plan.md").write_text("# plan", encoding="utf-8")
 
@@ -1196,7 +1196,7 @@ def test_preview_plan_invalid_json_does_not_skip(tmp_path: Path) -> None:
     input_dir.mkdir()
     texts_dir.mkdir(parents=True)
     plans_dir.mkdir()
-    (texts_dir / "001_A.json").write_text("{}", encoding="utf-8")
+    (texts_dir / "001_A.json").write_text('{"day_label": "day2"}', encoding="utf-8")
     (plans_dir / "day2_plan.json").write_text("{", encoding="utf-8")
     (plans_dir / "day2_plan.md").write_text("# plan", encoding="utf-8")
 
@@ -1217,6 +1217,35 @@ def test_preview_plan_invalid_json_does_not_skip(tmp_path: Path) -> None:
     assert preview["steps"][0]["total"] == 1
     assert preview["steps"][0]["will_run"] == 1
     assert preview["steps"][0]["will_skip"] == 0
+
+
+def test_preview_blocks_unknown_day_scope_even_when_voiceover_can_run(tmp_path: Path) -> None:
+    input_dir = tmp_path / "videos"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+    config = _config(input_dir, output_dir)
+    _write_day_analysis(config, "001", "A", "day1")
+    _write_day_analysis(config, "002", "B", "day2")
+
+    preview = build_run_preview(
+        config,
+        steps=["consistency", "voiceover", "plan"],
+        force=False,
+        use_transcripts=True,
+        day_label="new",
+    )
+
+    consistency = _row(preview, "consistency")
+    plan = _row(preview, "plan")
+    for row in (consistency, plan):
+        assert row["will_run"] == 0
+        assert row["blocking"] is True
+        assert any("new" in warning and "day1" in warning and "day2" in warning for warning in row["warnings"])
+
+    assert _row(preview, "voiceover")["will_run"] == 2
+    stage = next(stage for stage in preview["stages"] if stage["key"] == "plan_alignment")
+    assert stage["status"] == "blocked"
+    assert preview["next_stage"] == "plan_alignment"
 
 
 def test_preview_files_selection_filters_non_plan_steps(tmp_path: Path, monkeypatch) -> None:
