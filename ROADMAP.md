@@ -51,6 +51,23 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
   block guided Run preview with the requested and available day labels instead of silently
   completing the same work again.
 
+### Capture-day scope identity (2026-11-19)
+
+- `[~]` Replace mutable `dayN` scope drift with canonical capture-date scopes, frozen legacy
+  `dayN` aliases, media-identity deduplication, preview/start input fingerprints, and
+  task-returned completion validation.
+- `[ ]` Reproduce the reference-project same-stage loop and publish a read-only scope audit before
+  migrating artifacts.
+- `[ ]` Implement and verify the phased resolver, manifest, scoped artifact lookup, Run selector,
+  and completion diagnostics.
+
+Design:
+[capture-day scope identity](docs/superpowers/specs/2026-11-19-capture-day-scopes-design.md).
+Plan:
+[capture-day scope identity plan](docs/superpowers/plans/2026-11-19-capture-day-scopes-plan.md).
+Self-review:
+[capture-day scope identity review](docs/superpowers/reviews/2026-11-19-capture-day-scopes-review.md).
+
 ### Pipeline UX and recovery review (2026-11-15)
 
 - `[x]` Review guided execution, task lifecycle, partial failures and recovery semantics;
