@@ -52,6 +52,7 @@ from clio.tasks._helpers import (
     _task_lineage_settings,
 )
 from clio.tasks.consistency import load_entity_consistency
+from clio.tasks.cut import _resolve_cut_video_path
 from clio.utils import format_index, plan_day_stem, resolve_binary, write_json_atomic, write_text_atomic
 from clio.vmeta import VideoMeta
 
@@ -468,6 +469,18 @@ def _collect_plan_clips(
             if report:
                 print(t("task.plan.invalid_index", {"index": raw_idx, "name": json_file.name}))
             skipped_inputs.append((json_file.name, t("task.plan.index_invalid_reason")))
+            continue
+        if (
+            _resolve_cut_video_path(
+                config,
+                config.compressed_dir,
+                str(idx),
+                "compressed",
+                project_selection,
+            )
+            is None
+        ):
+            skipped_inputs.append((json_file.name, t("task.plan.media_missing_reason")))
             continue
         identity = load_identity(data)
         if identity is not None:

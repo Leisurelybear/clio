@@ -651,6 +651,7 @@
   "task.plan.json_not_object": "The JSON top level is not an object",
   "task.plan.json_unreadable": "JSON could not be read",
   "task.plan.log_done": "Plan {day} ✓",
+  "task.plan.media_missing_reason": "matching compressed video is missing",
   "task.plan.material_count": "[plan] {day}, {count} clips in total",
   "task.plan.no_analysis": "No analysis results available; run analyze first",
   "task.plan.no_usable_media": "[plan] no usable media (empty after the selection filter, or not analyzed yet)",

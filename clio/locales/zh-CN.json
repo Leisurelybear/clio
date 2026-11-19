@@ -651,6 +651,7 @@
   "task.plan.json_not_object": "JSON 顶层不是对象",
   "task.plan.json_unreadable": "JSON 无法读取",
   "task.plan.log_done": "规划 {day} ✓",
+  "task.plan.media_missing_reason": "缺少对应压缩视频",
   "task.plan.material_count": "[规划] {day}，共 {count} 条素材",
   "task.plan.no_analysis": "没有可用的分析结果，请先运行 analyze",
   "task.plan.no_usable_media": "[规划] 无可用素材（选片过滤后为空或尚未 analyze）",

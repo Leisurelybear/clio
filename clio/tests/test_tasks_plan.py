@@ -60,6 +60,8 @@ def _write_text(
     stem: str,
     index: int,
     day_label: str | None = None,
+    *,
+    compressed: bool = True,
 ) -> Path:
     path = cfg.texts_dir / name
     payload = {
@@ -71,6 +73,9 @@ def _write_text(
     if day_label is not None:
         payload["day_label"] = day_label
     path.write_text(json.dumps(payload), encoding="utf-8")
+    if compressed:
+        width = cfg.naming.index_width
+        (cfg.compressed_dir / f"{index:0{width}d}_{stem}.mp4").write_bytes(b"video")
     return path
 
 
@@ -245,6 +250,7 @@ class TestRunPlanVlogFilesFilter:
     def test_same_named_originals_only_plan_selected_path(self, cfg: AppConfig):
         from clio.tasks._video_loader import save_selected_videos
         from clio.tasks.plan import run_plan_vlog
+        from clio.vmeta import VideoMeta
 
         a_dir = _project_dir(cfg) / "a"
         b_dir = _project_dir(cfg) / "b"
@@ -271,6 +277,9 @@ class TestRunPlanVlogFilesFilter:
                 },
             }
             (cfg.texts_dir / f"{index:03d}_clip.json").write_text(json.dumps(payload), encoding="utf-8")
+            compressed = cfg.compressed_dir / f"{index:03d}_clip.mp4"
+            compressed.write_bytes(b"compressed")
+            VideoMeta.build(path, compressed, 10.0, 10.0).write(compressed)
 
         captured: dict = {}
 
@@ -689,6 +698,45 @@ def test_planner_snaps_plan_ranges_to_analysis_timeline(cfg: AppConfig):
     assert result is not None
     assert result["sequence"][0]["use_timeline"] == "00:05-00:15"
     assert result["total_estimated_sec"] == 10
+
+
+def test_plan_clips_exclude_analysis_without_compressed_media(cfg: AppConfig) -> None:
+    from clio.i18n import t
+    from clio.tasks.plan import _collect_plan_clips
+
+    _write_text(cfg, "001_A.json", "A", 1, compressed=False)
+
+    clips, skipped, cancelled = _collect_plan_clips(
+        cfg,
+        "day1",
+        None,
+        filter_by_day=False,
+        cancel_event=None,
+    )
+
+    assert clips == []
+    assert not cancelled
+    assert skipped == [("001_A.json", t("task.plan.media_missing_reason"))]
+
+
+def test_plan_clips_keep_current_analysis_for_duplicate_source_stem(cfg: AppConfig) -> None:
+    from clio.i18n import t
+    from clio.tasks.plan import _collect_plan_clips
+
+    _write_text(cfg, "001_GX011275.json", "GX011275", 1, compressed=False)
+    _write_text(cfg, "197_GX011275.json", "GX011275", 197)
+
+    clips, skipped, cancelled = _collect_plan_clips(
+        cfg,
+        "day1",
+        None,
+        filter_by_day=False,
+        cancel_event=None,
+    )
+
+    assert [clip["index"] for clip in clips] == ["197"]
+    assert skipped == [("001_GX011275.json", t("task.plan.media_missing_reason"))]
+    assert not cancelled
 
 
 def _write_consistency_report(cfg: AppConfig, *, lineage: str, malformed: bool = False) -> Path:
