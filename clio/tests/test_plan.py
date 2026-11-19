@@ -149,10 +149,20 @@ def _analysis(index: str, source: str = "GL010683", day: str = "day1", **extra) 
     }
 
 
-def _write_analysis(config: AppConfig, data: dict) -> Path:
+def _write_compressed(config: AppConfig, compressed_stem: str) -> Path:
+    config.compressed_dir.mkdir(parents=True, exist_ok=True)
+    path = config.compressed_dir / f"{compressed_stem}.mp4"
+    path.write_bytes(b"compressed")
+    return path
+
+
+def _write_analysis(config: AppConfig, data: dict, *, write_compressed: bool = True) -> Path:
     config.texts_dir.mkdir(parents=True, exist_ok=True)
-    path = config.texts_dir / f"{data['media_identity']['compressed_stem']}.json"
+    compressed_stem = data["media_identity"]["compressed_stem"]
+    path = config.texts_dir / f"{compressed_stem}.json"
     path.write_text(json.dumps(data), encoding="utf-8")
+    if write_compressed:
+        _write_compressed(config, compressed_stem)
     return path
 
 
@@ -661,6 +671,7 @@ class TestRunPlanVlog:
         }
         loaded_config.texts_dir.mkdir(parents=True, exist_ok=True)
         (loaded_config.texts_dir / "001_SRC.json").write_text(json.dumps(legacy), encoding="utf-8")
+        _write_compressed(loaded_config, "001_SRC")
         with patch("clio.tasks.plan.plan_daily_vlog", return_value={"day_title": "day1", "sequence": []}) as mock:
             result = run_plan_vlog(loaded_config, "day1")
         assert result is not None
@@ -784,6 +795,7 @@ class TestRunPlanVlog:
         no_index["media_identity"]["index"] = ""
         loaded_config.texts_dir.mkdir(parents=True, exist_ok=True)
         (loaded_config.texts_dir / "007_SRC3.json").write_text(json.dumps(no_index), encoding="utf-8")
+        _write_compressed(loaded_config, "007_SRC3")
         with patch("clio.tasks.plan.plan_daily_vlog", return_value={"day_title": "day1", "sequence": []}) as mock:
             result = run_plan_vlog(loaded_config, "day1")
         assert result is not None
