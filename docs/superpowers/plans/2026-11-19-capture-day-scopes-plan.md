@@ -23,6 +23,12 @@ task-returned scope. Keep legacy
 **Delivery rule:** Each phase is independently testable and gets its own small commit. Do not push
 without explicit user approval.
 
+**Status (2026-11-19):** Phase 1 reference-project reproduction is committed. The read-only audit
+lives in [`../../analysis/2026-11-19-capture-day-scope-audit.md`](../../analysis/2026-11-19-capture-day-scope-audit.md);
+the deduplication, greenfield-scope, and interrupted-analysis fixtures listed under Phase 1 Steps
+1-2 are intentionally completed inside Phases 2-3, where the APIs they exercise exist. Phase 1
+checkboxes below are ticked only for work that has actually landed.
+
 ---
 
 ## Phase 1: Reproduce the regression and record the reference audit
@@ -81,7 +87,7 @@ Name the expected behavior in the test names. Remove each `xfail` marker when it
 lands: resolver/deduplication and greenfield scope resolution in Phase 2; metadata, manifest, and
 interrupted-analysis tests in Phase 3; and the preview/start/completion loop regression in Phase 8.
 
-- [ ] **Step 3: Record the reference-project audit**
+- [x] **Step 3: Record the reference-project audit**
 
 Run a read-only Python or PowerShell audit against `D:\vlog_projects\202610_Italy` and record:
 
@@ -96,7 +102,7 @@ Run a read-only Python or PowerShell audit against `D:\vlog_projects\202610_Ital
 
 Do not rewrite, move, delete, or back up reference-project files in this phase.
 
-- [ ] **Step 4: Run focused tests**
+- [x] **Step 4: Run focused tests**
 
 ```powershell
 python -m pytest clio/tests/test_run_scope_identity.py -q
@@ -105,7 +111,7 @@ python -m pytest clio/tests/test_run_preview.py -q
 
 Expected: the xfailed regressions stay green as expected failures; existing tests remain green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add clio/tests/test_run_scope_identity.py clio/tests/test_run_preview.py docs/analysis/2026-11-19-capture-day-scope-audit.md

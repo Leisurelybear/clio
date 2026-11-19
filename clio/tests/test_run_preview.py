@@ -1495,6 +1495,9 @@ def test_preview_files_selection_keeps_same_named_originals_apart(tmp_path: Path
 
 
 def _write_analysis(config: AppConfig, summary: str) -> None:
+    config.texts_dir.mkdir(parents=True, exist_ok=True)
+    config.compressed_dir.mkdir(parents=True, exist_ok=True)
+    (config.compressed_dir / "001_A.mp4").write_bytes(b"compressed")
     (config.texts_dir / "001_A.json").write_text(
         json.dumps(
             {
@@ -1502,6 +1505,16 @@ def _write_analysis(config: AppConfig, summary: str) -> None:
                 "title": "A",
                 "summary": summary,
                 "source_file": "A.mp4",
+                "compressed_file": "001_A.mp4",
+                "media_identity": {
+                    "original_stem": "A",
+                    "original_path": "A.mp4",
+                    "compressed_stem": "001_A",
+                    "compressed_path": "001_A.mp4",
+                    "index": "001",
+                    "segment_index": None,
+                    "segment_offset_sec": 0.0,
+                },
             }
         ),
         encoding="utf-8",
@@ -1841,6 +1854,8 @@ def _write_day_analysis(config: AppConfig, index: str, source: str, day_label: s
         },
     }
     (config.texts_dir / f"{compressed_stem}.json").write_text(json.dumps(data), encoding="utf-8")
+    config.compressed_dir.mkdir(parents=True, exist_ok=True)
+    (config.compressed_dir / f"{compressed_stem}.mp4").write_bytes(b"compressed")
 
 
 def test_preview_all_days_counts_each_discovered_plan(tmp_path: Path) -> None:
@@ -2569,3 +2584,38 @@ def test_preview_plan_voiceover_waits_even_with_stale_existing_output(tmp_path: 
     assert delivery["estimate"]["planned_calls"] == 0
     assert delivery["estimate"]["estimate_status"] == "not_applicable"
     assert preview["totals"]["planned_calls"] == _row(preview, "plan")["planned_calls"]
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Phase 2: duplicate analysis identities must not inflate the delivery stage count",
+)
+def test_delivery_stage_counts_deduplicated_identities(tmp_path: Path) -> None:
+    """Reference-project symptom: one clip analysed under two indexes.
+
+    ``001_clip`` is stale (its compressed media is gone); ``182_clip`` is the
+    current analysis. The delivery stage must treat them as one media identity.
+    """
+    config = _config(tmp_path / "videos", tmp_path / "output")
+    config.compressed_dir.mkdir(parents=True)
+    (config.compressed_dir / "182_clip.mp4").write_bytes(b"compressed")
+    stable = {
+        "index": 1,
+        "source_file": "clip.MP4",
+        "compressed_file": "001_clip.mp4",
+        "media_identity": {"original_stem": "clip", "compressed_stem": "001_clip", "index": "001"},
+    }
+    current = {
+        "index": 182,
+        "source_file": "clip.MP4",
+        "compressed_file": "182_clip.mp4",
+        "media_identity": {"original_stem": "clip", "compressed_stem": "182_clip", "index": "182"},
+    }
+    config.texts_dir.mkdir(parents=True)
+    (config.texts_dir / "001_clip.json").write_text(json.dumps(stable), encoding="utf-8")
+    (config.texts_dir / "182_clip.json").write_text(json.dumps(current), encoding="utf-8")
+
+    preview = build_run_preview(config, ["plan_voiceover", "label"], force=False, use_transcripts=True)
+    delivery = next(stage for stage in preview["stages"] if stage["key"] == "voiceover_delivery")
+
+    assert delivery["total"] == 1

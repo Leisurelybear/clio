@@ -63,8 +63,13 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
   capture-date scopes, pre-analysis greenfield mode initialization, frozen legacy `dayN` aliases,
   media-identity deduplication, preview/start input fingerprints, and task-returned completion
   validation.
-- `[ ]` Reproduce the reference-project same-stage loop and prove a greenfield project with no
-  legacy artifacts uses date or `unknown` scopes from its first run, before migrating artifacts.
+- `[x]` Reproduce the reference-project same-stage loop as read-only regression evidence:
+  362 analysis JSON files collapse to 181 media identities, plan indexes point at stale
+  `001..181` numbering, and no `output/cuts` exists, which explains the inflated delivery counts
+  and the unplayable plan preview. See
+  [capture-day scope audit](docs/analysis/2026-11-19-capture-day-scope-audit.md).
+- `[ ]` Prove with greenfield fixtures that a project with no legacy artifacts uses date or
+  `unknown` scopes from its first run, before migrating artifacts.
 - `[ ]` Implement and verify the phased resolver, manifest, scoped artifact lookup, Run selector,
   and completion diagnostics for both project modes.
 
