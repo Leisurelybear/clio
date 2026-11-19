@@ -5,12 +5,14 @@
 > checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make capture-day scope identity stable across analysis, preview, execution, artifact
-reuse, completion, and next-stage selection; preserve legacy `dayN` artifacts without treating
-`dayN` as the primary identity.
+reuse, completion, and next-stage selection for both existing and new projects; preserve legacy
+`dayN` artifacts without treating `dayN` as the primary identity.
 
 **Architecture:** Add a server-owned scope resolver and manifest, deduplicate analysis artifacts by
-media identity, migrate artifact writes to additive scope metadata, bind preview/start to one input
-fingerprint, and bind completion to the task-returned scope. Keep legacy `dayN` filenames in phase 1.
+media identity, initialize an immutable greenfield mode before the first analysis write, persist
+additive scope metadata, bind preview/start to one input fingerprint, and bind completion to the
+task-returned scope. Keep legacy
+`dayN` filenames in phase 1, but do not use the legacy label-only path for greenfield projects.
 
 **Tech Stack:** Python 3.11+, dataclasses, JSON, ffprobe, pytest, stdlib Web UI, ES modules, Vitest
 
@@ -26,7 +28,8 @@ without explicit user approval.
 ## Phase 1: Reproduce the regression and record the reference audit
 
 **Purpose:** Prove the current duplicate-count, missing-label, and endless-same-stage behavior
-before changing production behavior. Keep the reference-project audit read-only.
+before changing production behavior, and prove that a fresh project would not inherit the same
+failure. Keep the reference-project audit read-only.
 
 **Files:**
 - Add `clio/tests/test_run_scope_identity.py`
@@ -36,7 +39,7 @@ before changing production behavior. Keep the reference-project audit read-only.
 
 - [ ] **Step 1: Add a synthetic project fixture**
 
-Create a fixture with:
+Create a legacy fixture with:
 
 - two original media identities on two capture dates;
 - two analysis JSON files for each identity, with different indices/compressed stems;
@@ -44,18 +47,39 @@ Create a fixture with:
 - one legacy-only identity with an unambiguous `day3` label and no recoverable date;
 - one undated and unlabeled identity.
 
+Create a separate greenfield fixture with:
+
+- no scope manifest and no legacy plans or consistency reports;
+- one current media identity with a recoverable capture date;
+- one current media identity with no recoverable date;
+- a first-run path through analysis, preview, start, and completion;
+- an interrupted-analysis variant whose manifest mode is initialized and one artifact is written
+  before the batch stops.
+
 Use the existing `MediaIdentity` shape. Do not invent a second filename-matching helper.
 
-- [ ] **Step 2: Add failing regression tests with `pytest.mark.xfail(strict=True)`**
+- [ ] **Step 2: Add regression tests with `pytest.mark.xfail(strict=True)` for current failures**
 
-Cover:
+Add a test for each behavior below. Mark only cases that fail against the current production code
+with `xfail(strict=True)`; keep already-correct invariants as ordinary tests. Cover:
 
 - preview total is based on deduplicated identities, not raw JSON count;
 - missing labels do not make all unlabeled artifacts belong to `day1`;
-- an unambiguous legacy label is not collapsed into `unknown`;
-- a successful same-day consistency plus plan run does not leave the same stage endlessly ready.
+- an unambiguous pre-existing legacy label in legacy-adoption mode is not collapsed into
+  `unknown`;
+- a successful same-day consistency plus plan run does not leave the same stage endlessly ready;
+- a greenfield project with one dated clip uses a date scope, not a rank-derived `day1` identity;
+- a greenfield project with no recoverable date exposes `unknown` and blocks planning;
+- the first preview/start/completion sequence for a greenfield project advances without legacy
+  artifacts;
+- an interrupted greenfield analysis remains greenfield and never adopts a generated label as
+  legacy evidence;
+- mixed canonical and legacy evidence without a manifest stays in legacy adoption and preserves
+  existing aliases.
 
-Name the expected behavior in the test names. Remove the `xfail` marker when Phase 2 lands.
+Name the expected behavior in the test names. Remove each `xfail` marker when its owning phase
+lands: resolver/deduplication and greenfield scope resolution in Phase 2; metadata, manifest, and
+interrupted-analysis tests in Phase 3; and the preview/start/completion loop regression in Phase 8.
 
 - [ ] **Step 3: Record the reference-project audit**
 
@@ -66,7 +90,9 @@ Run a read-only Python or PowerShell audit against `D:\vlog_projects\202610_Ital
 - duplicate pair count;
 - label distribution;
 - whether ffprobe can recover capture dates for the unique originals;
-- the current preview/start/completion discrepancy pattern.
+- the current preview/start/completion discrepancy pattern;
+- what the `待执行 2–2 / 跳过 362–362` counters count, and why 362 is not a media total;
+- the expected greenfield first-run behavior, documented separately from the legacy audit.
 
 Do not rewrite, move, delete, or back up reference-project files in this phase.
 
@@ -101,8 +127,17 @@ selection, date/label resolution, scope IDs, and preview input fingerprints.
 
 - [ ] **Step 1: Define the resolver dataclasses and IDs**
 
-Add dataclasses for `ScopeOption`, `ResolvedScope`, and `ResolvedRunScope`. Use only these scope ID
-forms:
+Add dataclasses for `ScopeOption`, `ResolvedScope`, and `ResolvedRunScope`. The resolver must
+distinguish greenfield and legacy-adoption inputs, but both modes use the same scope ID forms.
+Legacy `dayN` adoption is allowed only in legacy-adoption mode; greenfield resolution uses
+persisted date or current media evidence and otherwise returns `unknown`.
+
+Mode selection is deterministic and persisted once: a valid manifest `mode` wins; no prior
+artifacts means greenfield. With no manifest, canonical analysis metadata can recover greenfield
+state only when no pre-existing label, plan, consistency, or voiceover lineage is legacy. Any such
+legacy evidence means legacy adoption, even if some canonical artifacts exist; mixed evidence is a
+repair state. This phase only classifies mode; Phase 3 persists it before the first analysis
+artifact write.
 
 ```text
 YYYY-MM-DD
@@ -149,11 +184,11 @@ Resolve in this order:
 3. telemetry/GPMF capture time;
 4. ffprobe container `creation_time`;
 5. filename date;
-6. one unambiguous legacy `dayN`;
+6. one unambiguous pre-existing legacy `dayN`, only in legacy-adoption mode;
 7. `unknown`.
 
-Persist the basis as `machine_local` when a timestamp is interpreted. Do not convert an
-unresolved item to `day1`.
+Persist the basis as `machine_local` when a timestamp is interpreted. In greenfield mode, do not
+adopt a generated `day_label` as legacy evidence and do not convert an unresolved item to `day1`.
 
 - [ ] **Step 5: Implement the input fingerprint**
 
@@ -163,8 +198,13 @@ selected step. Keep completion evidence out of this function.
 
 - [ ] **Step 6: Enable the regression tests**
 
-Remove `xfail` from `clio/tests/test_run_scope_identity.py`. Assert the synthetic project returns
-deduplicated counts, two date scopes, one legacy scope, and one unknown bucket.
+Remove the resolver/deduplication and greenfield scope-resolution `xfail` markers from
+`clio/tests/test_run_scope_identity.py`. Assert the synthetic legacy project returns deduplicated
+counts, two date scopes, one legacy scope, and one unknown bucket. Add greenfield cases asserting
+that a dated clip gets a date scope, an undated clip gets `unknown`, and no rank-derived `day1`
+identity is created, and mixed canonical/legacy evidence keeps legacy adoption and its aliases.
+Leave metadata, manifest, interrupted-analysis, and completion-loop regressions xfailed until their
+owning phases.
 
 - [ ] **Step 7: Run focused tests**
 
@@ -189,7 +229,7 @@ git commit -m "feat(run): add canonical capture-day scope resolver"
 **Files:**
 - Add `clio/scope_manifest.py`
 - Modify `clio/tasks/analyze.py`
-- Modify `clio/tests/test_analyze_funcs.py`
+- Modify `clio/tests/test_tasks_analyze.py`
 - Add `clio/tests/test_scope_manifest.py`
 - Modify `clio/tests/test_run_scope_identity.py`
 
@@ -208,7 +248,16 @@ Write these additive fields to newly finalized analysis artifacts:
 ```
 
 For an unambiguous legacy-only item, write `scope_id = legacy-dayN`, `capture_date = null`, and
-`capture_date_source = legacy_label`.
+`capture_date_source = legacy_label`. This inference applies only in legacy-adoption mode. In
+greenfield mode, a missing date always writes `scope_id = unknown`; do not adopt a generated
+`day_label` as legacy evidence.
+
+Before writing the first analysis artifact, initialize the manifest mode described in Step 3. If
+that write fails, abort before creating analysis JSON; do not leave an unclassified partial batch.
+This metadata must be written on the first analysis of a new project, before any plan exists. Do
+not use the rank-based `_build_day_labels()` result as a greenfield scope identity; it may only
+supply a compatibility alias after the manifest resolves one. A missing date produces
+`scope_id = unknown`, not `day1`.
 
 - [ ] **Step 2: Add safe cache repair**
 
@@ -218,8 +267,11 @@ unchanged and report a diagnostic.
 
 - [ ] **Step 3: Implement the manifest**
 
-Persist `output/scope_manifest.json` with version, `next_legacy_day`, frozen aliases, confidence,
-evidence, and hashed identity evidence. Only adopt unambiguous aliases automatically.
+Persist `output/scope_manifest.json` with version, immutable `mode`, `next_legacy_day`, frozen
+aliases, confidence, evidence, and hashed identity evidence. Initialize it with
+`mode = greenfield` before the first analysis artifact write, then add each validated scope. A
+legacy manifest, when explicitly created, records `mode = legacy_adoption`. Only adopt unambiguous
+aliases automatically.
 
 Before replacing a valid manifest, create a backup. Preserve malformed manifests and report them;
 do not overwrite a malformed file with a guessed reconstruction.
@@ -227,18 +279,22 @@ do not overwrite a malformed file with a guessed reconstruction.
 - [ ] **Step 4: Preserve existing aliases**
 
 Test that adding an earlier capture date does not renumber an existing `dayN`, and that an alias
-collision is blocked rather than silently repaired.
+collision is blocked rather than silently repaired. Add greenfield assertions that the mode is
+persisted before the first artifact, the first analysis creates a date scope and manifest entry
+without a legacy migration, and a generated `day_label` without a date remains `unknown`. Add an
+interrupted-batch assertion proving the mode stays greenfield. Remove the metadata, manifest, and interrupted-analysis `xfail`
+markers once these assertions pass.
 
 - [ ] **Step 5: Run focused tests**
 
 ```powershell
-python -m pytest clio/tests/test_scope_manifest.py clio/tests/test_analyze_funcs.py clio/tests/test_run_scope_identity.py -q
+python -m pytest clio/tests/test_scope_manifest.py clio/tests/test_tasks_analyze.py clio/tests/test_run_scope_identity.py -q
 ```
 
 - [ ] **Step 6: Commit**
 
 ```powershell
-git add clio/scope_manifest.py clio/tasks/analyze.py clio/tests/test_scope_manifest.py clio/tests/test_analyze_funcs.py clio/tests/test_run_scope_identity.py
+git add clio/scope_manifest.py clio/tasks/analyze.py clio/tests/test_scope_manifest.py clio/tests/test_tasks_analyze.py clio/tests/test_run_scope_identity.py
 git commit -m "feat(run): persist and freeze capture-day scope metadata"
 ```
 
@@ -287,7 +343,8 @@ Cover:
 - missing labels never enter `day1`;
 - a legacy scope reads and writes `dayN` artifacts but reports `scope_id = legacy-dayN`;
 - an unknown scope is rejected for planning, consistency, and plan-voiceover;
-- a changed manifest alias invalidates or redirects artifact lookup safely.
+- a changed manifest alias invalidates or redirects artifact lookup safely;
+- a greenfield project can plan from its first date scope without any legacy artifacts.
 
 - [ ] **Step 6: Run focused tests**
 
@@ -355,8 +412,9 @@ the same run. Return the actual processed scopes in the task result.
 
 - [ ] **Step 5: Add route tests**
 
-Cover invalid IDs, path-like IDs, stale fingerprints, unambiguous legacy aliases, ambiguous
-aliases, unknown planning rejection, and all-days excluding unknown.
+Cover invalid IDs, path-like IDs, stale fingerprints, unambiguous legacy aliases in legacy mode,
+ambiguous aliases, unknown planning rejection, all-days excluding unknown, and a greenfield project
+selecting its first date scope without any legacy label.
 
 - [ ] **Step 6: Run focused tests**
 
@@ -403,7 +461,8 @@ evidence in the task result. Do not rely on the browser to reconstruct this data
 - [ ] **Step 4: Add pipeline tests**
 
 Cover single scope, all-known scope, unknown exclusion, legacy-only scope, duplicate input
-deduplication, and same-run analyze plus plan cascade.
+deduplication, same-run analyze plus plan cascade, and a greenfield first run that starts from a
+date scope and never invokes legacy label ranking.
 
 - [ ] **Step 5: Run focused tests**
 
@@ -431,7 +490,7 @@ media without requiring users to understand `dayN` ordering.
 - Modify `clio/ui/static/src/runner-stage-model.js` if scope data feeds stage status
 - Modify `clio/ui/static/locales/zh-CN.json`
 - Modify `clio/ui/static/locales/en.json`
-- Extend `clio/ui/static/src/__tests__/runner-scope.test.js`
+- Add `clio/ui/static/src/__tests__/runner-scope.test.js`
 - Extend `clio/ui/static/src/__tests__/runner-preview.test.js`
 - Extend `clio/ui/static/src/__tests__/runner-locale.test.js`
 
@@ -530,7 +589,11 @@ Reproduce the reported sequence:
 3. refresh completion using submitted canonical scope;
 4. assert consistency and plan are reusable;
 5. assert `next_stage` advances;
-6. inject scope drift and assert the diagnostic appears instead of another ready button.
+6. inject scope drift and assert the diagnostic appears instead of another ready button;
+7. repeat the first-run sequence in a greenfield project with no manifest, legacy plan, or
+   consistency artifact and assert the same advancement.
+
+Enable the completion-loop `xfail` created in Phase 1 as part of this phase.
 
 - [ ] **Step 6: Run focused tests**
 
@@ -556,7 +619,10 @@ reference project through the new resolver without mutating it.
 
 **Files:**
 - Modify remaining `day_label: str = "day1"` call sites in `clio/`
+- Modify `clio/tasks/analyze.py` to remove rank-based greenfield scope assignment
 - Modify `clio/ui/routes/run.py`
+- Modify `clio/ui/routes/projects.py` and `clio/ui/services/project_service.py` if `currentDay`
+  remains as a compatibility field
 - Modify `clio/ui/static/src/runner.js`
 - Modify `clio/locales/zh-CN.json`
 - Modify `clio/locales/en.json`
@@ -573,11 +639,12 @@ rg -n "day_label.*day1|day1.*day_label|or [\"']day1[\"']|default.*day1" clio mai
 
 For each result, either replace it with resolver-based behavior or document why it is a safe CLI
 compatibility fallback. No Web preview, planning, consistency, or completion path may default to
-`day1`.
+`day1`. Search separately for `_build_day_labels` and `currentDay`; neither may define the primary
+scope of a new project.
 
 - [ ] **Step 2: Run the reference-project read-only audit**
 
-Verify:
+Verify the reference project:
 
 - 181 deduplicated clips;
 - nine executable scopes;
@@ -585,6 +652,13 @@ Verify:
 - unknown count;
 - no automatic manifest or artifact rewrite unless explicitly requested;
 - expected `next_stage` after a successful plan-alignment run.
+
+Verify a fresh project separately:
+
+- first analysis writes date or `unknown` metadata and creates the manifest;
+- first plan uses a date scope, not a rank-derived `day1`;
+- no legacy plan, consistency, or voiceover artifact is required;
+- an undated clip blocks planning in `unknown` until repaired.
 
 - [ ] **Step 3: Update ROADMAP and documents**
 
@@ -616,6 +690,11 @@ git commit -m "refactor(run): remove implicit day1 scope defaults"
 ## Verification Checklist
 
 - [ ] Normal same-day consistency plus plan run advances to the next stage.
+- [ ] A new project's greenfield mode is persisted before the first analysis write and its first
+  run uses date or `unknown` scopes without a legacy migration.
+- [ ] An interrupted first analysis cannot reclassify the project as legacy adoption.
+- [ ] A new project with one dated clip uses a date scope ID, not a rank-derived `day1` identity.
+- [ ] A new project with no recoverable date blocks planning in `unknown` until repaired.
 - [ ] Reference project counts 181 deduplicated clips, not 362 raw JSON files.
 - [ ] `day1–day9` resolves to stable capture-date scopes or frozen `legacy-dayN` scopes.
 - [ ] Unknown media is excluded from `all_days` and blocked from planning with an explanation.

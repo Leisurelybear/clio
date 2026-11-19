@@ -53,13 +53,14 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
 
 ### Capture-day scope identity (2026-11-19)
 
-- `[~]` Replace mutable `dayN` scope drift with canonical capture-date scopes, frozen legacy
-  `dayN` aliases, media-identity deduplication, preview/start input fingerprints, and
-  task-returned completion validation.
-- `[ ]` Reproduce the reference-project same-stage loop and publish a read-only scope audit before
-  migrating artifacts.
+- `[~]` Replace mutable `dayN` scope drift for both existing and new projects with canonical
+  capture-date scopes, pre-analysis greenfield mode initialization, frozen legacy `dayN` aliases,
+  media-identity deduplication, preview/start input fingerprints, and task-returned completion
+  validation.
+- `[ ]` Reproduce the reference-project same-stage loop and prove a greenfield project with no
+  legacy artifacts uses date or `unknown` scopes from its first run, before migrating artifacts.
 - `[ ]` Implement and verify the phased resolver, manifest, scoped artifact lookup, Run selector,
-  and completion diagnostics.
+  and completion diagnostics for both project modes.
 
 Design:
 [capture-day scope identity](docs/superpowers/specs/2026-11-19-capture-day-scopes-design.md).

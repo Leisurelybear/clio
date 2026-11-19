@@ -3,6 +3,7 @@
 **Status:** Proposed; reviewed 2026-11-19
 **Date:** 2026-11-19
 **Scope:** Run scope selection, analysis artifact identity, plan reuse, and guided-stage completion
+for existing and new projects
 **Implementation plan:** [`2026-11-19-capture-day-scopes-plan.md`](../plans/2026-11-19-capture-day-scopes-plan.md)
 **Self-review:** [`2026-11-19-capture-day-scopes-review.md`](../reviews/2026-11-19-capture-day-scopes-review.md)
 
@@ -20,17 +21,25 @@ set of capture dates found in the current media set. It is not hard-coded, but i
   refer to the same day.
 
 The recommended fix is to make a capture date the stable scope identity and treat `dayN` as a
-compatibility alias. When a date cannot be recovered but one legacy `dayN` label is unambiguous,
-the server issues a frozen `legacy-dayN` scope. Truly unclassified media goes to `unknown`; it is
-never assigned to `day1` by default.
+compatibility alias. In legacy-adoption mode, when a date cannot be recovered but one
+pre-existing `dayN` label is unambiguous, the server issues a frozen `legacy-dayN` scope. Truly
+unclassified media goes to `unknown`; it is never assigned to `day1` by default.
 
 Run preview, execution, artifact lookup, completion, and next-stage selection must all use the
 same canonical scope resolution. Preview/start consistency uses an `input_fingerprint`; successful
 completion is validated separately from the artifacts the run actually produced.
 
+This is not a migration-only fix. The same contract applies to a project created after this
+change: its scope mode must be fixed before the first analysis write, each analysis artifact must
+persist a date-or-unknown scope, and its first planning run must use the same resolver. A fresh
+project must never be routed through the legacy label-only compatibility path, and `dayN` must
+never be the primary identity merely because a project is new.
+
 ## 2. Evidence from the Reference Project
 
-The reported project is `D:\vlog_projects\202610_Italy`. The observed output directory contains:
+The reported project is `D:\vlog_projects\202610_Italy`. It is a regression and migration case, not
+a special-case design target. The invariants below apply equally to projects with no legacy
+artifacts. The observed output directory contains:
 
 - 362 analysis JSON files;
 - 181 unique `source_file` values;
@@ -52,6 +61,12 @@ The original media still carries container timestamps. A read-only sample of `GX
 returned `2026-10-01T19:02:14Z`. This makes date-first scope IDs feasible, but the dates must be
 persisted because discovery currently reprobes media and does not store the result.
 
+The reported preview status `待执行 2–2 / 跳过 362–362` is consistent with two selected stages and
+skip accounting over the 362 raw analysis JSON files, not 362 source clips. After media-identity
+deduplication the project has 181 clips. Phase 1 must confirm the exact counter code path, but the
+current presentation is already misleading: users see a large skip total that does not correspond
+to the number of videos they selected.
+
 This explains the visible `day1` through `day9`: nine distinct capture dates were detected by
 `_build_day_labels()` and numbered in ascending order. It is not a hard-coded nine-day limit.
 The implementation is still misleading because:
@@ -71,11 +86,14 @@ refresh completion must resolve to the same media identities and compatible anal
 ### Goals
 
 - Give every analyzed capture day a stable, server-owned identity.
+- Apply the canonical contract from a new project's pre-analysis mode initialization and first run,
+  without requiring a legacy migration.
 - Display capture dates instead of relative `dayN` labels in the Run UI.
 - Preserve `dayN` inputs and artifact names as a non-destructive compatibility layer.
 - Deduplicate analysis artifacts by current media identity.
 - Stop treating missing capture dates or missing `day_label` values as `day1`.
-- Represent an unambiguous legacy label as a visible, frozen compatibility scope.
+- Represent an unambiguous pre-existing legacy label as a visible, frozen compatibility scope
+  in legacy-adoption mode.
 - Make `all_days` expand known capture and legacy scopes only, with unknown media called out.
 - Make preview, execution, reuse, completion, and next-stage selection share one resolver.
 - Keep the migration reversible and avoid moving or deleting user artifacts automatically.
@@ -167,15 +185,41 @@ legacy day alias through `plan_day_stem()` and existing containment checks.
 These are different conditions:
 
 - Date known: issue a `capture_date` scope. A missing analysis `day_label` is irrelevant.
-- Date unknown, one unambiguous `dayN` label in the deduplicated source group: issue a
-  `legacy_day` scope and show "date unknown · original label dayN".
-- Date unknown, conflicting `dayN` labels in one source group: issue `unknown` with a conflict
-  warning; do not choose one label silently.
-- Date unknown, no label: issue `unknown`; never map to `day1`.
+- Date unknown in legacy-adoption mode with exactly one unambiguous pre-existing `dayN` label:
+  issue a `legacy_day` scope and show "date unknown · original label dayN".
+- Date unknown in greenfield mode: issue `unknown`; a label generated by the current analysis is
+  not legacy evidence and cannot create a `legacy_day` scope.
+- Date unknown in legacy-adoption mode with conflicting `dayN` labels in one source group: issue
+  `unknown` with a conflict warning; do not choose one label silently.
+- Date unknown with no usable label: issue `unknown`; never map to `day1`.
 
 ## 5. Discovery and Deduplication
 
-### 5.1 Current media is the authority
+### 5.1 Project modes
+
+The resolver distinguishes two immutable input modes:
+
+- **Greenfield:** no prior pipeline artifacts or scope manifest. Before writing the first analysis
+  artifact, the analysis task initializes `scope_manifest.json` with `mode = greenfield` and an
+  empty scope map. A preview may resolve provisional date scopes from current media, but the first
+  write that can leave partial artifacts initializes the mode. There is no label-ranking or
+  label-only fallback.
+- **Legacy adoption:** pre-existing analysis, plan, consistency, or voiceover artifacts contain
+  legacy evidence that is not fully covered by a trusted manifest or a complete
+  greenfield/canonical state. This includes mixed canonical and legacy artifacts. The resolver may
+  use unambiguous pre-existing labels and read-only reconstruction, but never rewrites ambiguous
+  artifacts. If a manifest is later created, it records `mode = legacy_adoption`.
+
+The mode is an implementation detail; the scope IDs, fingerprints, and completion contract are
+identical. The persisted mode is never inferred again from whichever files happen to exist later.
+With no manifest and no prior artifacts, the project is fresh greenfield, not a fallback to
+`day1`. With no manifest but canonical analysis metadata and no legacy label/plan/consistency
+lineage, the project is recovered as greenfield state even if the manifest write was interrupted.
+Any pre-existing artifact without canonical metadata, or any legacy plan/consistency/voiceover
+lineage, makes the project legacy adoption; mixed canonical and legacy evidence requires repair and
+must not erase the legacy aliases.
+
+### 5.2 Current media is the authority
 
 Scope discovery starts from the current project media selection and compressed media, not from
 every JSON file under `texts/`. Historical files may remain on disk, but only one current analysis
@@ -186,7 +230,7 @@ selection file may use the existing project-directory fallback. Artifacts that c
 the active media set are excluded from run counts and reported as orphaned diagnostics. They are
 not deleted or rewritten during discovery.
 
-### 5.2 Identity grouping
+### 5.3 Identity grouping
 
 Artifacts are grouped using the existing `MediaIdentity` helpers. The preferred identity key is:
 
@@ -203,7 +247,7 @@ source-level aliases match, but it must not merge records solely because their c
 differ or because one compressed stem looks similar. Split segments of one original are distinct
 clips when their segment index or offset differs.
 
-### 5.3 Deterministic artifact choice
+### 5.4 Deterministic artifact choice
 
 Within each identity group, choose exactly one artifact using this order:
 
@@ -222,7 +266,7 @@ the ignored count and offers a separate cleanup action or command.
 If a source clip has no usable analysis artifact, it remains part of `clip_count` but not
 `analyzed_clip_count`. Planning for that scope is blocked until analysis repairs the gap.
 
-### 5.4 Date and label resolution
+### 5.5 Date and label resolution
 
 Resolution order is:
 
@@ -231,12 +275,14 @@ Resolution order is:
 3. GPMF/telemetry capture time already supported by the project;
 4. ffprobe container `creation_time` on the original media;
 5. `YYYYMMDD` or equivalent date text in the original filename;
-6. exactly one unambiguous legacy `dayN` label for the source group;
+6. exactly one unambiguous pre-existing legacy `dayN` label, only in legacy-adoption mode;
 7. `unknown`.
 
-An artifact's `scope_id` is evidence, not authority. The resolver recomputes the current date and
-identity, then validates the stored scope metadata. A mismatch is a diagnostic and excludes the
-artifact from reuse rather than silently accepting stale identity.
+In greenfield mode, if steps 1-5 do not resolve a date, the result is `unknown`; a generated
+`day_label` cannot become a legacy scope. An artifact's `scope_id` is evidence, not authority. The
+resolver recomputes the current date and identity, then validates the stored scope metadata. A
+mismatch is a diagnostic and excludes the artifact from reuse rather than silently accepting stale
+identity.
 
 ## 6. Same-Date Semantics and Timezone
 
@@ -262,6 +308,7 @@ The project keeps a scope manifest under `output/scope_manifest.json`:
 ```json
 {
   "version": 1,
+  "mode": "legacy_adoption",
   "next_legacy_day": 10,
   "scopes": {
     "2026-10-27": {
@@ -282,6 +329,16 @@ The project keeps a scope manifest under `output/scope_manifest.json`:
   "warnings": []
 }
 ```
+
+For a greenfield project, the analysis task initializes the manifest with
+`mode = greenfield` before writing any analysis artifact. It then records each canonical scope as
+that artifact is validated, so an interrupted batch cannot later be mistaken for a legacy project.
+A preview before analysis may resolve temporary date scopes from current media, but it does not
+create aliases or a label-only scope. If no manifest exists, canonical metadata is recovered as
+greenfield state only when no prior artifact carries legacy label, plan, consistency, or voiceover
+lineage. Any such legacy evidence selects legacy adoption, even when canonical artifacts also
+exist. Mixed evidence is reported as a repair state. The absence of a manifest and prior artifacts
+means "fresh", not "fall back to `day1`".
 
 The manifest is a compatibility cache, not the primary identity. Existing aliases are frozen:
 
@@ -337,6 +394,13 @@ New analysis writes all scope metadata. Older artifacts remain readable. Discove
 them. A later explicit analyze run, or a safe cache-repair path with unambiguous evidence, may add
 missing metadata without changing user-edited plan content.
 
+For a new project, the rank-based `_build_day_labels()` behavior is not a production source of
+identity. The analysis task must write the canonical `scope_id` and date evidence on its first
+artifact. The greenfield manifest mode must be initialized before the first artifact write, and
+`legacy_day_label` may be populated only from the frozen manifest alias. A missing date produces
+`unknown`, not `day1` or `legacy-dayN`. Only legacy-adoption mode may infer a `legacy_day` scope
+from a pre-existing label.
+
 ## 9. Run Contract
 
 ### 9.1 Shared resolver
@@ -360,7 +424,8 @@ The result contains:
 - warnings and diagnostics.
 
 No production caller may independently rediscover day labels or reinterpret a missing label as
-`day1`.
+`day1`. For a greenfield project, the first resolution may be `unknown`; that is an explicit
+repair state, not an invitation to select `day1`.
 
 ### 9.2 Preview response
 
@@ -387,7 +452,8 @@ eligibility. The client must not construct scope IDs or parse dates from free te
 
 If no scope is supplied, the server resolves the saved canonical scope, then an unambiguous saved
 legacy alias, then the first known scope. It marks the result `auto_selected` so the UI can explain
-the choice.
+the choice. A new project with one detected date exposes that date as the selected scope; `day1`
+may be shown only as an alias, never as the scope ID.
 
 ### 9.3 Fingerprints
 
@@ -465,6 +531,8 @@ to run forever.
   that its date is unknown.
 - If no known scopes exist, `all_days` is disabled and the UI offers date repair or re-analysis.
 - A missing date or missing label never becomes `day1` in discovery, plan filtering, or completion.
+- A new project with undated media enters `unknown`; it must be repaired or re-analyzed before
+  planning.
 
 ## 11. User-Facing Design
 
@@ -529,8 +597,12 @@ Backend tests:
 - earlier-date insertion does not change an existing canonical ID or frozen alias;
 - duplicate analysis artifacts resolve to one deterministic current artifact;
 - preview counts scopes, not raw JSON files;
+- an interrupted greenfield analysis remains greenfield after its mode marker is written;
+- mixed canonical and legacy evidence without a manifest selects legacy adoption and preserves
+  aliases;
 - the reference-shaped fixture reports 181 deduplicated clips from 362 JSON files;
-- missing date plus one unambiguous legacy label creates `legacy-dayN`;
+- missing date plus one unambiguous pre-existing legacy label in legacy-adoption mode creates
+  `legacy-dayN`;
 - missing date plus conflicting labels creates `unknown`;
 - missing date and label never becomes `day1`;
 - `unknown` is excluded from `all_days` and blocked from planning;
@@ -553,21 +625,30 @@ Frontend tests:
 - a same-stage completion diagnostic is visible instead of an endless run button;
 - zh-CN and en catalogs have identical new keys.
 
-Regression fixture:
+Regression fixtures:
 
-- a synthetic project with two dates, two analysis artifacts per source, one missing label, one
-  legacy-only source, and one undated/unlabeled clip. Assert two capture-date scopes, one legacy
-  scope, and one unknown bucket; assert deduplicated clip totals; assert planning is blocked only
-  for the unknown bucket.
+- a synthetic legacy project with two dates, two analysis artifacts per source, one missing label,
+  one legacy-only source, and one undated/unlabeled clip. Assert two capture-date scopes, one
+  legacy scope, and one unknown bucket; assert deduplicated clip totals; assert planning is blocked
+  only for the unknown bucket.
+- a greenfield project with no manifest and no legacy artifacts, containing one dated clip and one
+  undated clip. Assert the dated clip resolves to a date scope, the undated clip resolves to
+  `unknown`, no rank-derived `day1` identity is created, and planning is blocked for unknown.
+- a greenfield project whose first analysis later gains an earlier date. Assert existing aliases and
+  scope IDs do not change.
+- a greenfield project whose first analysis is interrupted after the mode marker and one artifact
+  are written. Assert the next resolution remains greenfield and never adopts a generated label as
+  legacy evidence.
 
 ## 15. Rollout and Rollback
 
-1. Ship the read-only resolver and reference-project audit with no user-visible path change.
-2. Add analysis metadata and manifest alias adoption.
+1. Validate the greenfield first-run path and the reference-project read-only audit.
+2. Add pre-analysis mode initialization, analysis metadata, and manifest alias adoption.
 3. Switch plan, consistency, and voiceover resolution to canonical scopes.
 4. Add the preview/start scope contract and selector.
 5. Bind completion to task-returned scopes and add the loop diagnostic.
-6. Remove legacy default-`day1` fallbacks after the compatibility path is verified.
+6. Remove legacy default-`day1` fallbacks after both the greenfield and compatibility paths are
+   verified.
 
 Rollback is safe because metadata is additive and legacy artifacts remain in place. The manifest
 can be ignored by older code. Phase 2 filename migration must not begin until the manifest and
@@ -593,7 +674,8 @@ check, not as the user-facing day identity.
 ### Put every undated legacy label into one `unknown` bucket
 
 Rejected. It would destroy the existing nine-way separation and make plans impossible to locate.
-An unambiguous legacy label is represented by a frozen `legacy-dayN` scope instead.
+An unambiguous pre-existing legacy label is represented by a frozen `legacy-dayN` scope
+instead.
 
 ### Delete duplicate analysis files immediately
 
@@ -604,9 +686,17 @@ exclude, and offer explicit cleanup instead.
 
 - The reference project reports 181 deduplicated clips and nine executable scopes, not 362 raw
   analysis files.
-- Date metadata is persisted; if ffprobe cannot recover a date, the unambiguous legacy labels are
-  exposed as `legacy-dayN` scopes rather than being collapsed into `unknown`.
+- Date metadata is persisted; if ffprobe cannot recover a date in a legacy-adoption project, its
+  unambiguous pre-existing labels are exposed as `legacy-dayN` scopes rather than being collapsed
+  into `unknown`.
 - No undated or unlabeled clip is implicitly assigned to `day1`.
+- A newly created project never depends on legacy label fallback: its greenfield mode is persisted
+  before the first analysis write, each analysis persists scope metadata, and its first plan uses
+  date or `unknown` scopes.
+- A new project with one dated clip uses a date scope ID; `day1` is at most a compatibility alias.
+- A new project with no recoverable date blocks planning in `unknown` with a repair action.
+- An interrupted first analysis cannot reclassify a greenfield project as legacy adoption or turn a
+  generated `day_label` into scope evidence.
 - Adding an earlier date does not rename existing canonical scopes or their compatibility aliases.
 - After a successful plan-alignment run for a selected scope, preview marks the stage reusable and
   `next_stage` advances to the next incomplete stage.
