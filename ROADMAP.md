@@ -72,7 +72,7 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
   `001..181` numbering, and no `output/cuts` exists, which explains the inflated delivery counts
   and the unplayable plan preview. See
   [capture-day scope audit](docs/analysis/2026-11-19-capture-day-scope-audit.md).
-- `[ ]` Prove with greenfield fixtures that a project with no legacy artifacts uses date or
+- `[x]` Prove with greenfield fixtures that a project with no legacy artifacts uses date or
   `unknown` scopes from its first run, before migrating artifacts.
 - `[ ]` Implement and verify the phased resolver, manifest, scoped artifact lookup, Run selector,
   and completion diagnostics for both project modes.

@@ -23,11 +23,12 @@ task-returned scope. Keep legacy
 **Delivery rule:** Each phase is independently testable and gets its own small commit. Do not push
 without explicit user approval.
 
-**Status (2026-11-19):** Phase 1 reference-project reproduction is committed. The read-only audit
-lives in [`../../analysis/2026-11-19-capture-day-scope-audit.md`](../../analysis/2026-11-19-capture-day-scope-audit.md);
-the deduplication, greenfield-scope, and interrupted-analysis fixtures listed under Phase 1 Steps
-1-2 are intentionally completed inside Phases 2-3, where the APIs they exercise exist. Phase 1
-checkboxes below are ticked only for work that has actually landed.
+**Status (2026-11-19):** Phase 1 reference-project reproduction and Phase 2 canonical scope
+resolution are implemented. The resolver classifies project mode, groups duplicate analysis
+artifacts by media identity, resolves date and legacy scopes, and provides a deterministic input
+fingerprint. Phase 2 tests pass; the metadata/manifest xfail remains for Phase 3. The read-only
+audit lives in
+[`../../analysis/2026-11-19-capture-day-scope-audit.md`](../../analysis/2026-11-19-capture-day-scope-audit.md).
 
 ---
 
@@ -131,7 +132,7 @@ selection, date/label resolution, scope IDs, and preview input fingerprints.
 - Modify `clio/tests/test_run_scope_identity.py`
 - Extend `clio/tests/test_identity.py` if new identity-key behavior needs coverage
 
-- [ ] **Step 1: Define the resolver dataclasses and IDs**
+- [x] **Step 1: Define the resolver dataclasses and IDs**
 
 Add dataclasses for `ScopeOption`, `ResolvedScope`, and `ResolvedRunScope`. The resolver must
 distinguish greenfield and legacy-adoption inputs, but both modes use the same scope ID forms.
@@ -159,7 +160,7 @@ def resolve_run_scope(config, *, scope_id=None, legacy_day_label=None,
     ...
 ```
 
-- [ ] **Step 2: Implement media-identity grouping**
+- [x] **Step 2: Implement media-identity grouping**
 
 Reuse `clio.identity.MediaIdentity` and its existing helpers. Group by source-level identity first.
 If a legacy record has no original path, use the existing source-stem and compressed fallbacks in
@@ -167,7 +168,7 @@ the documented order. Never use the analysis numeric index or filename as identi
 
 Split segments of one original remain distinct when segment index or offset differs.
 
-- [ ] **Step 3: Implement deterministic artifact selection**
+- [x] **Step 3: Implement deterministic artifact selection**
 
 Choose one artifact per identity group using the design priority:
 
@@ -181,7 +182,7 @@ Choose one artifact per identity group using the design priority:
 
 Return ignored duplicate artifacts as diagnostics. Do not delete them.
 
-- [ ] **Step 4: Implement date and label resolution**
+- [x] **Step 4: Implement date and label resolution**
 
 Resolve in this order:
 
@@ -196,13 +197,13 @@ Resolve in this order:
 Persist the basis as `machine_local` when a timestamp is interpreted. In greenfield mode, do not
 adopt a generated `day_label` as legacy evidence and do not convert an unresolved item to `day1`.
 
-- [ ] **Step 5: Implement the input fingerprint**
+- [x] **Step 5: Implement the input fingerprint**
 
 Compute a deterministic fingerprint from selected steps, scope mode, canonical IDs, deduplicated
 identity keys, manifest revision, and only the pre-run inputs that are not produced by an earlier
 selected step. Keep completion evidence out of this function.
 
-- [ ] **Step 6: Enable the regression tests**
+- [x] **Step 6: Enable the regression tests**
 
 Remove the resolver/deduplication and greenfield scope-resolution `xfail` markers from
 `clio/tests/test_run_scope_identity.py`. Assert the synthetic legacy project returns deduplicated
@@ -212,14 +213,14 @@ identity is created, and mixed canonical/legacy evidence keeps legacy adoption a
 Leave metadata, manifest, interrupted-analysis, and completion-loop regressions xfailed until their
 owning phases.
 
-- [ ] **Step 7: Run focused tests**
+- [x] **Step 7: Run focused tests**
 
 ```powershell
 python -m pytest clio/tests/test_run_scope_identity.py clio/tests/test_identity.py -q
 python -m pytest clio/tests/test_run_preview.py -q
 ```
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```powershell
 git add clio/run_scope.py clio/tasks/analyze.py clio/tests/test_run_scope_identity.py clio/tests/test_identity.py

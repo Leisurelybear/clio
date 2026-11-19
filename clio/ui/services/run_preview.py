@@ -449,7 +449,7 @@ def build_run_preview(
 
     all_recursive_source_videos = list(_load_source_videos(config))
     compressed_input_info, all_compressed_videos = _compressed_input_info(config)
-    all_analysis_jsons = _analysis_jsons(config)
+    all_analysis_jsons = _analysis_jsons(config, files=files)
     index = ArtifactIndex(
         output_dir=config.paths.output_dir,
         project_dir=config.project_dir or Path(),
@@ -462,7 +462,7 @@ def build_run_preview(
 
     filtered_source_videos = _filter_stem_paths(all_source_videos, selected)
     compressed_videos = _filter_stem_paths(all_compressed_videos, selected, artifact=True)
-    analysis_jsons = _filter_artifact_paths(all_analysis_jsons, selected)
+    analysis_jsons = all_analysis_jsons
 
     input_info = compressed_input_info if _starts_from_compressed(selected_steps) else source_input_info
     input_info = {
@@ -1541,9 +1541,21 @@ def _step(
     }
 
 
-def _analysis_jsons(config: AppConfig) -> list[Path]:
+def _analysis_jsons(config: AppConfig, files: list[str] | None = None) -> list[Path]:
     texts_dirs = _find_texts_dirs(config.texts_dir)
-    return sorted(path for texts_dir in texts_dirs for path in texts_dir.iterdir() if path.suffix.lower() == ".json")
+    paths = sorted(path for texts_dir in texts_dirs for path in texts_dir.iterdir() if path.suffix.lower() == ".json")
+    if not paths:
+        return []
+    # Re-analysis can leave two artifacts for the same source identity under
+    # different numeric indexes. Preview counts and downstream rows must use
+    # one current artifact per identity rather than every historical JSON.
+    from clio.run_scope import resolve_run_scope
+
+    resolved = resolve_run_scope(config, all_days=True, files=files, steps=["preview"])
+    # Preview also needs selected analyses whose current compressed media is
+    # missing so label/plan rows can report them as skipped instead of silently
+    # dropping them. Planning scopes continue to use ``resolved.analyses``.
+    return resolved.all_deduplicated_analyses
 
 
 def _find_texts_dirs(texts_dir: Path) -> list[Path]:

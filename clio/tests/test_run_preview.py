@@ -2586,10 +2586,6 @@ def test_preview_plan_voiceover_waits_even_with_stale_existing_output(tmp_path: 
     assert preview["totals"]["planned_calls"] == _row(preview, "plan")["planned_calls"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Phase 2: duplicate analysis identities must not inflate the delivery stage count",
-)
 def test_delivery_stage_counts_deduplicated_identities(tmp_path: Path) -> None:
     """Reference-project symptom: one clip analysed under two indexes.
 
