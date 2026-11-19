@@ -105,9 +105,12 @@ def test_collect_project_indices_from_compressed(tmp_path):
     (texts / "003_foo.json").write_text('{"index": "003"}', encoding="utf-8")
     cfg = SimpleNamespace(compressed_dir=comp, texts_dir=texts, project_dir=None)
     known, offline = collect_project_indices(cfg)
-    assert "001" in known and "002" in known and "003" in known
-    # Expanded forms so plan "001" matches texts that stored int 1 / "1"
-    assert "1" in known and "2" in known and "3" in known
+    assert "001" in known and "002" in known
+    # Expanded forms so plan "001" matches compressed media that stored int 1 / "1"
+    assert "1" in known and "2" in known
+    # Text-only analyses must not make an unavailable index appear present.
+    assert "003" not in known
+    assert "3" not in known
     assert offline == set()
 
 
@@ -168,9 +171,36 @@ def test_collect_offline_from_videos_json(tmp_path):
         naming=SimpleNamespace(index_width=3),
     )
     known, offline = collect_project_indices(cfg)
-    assert "001" in known or "1" in known
+    assert known == set()
     assert offline  # mapped via original_stem
     assert "001" in offline or "1" in offline
+
+
+def test_text_only_index_is_missing_media_for_readiness(tmp_path):
+    import json
+    from types import SimpleNamespace
+
+    from clio.plan_readiness import check_plan_export_readiness, collect_project_indices
+
+    texts = tmp_path / "texts"
+    texts.mkdir()
+    (texts / "003_missing.json").write_text(json.dumps({"index": 3}), encoding="utf-8")
+    cfg = SimpleNamespace(
+        compressed_dir=tmp_path / "compressed",
+        texts_dir=texts,
+        project_dir=None,
+        naming=SimpleNamespace(index_width=3),
+    )
+
+    known, offline = collect_project_indices(cfg)
+    result = check_plan_export_readiness(
+        _plan([{"index": "003", "use_timeline": "00:00-00:05", "title": "t", "reason": "r"}]),
+        known_indices=known,
+        offline_indices=offline,
+    )
+
+    assert not result.ok
+    assert any(issue.code == "index_missing" for issue in result.errors)
 
 
 def test_collect_project_indices_respects_videos_selection(tmp_path):

@@ -652,7 +652,6 @@ def _collect_text_indices(
     *,
     selection: MediaSelection | None,
     index_width: int,
-    known: set[str],
     stem_to_indices: dict[str, set[str]],
 ) -> None:
     if not isinstance(texts, Path) or not texts.is_dir():
@@ -669,13 +668,10 @@ def _collect_text_indices(
             if raw_idx is None:
                 continue
             keys = expand_index_keys(raw_idx, index_width=index_width)
-            known.update(keys)
             identity = load_identity(data)
             if identity is not None:
                 _register_stem_indices(stem_to_indices, identity.original_stem, keys)
                 _register_stem_indices(stem_to_indices, identity.compressed_stem, keys)
-                if identity.index:
-                    known.update(expand_index_keys(identity.index, index_width=index_width))
             source = data.get("source_file") or data.get("compressed_file")
             if source:
                 _register_stem_indices(stem_to_indices, Path(str(source)).stem, keys)
@@ -702,12 +698,14 @@ def _collect_offline_indices(project_dir: Any, stem_to_indices: dict[str, set[st
 
 
 def collect_project_indices(cfg: Any) -> tuple[set[str], set[str]]:
-    """Build (known_indices, offline_indices) from compressed + texts + videos.json.
+    """Build (known_indices, offline_indices) from compressed media + videos.json.
 
     known/offline sets include expanded index key forms ("1", "001", …).
-    offline_indices are plan indexes whose original media is listed in videos.json
-    but currently missing on disk (mapped via texts media_identity / source_file
-    or compressed filename stems).
+    Text-only analyses are used only to map offline originals and never make an
+    index "known" without a matching compressed video. offline_indices are plan
+    indexes whose original media is listed in videos.json but currently missing
+    on disk (mapped via texts media_identity / source_file or compressed filename
+    stems).
     """
     width = _index_width_from_cfg(cfg)
     selection = _project_selection_stems(cfg)
@@ -726,7 +724,6 @@ def collect_project_indices(cfg: Any) -> tuple[set[str], set[str]]:
         getattr(cfg, "texts_dir", None),
         selection=selection,
         index_width=width,
-        known=known,
         stem_to_indices=stem_to_indices,
     )
     _collect_offline_indices(getattr(cfg, "project_dir", None), stem_to_indices, offline)

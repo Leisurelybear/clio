@@ -56,6 +56,8 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
 - `[x]` Align labeled-video preview availability with runtime compressed-input resolution so
   stale analysis indexes cannot leave the final delivery stage permanently pending; analyses
   without a matching compressed video are now reported as skipped instead of runnable.
+- `[x]` Treat compressed media as the source of truth for plan export/cut readiness: text-only
+  analyses may map offline originals but can no longer make a missing index look present.
 
 ### Capture-day scope identity (2026-11-19)
 
