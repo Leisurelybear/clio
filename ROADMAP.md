@@ -50,6 +50,8 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
 - `[x]` Reject consistency and planning for a requested day label that has no analyzed media, and
   block guided Run preview with the requested and available day labels instead of silently
   completing the same work again.
+- `[x]` Prefer explicitly registered project-name matches over same-named sibling
+  auto-discovery so media previews cannot 409 for an allowed project.
 
 ### Run delivery preview consistency (2026-11-19)
 

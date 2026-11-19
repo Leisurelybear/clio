@@ -476,7 +476,9 @@ def resolve_project_input(qs: dict, input_dir: Path, config_path: Path | None) -
             s += 5
         return s
 
-    # 1. Registry first (user-added order)
+    # 1. Registry first (user-added order). A registered match is authoritative;
+    #    sibling-only copies must not turn an explicitly registered project into
+    #    an ambiguous name.
     registry_file = _registry_path(config_path)
     if registry_file.is_file():
         try:
@@ -492,6 +494,12 @@ def resolve_project_input(qs: dict, input_dir: Path, config_path: Path | None) -
             name = _read_project_name(p)
             if name == project_name:
                 candidates.append(p)
+
+    if candidates:
+        candidates.sort(key=_score, reverse=True)
+        if len(candidates) == 1:
+            return candidates[0]
+        raise ProjectResolutionError(409, f"ambiguous project name: {project_name}")
 
     # 2. Sibling directories (auto-discovery)
     projects_root = input_dir.parent

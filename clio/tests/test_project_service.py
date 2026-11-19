@@ -602,6 +602,22 @@ class TestResolveProjectInput:
 
         assert result == registered
 
+    def test_registered_project_name_ignores_same_named_sibling(self, tmp_path: Path):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_bytes(b"")
+        projects = tmp_path / "projects"
+        registered = projects / "registered"
+        duplicate = projects / "duplicate"
+        registered.mkdir(parents=True)
+        duplicate.mkdir()
+        for project in (registered, duplicate):
+            (project / "project.json").write_text(json.dumps({"name": "Trip"}), encoding="utf-8")
+        _add_to_registry(str(registered), cfg)
+
+        result = resolve_project_input({"project": ["Trip"]}, registered, cfg)
+
+        assert result == registered
+
 
 def test_collect_allowed_includes_default_and_registry(tmp_path):
     from clio.ui.services.project_service import collect_allowed_project_paths, is_under_root
