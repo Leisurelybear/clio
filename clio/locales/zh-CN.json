@@ -627,6 +627,7 @@
   "task.label.skip_exists": "[跳过标注] {name} (已存在)",
   "task.label.skip_font": "[跳过标注] {name}（无可用字体）",
   "task.label.skip_font_tracker": "跳过 {name}（无可用字体）",
+  "task.label.skip_unreadable": "  [跳过] 无法读取 {name}: {detail}",
   "task.label.skip_exists_tracker": "跳过 {name}",
   "task.label.skip_no_compressed": "[跳过] 找不到压缩文件: {index}",
   "task.label.skip_no_compressed_tracker": "跳过 {index}（无压缩文件）",

@@ -627,6 +627,7 @@
   "task.label.skip_exists": "[skip label] {name} (already exists)",
   "task.label.skip_font": "[skip label] {name} (no usable font)",
   "task.label.skip_font_tracker": "Skipping {name} (no usable font)",
+  "task.label.skip_unreadable": "  [skip] cannot read {name}: {detail}",
   "task.label.skip_exists_tracker": "Skipping {name}",
   "task.label.skip_no_compressed": "[skip] no compressed file found: {index}",
   "task.label.skip_no_compressed_tracker": "Skipping {index} (no compressed file)",
