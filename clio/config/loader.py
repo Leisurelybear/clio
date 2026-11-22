@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import contextlib
 import json
 import re
+import time
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -324,15 +324,38 @@ def _filter_project_only(raw: dict) -> dict:
     return result
 
 
+def _write_migration_backup(path: Path) -> Path:
+    """Copy *path* byte-for-byte to a fresh backup before migration rewrites it.
+
+    An existing ``<name>.bak`` from an earlier run is never reused, because it
+    would not match the content being migrated now; the new snapshot gets a
+    timestamped name instead. Raises OSError when the backup cannot be written,
+    so callers abort rather than overwrite or delete the only copy.
+    """
+    bak = path.with_suffix(path.suffix + ".bak")
+    if bak.exists():
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        bak = path.with_name(f"{path.name}.bak.{stamp}")
+        counter = 1
+        while bak.exists():
+            bak = path.with_name(f"{path.name}.bak.{stamp}-{counter}")
+            counter += 1
+    data = path.read_bytes()
+    with bak.open("xb") as fh:
+        fh.write(data)
+    return bak
+
+
 def _migrate_v1_to_v2(config_path: Path) -> None:
     """Migrate merged V1 config.yaml to split V2 structure."""
     raw = _load_yaml_mapping(config_path)
 
-    # Backup original
-    bak = config_path.with_suffix(config_path.suffix + ".bak")
-    if not bak.exists():
-        with contextlib.suppress(OSError):
-            bak.write_text(config_path.read_text(encoding="utf-8"), encoding="utf-8")
+    # Backup original; without a backup the migration must not touch the file.
+    try:
+        bak = _write_migration_backup(config_path)
+    except OSError as exc:
+        print(f"[config] V1->V2 migration skipped: cannot back up {config_path.name} ({type(exc).__name__})")
+        return
 
     # Write V2 global config.yaml
     global_raw = _filter_global_only(raw)
@@ -386,11 +409,12 @@ def _migrate_v1_to_v2(config_path: Path) -> None:
             except (OSError, UnicodeError, ValueError):
                 continue
 
-            # Back up project.yaml first
-            proj_bak = proj_yaml.with_suffix(proj_yaml.suffix + ".bak")
-            if not proj_bak.exists():
-                with contextlib.suppress(OSError):
-                    proj_bak.write_text(proj_yaml.read_text(encoding="utf-8"), encoding="utf-8")
+            # Back up project.yaml first; skip this project when the backup fails.
+            try:
+                _write_migration_backup(proj_yaml)
+            except OSError as exc:
+                print(f"[config] {proj_dir.name}/project.yaml: migration skipped, backup failed ({type(exc).__name__})")
+                continue
 
             project_out = _filter_project_only(proj_raw)
             if not project_out:
