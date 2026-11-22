@@ -36,7 +36,10 @@ $nodes = $template.GetElementsByTagName('text')
 $nodes.Item(0).AppendChild($template.CreateTextNode($env:CLIO_NOTIFY_TITLE)) > $null
 $nodes.Item(1).AppendChild($template.CreateTextNode($env:CLIO_NOTIFY_MESSAGE)) > $null
 $toast = [Windows.UI.Notifications.ToastNotification]::new($template)
-[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Clio').Show($toast)
+# An unregistered AppUserModelID such as 'Clio' is dropped silently by Windows 10/11;
+# Windows PowerShell's AUMID is registered by its Start menu shortcut.
+$appId = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe'
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appId).Show($toast)
 """.strip()
 
 
@@ -93,7 +96,8 @@ def send_desktop_notification(
             if not notify_send:
                 return False
             result = runner(
-                [notify_send, "-a", "Clio", clean_title, clean_message],
+                # "--" ends option parsing so a title starting with "-" is not read as a flag.
+                [notify_send, "-a", "Clio", "--", clean_title, clean_message],
                 capture_output=True,
                 text=True,
                 timeout=timeout,

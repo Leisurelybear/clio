@@ -67,7 +67,7 @@ def test_linux_uses_notify_send():
 
     assert result is True
     cmd, _ = runner.calls[0]
-    assert cmd == ["/usr/bin/notify-send", "-a", "Clio", "Clio", "done"]
+    assert cmd == ["/usr/bin/notify-send", "-a", "Clio", "--", "Clio", "done"]
 
 
 def test_missing_binary_is_false_without_running():
