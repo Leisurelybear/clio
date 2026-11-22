@@ -27,6 +27,7 @@ from clio.ui.services.file_service import (
 from clio.utils import (
     JsonValue,
     get_duration_sec,
+    path_write_lock,
     probe_media_details,
     resolve_binary,
     safe_basename,
@@ -1006,7 +1007,6 @@ def handle_put_videos_selected(handler: HandlerProtocol, qs: dict[str, Any], obj
     raw = obj.get("videos", [])
     if not isinstance(raw, list):
         return handler._send_json({"ok": False, "error": "videos must be a list"}, 400)
-    previous_keys = {_video_key(p) for p in load_selected_videos(proj_dir)}
     paths: list[Path] = []
     rejected: list[str] = []
     for item in raw:
@@ -1023,7 +1023,10 @@ def handle_put_videos_selected(handler: HandlerProtocol, qs: dict[str, Any], obj
         if key not in seen:
             seen.add(key)
             unique.append(p)
-    save_selected_videos(proj_dir, unique)
+    # Serialize with relink and other selection saves (read previous -> write).
+    with path_write_lock(proj_dir / "videos.json"):
+        previous_keys = {_video_key(p) for p in load_selected_videos(proj_dir)}
+        save_selected_videos(proj_dir, unique)
     _invalidate_videos_cache(proj_dir)
     payload: dict[str, Any] = {"ok": True, "count": len(unique)}
     candidates = obj.get("candidates")
@@ -1069,6 +1072,20 @@ def handle_put_videos_relink(handler: HandlerProtocol, qs: dict[str, Any], obj: 
         return handler._send_json({"ok": False, "error": t("api.relink_unresolvable", {"path": new_path})}, 400)
     if not resolved.is_file() or resolved.suffix.lower() not in VIDEO_EXTS:
         return handler._send_json({"ok": False, "error": t("api.relink_invalid_video", {"path": new_path})}, 400)
+    with path_write_lock(proj_dir / "videos.json"):
+        error = _relink_locked(proj_dir, old_path, resolved)
+    if error is not None:
+        body, status = error
+        return handler._send_json(body, status)
+    _invalidate_videos_cache(proj_dir)
+    handler._send_json({"ok": True, "path": str(resolved)})
+
+
+def _relink_locked(proj_dir: Path, old_path: str, resolved: Path) -> tuple[dict[str, Any], int] | None:
+    """Replace *old_path* with *resolved* in videos.json; caller holds its lock.
+
+    Returns an error (body, status) or None after saving.
+    """
     videos = load_selected_videos(proj_dir)
     try:
         old_str = str(Path(old_path).expanduser().resolve())
@@ -1090,22 +1107,15 @@ def handle_put_videos_relink(handler: HandlerProtocol, qs: dict[str, Any], obj: 
         if len(matches) == 1:
             matched_idx = matches[0][0]
         elif len(matches) > 1:
-            return handler._send_json(
-                {"ok": False, "error": t("api.relink_ambiguous", {"name": old_name})},
-                400,
-            )
+            return {"ok": False, "error": t("api.relink_ambiguous", {"name": old_name})}, 400
         else:
-            return handler._send_json({"ok": False, "error": t("api.video_not_in_project", {"path": old_path})}, 404)
+            return {"ok": False, "error": t("api.video_not_in_project", {"path": old_path})}, 404
     new_key = _video_key(resolved)
     for idx, video in enumerate(videos):
         if idx == matched_idx:
             continue
         if _video_key(video) == new_key:
-            return handler._send_json(
-                {"ok": False, "error": t("api.video_already_in_project", {"path": resolved})},
-                409,
-            )
+            return {"ok": False, "error": t("api.video_already_in_project", {"path": resolved})}, 409
     videos[matched_idx] = resolved
     save_selected_videos(proj_dir, videos)
-    _invalidate_videos_cache(proj_dir)
-    handler._send_json({"ok": True, "path": str(resolved)})
+    return None

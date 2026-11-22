@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from clio.i18n import t
 from clio.ui.services.file_service import _create_project_yaml, _save_atomic
+from clio.utils import path_write_lock
 from clio.ui.services.project_service import (
     _add_to_registry,
     _detect_steps,
@@ -91,17 +92,23 @@ def handle_get_projects(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     handler._send_json({"projects": projects, "last_project": last_project_payload})
 
 
+# UI session state the client may persist; output_dir/version/createdAt stay server-owned.
+_PROJECT_CLIENT_FIELDS = ("currentDay", "source", "lastEntity", "lastVideo", "name")
+
+
 def handle_put_project(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
     """Handle PUT /api/project."""
     proj_dir = handler._resolve_project_dir(qs)
     proj_file = proj_dir / "project.json"
-    data = _load_project_json(proj_dir)
-    merged = {**handler.DEFAULT_PROJECT, **data, **obj}
-    merged["updatedAt"] = datetime.datetime.now().isoformat(timespec="seconds")
-    if not proj_file.is_file():
-        merged["createdAt"] = merged["updatedAt"]
+    updates = {key: obj[key] for key in _PROJECT_CLIENT_FIELDS if key in obj}
     proj_dir.mkdir(parents=True, exist_ok=True)
-    _save_atomic(proj_file, json.dumps(merged, ensure_ascii=False, indent=2).encode("utf-8"))
+    with path_write_lock(proj_file):
+        data = _load_project_json(proj_dir)
+        merged = {**handler.DEFAULT_PROJECT, **data, **updates}
+        merged["updatedAt"] = datetime.datetime.now().isoformat(timespec="seconds")
+        if not proj_file.is_file():
+            merged["createdAt"] = merged["updatedAt"]
+        _save_atomic(proj_file, json.dumps(merged, ensure_ascii=False, indent=2).encode("utf-8"))
     config_path = handler.config_path
     try:
         _save_last_project(merged.get("name") or proj_dir.name, config_path, project_dir=str(proj_dir))
