@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any
 
 from clio.i18n import t
 from clio.ui.services.file_service import _create_project_yaml, _save_atomic
-from clio.utils import path_write_lock
 from clio.ui.services.project_service import (
     _add_to_registry,
     _detect_steps,
@@ -22,6 +21,7 @@ from clio.ui.services.project_service import (
     _remove_from_registry,
     _save_last_project,
 )
+from clio.utils import path_write_lock
 
 if TYPE_CHECKING:
     from clio.ui.handler_protocol import HandlerProtocol

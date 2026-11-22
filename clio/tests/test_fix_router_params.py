@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from clio.ui.routes.videos import handle_get_vmeta
 from clio.ui.router import Route, Router
+from clio.ui.routes.videos import handle_get_vmeta
 
 
 def test_dispatch_percent_decodes_path_params():

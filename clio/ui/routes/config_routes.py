@@ -46,8 +46,8 @@ from clio.ui.services.file_service import (
     _find_texts_dirs,
     _save_atomic,
 )
-from clio.utils import path_write_lock
 from clio.ui.services.project_service import _project_output_dir, _registry_path, _registry_project_paths
+from clio.utils import path_write_lock
 
 if TYPE_CHECKING:
     from clio.ui.handler_protocol import HandlerProtocol

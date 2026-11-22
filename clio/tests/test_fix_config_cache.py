@@ -32,4 +32,4 @@ def test_cache_hit_refreshes_lru_position(tmp_path: Path):
         cache.get(dirs["a"])  # still cached
 
     assert loads == [dirs["a"], dirs["b"], dirs["c"]]
-    assert str(dirs["b"].resolve()) not in cache.keys()
+    assert str(dirs["b"].resolve()) not in cache.keys()  # noqa: SIM118 - ConfigCache exposes keys(), it is not a dict

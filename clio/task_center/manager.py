@@ -456,16 +456,19 @@ class TaskManager:
                 self._finish_cancelled(task_id)
             else:
                 self._finish_succeeded(task_id, result or {})
-        except TaskCancelled as e:
-            self._settle(task_id, lambda: self._finish_cancelled(task_id, message=str(e)))
-        except Exception as e:  # noqa: BLE001 - task executors must persist every failure as a failed task
-            self._settle(task_id, lambda: self._finish_failed(task_id, e))
+        except TaskCancelled as exc:
+            # Bind before the lambda: the except block deletes ``exc`` on exit.
+            cancel_message = str(exc)
+            self._settle(task_id, lambda: self._finish_cancelled(task_id, message=cancel_message))
+        except Exception as exc:  # noqa: BLE001 - task executors must persist every failure as a failed task
+            failure = exc
+            self._settle(task_id, lambda: self._finish_failed(task_id, failure))
         finally:
             if semaphore is not None:
                 semaphore.release()
             try:
                 self._maybe_cleanup()
-            except Exception:  # noqa: BLE001 - cleanup is housekeeping; never kill the worker thread
+            except Exception:  # cleanup is housekeeping; never kill the worker thread
                 logger.exception("task cleanup failed after %s", task_id)
             with self._condition:
                 self._runtime.pop(task_id, None)
@@ -482,7 +485,7 @@ class TaskManager:
             try:
                 finish()
                 return
-            except Exception:  # noqa: BLE001 - see docstring
+            except Exception:  # see docstring
                 if attempt == _FINISH_ATTEMPTS:
                     logger.exception("could not record final status of task %s", task_id)
                     return

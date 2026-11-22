@@ -30,7 +30,6 @@ from clio.utils import (
 )
 from clio.vmeta import VideoIndex, VideoMeta
 
-
 _PLAN_SEGMENT_TEXT_FIELDS = ("index", "title", "use_timeline", "subtitle", "transition")
 
 

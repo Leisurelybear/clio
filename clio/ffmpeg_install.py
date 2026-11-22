@@ -431,8 +431,8 @@ def _package_manager_bin_dirs(system: str) -> list[Path]:
             dirs.append(Path(scoop) / "shims")
         elif user_profile:
             dirs.append(Path(user_profile) / "scoop" / "shims")
-        choco = os.environ.get("ChocolateyInstall", "").strip()
-        program_data = os.environ.get("ProgramData", "").strip()
+        choco = os.environ.get("CHOCOLATEYINSTALL", "").strip()
+        program_data = os.environ.get("PROGRAMDATA", "").strip()
         if choco:
             dirs.append(Path(choco) / "bin")
         elif program_data:

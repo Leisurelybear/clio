@@ -27,10 +27,7 @@ READINESS_MIN_TOTAL_SEC = 30.0
 
 def timeline_text(segment: Any) -> str:
     """Read ``use_timeline`` from a plan dict or :class:`clio.plan_model.PlanSegment`."""
-    if isinstance(segment, dict):
-        value = segment.get("use_timeline")
-    else:
-        value = getattr(segment, "use_timeline", "")
+    value = segment.get("use_timeline") if isinstance(segment, dict) else getattr(segment, "use_timeline", "")
     return str(value or "").strip()
 
 
