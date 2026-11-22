@@ -267,9 +267,7 @@ class TestWriteCsv:
             "mood": "-calm",
             "suggested_use": "intro",
         }
-        records = [
-            ClipRecord(index=1, stem="001_a", source_path=Path("a.mp4"), analysis=analysis, duration_sec=3.0)
-        ]
+        records = [ClipRecord(index=1, stem="001_a", source_path=Path("a.mp4"), analysis=analysis, duration_sec=3.0)]
         _write_csv(out, records, _fake_config())
 
         with out.open(encoding="utf-8-sig", newline="") as f:

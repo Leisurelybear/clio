@@ -89,6 +89,7 @@ class AnalysisCancelled(InterruptedError, RuntimeError):
     callers that historically caught the RuntimeError raised here, RuntimeError.
     """
 
+
 _trip_context_cache: dict[str, str] = {}
 _trip_context_lock = threading.Lock()
 

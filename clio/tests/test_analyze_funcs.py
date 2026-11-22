@@ -405,7 +405,9 @@ class TestWrapWithContext:
         assert analyze_mod._read_trip_context(project_dir) == "project context"
         project_ctx.unlink()
         assert analyze_mod._read_trip_context(project_dir) == "default context"
-        assert list(analyze_mod._trip_context_cache) == [f"{project_dir}@default@{analyze_mod._trip_context_version(default_ctx)}"]
+        assert list(analyze_mod._trip_context_cache) == [
+            f"{project_dir}@default@{analyze_mod._trip_context_version(default_ctx)}"
+        ]
 
         default_ctx.unlink()
         assert analyze_mod._read_trip_context(project_dir) == ""

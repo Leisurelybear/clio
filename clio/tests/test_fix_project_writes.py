@@ -47,8 +47,9 @@ def test_concurrent_put_project_keeps_both_updates(tmp_path: Path):
         time.sleep(0.2)
         return data
 
-    with patch.object(projects_mod, "_load_project_json", side_effect=slow_load), patch.object(
-        projects_mod, "_save_last_project"
+    with (
+        patch.object(projects_mod, "_load_project_json", side_effect=slow_load),
+        patch.object(projects_mod, "_save_last_project"),
     ):
         threads = [
             threading.Thread(target=handle_put_project, args=(_handler(tmp_path), {}, {"currentDay": "day2"})),

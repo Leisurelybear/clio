@@ -30,6 +30,8 @@ def _draft_timeout(value: Any) -> float:
     if not math.isfinite(timeout) or timeout <= 0:
         timeout = _MAX_DRAFT_TIMEOUT_SEC
     return max(1.0, min(timeout, _MAX_DRAFT_TIMEOUT_SEC))
+
+
 _TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_\-]{11,}")
 
 

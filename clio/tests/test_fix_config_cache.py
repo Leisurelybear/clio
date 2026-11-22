@@ -21,8 +21,9 @@ def test_cache_hit_refreshes_lru_position(tmp_path: Path):
         return cfg
 
     cache = ConfigCache(tmp_path / "config.yaml", maxsize=2)
-    with patch("clio.ui.services.config_cache.load_config", side_effect=fake_load), patch(
-        "clio.ui.services.config_cache.copy.deepcopy", side_effect=lambda obj: obj
+    with (
+        patch("clio.ui.services.config_cache.load_config", side_effect=fake_load),
+        patch("clio.ui.services.config_cache.copy.deepcopy", side_effect=lambda obj: obj),
     ):
         cache.get(dirs["a"])
         cache.get(dirs["b"])
