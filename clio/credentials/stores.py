@@ -123,6 +123,7 @@ class KeyringStore:
 
     def __init__(self, backend: Any = None):
         self.backend = backend
+        self.unavailable_reason = ""
         if backend is None:
             try:
                 import keyring
@@ -139,8 +140,16 @@ class KeyringStore:
                     and candidate.priority > 0
                 ):
                     self.backend = candidate
-            except Exception:  # noqa: BLE001 - optional platform backend discovery
-                pass
+                else:
+                    kind = type(candidate)
+                    self.unavailable_reason = f"unsupported backend {kind.__module__}.{kind.__name__}"
+            except ModuleNotFoundError:
+                self.unavailable_reason = "keyring package is not installed"
+            except Exception as exc:  # noqa: BLE001 - optional platform backend discovery
+                # Only the exception type: platform messages may carry paths or secrets.
+                self.unavailable_reason = f"backend discovery failed ({type(exc).__name__})"
+            if self.backend is None:
+                logger.info("OS keyring unavailable: %s", self.unavailable_reason)
 
     def _call(self, method: str, account: str, *args: str) -> Any:
         if self.backend is None:
@@ -174,4 +183,7 @@ class KeyringStore:
         return bool(self.get(account))
 
     def describe(self, account: str) -> dict:
-        return {"available": self.backend is not None, "writable": self.backend is not None}
+        info: dict[str, Any] = {"available": self.backend is not None, "writable": self.backend is not None}
+        if self.backend is None:
+            info["reason"] = getattr(self, "unavailable_reason", "") or "unavailable"
+        return info
