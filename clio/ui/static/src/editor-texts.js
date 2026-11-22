@@ -61,6 +61,12 @@ function _jumpToTranscriptTime(timeSec) {
   }
 }
 
+function _applyTranscriptRevision(response) {
+  if (state.transcript && response && Number.isInteger(response.revision)) {
+    state.transcript.revision = response.revision;
+  }
+}
+
 function _transcriptTimeFromPlayer(playerTime, offsetSec = 0) {
   return Math.max(0, Number(playerTime || 0) - Number(offsetSec || 0));
 }
@@ -413,7 +419,9 @@ export function renderTranscript() {
             revision: state.transcript && state.transcript.revision,
           });
           if (r.ok) {
-            seg.text = newText;
+            _applyTranscriptRevision(r);
+            // The server stores the stripped text; mirror it locally.
+            seg.text = newText.trim();
             setStatus(t('editor.transcript_saved'), 'ok');
           } else {
             setStatus(t('plan.save_failed', { detail: r.error || t('common.unknown_error') }), 'err');
@@ -449,6 +457,7 @@ export function renderTranscript() {
           segment_index: i, delete: true, revision: state.transcript && state.transcript.revision,
         });
         if (r.ok) {
+          _applyTranscriptRevision(r);
           segments.splice(i, 1);
           setStatus(t('editor.deleted'), 'ok');
           renderTranscript();
