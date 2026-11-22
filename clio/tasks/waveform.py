@@ -239,6 +239,19 @@ def _key_lock(key: str) -> threading.Lock:
         return _key_locks[key]
 
 
+def _persist_peaks(project_output: Path, key: str, payload: dict[str, Any]) -> None:
+    """Write a ready cache file, or raise when ffmpeg could not decode the media.
+
+    ``read_peaks`` treats ``probe_error`` payloads as "no cache", so writing one as
+    ready would make every poll re-kick ffmpeg. Raising routes the failure through
+    the ``.error`` cool-down path instead.
+    """
+    if payload.get("probe_error"):
+        raise RuntimeError(str(payload.get("probe_error_msg") or "waveform extract failed"))
+    write_peaks_atomic(project_output, key, payload)
+    clear_error(project_output, key)
+
+
 def _spawn_job(fn: Callable[[], None]) -> None:
     t = threading.Thread(target=fn, daemon=True)
     t.start()
@@ -257,8 +270,7 @@ def _run_managed_waveform_task(context) -> dict[str, Any]:
             audio_source=str(input_data.get("audio_source") or "original"),
             ffprobe=str(input_data.get("ffprobe") or ""),
         )
-        write_peaks_atomic(project_output, key, payload)
-        clear_error(project_output, key)
+        _persist_peaks(project_output, key, payload)
         return {"key": key, "bin_count": payload.get("bin_count", 0)}
     except Exception as e:
         with contextlib.suppress(OSError):
@@ -490,8 +502,7 @@ def ensure_waveform(
                     audio_source=audio_source,
                     ffprobe=ffprobe,
                 )
-                write_peaks_atomic(project_output, key, payload)
-                clear_error(project_output, key)
+                _persist_peaks(project_output, key, payload)
             except Exception as e:  # noqa: BLE001 - daemon jobs must persist every failure
                 with contextlib.suppress(OSError):
                     error_path(project_output, key).write_text(str(e)[:500], encoding="utf-8")
