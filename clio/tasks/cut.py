@@ -166,6 +166,20 @@ def _move_stale_cut_artifacts(
     return moved
 
 
+def _restore_stale_cut_backups(backups: list[Path]) -> None:
+    """Put stale artifacts back after a failed or cancelled run (best effort).
+
+    A backup whose original name is taken again is left in place so the
+    orphaned-backup restore flow can still offer it.
+    """
+    for backup in backups:
+        target = target_path_for_cut_bak(backup)
+        if target is None or not backup.exists() or target.exists():
+            continue
+        with contextlib.suppress(OSError):
+            backup.replace(target)
+
+
 def replace_file_safely(dest: Path, write_fn) -> None:
     """Write *dest* via rename-backup → write → delete-backup; restore on failure.
 
@@ -831,6 +845,7 @@ def run_cut_all(
     if overwrite:
         expected_names, preserved_positions = _cut_artifact_plan(seq)
         stale_backups = _move_stale_cut_artifacts(out_root, expected_names, preserved_positions)
+    completed_run = False
     try:
         comp_dir = config.compressed_dir
         project_selection = _project_selection_stems(config)
@@ -898,7 +913,11 @@ def run_cut_all(
         write_text_atomic(manifest_path, "\n".join(lines) + "\n")
         print(f"  -> manifest: {manifest_path.name}")
         print(t("task.cut.done", {"count": len(clips), "path": out_root}))
+        completed_run = not (cancel_event and cancel_event.is_set())
         return clips
     finally:
-        for backup in stale_backups:
-            backup.unlink(missing_ok=True)
+        if completed_run:
+            for backup in stale_backups:
+                backup.unlink(missing_ok=True)
+        else:
+            _restore_stale_cut_backups(stale_backups)
