@@ -9,4 +9,4 @@ if (-not (Test-Path ".venv\Scripts\python.exe")) {
 }
 
 Write-Host "Starting web UI..." -ForegroundColor Cyan
-.\.venv\Scripts\python.exe -m clio serve --port 8800 @args
+.\.venv\Scripts\python.exe -m clio serve @args
