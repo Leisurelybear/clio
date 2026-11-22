@@ -226,3 +226,25 @@ describe('_renderConfigForm - untrusted YAML keys', () => {
     expect(paths).toEqual([`custom.${evil}`, 'custom.a"b']);
   });
 });
+
+describe('_attachConfigForm - list write-back', () => {
+  it('keeps list[str] fields as arrays and writes object items by index', async () => {
+    const { _attachConfigForm } = await import('../editor-config-form.js');
+    const source = { custom: { tags: ['a', 'b'], items: [{ name: 'x' }, 7] } };
+    const pane = document.createElement('div');
+    pane.innerHTML = _renderConfigForm(source.custom, 'custom');
+    _attachConfigForm(pane, source, null);
+
+    const tags = pane.querySelector('textarea[data-path="custom.tags"]');
+    tags.value = 'a\r\n  c \r\n\r\nd';
+    tags.oninput();
+    expect(source.custom.tags).toEqual(['a', 'c', 'd']);
+
+    const name = pane.querySelector('input[data-path="custom.items.0.name"]');
+    expect(name).not.toBeNull();
+    name.value = 'y';
+    name.oninput();
+    expect(source.custom.items[0]).toEqual({ name: 'y' });
+    expect(Object.keys(source.custom)).toEqual(['tags', 'items']);
+  });
+});

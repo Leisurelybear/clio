@@ -226,10 +226,11 @@ export function _renderConfigForm(obj, path, descriptions = null, layer = 'proje
   if (Array.isArray(obj)) {
     const allStr = obj.every(x => typeof x === 'string');
     if (allStr) {
-      return `<fieldset class="config-fieldset"><legend>${labelFromPath(path)}</legend><label class="config-field config-str"><textarea data-path="${safePath}" rows="${Math.max(2, obj.length)}">${escapeHtml(obj.join('\n'))}</textarea><span class="hint">${t('settings.one_per_line')}</span></label></fieldset>`;
+      return `<fieldset class="config-fieldset"><legend>${labelFromPath(path)}</legend><label class="config-field config-str"><textarea data-path="${safePath}" data-kind="str-list" rows="${Math.max(2, obj.length)}">${escapeHtml(obj.join('\n'))}</textarea><span class="hint">${t('settings.one_per_line')}</span></label></fieldset>`;
     }
     return `<fieldset class="config-fieldset"><legend>${labelFromPath(path)}</legend>${obj.map((item, i) =>
-      `<div class="config-array-item">${_renderConfigForm(item, path + '[' + i + ']', descriptions)}</div>`
+      // Dot-separated index so setDeep() writes back into the array item.
+      `<div class="config-array-item">${_renderConfigForm(item, `${path}.${i}`, descriptions)}</div>`
     ).join('')}</fieldset>`;
   }
   if (typeof obj === 'object') {
@@ -361,6 +362,10 @@ function _numFromFieldValue(raw) {
   return Number.isNaN(n) ? raw : n;
 }
 
+function _strListFromFieldValue(raw) {
+  return String(raw).split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+}
+
 export function _attachConfigForm(pane, sourceObj, descriptions) {
   const bind = (el) => {
     const onchange = () => {
@@ -380,6 +385,9 @@ export function _attachConfigForm(pane, sourceObj, descriptions) {
         val = el.checked;
       } else if (el.type === 'number') {
         val = _numFromFieldValue(el.value);
+      } else if (el.dataset.kind === 'str-list') {
+        // "One per line" textarea for a list[str]: keep the list type.
+        val = _strListFromFieldValue(el.value);
       } else {
         val = el.value;
       }
