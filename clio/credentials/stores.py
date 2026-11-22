@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import threading
 from collections.abc import Mapping
@@ -10,6 +11,8 @@ from typing import Any, Protocol
 
 from clio.credentials.environment import inherited_value, sync_dotenv
 from clio.credentials.models import ENV_RE, validate_value
+
+logger = logging.getLogger("clio.credentials")
 
 STORE_LOCK = threading.RLock()
 
@@ -150,7 +153,11 @@ class KeyringStore:
         try:
             return self._call("get_password", account)
         except ValueError:
-            self.backend = None
+            # A locked keychain, DBus timeout or denied prompt is transient. Keep the
+            # backend so later saves never silently fall back to a plaintext .env.
+            if self.backend is not None and not getattr(self, "_read_failure_logged", False):
+                self._read_failure_logged = True
+                logger.warning("OS keyring read failed; treating the credential as missing")
             return None
 
     def set(self, account: str, value: str) -> None:
@@ -158,10 +165,9 @@ class KeyringStore:
         self._call("set_password", account, value)
 
     def delete(self, account: str) -> None:
-        if self.get(account) is not None:
+        # Read through _call so an unavailable or failing keyring is reported, not ignored.
+        if self._call("get_password", account) is not None:
             self._call("delete_password", account)
-        elif self.backend is None:
-            raise ValueError("OS keyring is unavailable")
 
     def contains(self, account: str) -> bool:
         return bool(self.get(account))
