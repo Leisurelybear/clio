@@ -588,7 +588,7 @@ def _run_cut_command(args: argparse.Namespace, config) -> int:
     if not plan_path.is_file():
         print(t("cli.error", {"detail": t("cli.plan.not_found", {"path": plan_path})}), file=sys.stderr)
         return 1
-    plan = Plan.from_dict(json.loads(plan_path.read_text(encoding="utf-8")))
+    plan = Plan.from_dict(json.loads(plan_path.read_text(encoding="utf-8-sig")))
     known, offline = collect_project_indices(config)
     ready = check_plan_export_readiness(
         plan,
@@ -630,7 +630,7 @@ def _run_export_command(args: argparse.Namespace, config) -> int:
     if not plan_path.is_file():
         print(t("cli.error", {"detail": t("cli.plan.not_found", {"path": plan_path})}), file=sys.stderr)
         return 1
-    plan = Plan.from_dict(json.loads(plan_path.read_text(encoding="utf-8")))
+    plan = Plan.from_dict(json.loads(plan_path.read_text(encoding="utf-8-sig")))
     known, offline = collect_project_indices(config)
     ready = check_plan_export_readiness(
         plan,

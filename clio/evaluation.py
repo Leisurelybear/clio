@@ -53,7 +53,7 @@ class EvaluationManifest:
 
 def _read_json_object(path: Path, *, label: str) -> dict[str, Any]:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
     except FileNotFoundError as exc:
         raise ValueError(t("evaluation.error.file_missing", {"label": label, "path": path})) from exc
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:

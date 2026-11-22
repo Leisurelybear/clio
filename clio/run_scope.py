@@ -188,7 +188,7 @@ def _artifact_legacy_labels(data: dict[str, Any]) -> set[str]:
 def _manifest_mode(config: AppConfig) -> str | None:
     path = config.paths.output_dir / _MANIFEST_NAME
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError, UnicodeError):
         return None
     if not isinstance(data, dict):
@@ -244,7 +244,8 @@ def _compressed_files(config: AppConfig, selection: MediaSelection | None) -> di
 
 def _artifact_from_path(path: Path, compressed_stems: set[str]) -> _Artifact:
     try:
-        loaded = json.loads(path.read_text(encoding="utf-8"))
+        # utf-8-sig: files saved by Windows Notepad start with a BOM.
+        loaded = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError, UnicodeError):
         loaded = {}
     raw = loaded if isinstance(loaded, dict) else {}

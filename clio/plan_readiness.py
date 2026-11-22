@@ -115,7 +115,8 @@ def _duration_for_index(
 def _load_json_dict(path: Path) -> dict[str, Any] | None:
     """Read a JSON object from *path*; None for unreadable, undecodable or non-object files."""
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        # utf-8-sig: files saved by Windows Notepad start with a BOM.
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
     except (json.JSONDecodeError, OSError, UnicodeDecodeError):
         return None
     return data if isinstance(data, dict) else None
