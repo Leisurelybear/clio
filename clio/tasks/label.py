@@ -127,7 +127,7 @@ def run_label_videos(
                 print(t("task.label.cancelled"))
                 break
             try:
-                data = json.loads(json_file.read_text(encoding="utf-8"))
+                data = json.loads(json_file.read_text(encoding="utf-8-sig"))
                 if not isinstance(data, dict):
                     raise ValueError("analysis JSON root must be an object")
             except (OSError, UnicodeDecodeError, ValueError) as exc:

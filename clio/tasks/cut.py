@@ -396,7 +396,7 @@ def _cut_analysis_data(
             if project_selection is not None and not _matches_selected_artifact(path, project_selection):
                 continue
             try:
-                data = json.loads(path.read_text(encoding="utf-8"))
+                data = json.loads(path.read_text(encoding="utf-8-sig"))
             except (OSError, UnicodeDecodeError, json.JSONDecodeError):
                 continue
             if isinstance(data, dict):
@@ -825,7 +825,7 @@ def run_cut_all(
     if not plan_path.is_file():
         raise FileNotFoundError(t("task.cut.plan_missing", {"path": plan_path}))
 
-    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    plan = json.loads(plan_path.read_text(encoding="utf-8-sig"))
     raw_seq = plan.get("sequence", [])
     seq = [normalize_plan_segment(seg) for seg in raw_seq] if isinstance(raw_seq, list) else []
     if not seq:

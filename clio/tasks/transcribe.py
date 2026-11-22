@@ -264,7 +264,7 @@ def _skip_cached_transcript(
     if overwrite or not config.analyze.skip_existing or not out_path.exists():
         return False
     try:
-        existing = json.loads(out_path.read_text(encoding="utf-8"))
+        existing = json.loads(out_path.read_text(encoding="utf-8-sig"))
     except (json.JSONDecodeError, OSError):
         print(t("task.transcribe.retranscribe_corrupt", {"name": compressed_stem}))
         return False

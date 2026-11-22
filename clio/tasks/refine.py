@@ -52,7 +52,7 @@ def _load_analysis_for_script(script_path: Path, texts_dir: Path) -> dict | None
     analysis_stem = stem[: -len("_voiceover")] if stem.endswith("_voiceover") else stem
     candidate = texts_dir / f"{analysis_stem}.json"
     if candidate.is_file():
-        return json.loads(candidate.read_text(encoding="utf-8"))
+        return json.loads(candidate.read_text(encoding="utf-8-sig"))
     return None
 
 
@@ -96,7 +96,7 @@ def run_refine_texts(
             t0 = time.monotonic()
             try:
                 original = json_file.read_bytes()
-                analysis = json.loads(original.decode("utf-8"))
+                analysis = json.loads(original.decode("utf-8-sig"))
                 refined = refine_text(
                     analysis,
                     config,
@@ -170,7 +170,7 @@ def run_refine_scripts(
             t0 = time.monotonic()
             try:
                 original = json_file.read_bytes()
-                script = json.loads(original.decode("utf-8"))
+                script = json.loads(original.decode("utf-8-sig"))
                 analysis = _load_analysis_for_script(json_file, config.texts_dir)
                 refined = refine_script(
                     script,

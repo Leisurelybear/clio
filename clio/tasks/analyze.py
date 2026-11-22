@@ -453,7 +453,7 @@ def analysis_cache_status(
     if not overwrite and config.analyze.skip_existing:
         for candidate in existing:
             try:
-                data = json.loads(candidate.read_text(encoding="utf-8"))
+                data = json.loads(candidate.read_text(encoding="utf-8-sig"))
             except (json.JSONDecodeError, OSError, UnicodeError):
                 invalid = True
                 continue
@@ -516,7 +516,7 @@ def _load_transcript_context(config: AppConfig, compressed: Path) -> str:
         return ""
     path = transcripts_dir / f"{compressed.stem}_transcript.json"
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return ""
     if not isinstance(data, dict) or not isinstance(data.get("segments"), list) or not data["segments"]:

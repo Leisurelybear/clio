@@ -115,7 +115,7 @@ def _build_index_to_source(texts_dir: Path, *, index_width: int = 3) -> dict[str
         return mapping
     for p in sorted(texts_dir.glob("*.json")):
         try:
-            data = json.loads(p.read_text(encoding="utf-8"))
+            data = json.loads(p.read_text(encoding="utf-8-sig"))
         except (json.JSONDecodeError, OSError) as e:
             logger.debug(t("export.debug_read_failed", {"path": p, "error": e}))
             continue
@@ -160,7 +160,7 @@ def _build_index_to_offset(texts_dir: Path, *, index_width: int = 3) -> dict[str
         return offsets
     for p in sorted(texts_dir.glob("*.json")):
         try:
-            data = json.loads(p.read_text(encoding="utf-8"))
+            data = json.loads(p.read_text(encoding="utf-8-sig"))
         except (json.JSONDecodeError, OSError):
             continue
         identity = load_identity(data)
@@ -496,7 +496,7 @@ def export_plan_to_jianying(
     if not plan_path.is_file():
         raise FileNotFoundError(t("export.plan_missing", {"path": plan_path}))
 
-    plan_data = json.loads(plan_path.read_text(encoding="utf-8"))
+    plan_data = json.loads(plan_path.read_text(encoding="utf-8-sig"))
     sequence = plan_data.get("sequence", [])
     if not sequence:
         print(t("export.plan_empty_sequence", {"path": plan_path}))

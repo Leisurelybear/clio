@@ -196,7 +196,7 @@ def _capture_time(
 def _read_voiceover(config: AppConfig, analysis_path: Path) -> str:
     path = config.scripts_dir / f"{analysis_path.stem}_voiceover.json"
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeError, json.JSONDecodeError):
         return ""
     value = data.get("voiceover") if isinstance(data, dict) else None
@@ -205,7 +205,7 @@ def _read_voiceover(config: AppConfig, analysis_path: Path) -> str:
 
 def _read_json_object(path: Path) -> tuple[dict[str, Any] | None, str | None]:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
     except (json.JSONDecodeError, OSError, UnicodeError):
         return None, t("task.plan.json_unreadable")
     if not isinstance(data, dict):

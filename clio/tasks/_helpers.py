@@ -413,7 +413,7 @@ def _matches_selected_artifact(path: Path, selected: MediaSelection | set[str] |
     if not sel.paths and _matches_selected_stem(path, sel):
         return True
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         return False
     if not isinstance(data, dict):
