@@ -11,12 +11,12 @@ import contextlib
 import hashlib
 import json
 import os
-import struct
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+from array import array
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
@@ -124,14 +124,20 @@ def peaks_from_pcm_s16le(pcm: bytes, *, bin_count: int) -> list[float]:
     n = len(pcm) // 2
     if n <= 0 or bin_count <= 0:
         return [0.0] * max(bin_count, 0)
+    # Decode once into a C array and reduce each bin with C-level max/min:
+    # a per-sample Python loop held the GIL for tens of seconds on long clips.
+    samples = array("h")
+    samples.frombytes(pcm[: n * 2])
+    if sys.byteorder != "little":
+        samples.byteswap()
     peaks = [0.0] * bin_count
-    fmt = struct.Struct("<h")
-    for i in range(n):
-        s = fmt.unpack_from(pcm, i * 2)[0]
-        b = min(bin_count - 1, int(i * bin_count / n))
-        a = abs(s) / 32768.0
-        if a > peaks[b]:
-            peaks[b] = a
+    for b in range(bin_count):
+        # Sample i belongs to bin floor(i * bin_count / n), as before.
+        start = -(-b * n // bin_count)
+        end = -(-(b + 1) * n // bin_count)
+        if start < end:
+            chunk = samples[start:end]
+            peaks[b] = max(max(chunk), -min(chunk)) / 32768.0
     m = max(peaks) if peaks else 0.0
     if m > 0:
         peaks = [p / m for p in peaks]

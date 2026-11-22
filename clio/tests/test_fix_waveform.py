@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import random
+import struct
 import threading
 from pathlib import Path
 from unittest.mock import patch
@@ -110,3 +112,27 @@ class TestSubprocessTimeouts:
         manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
         wf._ensure_waveform_handler(manager)
         assert manager.registry.require(TaskKind.WAVEFORM).cancellable is True
+
+
+def _reference_peaks(pcm: bytes, bin_count: int) -> list[float]:
+    """The original per-sample implementation, kept as an oracle."""
+    n = len(pcm) // 2
+    peaks = [0.0] * bin_count
+    for i in range(n):
+        s = struct.unpack_from("<h", pcm, i * 2)[0]
+        b = min(bin_count - 1, int(i * bin_count / n))
+        peaks[b] = max(peaks[b], abs(s) / 32768.0)
+    m = max(peaks)
+    return [p / m for p in peaks] if m > 0 else peaks
+
+
+class TestPeaksMatchReference:
+    @pytest.mark.parametrize(("samples", "bins"), [(1, 4), (7, 10), (399, 400), (401, 400), (5000, 400), (4321, 2000)])
+    def test_same_bins_as_per_sample_loop(self, samples: int, bins: int):
+        rng = random.Random(samples * 31 + bins)
+        pcm = bytes(rng.getrandbits(8) for _ in range(samples * 2))
+        assert wf.peaks_from_pcm_s16le(pcm, bin_count=bins) == _reference_peaks(pcm, bins)
+
+    def test_min_sample_maps_to_full_scale(self):
+        pcm = struct.pack("<h", -32768) + b"\x00\x00" * 9
+        assert wf.peaks_from_pcm_s16le(pcm, bin_count=2) == [1.0, 0.0]
