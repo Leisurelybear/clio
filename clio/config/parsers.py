@@ -8,7 +8,7 @@ from clio.config.models import (
     ProviderConfig,
     TaskConfig,
 )
-from clio.config.validators import _filter_dc
+from clio.config.validators import _filter_dc, _section
 from clio.credentials import CredentialService
 
 
@@ -42,7 +42,9 @@ def _infer_provider_capabilities(provider_type: str) -> list[str]:
 
 def _parse_providers(raw: dict, service: CredentialService | None = None) -> dict[str, ProviderConfig]:
     providers: dict[str, ProviderConfig] = {}
-    for name, cfg in (raw or {}).items():
+    for name in raw or {}:
+        # A provider written as ``name:`` with no fields loads as None.
+        cfg = _section(raw, name, f"ai.providers.{name}")
         typed = _filter_dc(cfg, ProviderConfig)
         provider_type = typed.get("type", "gemini")
         providers[name] = ProviderConfig(
@@ -69,8 +71,8 @@ def _parse_providers(raw: dict, service: CredentialService | None = None) -> dic
 
 def _parse_tasks(raw: dict) -> dict[str, TaskConfig]:
     tasks: dict[str, TaskConfig] = {}
-    for name, cfg in (raw or {}).items():
-        typed = _filter_dc(cfg, TaskConfig)
+    for name in raw or {}:
+        typed = _filter_dc(_section(raw, name, f"ai task {name}"), TaskConfig)
         tasks[name] = TaskConfig(
             provider=typed.get("provider", ""),
             model=typed.get("model", ""),

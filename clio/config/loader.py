@@ -33,13 +33,13 @@ from clio.config.models import (
     UiConfig,
 )
 from clio.config.parsers import _parse_providers, _parse_tasks
-from clio.config.validators import _filter_dc, _validate_config, validate_global_config
+from clio.config.validators import _filter_dc, _section, _validate_config, validate_global_config
 from clio.i18n import t
 from clio.resources import find_resource
 
 
 def _resolve_engine(raw: dict) -> str:
-    whisper_raw = raw.get("whisper", {})
+    whisper_raw = _section(raw, "whisper")
     engine = whisper_raw.get("engine", "local")
     if engine == "cloud":
         cloud_provider = whisper_raw.get("cloud_provider", "") or "local"
@@ -523,29 +523,33 @@ def load_global_config(config_path: str | Path = "config.yaml") -> GlobalConfig:
 
     from clio.credentials import CredentialService
 
+    # Empty sections (``ai:``) load as None; normalize before anything reads them.
+    ai_raw = _section(raw, "ai")
+    providers_raw = _section(ai_raw, "providers", "ai.providers")
+    paths_raw = _section(raw, "paths")
+    whisper_raw = _section(raw, "whisper")
     credential_service = CredentialService(raw, base)
     # Providers receive resolved values without knowing their storage backend.
-    ai_raw = raw.get("ai", {})
     ai_typed = _filter_dc(ai_raw, GlobalAIConfig)
     ai_cfg = GlobalAIConfig(
-        providers=_parse_providers(ai_raw.get("providers"), credential_service),
-        default_tasks=_parse_tasks(ai_raw.get("default_tasks")),
+        providers=_parse_providers(providers_raw, credential_service),
+        default_tasks=_parse_tasks(_section(ai_raw, "default_tasks", "ai.default_tasks")),
         debug_print_prompt=ai_typed.get("debug_print_prompt", False),
         provider_ttl_min=ai_typed.get("provider_ttl_min", 60),
     )
 
-    compress_typed = _filter_dc(raw.get("compress", {}), GlobalCompressConfig)
+    compress_typed = _filter_dc(_section(raw, "compress"), GlobalCompressConfig)
     gc = GlobalConfig(
         credentials={key: credential_service.registry[key] for key in raw.get("credentials") or {}},
         credential_service=credential_service,
-        proxy=ProxyConfig(**_filter_dc(raw.get("proxy", {}), ProxyConfig)),
-        server=ServerConfig(**_filter_dc(raw.get("server", {}), ServerConfig)),
-        naming=NamingConfig(**_filter_dc(raw.get("naming", {}), NamingConfig)),
-        ui=UiConfig(**_filter_dc(raw.get("ui", {}), UiConfig)),
+        proxy=ProxyConfig(**_filter_dc(_section(raw, "proxy"), ProxyConfig)),
+        server=ServerConfig(**_filter_dc(_section(raw, "server"), ServerConfig)),
+        naming=NamingConfig(**_filter_dc(_section(raw, "naming"), NamingConfig)),
+        ui=UiConfig(**_filter_dc(_section(raw, "ui"), UiConfig)),
         paths=GlobalPathsConfig(
-            ffmpeg=raw.get("paths", {}).get("ffmpeg", ""),
-            ffprobe=raw.get("paths", {}).get("ffprobe", ""),
-            logs_dir=_path(raw.get("paths", {}).get("logs_dir", "./logs"), base),
+            ffmpeg=paths_raw.get("ffmpeg", ""),
+            ffprobe=paths_raw.get("ffprobe", ""),
+            logs_dir=_path(paths_raw.get("logs_dir", "./logs"), base),
         ),
         ai=ai_cfg,
         compress=GlobalCompressConfig(
@@ -555,8 +559,8 @@ def load_global_config(config_path: str | Path = "config.yaml") -> GlobalConfig:
             crf=compress_typed.get("crf", 32),
         ),
         whisper=GlobalWhisperConfig(
-            cache_dir=raw.get("whisper", {}).get("cache_dir"),
-            hf_endpoint=raw.get("whisper", {}).get("hf_endpoint", ""),
+            cache_dir=whisper_raw.get("cache_dir"),
+            hf_endpoint=whisper_raw.get("hf_endpoint", ""),
         ),
     )
     validate_global_config(gc)
@@ -580,19 +584,19 @@ def load_project_config(
     project_base = project_dir.resolve()
     config_base = config_path.parent if config_path is not None else project_base
 
-    paths_raw = raw.get("paths", {})
-    ai_raw = raw.get("ai", {})
+    paths_raw = _section(raw, "paths")
+    ai_raw = _section(raw, "ai")
     context = _load_context(ai_raw, config_base, project_dir=project_dir)
-    compress_typed = _filter_dc(raw.get("compress", {}), ProjectCompressConfig)
-    script_typed = _filter_dc(raw.get("script", {}), ScriptConfig)
-    whisper_typed = _filter_dc(raw.get("whisper", {}), ProjectWhisperConfig)
+    compress_typed = _filter_dc(_section(raw, "compress"), ProjectCompressConfig)
+    script_typed = _filter_dc(_section(raw, "script"), ScriptConfig)
+    whisper_typed = _filter_dc(_section(raw, "whisper"), ProjectWhisperConfig)
 
     return ProjectConfig(
         paths=ProjectPathsConfig(
             output_dir=_path(paths_raw.get("output_dir", "./output"), project_base),
         ),
         ai=ProjectAIConfig(
-            tasks=_parse_tasks(ai_raw.get("tasks")),
+            tasks=_parse_tasks(_section(ai_raw, "tasks", "ai.tasks")),
             context=context,
         ),
         compress=ProjectCompressConfig(
@@ -601,7 +605,7 @@ def load_project_config(
             min_video_kbps=compress_typed.get("min_video_kbps", 800),
             max_video_kbps=compress_typed.get("max_video_kbps", 8000),
         ),
-        analyze=AnalyzeConfig(**_filter_dc(raw.get("analyze", {}), AnalyzeConfig)),
+        analyze=AnalyzeConfig(**_filter_dc(_section(raw, "analyze"), AnalyzeConfig)),
         script=ScriptConfig(
             scripts_subdir=script_typed.get("scripts_subdir", "scripts"),
             template_file=_path(
@@ -610,7 +614,7 @@ def load_project_config(
             ),
             target_words=script_typed.get("target_words", 80),
         ),
-        plan=PlanConfig(**_filter_dc(raw.get("plan", {}), PlanConfig)),
+        plan=PlanConfig(**_filter_dc(_section(raw, "plan"), PlanConfig)),
         whisper=ProjectWhisperConfig(
             enabled=whisper_typed.get("enabled", True),
             model_size=whisper_typed.get("model_size", "medium"),
@@ -620,10 +624,13 @@ def load_project_config(
             transcripts_subdir=whisper_typed.get("transcripts_subdir", "transcripts"),
             engine=_resolve_engine(raw),
         ),
-        export=ExportConfig(**_filter_dc(raw.get("export", {}), ExportConfig)),
+        export=ExportConfig(**_filter_dc(_section(raw, "export"), ExportConfig)),
         preview=PreviewConfig(
             subtitles=PreviewSubtitlesConfig(
-                **_filter_dc(raw.get("preview", {}).get("subtitles", {}), PreviewSubtitlesConfig)
+                **_filter_dc(
+                    _section(_section(raw, "preview"), "subtitles", "preview.subtitles"),
+                    PreviewSubtitlesConfig,
+                )
             )
         ),
     )

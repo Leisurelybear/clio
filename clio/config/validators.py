@@ -77,6 +77,21 @@ def _coerce_scalar(value: Any, target: Any) -> Any:
     return value
 
 
+def _section(raw: Any, key: str, field: str | None = None) -> dict:
+    """Return ``raw[key]`` as a mapping.
+
+    A YAML section written without content (``proxy:``) loads as None and is
+    treated as empty; any other non-mapping value is a readable config error
+    instead of an AttributeError deep inside the loader.
+    """
+    value = raw.get(key) if isinstance(raw, dict) else None
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"{field or key} must be a mapping, got: {type(value).__name__}")
+    return value
+
+
 def _filter_dc(raw: dict, dc: type) -> dict:
     hints = _field_types(dc)
     return {k: _coerce_scalar(v, hints[k]) for k, v in raw.items() if k in hints}
