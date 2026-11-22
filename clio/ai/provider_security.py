@@ -5,8 +5,10 @@ import ipaddress
 import re
 from urllib.parse import urlsplit
 
+from clio.credentials.models import MASKED_PLACEHOLDERS
+
 PROVIDER_KEY_ENV_RE = re.compile(r"^[A-Z][A-Z0-9_]*_API_KEY$")
-_MASKED_SECRET_VALUES = frozenset({"***", "********", "••••••••••"})
+_MASKED_SECRET_VALUES = MASKED_PLACEHOLDERS
 _NON_ASCII_RE = re.compile(r"[^\x00-\x7F]")
 _FNV_OFFSET_BASIS = 0x811C9DC5
 _FNV_PRIME = 0x01000193
