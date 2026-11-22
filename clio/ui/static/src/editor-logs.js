@@ -35,6 +35,8 @@ let _logsFilterSinceMs = 0;
 let _logsPollInFlightGen = null;
 /** Invalidate in-flight polls when leaving/re-entering live mode. */
 let _logsPollGeneration = 0;
+/** Matching live entries currently rendered; maintained incrementally by ingest. */
+let _logsVisibleCount = 0;
 /** Empty means live session; otherwise an hourly log basename. */
 let _logsSource = '';
 /** @type {Array<{ts: number|null, text: string}>} */
@@ -97,6 +99,7 @@ function _paintLogsView(view) {
   if (!view) return;
   const buffer = _activeLogsBuffer();
   const visible = filterLogEntries(buffer, _logsFilterOpts());
+  if (!_logsSource) _logsVisibleCount = visible.length;
   view.innerHTML = '';
   for (const entry of visible) {
     _appendLogLineEl(view, entry);
@@ -245,34 +248,53 @@ export function renderLogs() {
 
   const ingest = (lines) => {
     if (!Array.isArray(lines) || !lines.length) return;
-    const prevLen = _logsBuffer.length;
+    const opts = _logsFilterOpts();
     const entries = lines.map(normalizeLogEntry);
-    appendLogEntries(_logsBuffer, entries);
-    const trimmed = prevLen + entries.length > LOGS_BUFFER_MAX;
-    // After ring trim, incremental DOM append would be wrong — full repaint.
-    if (trimmed) {
+    const overflow = _logsBuffer.length + entries.length - LOGS_BUFFER_MAX;
+    // A relative "since" window changes with the clock, so only query/level
+    // filters can be kept up to date incrementally.
+    const incremental = !_logsFilterSinceMs;
+    if (overflow > 0 && (!incremental || overflow > _logsBuffer.length)) {
+      appendLogEntries(_logsBuffer, entries);
       _paintLogsView(view);
       return;
     }
+    if (overflow > 0) {
+      // Ring trim drops the oldest entries; drop their rows instead of repainting.
+      let droppedVisible = 0;
+      for (let i = 0; i < overflow; i += 1) {
+        if (entryMatchesLogFilter(_logsBuffer[i], opts)) droppedVisible += 1;
+      }
+      for (let i = 0; i < droppedVisible && view.firstChild; i += 1) view.removeChild(view.firstChild);
+      _logsVisibleCount = Math.max(0, _logsVisibleCount - droppedVisible);
+    }
+    appendLogEntries(_logsBuffer, entries);
+    let matched = 0;
     for (const entry of entries) {
-      if (entryMatchesLogFilter(entry, _logsFilterOpts())) {
+      if (entryMatchesLogFilter(entry, opts)) {
         _appendLogLineEl(view, entry);
+        matched += 1;
       }
     }
-    const empty = $('logs-empty-hint');
-    if (empty) {
-      const visible = filterLogEntries(_logsBuffer, _logsFilterOpts());
-      empty.hidden = !(_logsBuffer.length > 0 && visible.length === 0);
+    let visibleCount;
+    if (incremental) {
+      _logsVisibleCount += matched;
+      visibleCount = _logsVisibleCount;
+    } else {
+      visibleCount = filterLogEntries(_logsBuffer, opts).length;
     }
+    const empty = $('logs-empty-hint');
+    if (empty) empty.hidden = !(_logsBuffer.length > 0 && visibleCount === 0);
     const countEl = $('logs-match-count');
     if (countEl) {
-      const visible = filterLogEntries(_logsBuffer, _logsFilterOpts());
-      countEl.textContent = t('logs.match_count', { visible: visible.length, total: _logsBuffer.length });
+      countEl.textContent = t('logs.match_count', { visible: visibleCount, total: _logsBuffer.length });
     }
     if (_logsAutoScroll) view.scrollTop = view.scrollHeight;
   };
 
   const pollOnce = async () => {
+    // Offset-based tail: skipping while hidden just catches up on return.
+    if (document.hidden) return;
     if (_logsPollInFlightGen === _logsPollGeneration) return;
     const generation = _logsPollGeneration;
     _logsPollInFlightGen = generation;
