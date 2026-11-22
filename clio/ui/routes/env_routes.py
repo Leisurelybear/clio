@@ -113,11 +113,12 @@ def _restore_masked_values(content: str, previous_content: str, secret_names: se
 def handle_get_env(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     env_path = _dotenv_path(handler)
     if env_path and env_path.is_file():
-        text = env_path.read_text(encoding="utf-8")
+        # utf-8-sig: Notepad-saved .env files start with a BOM that would hide the first key.
+        text = env_path.read_text(encoding="utf-8-sig")
     else:
         template_path = env_path.parent / ".env.example" if env_path else None
         if template_path and template_path.is_file():
-            text = template_path.read_text(encoding="utf-8")
+            text = template_path.read_text(encoding="utf-8-sig")
         else:
             text = t("api.env_template_header")
     secret_names = _secret_env_names(handler)
@@ -143,7 +144,7 @@ def _put_env_locked(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> 
     content = obj.get("content", "")
     if not isinstance(content, str):
         return handler._send_json({"ok": False, "error": "content must be a string"}, 400)
-    previous_content = env_path.read_text(encoding="utf-8") if env_path.is_file() else ""
+    previous_content = env_path.read_text(encoding="utf-8-sig") if env_path.is_file() else ""
     secret_names = _secret_env_names(handler)
     secret_names.update(
         key.upper()
