@@ -624,6 +624,27 @@ def _set_cached_probe_info(key: tuple[str, str, int, int] | None, info: dict[str
 
 
 _DEFAULT_PROBE_TIMEOUT = 30.0
+_PROBE_CANCEL_POLL_SEC = 0.2
+
+
+def _probe_wants_json(cmd: list[str]) -> bool:
+    """True when the ffprobe command asks for JSON output (``-of json`` / ``-print_format json``)."""
+    for flag, value in zip(cmd, cmd[1:], strict=False):
+        if flag in ("-of", "-print_format", "-output_format") and value.split("=", 1)[0] == "json":
+            return True
+    return False
+
+
+def _stop_probe(proc: subprocess.Popen) -> None:
+    """Terminate *proc* and reap it so no zombie is left behind."""
+    with suppress(OSError):
+        proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        with suppress(OSError):
+            proc.kill()
+        proc.wait()
 
 
 def run_probe(
@@ -633,20 +654,33 @@ def run_probe(
     cancel_event: threading.Event | None = None,
     max_output_bytes: int = 4096,
 ) -> subprocess.CompletedProcess:
-    """Run ffprobe with timeout, cancel signal, and output limit."""
+    """Run ffprobe with timeout, cancel signal, and output limit.
+
+    *cancel_event* is polled while waiting, so cancellation takes effect
+    within ``_PROBE_CANCEL_POLL_SEC``. *max_output_bytes* truncates plain-text
+    output only: JSON output is never cut, because a truncated document cannot
+    be parsed by the caller.
+    """
     proc = popen_subprocess(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors="replace")
     register_process(proc)
     try:
-        if cancel_event and cancel_event.is_set():
-            proc.terminate()
-            raise InterruptedError("probe cancelled")
-        try:
-            stdout, stderr = proc.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
-            raise TimeoutError(f"probe timed out after {timeout}s: {' '.join(cmd)}") from None
-        if len(stdout) > max_output_bytes:
+        deadline = time.monotonic() + timeout
+        while True:
+            if cancel_event is not None and cancel_event.is_set():
+                _stop_probe(proc)
+                raise InterruptedError("probe cancelled")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                proc.kill()
+                proc.wait()
+                raise TimeoutError(f"probe timed out after {timeout}s: {' '.join(cmd)}")
+            wait = min(remaining, _PROBE_CANCEL_POLL_SEC) if cancel_event is not None else remaining
+            try:
+                stdout, stderr = proc.communicate(timeout=wait)
+                break
+            except subprocess.TimeoutExpired:
+                continue
+        if len(stdout) > max_output_bytes and not _probe_wants_json(cmd):
             stdout = stdout[:max_output_bytes]
         result = subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
         if proc.returncode != 0:
