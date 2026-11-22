@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 /**
  * Pure helpers for videos.json selection mutations (add / remove).
  */

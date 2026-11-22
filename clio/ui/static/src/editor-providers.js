@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Provider list rendering, modal editing, connection tests, and handlers.
  */
 import { api, icon } from './api.js';

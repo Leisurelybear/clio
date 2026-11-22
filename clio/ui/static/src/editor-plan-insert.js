@@ -1,4 +1,4 @@
-﻿import { state } from './state.js';
+import { state } from './state.js';
 import { $, escapeHtml } from './utils.js';
 import { addToast } from './toast.js';
 import { t } from './i18n.js';
