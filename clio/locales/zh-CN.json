@@ -583,6 +583,7 @@
   "task.compress.reject_settings_changed": "压缩参数已变更，忽略旧压缩 {name}",
   "task.compress.reject_source_changed": "源文件已变更，忽略旧压缩 {name}",
   "task.compress.skip_exists": "[跳过压缩] {label} (已存在: {name})",
+  "task.compress.vindex_partial_failed": "  [警告] 无法为已完成的压缩文件写入 .vindex: {detail}",
   "task.compress.skip_log": "⏭️ 跳过 {label}（已存在 {name}）",
   "task.compress.skip_offline": "[跳过] {count} 个离线/缺失视频（仍保留在 videos.json，可用 relink 修复）",
   "task.compress.start_log": "▶ 压缩 {label}",

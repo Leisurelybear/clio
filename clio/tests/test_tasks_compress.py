@@ -157,6 +157,29 @@ class TestRunCompressAll:
         assert len(records) == 1
         assert records[0].stem == "001_gopro_clip"
 
+    def test_failure_still_indexes_files_compressed_before_it(self, monkeypatch, tmp_path: Path):
+        from clio.vmeta import VideoIndex
+
+        cfg = _cfg(tmp_path)
+        _add_video(cfg, "first.mp4")
+        _add_video(cfg, "second.mp4")
+        monkeypatch.setattr("clio.tasks.compress.resolve_binary", lambda *a: "ffmpeg")
+        monkeypatch.setattr("clio.tasks.compress._sort_items_by_capture_time", lambda items, _ffprobe: items)
+
+        def _mock_compress(inp, outp, c, **kw):
+            if inp.stem == "second":
+                raise RuntimeError("encoder crashed")
+            outp.write_bytes(b"\x00" * 100)
+            return outp
+
+        monkeypatch.setattr("clio.tasks.compress.compress_video", _mock_compress)
+
+        with pytest.raises(RuntimeError, match="encoder crashed"):
+            run_compress_all(cfg)
+
+        assert VideoIndex.read("first", cfg.compressed_dir) is not None
+        assert VideoIndex.read("second", cfg.compressed_dir) is None
+
     def test_compress_single_file(self, monkeypatch, tmp_path: Path):
         cfg = _cfg(tmp_path)
         _add_video(cfg, "test.mp4")

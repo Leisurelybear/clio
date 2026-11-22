@@ -583,6 +583,7 @@
   "task.compress.reject_settings_changed": "Compress settings changed; ignoring the stale compress {name}",
   "task.compress.reject_source_changed": "Source file changed; ignoring the stale compress {name}",
   "task.compress.skip_exists": "[skip compress] {label} (already exists: {name})",
+  "task.compress.vindex_partial_failed": "  [warning] could not write .vindex for the files compressed so far: {detail}",
   "task.compress.skip_log": "⏭️ Skipping {label} (already exists: {name})",
   "task.compress.skip_offline": "[skip] {count} offline/missing videos (kept in videos.json; use relink to fix)",
   "task.compress.start_log": "▶ Compress {label}",
