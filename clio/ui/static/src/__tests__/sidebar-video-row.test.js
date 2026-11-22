@@ -48,6 +48,16 @@ async function openVideoMenu(v = { file: 'clip.mp4', match: { abs_path: 'D:/vide
 }
 
 describe('renderVideoItem', () => {
+  it('escapes the video index in the row label', async () => {
+    const { renderVideoItem } = await import('../sidebar-video-row.js');
+    const li = renderVideoItem(
+      { file: 'clip.mp4', index: '<img src=x onerror=alert(1)>' },
+      { relinkVideo: vi.fn(), removeVideoFromProject: vi.fn(), rerenderVideoList: vi.fn() },
+    );
+    expect(li.querySelector('.video-name img')).toBeNull();
+    expect(li.querySelector('.video-name').textContent).toContain('[<img src=x onerror=alert(1)>]');
+  });
+
   it('opens relink when an offline row is clicked', async () => {
     const { renderVideoItem } = await import('../sidebar-video-row.js');
     const relinkVideo = vi.fn();

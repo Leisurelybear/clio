@@ -176,13 +176,13 @@ export function _renderConfigForm(obj, path, descriptions = null, layer = 'proje
   if (typeof obj === 'number') {
     if (sf && sf.ui === 'select_or_number' && Array.isArray(sf.choices)) {
       const isPreset = sf.choices.includes(obj);
-      const opts = sf.choices.map(c => `<option value="${c}"${c === obj ? ' selected' : ''}>${c}</option>`).join('');
-      const customInput = isPreset ? '' : `<input type="number" class="config-custom-num" data-path="${safePath}" step="any" value="${obj}" style="width:80px;margin-left:4px">`;
+      const opts = sf.choices.map(c => `<option value="${escapeHtml(c)}"${c === obj ? ' selected' : ''}>${escapeHtml(c)}</option>`).join('');
+      const customInput = isPreset ? '' : `<input type="number" class="config-custom-num" data-path="${safePath}" step="any" value="${escapeHtml(obj)}" style="width:80px;margin-left:4px">`;
       const customOpt = `<option value="__custom__"${isPreset ? '' : ' selected'}>${t('settings.custom_option')}</option>`;
       return `<label class="config-field config-num"><span class="config-key">${labelFromPath(path)}${tip}</span> <select data-path="${safePath}" data-schema-select="1">${opts}${customOpt}</select>${customInput}</label>`;
     }
     const isInt = Number.isInteger(obj);
-    return `${advBadge}<label class="config-field config-num"><span class="config-key">${labelFromPath(path)}${tip}</span> <input type="number" data-path="${safePath}" step="${isInt ? '1' : 'any'}" value="${obj}"></label>`;
+    return `${advBadge}<label class="config-field config-num"><span class="config-key">${labelFromPath(path)}${tip}</span> <input type="number" data-path="${safePath}" step="${isInt ? '1' : 'any'}" value="${escapeHtml(obj)}"></label>`;
   }
   if (typeof obj === 'string') {
     if (sf && sf.ui === 'select' && Array.isArray(sf.choices)) {

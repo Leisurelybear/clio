@@ -81,7 +81,7 @@ export function renderVideoItem(v, { relinkVideo, removeVideoFromProject, rerend
 
   li.innerHTML = `${videoThumbHtml(v)}
     <div class="video-info">
-      <div class="video-name">${checkboxHtml}${v.index ? '[' + v.index + '] ' : ''}${escapeHtml(display)}${durHtml}</div>
+      <div class="video-name">${checkboxHtml}${v.index ? '[' + escapeHtml(v.index) + '] ' : ''}${escapeHtml(display)}${durHtml}</div>
       <div class="video-step-dots">${stepDots}</div>
       ${v.title ? `<div class="video-title">${escapeHtml(v.title)}</div>` : ''}
       <div class="video-match">${matchBadge}</div>

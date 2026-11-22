@@ -257,12 +257,12 @@ function _showProviderModal(providersObj, name, onSave) {
             <div>
               <label class="form-label">prompt_price_per_1m_usd</label>
               <input id="modal-provider-prompt-price" class="form-input" type="number" min="0" step="0.01"
-                value="${existing?.prompt_price_per_1m_usd ?? 0}">
+                value="${escapeHtml(String(existing?.prompt_price_per_1m_usd ?? 0))}">
             </div>
             <div>
               <label class="form-label">completion_price_per_1m_usd</label>
               <input id="modal-provider-completion-price" class="form-input" type="number" min="0" step="0.01"
-                value="${existing?.completion_price_per_1m_usd ?? 0}">
+                value="${escapeHtml(String(existing?.completion_price_per_1m_usd ?? 0))}">
             </div>
           </div>
         </div>
@@ -275,37 +275,37 @@ function _showProviderModal(providersObj, name, onSave) {
           <div>
             <label class="form-label">max_tokens</label>
             <input id="modal-provider-max-tokens" class="form-input" type="number" min="0" step="1"
-              value="${existing?.max_tokens ?? 0}">
+              value="${escapeHtml(String(existing?.max_tokens ?? 0))}">
             <span class="hint">${t('settings.provider.field.max_tokens_hint')}</span>
           </div>
           <div>
             <label class="form-label">timeout_sec</label>
             <input id="modal-provider-timeout" class="form-input" type="number" min="0" step="1"
-              value="${existing?.timeout_sec ?? 120}">
+              value="${escapeHtml(String(existing?.timeout_sec ?? 120))}">
             <span class="hint">${t('settings.provider.field.timeout_hint')}</span>
           </div>
           <div>
             <label class="form-label">retry_attempts</label>
             <input id="modal-provider-retry" class="form-input" type="number" min="0" step="1"
-              value="${existing?.retry_attempts ?? 2}">
+              value="${escapeHtml(String(existing?.retry_attempts ?? 2))}">
             <span class="hint">${t('settings.provider.field.retry_hint')}</span>
           </div>
           <div>
             <label class="form-label">requests_per_minute</label>
             <input id="modal-provider-rpm" class="form-input" type="number" min="0" step="1"
-              value="${existing?.requests_per_minute ?? 0}">
+              value="${escapeHtml(String(existing?.requests_per_minute ?? 0))}">
             <span class="hint">${t('settings.provider.field.rpm_hint')}</span>
           </div>
           <div id="modal-poll-group" style="${(existing?.type || 'gemini') === 'gemini' ? '' : 'display:none'}">
             <label class="form-label">poll_interval_sec</label>
             <input id="modal-provider-poll" class="form-input" type="number" min="0" step="1"
-              value="${existing?.poll_interval_sec ?? 5}">
+              value="${escapeHtml(String(existing?.poll_interval_sec ?? 5))}">
             <span class="hint">${t('settings.provider.field.poll_hint')}</span>
           </div>
           <div id="modal-video-upload-group" style="${(existing?.type || 'gemini') === 'gemini' ? '' : 'display:none'}">
             <label class="form-label">video_upload_max_mb</label>
             <input id="modal-provider-upload-max" class="form-input" type="number" min="1" step="1"
-              value="${existing?.video_upload_max_mb ?? 200}">
+              value="${escapeHtml(String(existing?.video_upload_max_mb ?? 200))}">
             <span class="hint">${t('settings.provider.field.video_upload_max_mb_hint')}</span>
           </div>
         </div>
