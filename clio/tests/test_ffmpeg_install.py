@@ -806,3 +806,54 @@ def test_package_manager_wait_observes_cancellation(monkeypatch):
         installer._run_cancellable(["winget", "install"], timeout=900, cancel_event=cancel)
 
     assert proc.terminated
+
+
+def test_resolve_archive_name_follows_upstream_release_bump():
+    asset = _selected_asset("win32", "amd64")
+    digest = "a" * 64
+    listing = "\n".join(
+        f"{digest}  {name}"
+        for name in (
+            "ffmpeg-master-latest-win64-gpl.zip",
+            "ffmpeg-n9.1-latest-win64-gpl-9.1.zip",
+            "ffmpeg-n9.1-latest-win64-gpl-shared-9.1.zip",
+            "ffmpeg-n9.1-latest-linux64-gpl-9.1.tar.xz",
+            "ffmpeg-n8.1-latest-win64-gpl-8.1.zip",
+        )
+    )
+
+    assert installer.resolve_archive_name(listing, asset) == "ffmpeg-n9.1-latest-win64-gpl-9.1.zip"
+    assert installer.resolve_archive_name(f"{digest}  {asset.archive}\n{listing}", asset) == asset.archive
+    with pytest.raises(ValueError, match="not found"):
+        installer.resolve_archive_name(f"{digest}  ffmpeg-master-latest-win64-gpl.zip", asset)
+
+
+def test_install_downloads_renamed_release_asset(tmp_path):
+    root = tmp_path / "managed"
+    archive_bytes = io.BytesIO()
+    with zipfile.ZipFile(archive_bytes, "w") as archive:
+        archive.writestr("build/bin/ffmpeg.exe", b"ffmpeg")
+        archive.writestr("build/bin/ffprobe.exe", b"ffprobe")
+    payload = archive_bytes.getvalue()
+    digest = hashlib.sha256(payload).hexdigest()
+    renamed = "ffmpeg-n9.1-latest-win64-gpl-9.1.zip"
+    urls = []
+
+    def download(url, dest, **kwargs):
+        urls.append(url)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if url.endswith("checksums.sha256"):
+            dest.write_text(f"{digest}  {renamed}\n", encoding="utf-8")
+        else:
+            dest.write_bytes(payload)
+
+    result = installer.install_ffmpeg(
+        system="win32",
+        machine="amd64",
+        root=root,
+        runner=_fake_runner,
+        downloader=download,
+    )
+
+    assert result.ok is True
+    assert urls[-1].endswith("/" + renamed)
