@@ -858,7 +858,31 @@ class TestRunPlanAllDays:
         assert [d["day_label"] for d in result["days"]] == ["day1", "day2"]
         assert result["days"][0]["clip_count"] == 1
         assert result["days"][0]["plan_file"] == "day1_plan.json"
-        assert (loaded_config.plans_dir / "trip_plan.json").is_file()
+        assert (loaded_config.plans_dir / "_trip_summary.json").is_file()
+        assert not (loaded_config.plans_dir / "trip_plan.json").exists()
+
+    def test_day_named_trip_keeps_its_plan(self, loaded_config: AppConfig) -> None:
+        _write_analysis(loaded_config, _analysis("001", day="trip"))
+        fake_plan = {"day_title": "trip day", "theme": "", "total_estimated_sec": 0, "sequence": []}
+
+        def write_day_plan(config, *, day_label, **_kwargs):
+            (config.plans_dir).mkdir(parents=True, exist_ok=True)
+            (config.plans_dir / f"{day_label}_plan.json").write_text('{"day": true}', encoding="utf-8")
+            return fake_plan
+
+        with patch("clio.tasks.plan.run_plan_vlog", side_effect=write_day_plan):
+            run_plan_all_days(loaded_config)
+
+        assert (loaded_config.plans_dir / "trip_plan.json").read_text(encoding="utf-8") == '{"day": true}'
+
+    def test_colliding_day_labels_are_rejected(self, loaded_config: AppConfig) -> None:
+        _write_analysis(loaded_config, _analysis("001", day="day 1"))
+        _write_analysis(loaded_config, _analysis("002", source="SRC2", day="day_1"))
+
+        with patch("clio.tasks.plan.run_plan_vlog") as run_day:
+            with pytest.raises(RuntimeError, match="day_1_plan.json"):
+                run_plan_all_days(loaded_config)
+        run_day.assert_not_called()
 
     def test_skips_failed_days(self, loaded_config: AppConfig) -> None:
         _write_analysis(loaded_config, _analysis("001", day="day1"))

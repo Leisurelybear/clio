@@ -871,6 +871,27 @@ def run_plan_vlog(
     )
 
 
+# Cannot collide with any "<day>_plan.json" (a day labelled "trip" used to
+# overwrite its own plan), and is not picked up by "*_plan.json" listings.
+TRIP_SUMMARY_FILENAME = "_trip_summary.json"
+
+
+def _check_day_plan_collisions(labels: list[str]) -> None:
+    """Refuse labels whose sanitized plan file names clash (e.g. "day 1" / "day_1")."""
+    owners: dict[str, str] = {}
+    for label in labels:
+        try:
+            stem = plan_day_stem(label)
+        except ValueError:
+            continue  # reported by run_plan_vlog for that day
+        key = stem.casefold()  # Windows / macOS file names are case-insensitive
+        other = owners.setdefault(key, label)
+        if other != label:
+            raise RuntimeError(
+                t("task.plan.day_label_conflict", {"first": other, "second": label, "file": f"{stem}_plan.json"})
+            )
+
+
 def run_plan_all_days(
     config: AppConfig,
     tracker: ProgressReporter | None = None,
@@ -887,6 +908,7 @@ def run_plan_all_days(
             raise _unusable_inputs_error(skipped_inputs)
         print(t("task.plan.no_analysis"))
         return None
+    _check_day_plan_collisions(labels)
 
     summary: dict[str, Any] = {"days": []}
     for day_label in labels:
@@ -922,7 +944,7 @@ def run_plan_all_days(
         return None
     add_schema_version(summary)
     config.plans_dir.mkdir(parents=True, exist_ok=True)
-    out_json = config.plans_dir / "trip_plan.json"
+    out_json = config.plans_dir / TRIP_SUMMARY_FILENAME
     write_json_atomic(out_json, summary)
     print(f"  -> {out_json.name}")
     return summary
