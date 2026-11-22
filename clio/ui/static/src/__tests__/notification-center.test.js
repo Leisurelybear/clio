@@ -504,6 +504,52 @@ describe('notification center', () => {
     expect(eventSource).not.toBe(first);
   });
 
+  it('backs off exponentially between failed reconnects', async () => {
+    api.mockResolvedValue({ notifications: [], unread_count: 0, latest_seq: 0, total_count: 0 });
+    const { initNotificationCenter } = await import('../notification-center.js');
+    initNotificationCenter();
+    await vi.waitFor(() => expect(eventSource).toBeTruthy());
+
+    vi.useFakeTimers();
+    try {
+      const first = eventSource;
+      first.onerror();
+      await vi.advanceTimersByTimeAsync(3_100);
+      const second = eventSource;
+      expect(second).not.toBe(first);
+
+      second.onerror();
+      await vi.advanceTimersByTimeAsync(3_100);
+      expect(eventSource).toBe(second);
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(eventSource).not.toBe(second);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops reconnecting once the server rejects the session (401)', async () => {
+    api.mockResolvedValue({ notifications: [], unread_count: 0, latest_seq: 0, total_count: 0 });
+    const { initNotificationCenter } = await import('../notification-center.js');
+    initNotificationCenter();
+    await vi.waitFor(() => expect(eventSource).toBeTruthy());
+
+    vi.useFakeTimers();
+    try {
+      for (let i = 0; i < 2; i += 1) {
+        eventSource.onerror();
+        await vi.advanceTimersByTimeAsync(60_000);
+      }
+      api.mockRejectedValue(Object.assign(new Error('HTTP 401'), { status: 401 }));
+      const last = eventSource;
+      last.onerror();
+      await vi.advanceTimersByTimeAsync(600_000);
+      expect(eventSource).toBe(last);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('keeps only warnings and errors in the attention filter', async () => {
     api.mockResolvedValue({
       notifications: [
