@@ -69,6 +69,15 @@ class _ServerState:
     job_cancel_event: threading.Event = field(default_factory=threading.Event)
 
 
+# _read_json_body status meaning "error response already sent" (invalid JSON).
+_BODY_ERROR_SENT = -400
+_BODY_ERROR_MESSAGES: dict[int, str] = {
+    413: "request body too large",
+    400: "invalid Content-Length",
+    415: "unsupported media type, expected application/json",
+}
+
+
 def _setting_int(value: Any, default: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         return default
@@ -362,20 +371,31 @@ class _RequestHandler(BaseHTTPRequestHandler, HandlerProtocol):
         self._send_json({"error": t(error)}, 403)
         return False
 
-    def _read_json_body(self) -> tuple[dict | None, int | None]:
-        """Parse JSON object body and send payload errors before dispatch."""
+    def _read_json_body(self, *, allow_empty: bool = False) -> tuple[dict | None, int | None]:
+        """Parse JSON object body; invalid JSON is answered here (status _BODY_ERROR_SENT)."""
         result = read_json_body(
             self.headers,
             self.rfile,
             require_json_content_type=self.__class__._enforce_json_ct,
+            allow_empty=allow_empty,
         )
         self._log_request_body(result)
         if result.error == "invalid_json":
             self._send_json({"ok": False, "error": f"invalid JSON: {result.detail}"}, 400)
-            return None, -400
+            return None, _BODY_ERROR_SENT
         if result.status is not None:
             return None, result.status
         return result.obj, None
+
+    def _read_json_body_or_reply(self, *, allow_empty: bool = False) -> dict | None:
+        """Return the JSON body, or send the matching error response and return None."""
+        obj, err_status = self._read_json_body(allow_empty=allow_empty)
+        if err_status is None:
+            return obj
+        message = _BODY_ERROR_MESSAGES.get(err_status)
+        if message is not None:
+            self._send_json({"ok": False, "error": message}, err_status)
+        return None
 
     def _log_request_body(self, result: JsonBodyResult) -> None:
         self._http_request_body_log = prepare_body(
@@ -555,16 +575,8 @@ class _RequestHandler(BaseHTTPRequestHandler, HandlerProtocol):
         path = url.path
         if self.__class__._router.get_policy("PUT", path).auth_required and not self._require_auth():
             return
-        obj, err_status = self._read_json_body()
-        if err_status == -400:
-            return  # invalid JSON already sent
-        if err_status == 413:
-            return self._send_json({"ok": False, "error": "request body too large"}, 413)
-        if err_status == 400:
-            return self._send_json({"ok": False, "error": "invalid Content-Length"}, 400)
-        if err_status == 415:
-            return self._send_json({"ok": False, "error": "unsupported media type, expected application/json"}, 415)
-        if err_status is not None:
+        obj = self._read_json_body_or_reply()
+        if obj is None:
             return
 
         handler_fn, path_kwargs, route = self.__class__._router.dispatch("PUT", path)
@@ -583,16 +595,9 @@ class _RequestHandler(BaseHTTPRequestHandler, HandlerProtocol):
         path = url.path
         if self.__class__._router.get_policy("POST", path).auth_required and not self._require_auth():
             return
-        obj, err_status = self._read_json_body()
-        if err_status == -400:
-            return  # invalid JSON already sent
-        if err_status == 413:
-            return self._send_json({"ok": False, "error": "request body too large"}, 413)
-        if err_status == 400:
-            return self._send_json({"ok": False, "error": "invalid Content-Length"}, 400)
-        if err_status == 415:
-            return self._send_json({"ok": False, "error": "unsupported media type, expected application/json"}, 415)
-        if err_status is not None:
+        # A bodyless POST (e.g. `curl -X POST .../api/webhook/trigger`) means {}.
+        obj = self._read_json_body_or_reply(allow_empty=True)
+        if obj is None:
             return
 
         handler_fn, path_kwargs, route = self.__class__._router.dispatch("POST", path)
