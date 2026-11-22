@@ -561,7 +561,7 @@ def test_cut_accepts_unsanitized_day_with_sanitized_plan(cli_runner, config_path
     from types import SimpleNamespace
 
     monkeypatch.setattr("clio.tasks.reindex.auto_reindex_if_needed", lambda cfg: None)
-    monkeypatch.setattr("clio.plan_readiness.collect_project_indices", lambda cfg: (set(), set()))
+    monkeypatch.setattr("clio.plan_readiness.collect_project_indices", lambda cfg, **_kwargs: (set(), set()))
     monkeypatch.setattr(
         "clio.plan_readiness.check_plan_export_readiness",
         lambda *a, **k: SimpleNamespace(errors=[], warnings=[]),
@@ -583,7 +583,7 @@ def test_cut_accepts_unsanitized_day_with_sanitized_plan(cli_runner, config_path
 def test_export_accepts_unsanitized_day_with_sanitized_plan(cli_runner, config_path, tmp_path, monkeypatch):
     from types import SimpleNamespace
 
-    monkeypatch.setattr("clio.plan_readiness.collect_project_indices", lambda cfg: (set(), set()))
+    monkeypatch.setattr("clio.plan_readiness.collect_project_indices", lambda cfg, **_kwargs: (set(), set()))
     monkeypatch.setattr(
         "clio.plan_readiness.check_plan_export_readiness",
         lambda *a, **k: SimpleNamespace(errors=[], warnings=[]),
