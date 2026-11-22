@@ -10,6 +10,7 @@ from clio.config.loader import (
     load_global_config,
     load_project_config,
     parse_dotenv,
+    validate_project_yaml,
 )
 from clio.config.models import (
     AnalyzeConfig,
@@ -96,4 +97,5 @@ __all__ = [
     "_filter_dc",
     "_validate_config",
     "validate_global_config",
+    "validate_project_yaml",
 ]

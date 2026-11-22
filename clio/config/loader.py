@@ -571,13 +571,44 @@ def load_project_config(
     project_dir: Path,
     *,
     config_path: Path | None = None,
+    project_yaml_path: Path | None = None,
 ) -> ProjectConfig | None:
-    """Load project-level config (project.yaml), return ProjectConfig or None."""
-    project_yaml = project_dir.resolve() / "project.yaml"
-    if not project_yaml.is_file():
-        return None
+    """Load project-level config (project.yaml), return ProjectConfig or None.
 
-    raw = _load_yaml_mapping(project_yaml)
+    *project_yaml_path* reads a candidate file (for example a temp copy that is
+    about to replace project.yaml) instead of ``<project_dir>/project.yaml``;
+    relative paths inside it still resolve against *project_dir*. An explicit
+    path that does not exist raises FileNotFoundError instead of returning None.
+    """
+    if project_yaml_path is not None:
+        project_yaml = Path(project_yaml_path)
+        if not project_yaml.is_file():
+            raise FileNotFoundError(str(project_yaml))
+    else:
+        project_yaml = project_dir.resolve() / "project.yaml"
+        if not project_yaml.is_file():
+            return None
+    return _project_config_from_raw(_load_yaml_mapping(project_yaml), project_dir, config_path=config_path)
+
+
+def _parse_project_yaml_text(text: str, label: str) -> dict[str, Any]:
+    """Parse candidate project.yaml text with the same errors as _load_yaml_mapping."""
+    try:
+        raw = yaml.safe_load(text.lstrip("\ufeff")) or {}
+    except yaml.YAMLError as exc:
+        raise ValueError(t("config.yaml_parse_failed", {"path": label, "detail": exc})) from exc
+    if not isinstance(raw, dict):
+        raise ValueError(t("config.yaml_root_mapping", {"path": label}))
+    return raw
+
+
+def _project_config_from_raw(
+    raw: dict[str, Any],
+    project_dir: Path,
+    *,
+    config_path: Path | None = None,
+) -> ProjectConfig:
+    """Build a ProjectConfig from an already parsed project.yaml mapping."""
     if "credentials" in raw:
         raise ValueError("credentials are global-only; project.yaml cannot define credential metadata")
 
@@ -639,24 +670,55 @@ def load_project_config(
 def load_config(
     config_path: str | Path = "config.yaml",
     project_dir: Path | None = None,
+    *,
+    project_yaml_path: Path | None = None,
 ) -> AppConfig:
     """Load config using the new V2 split structure.
 
     Calls load_global_config + load_project_config internally,
     composes into AppConfig wrapper.
+
+    *project_yaml_path* validates a candidate project.yaml (e.g. a temp file)
+    in place of ``<project_dir>/project.yaml`` without touching the real file;
+    without *project_dir* the project dir defaults to the config directory.
     """
     config_file = Path(config_path).resolve()
     global_cfg = load_global_config(config_file)
     effective_project_dir = project_dir
-    if effective_project_dir is None and (config_file.parent / "project.yaml").is_file():
+    if effective_project_dir is None and (
+        project_yaml_path is not None or (config_file.parent / "project.yaml").is_file()
+    ):
         effective_project_dir = config_file.parent
     project_cfg = (
-        load_project_config(effective_project_dir, config_path=config_file)
+        load_project_config(effective_project_dir, config_path=config_file, project_yaml_path=project_yaml_path)
         if effective_project_dir is not None
         else None
     )
 
     config = AppConfig(global_cfg=global_cfg, project_cfg=project_cfg, project_dir=effective_project_dir)
+    _validate_config(config)
+    return config
+
+
+def validate_project_yaml(
+    text: str,
+    project_dir: Path,
+    *,
+    config_path: str | Path = "config.yaml",
+) -> AppConfig:
+    """Validate candidate project.yaml *text* for *project_dir* without writing it.
+
+    Runs the same parsing and checks as ``load_config(config_path, project_dir)``
+    would after the text was saved as project.yaml, and returns the resulting
+    AppConfig. Raises ValueError (parse errors, credentials in project.yaml,
+    invalid values) exactly like load_config. The real project.yaml is never
+    read or written.
+    """
+    config_file = Path(config_path).resolve()
+    global_cfg = load_global_config(config_file)
+    raw = _parse_project_yaml_text(text, str(Path(project_dir) / "project.yaml"))
+    project_cfg = _project_config_from_raw(raw, project_dir, config_path=config_file)
+    config = AppConfig(global_cfg=global_cfg, project_cfg=project_cfg, project_dir=project_dir)
     _validate_config(config)
     return config
 
