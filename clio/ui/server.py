@@ -214,8 +214,6 @@ SECURITY_HEADERS: tuple[tuple[str, str], ...] = (
 )
 
 _desktop_focus_callback: Callable[[], None] | None = None
-_STATE_CREATE_LOCK = threading.Lock()
-_TASK_MANAGER_CREATE_LOCK = threading.Lock()
 
 
 def register_builtin_task_handlers(manager: TaskManager) -> None:
@@ -256,12 +254,6 @@ def handle_post_desktop_focus(handler, qs, obj) -> None:
     except Exception as e:  # noqa: BLE001 — surface any focus failure to the caller
         return handler._send_json({"ok": False, "error": str(e)}, 500)
     return handler._send_json({"ok": True})
-
-
-def _setting_int(value: Any, default: int) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        return default
-    return max(0, value)
 
 
 def _parse_int_param(qs: dict, key: str, default: int, min_val: int = 0, max_val: int = 10_000_000) -> int:

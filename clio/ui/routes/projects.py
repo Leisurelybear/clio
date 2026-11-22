@@ -41,21 +41,6 @@ def handle_get_project(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     handler._send_json(merged)
 
 
-def handle_post_project_select(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
-    """Handle POST /api/project/select. Records the project as last-used."""
-    qs_project = obj.get("project") or qs.get("project", [None])[0]
-    if not isinstance(qs_project, str) or not qs_project.strip():
-        return handler._send_json({"ok": False, "error": "missing project"}, 400)
-    qs_project = qs_project.strip()
-    proj_dir = handler._resolve_project_dir(qs)
-    config_path = handler.config_path
-    try:
-        _save_last_project(qs_project, config_path, project_dir=str(proj_dir))
-    except ValueError as exc:
-        return handler._send_json({"ok": False, "error": str(exc)}, 500)
-    handler._send_json({"ok": True})
-
-
 def handle_get_projects(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     """Handle GET /api/projects."""
     req_project = qs.get("project", [None])[0]
