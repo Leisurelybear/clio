@@ -84,6 +84,33 @@ def _path(value: str | None, base: Path | None = None) -> Path:
 
 
 _DOTENV_KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$")
+_DOTENV_INLINE_COMMENT_RE = re.compile(r"\s#")
+
+
+def _strip_dotenv_comment(value: str) -> str:
+    """Drop a trailing ``# comment`` from a dotenv value.
+
+    Unquoted values end at the first whitespace followed by ``#``. Quoted values
+    end at their closing quote (``\\"`` escapes are skipped in double quotes), so a
+    ``#`` inside the quotes is kept and a comment after them is ignored.
+    """
+    if value[:1] in {'"', "'"}:
+        quote = value[0]
+        index = 1
+        while index < len(value):
+            char = value[index]
+            if char == "\\" and quote == '"':
+                index += 2
+                continue
+            if char == quote:
+                rest = value[index + 1 :].strip()
+                return value[: index + 1] if not rest or rest.startswith("#") else value
+            index += 1
+        return value
+    if value.startswith("#"):
+        return ""
+    match = _DOTENV_INLINE_COMMENT_RE.search(value)
+    return value[: match.start()].rstrip() if match else value
 
 
 def parse_dotenv(content: str) -> dict[str, str]:
@@ -98,7 +125,7 @@ def parse_dotenv(content: str) -> dict[str, str]:
             line = line[7:].lstrip()
         match = _DOTENV_KEY_RE.match(line)
         if match:
-            value = match.group(2).strip()
+            value = _strip_dotenv_comment(match.group(2).strip())
             if value.startswith('"') and value.endswith('"'):
                 try:
                     value = json.loads(value)
