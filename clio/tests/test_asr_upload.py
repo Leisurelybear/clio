@@ -40,9 +40,25 @@ def test_upload_retries_policy_and_file_upload(tmp_path: Path, fake_time):
     ):
         url = dashscope_upload(audio)
 
-    assert url == "oss://uploads/audio.wav"
+    keys = [call.kwargs["data"]["key"] for call in post.call_args_list]
+    assert keys[0] == "uploads/audio.wav"
+    assert keys[1] != keys[0]
+    assert keys[1].startswith("uploads/") and keys[1].endswith("_audio.wav")
+    assert url == f"oss://{keys[1]}"
     assert get.call_count == 2
     assert post.call_count == 2
+
+
+def test_upload_first_attempt_keeps_plain_key(tmp_path: Path):
+    audio = tmp_path / "audio.wav"
+    audio.write_bytes(b"audio")
+
+    with (
+        patch.dict("os.environ", {"DASHSCOPE_API_KEY": "test-key"}),
+        patch("httpx.get", return_value=_policy_response()),
+        patch("httpx.post", return_value=MagicMock()),
+    ):
+        assert dashscope_upload(audio) == "oss://uploads/audio.wav"
 
 
 def test_upload_policy_403_is_not_retried(tmp_path: Path):

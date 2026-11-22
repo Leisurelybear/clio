@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import threading
+import uuid
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Protocol
@@ -58,12 +59,17 @@ def dashscope_upload(
     policy: dict[str, Any] = resp.json()["data"]
 
     file_name = audio_path.name
-    key = f"{policy['upload_dir']}/{file_name}"
+    attempt_keys: list[str] = []
 
     if progress_callback:
         progress_callback(2)
 
     def upload_file() -> httpx.Response:
+        # With x-oss-forbid-overwrite, a retry after a timed-out-but-stored
+        # upload would be rejected for the same key, so retries use a fresh one.
+        prefix = f"{uuid.uuid4().hex[:8]}_" if attempt_keys else ""
+        key = f"{policy['upload_dir']}/{prefix}{file_name}"
+        attempt_keys.append(key)
         with open(audio_path, "rb") as f:
             return httpx.post(
                 policy["upload_host"],
@@ -83,4 +89,4 @@ def dashscope_upload(
     request_with_retry(upload_file, label=t("asr.upload.label_upload"), cancel_event=cancel_event)
     if progress_callback:
         progress_callback(5)
-    return f"oss://{key}"
+    return f"oss://{attempt_keys[-1]}"
