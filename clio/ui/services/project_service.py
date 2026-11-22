@@ -442,7 +442,8 @@ def resolve_project_input(qs: dict, input_dir: Path, config_path: Path | None) -
 
     Priority:
       1. project_dir / input_dir query param (direct path, unambiguous)
-      2. project name query param (may be ambiguous)
+      2. project name query param, matched against registered projects and the
+         serve root only (may be ambiguous)
 
     P1-28: when the caller passes an *explicit* selector (project_dir/input_dir
     or project name) that cannot be resolved, this raises ``ProjectResolutionError``
@@ -501,19 +502,12 @@ def resolve_project_input(qs: dict, input_dir: Path, config_path: Path | None) -
             return candidates[0]
         raise ProjectResolutionError(409, f"ambiguous project name: {project_name}")
 
-    # 2. Sibling directories (auto-discovery)
-    projects_root = input_dir.parent
-    if projects_root.is_dir():
-        for p in sorted(projects_root.iterdir()):
-            if not p.is_dir():
-                continue
-            resolved = str(p.resolve())
-            if resolved in seen:
-                continue
-            seen.add(resolved)
-            name = _read_project_name(p)
-            if name == project_name:
-                candidates.append(p)
+    # 2. The serve root itself (always allowed). Unregistered sibling dirs are
+    #    *not* matched: they are outside collect_allowed_project_paths(), and
+    #    writes would land in a directory the user never added (/api/projects
+    #    lists registry entries only; add a project via /api/project/add).
+    if str(input_dir.resolve()) not in seen and _read_project_name(input_dir) == project_name:
+        candidates.append(input_dir)
 
     if not candidates:
         raise ProjectResolutionError(404, f"unknown project name: {project_name}")
