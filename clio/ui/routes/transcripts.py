@@ -11,6 +11,7 @@ from clio.i18n import t
 from clio.identity import SEGMENT_SUFFIX_RE
 from clio.ui.handler_protocol import HandlerProtocol
 from clio.ui.services.file_service import _is_safe_basename, _save_atomic
+from clio.utils import path_write_lock
 
 _MAX_SEGMENT_TEXT_LENGTH = 5000
 _MAX_TIME_SEC = 86400  # 24h
@@ -190,34 +191,38 @@ def handle_put_transcripts(handler: HandlerProtocol, qs: dict[str, Any], obj: di
         return handler._send_json({"ok": False, "error": "transcript not found"}, 404)
 
     try:
-        data, rev = _read_transcript(tp)
-        if not _require_revision(obj, rev, handler):
-            return
-        segments = data.get("segments", [])
-        if not isinstance(segments, list):
-            return handler._send_json({"ok": False, "error": "segments is not a list"}, 400)
-        if segment_index < 0 or segment_index >= len(segments):
-            return handler._send_json({"ok": False, "error": f"segment_index {segment_index} out of range"}, 400)
+        # Read, revision check and write share one lock so two writers holding
+        # the same revision cannot both succeed (the loser gets 409).
+        with path_write_lock(tp):
+            data, rev = _read_transcript(tp)
+            if not _require_revision(obj, rev, handler):
+                return
+            segments = data.get("segments", [])
+            if not isinstance(segments, list):
+                return handler._send_json({"ok": False, "error": "segments is not a list"}, 400)
+            if segment_index < 0 or segment_index >= len(segments):
+                return handler._send_json({"ok": False, "error": f"segment_index {segment_index} out of range"}, 400)
 
-        if obj.get("delete"):
-            del segments[segment_index]
-        else:
-            new_text = obj.get("text", "")
-            if not isinstance(new_text, str):
-                return handler._send_json({"ok": False, "error": "text must be a string"}, 400)
-            new_text = new_text.strip()
-            if not new_text:
-                return handler._send_json({"ok": False, "error": "text cannot be empty"}, 400)
-            if len(new_text) > _MAX_SEGMENT_TEXT_LENGTH:
-                return handler._send_json(
-                    {"ok": False, "error": f"text too long ({len(new_text)} > {_MAX_SEGMENT_TEXT_LENGTH} chars)"}, 400
-                )
-            segments[segment_index]["text"] = new_text
+            if obj.get("delete"):
+                del segments[segment_index]
+            else:
+                new_text = obj.get("text", "")
+                if not isinstance(new_text, str):
+                    return handler._send_json({"ok": False, "error": "text must be a string"}, 400)
+                new_text = new_text.strip()
+                if not new_text:
+                    return handler._send_json({"ok": False, "error": "text cannot be empty"}, 400)
+                if len(new_text) > _MAX_SEGMENT_TEXT_LENGTH:
+                    return handler._send_json(
+                        {"ok": False, "error": f"text too long ({len(new_text)} > {_MAX_SEGMENT_TEXT_LENGTH} chars)"},
+                        400,
+                    )
+                segments[segment_index]["text"] = new_text
 
-        data["segments"] = segments
-        data["_rev"] = rev + 1
-        _save_atomic(tp, json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"))
-        handler._send_json({"ok": True, "revision": rev + 1})
+            data["segments"] = segments
+            data["_rev"] = rev + 1
+            _save_atomic(tp, json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"))
+            handler._send_json({"ok": True, "revision": rev + 1})
     except (OSError, TypeError, ValueError) as e:
         handler._send_json({"ok": False, "error": str(e)}, 500)
 
@@ -319,31 +324,34 @@ def _handle_append_segment(handler: HandlerProtocol, qs: dict[str, Any], video: 
         return handler._send_json({"ok": False, "error": "transcript not found"}, 404)
 
     try:
-        data, rev = _read_transcript(tp)
-        if not _require_revision(obj, rev, handler):
-            return
-        segments = data.get("segments", [])
-        if not isinstance(segments, list):
-            return handler._send_json({"ok": False, "error": "segments is not a list"}, 400)
+        # Read, revision check and write share one lock so two writers holding
+        # the same revision cannot both succeed (the loser gets 409).
+        with path_write_lock(tp):
+            data, rev = _read_transcript(tp)
+            if not _require_revision(obj, rev, handler):
+                return
+            segments = data.get("segments", [])
+            if not isinstance(segments, list):
+                return handler._send_json({"ok": False, "error": "segments is not a list"}, 400)
 
-        new_seg = {
-            "start": round(start, 2),
-            "end": round(end, 2),
-            "text": text,
-            "low_confidence": False,
-        }
+            new_seg = {
+                "start": round(start, 2),
+                "end": round(end, 2),
+                "text": text,
+                "low_confidence": False,
+            }
 
-        insert_idx = len(segments)
-        for i, seg in enumerate(segments):
-            if seg.get("start", 0) > start:
-                insert_idx = i
-                break
-        segments.insert(insert_idx, new_seg)
-        data["segments"] = segments
-        data["_rev"] = rev + 1
+            insert_idx = len(segments)
+            for i, seg in enumerate(segments):
+                if seg.get("start", 0) > start:
+                    insert_idx = i
+                    break
+            segments.insert(insert_idx, new_seg)
+            data["segments"] = segments
+            data["_rev"] = rev + 1
 
-        _save_atomic(tp, json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"))
-        handler._send_json({"ok": True, "segment_index": insert_idx, "revision": rev + 1, "segment": new_seg})
+            _save_atomic(tp, json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"))
+            handler._send_json({"ok": True, "segment_index": insert_idx, "revision": rev + 1, "segment": new_seg})
     except (OSError, TypeError, ValueError) as e:
         handler._send_json({"ok": False, "error": str(e)}, 500)
 
