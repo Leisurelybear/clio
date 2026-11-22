@@ -131,7 +131,7 @@ def handle_get_plans(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     plans = []
     if plans_dir.is_dir():
         for p in sorted(plans_dir.glob("*_plan.json")):
-            day_label = p.stem.replace("_plan", "")
+            day_label = p.stem.removesuffix("_plan")  # only the trailing marker
             if day_label:
                 plans.append({"day_label": day_label, "path": str(p)})
     handler._send_json({"plans": plans})
