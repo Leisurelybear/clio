@@ -12,6 +12,9 @@ from clio.i18n import t
 from clio.utils import parse_retry_after
 
 RETRYABLE_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504})
+# A server-requested Retry-After longer than this fails fast instead of
+# blocking the task (and is never shortened, which would just hit the limit).
+MAX_RETRY_AFTER_SEC = 60.0
 
 
 def _status_message(status_code: int) -> str:
@@ -39,8 +42,13 @@ def request_with_retry(
     max_delay: float = 3.0,
     sleep: Callable[[float], None] = time.sleep,
     cancel_event: threading.Event | None = None,
+    max_retry_after: float = MAX_RETRY_AFTER_SEC,
 ) -> httpx.Response:
-    """Run a request and retry only transient network/service failures."""
+    """Run a request and retry only transient network/service failures.
+
+    ``max_delay`` caps the exponential backoff. A ``Retry-After`` header is a
+    lower bound for the next wait; above ``max_retry_after`` the call fails.
+    """
 
     if attempts < 1:
         raise ValueError("attempts must be at least 1")
@@ -74,13 +82,18 @@ def request_with_retry(
                     t("asr.retry.http_failed", {"label": label, "status": status, "reason": reason})
                 ) from exc
             retry_after = _retry_after_seconds(exc.response)
+            if retry_after is not None and retry_after > max_retry_after:
+                reason = _status_message(status)
+                raise RuntimeError(
+                    t("asr.retry.http_failed", {"label": label, "status": status, "reason": reason})
+                ) from exc
         except httpx.RequestError:
             if attempt == attempts - 1:
                 raise RuntimeError(t("asr.retry.network_failed", {"label": label})) from None
 
         delay = min(base_delay * (2**attempt), max_delay)
         if retry_after is not None:
-            delay = min(retry_after, max_delay)
+            delay = max(retry_after, delay)
         wait_before_retry(delay)
 
     check_cancelled()
