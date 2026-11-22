@@ -352,13 +352,13 @@ class TestWrapWithContext:
         project_dir = str(tmp_path)
 
         assert analyze_mod._read_trip_context(project_dir) == "first version"
-        assert list(analyze_mod._trip_context_cache) == [f"{project_dir}@{ctx_file.stat().st_mtime}"]
+        assert list(analyze_mod._trip_context_cache) == [f"{project_dir}@{analyze_mod._trip_context_version(ctx_file)}"]
 
         ctx_file.write_text("second version", encoding="utf-8")
         os.utime(ctx_file, (1_000_000_100, 1_000_000_100))
 
         assert analyze_mod._read_trip_context(project_dir) == "second version"
-        assert list(analyze_mod._trip_context_cache) == [f"{project_dir}@{ctx_file.stat().st_mtime}"]
+        assert list(analyze_mod._trip_context_cache) == [f"{project_dir}@{analyze_mod._trip_context_version(ctx_file)}"]
 
     def test_trip_context_cache_switches_projects_without_stale_entries(self, tmp_path: Path):
         import clio.analyze as analyze_mod
@@ -382,8 +382,8 @@ class TestWrapWithContext:
 
         assert analyze_mod._read_trip_context(str(project_a)) == "context A updated"
         assert analyze_mod._trip_context_cache == {
-            f"{project_a}@{ctx_a.stat().st_mtime}": "context A updated",
-            f"{project_b}@{project_b.joinpath('templates', 'trip_context.md').stat().st_mtime}": "context B",
+            f"{project_a}@{analyze_mod._trip_context_version(ctx_a)}": "context A updated",
+            f"{project_b}@{analyze_mod._trip_context_version(project_b.joinpath('templates', 'trip_context.md'))}": "context B",
         }
 
     def test_trip_context_cache_replaces_default_and_empty_entries(self, tmp_path: Path, monkeypatch):
@@ -405,7 +405,7 @@ class TestWrapWithContext:
         assert analyze_mod._read_trip_context(project_dir) == "project context"
         project_ctx.unlink()
         assert analyze_mod._read_trip_context(project_dir) == "default context"
-        assert list(analyze_mod._trip_context_cache) == [f"{project_dir}@default@{default_ctx.stat().st_mtime}"]
+        assert list(analyze_mod._trip_context_cache) == [f"{project_dir}@default@{analyze_mod._trip_context_version(default_ctx)}"]
 
         default_ctx.unlink()
         assert analyze_mod._read_trip_context(project_dir) == ""

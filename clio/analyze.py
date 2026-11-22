@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import logging
 import math
 import threading
 from collections.abc import Callable, Sequence
@@ -76,6 +77,8 @@ from clio.prompts import (
 from clio.scene import align_shots_to_boundaries, format_scene_timestamp, scene_ranges
 from clio.transition_review import review_plan_transitions
 from clio.utils import extract_json
+
+logger = logging.getLogger("clio.analyze")
 
 _trip_context_cache: dict[str, str] = {}
 _trip_context_lock = threading.Lock()
@@ -168,40 +171,51 @@ def _refinement_timeline_is_incomplete(original: Any, candidate: Any) -> bool:
     return any(not isinstance(item, dict) for item in candidate)
 
 
+def _trip_context_version(path: Path) -> str:
+    stat = path.stat()
+    return f"{stat.st_mtime_ns}:{stat.st_size}"
+
+
 def _read_trip_context(project_dir: str) -> str:
-    """读取 trip_context.md，按项目目录 + 文件 mtime 缓存。
+    """读取 trip_context.md，按项目目录 + 文件 mtime_ns/size 缓存。
 
     查找优先级：
-    1. <project_dir>/templates/trip_context.md（项目级）
+    1. <project_dir>/templates/trip_context.md（项目级；未设置 project_dir 时跳过，
+       避免读到进程当前目录下的文件）
     2. <default_package>/templates/trip_context.md（包默认）
+
+    项目级文件不是合法 UTF-8（例如被记事本以 ANSI/GBK 保存）时记录警告并回退到包默认。
     """
     from clio.resources import find_resource
     from clio.utils import validate_within_root
 
-    project_root = Path(project_dir).resolve()
-    project_path = project_root / "templates" / "trip_context.md"
-    if project_path.is_file():
-        try:
-            validate_within_root(project_path, project_root)
-        except ValueError:
-            return ""
-        mtime = project_path.stat().st_mtime
-        key = f"{project_dir}@{mtime}"
-        cached = _cached_trip_context(key)
-        if cached is not None:
-            return cached
-        text = project_path.read_text(encoding="utf-8").strip()
-        if text:
-            _store_trip_context(project_dir, key, text)
-            return text
+    if project_dir:
+        project_root = Path(project_dir).resolve()
+        project_path = project_root / "templates" / "trip_context.md"
+        if project_path.is_file():
+            try:
+                validate_within_root(project_path, project_root)
+            except ValueError:
+                return ""
+            key = f"{project_dir}@{_trip_context_version(project_path)}"
+            cached = _cached_trip_context(key)
+            if cached is not None:
+                return cached
+            try:
+                text = project_path.read_text(encoding="utf-8-sig").strip()
+            except UnicodeDecodeError:
+                logger.warning("trip_context.md is not valid UTF-8, using the default template: %s", project_path)
+                text = ""
+            if text:
+                _store_trip_context(project_dir, key, text)
+                return text
     default_path = find_resource("templates/trip_context.md")
     if default_path is not None:
-        mtime = default_path.stat().st_mtime
-        key = f"{project_dir}@default@{mtime}"
+        key = f"{project_dir}@default@{_trip_context_version(default_path)}"
         cached = _cached_trip_context(key)
         if cached is not None:
             return cached
-        text = default_path.read_text(encoding="utf-8").strip()
+        text = default_path.read_text(encoding="utf-8-sig").strip()
         if text:
             _store_trip_context(project_dir, key, text)
             return text
