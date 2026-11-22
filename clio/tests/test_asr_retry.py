@@ -50,7 +50,7 @@ def test_retry_after_seconds_overrides_exponential_backoff():
     assert delays == [2.0]
 
 
-def test_retry_after_is_capped_by_max_delay():
+def test_retry_after_is_honored_beyond_max_delay():
     responses = iter([_response_with_retry_after("30"), _response(200)])
     delays: list[float] = []
 
@@ -61,7 +61,26 @@ def test_retry_after_is_capped_by_max_delay():
         sleep=delays.append,
     )
 
-    assert delays == [3.0]
+    assert delays == [30.0]
+
+
+def test_retry_after_above_limit_fails_without_waiting():
+    calls = 0
+
+    def request():
+        nonlocal calls
+        calls += 1
+        return _response_with_retry_after("120")
+
+    with pytest.raises(RuntimeError, match="HTTP 429"):
+        request_with_retry(
+            request,
+            label="测试请求",
+            max_retry_after=60.0,
+            sleep=lambda _: pytest.fail("must not sleep past the Retry-After limit"),
+        )
+
+    assert calls == 1
 
 
 def test_retry_after_http_date_is_supported(monkeypatch):

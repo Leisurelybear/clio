@@ -1,0 +1,161 @@
+diff --git a/clio/tasks/reindex.py b/clio/tasks/reindex.py
+--- a/clio/tasks/reindex.py
++++ b/clio/tasks/reindex.py
+@@ -222,17 +222,32 @@
+ 
+ 
+ def _build_segment_entries(
+-    comp_files: list[Path], source_path: Path, source_dur: float, ffprobe: str
++    comp_files: list[Path],
++    source_path: Path,
++    source_dur: float,
++    ffprobe: str,
++    stale: list[Path] | None = None,
+ ) -> list[SegmentEntry]:
++    """Build index entries for *comp_files* that belong to *source_path*.
++
++    Existing ``.vmeta`` sidecars are never overwritten: a sidecar that points at
++    another original (same stem, different folder) is left for that source, and a
++    stale one (source or target changed) is reported via *stale* so the caller does
++    not stamp outdated compressed output as fresh.
++    """
+     comp_files.sort(key=lambda p: int(p.stem.split("_", 1)[0]))
+     seg_entries: list[SegmentEntry] = []
+     for cp in comp_files:
+         idx_str = cp.stem.split("_", 1)[0]
+         meta = VideoMeta.read(cp)
+-        if meta is not None and not (
+-            source_path.resolve() == meta.source_path_obj().resolve() and not meta.is_stale(source_path, cp)
+-        ):
+-            meta = None
++        if meta is not None and source_path.resolve() != meta.source_path_obj().resolve():
++            print(t("task.reindex.skip_foreign_meta", {"name": cp.name, "source": meta.source_path}))
++            continue
++        if meta is not None and meta.is_stale(source_path, cp):
++            print(t("task.reindex.skip_stale_meta", {"name": cp.name}))
++            if stale is not None:
++                stale.append(cp)
++            continue
+         if meta is not None and meta.split_info:
+             si = meta.split_info
+             seg_entries.append(
+@@ -277,11 +292,17 @@
+     source_dur: float,
+     comp_files: list[Path],
+     ffprobe: str,
+-) -> None:
+-    seg_entries = _build_segment_entries(comp_files, source_path, source_dur, ffprobe)
++) -> bool:
++    stale: list[Path] = []
++    seg_entries = _build_segment_entries(comp_files, source_path, source_dur, ffprobe, stale)
++    if stale or not seg_entries:
++        # Stale output must be re-compressed first; never index it as fresh.
++        print(t("task.reindex.skip_group", {"name": orig_stem}))
++        return False
+     vindex = VideoIndex.build(source=source_path, source_duration=source_dur, segments=seg_entries)
+     vindex.write(compressed_dir)
+-    print(t("task.reindex.ok", {"name": orig_stem, "count": len(comp_files)}))
++    print(t("task.reindex.ok", {"name": orig_stem, "count": len(seg_entries)}))
++    return True
+ 
+ 
+ def run_reindex(config: AppConfig, ffprobe: str | None = None, stems: set[str] | None = None) -> int:
+@@ -321,8 +342,8 @@
+         with contextlib.suppress(*_PROBE_ERRORS):
+             source_dur = get_duration_sec(source_path, ffprobe)
+ 
+-        _write_group_index(orig_stem, compressed_dir, source_path, source_dur, comp_files, ffprobe)
+-        written_index += 1
++        if _write_group_index(orig_stem, compressed_dir, source_path, source_dur, comp_files, ffprobe):
++            written_index += 1
+ 
+     _save_offline_cache(compressed_dir, offline_cache)
+     print(t("task.reindex.done", {"count": written_index}))
+diff --git a/clio/tests/test_reindex.py b/clio/tests/test_reindex.py
+--- a/clio/tests/test_reindex.py
++++ b/clio/tests/test_reindex.py
+@@ -279,7 +279,7 @@
+         assert [s.segment_number for s in index.segments] == [1, 1]
+ 
+     def test_stale_split_meta_not_trusted(self, config: AppConfig, compressed_dir: Path, input_dir: Path) -> None:
+-        """A stale .vmeta declaring split offsets must be rebuilt, not trusted."""
++        """A stale .vmeta must neither be trusted nor refreshed into a "fresh" one."""
+         (compressed_dir / "001_GL010683.mp4").write_text("fake0")
+         src = input_dir / "GL010683.mp4"
+         src.write_text("fake")
+@@ -301,13 +301,46 @@
+             mock_meta.split_info = None
+             mock_build.return_value = mock_meta
+ 
++            result = run_reindex(config)
++
++        # Stale meta is left alone (compress re-encodes it later) and no index is written.
++        assert result == 0
++        assert mock_build.call_count == 0
++        assert VideoIndex.read("GL010683", compressed_dir) is None
++
++    def test_same_stem_other_source_vmeta_not_overwritten(
++        self, config: AppConfig, compressed_dir: Path, input_dir: Path
++    ) -> None:
++        """Two originals sharing a stem: each .vmeta keeps pointing at its own source."""
++        from clio.vmeta import VideoMeta
++
++        dir_a = input_dir / "a"
++        dir_b = input_dir / "b"
++        dir_a.mkdir()
++        dir_b.mkdir()
++        src_a = dir_a / "GL010683.mp4"
++        src_b = dir_b / "GL010683.mp4"
++        src_a.write_text("source a")
++        src_b.write_text("source b")
++        comp_a = compressed_dir / "001_GL010683.mp4"
++        comp_b = compressed_dir / "002_GL010683.mp4"
++        comp_a.write_text("comp a")
++        comp_b.write_text("comp b")
++        VideoMeta.build(source=src_a, target=comp_a, source_duration=10.0, target_duration=10.0).write(comp_a)
++        VideoMeta.build(source=src_b, target=comp_b, source_duration=20.0, target_duration=20.0).write(comp_b)
++
++        with (
++            patch("clio.tasks.reindex.get_duration_sec", return_value=10.0),
++            patch("clio.tasks.reindex.resolve_binary", return_value="ffprobe"),
++        ):
+             run_reindex(config)
+ 
+-        # Stale meta was replaced (build called) and its offsets were NOT reused.
+-        assert mock_build.call_count == 1
++        meta_b = VideoMeta.read(comp_b)
++        assert meta_b is not None
++        assert meta_b.source_path_obj().resolve() == src_b.resolve()
+         index = VideoIndex.read("GL010683", compressed_dir)
+         assert index is not None
+-        assert index.segments[0].offset_sec == 0.0
++        assert [s.filename for s in index.segments] == [comp_a.name]
+ 
+     def test_fresh_split_meta_offsets_kept(self, config: AppConfig, compressed_dir: Path, input_dir: Path) -> None:
+         """A fresh .vmeta with split offsets is kept verbatim (no averaging)."""
+diff --git a/clio/locales/en.json b/clio/locales/en.json
+--- a/clio/locales/en.json
++++ b/clio/locales/en.json
+@@ -695,6 +695,9 @@
+   "task.reindex.rebuilding": "  Rebuilding video index...",
+   "task.reindex.scan_time": "  Scan took {ms}ms — do not interrupt",
+   "task.reindex.skip_no_source": "  [skip] {name}: source video not found",
++  "task.reindex.skip_foreign_meta": "  [skip] {name}: .vmeta belongs to another source ({source}), left unchanged",
++  "task.reindex.skip_group": "  [skip] {name}: compressed files are outdated, re-run compress to rebuild the index",
++  "task.reindex.skip_stale_meta": "  [skip] {name}: source or compressed file changed since .vmeta was written",
+   "task.rerun_title": "Rerun {task}: {video}",
+   "task.restart_interrupted": "Application restarted; task execution was interrupted",
+   "task.retry_blocked": "This task used temporary context or custom prompts and cannot be retried safely; submit it again.",
+diff --git a/clio/locales/zh-CN.json b/clio/locales/zh-CN.json
+--- a/clio/locales/zh-CN.json
++++ b/clio/locales/zh-CN.json
+@@ -695,6 +695,9 @@
+   "task.reindex.rebuilding": "  视频索引重建中...",
+   "task.reindex.scan_time": "  扫描耗时 {ms}ms — 请勿中断",
+   "task.reindex.skip_no_source": "  [跳过] {name}: 找不到原始视频",
++  "task.reindex.skip_foreign_meta": "  [跳过] {name}: .vmeta 属于另一个原片（{source}），保持不变",
++  "task.reindex.skip_group": "  [跳过] {name}: 压缩文件已过期，请重新压缩以重建索引",
++  "task.reindex.skip_stale_meta": "  [跳过] {name}: .vmeta 写入后原片或压缩文件已变化",
+   "task.rerun_title": "重跑 {task}: {video}",
+   "task.restart_interrupted": "应用重启，任务执行已中断",
+   "task.retry_blocked": "此任务使用了临时上下文或自定义提示词，无法安全重试；请重新提交运行。",

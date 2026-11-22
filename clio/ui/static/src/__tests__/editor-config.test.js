@@ -376,14 +376,13 @@ describe('_renderProviderList', () => {
     const html = _renderProviderList({
       gemini: { ...GEMINI_PROVIDER, prompt_price_per_1m_usd: 0.5, completion_price_per_1m_usd: 1.25 },
     });
-    expect(html).toContain('USD / 1M');
-    expect(html).toContain('0.5');
-    expect(html).toContain('1.25');
+    expect(html).toContain('$0.50 / $1.25 / 1M');
+    expect(html).toContain('provider-legacy-price');
   });
 
   it('hides token pricing when both prices are zero', () => {
     const html = _renderProviderList({ gemini: GEMINI_PROVIDER });
-    expect(html).not.toContain('USD / 1M');
+    expect(html).not.toContain('provider-legacy-price');
   });
 
   it('renders multiple provider cards', () => {

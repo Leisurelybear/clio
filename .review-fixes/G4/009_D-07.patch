@@ -1,0 +1,56 @@
+diff --git a/clio/ui/services/file_service.py b/clio/ui/services/file_service.py
+--- a/clio/ui/services/file_service.py
++++ b/clio/ui/services/file_service.py
+@@ -237,11 +237,22 @@
+ def _prune_rotated_backups(path: Path, keep: int = 3) -> None:
+     """Keep at most *keep* timestamped ``.bak.*`` sidecars besides ``.bak``."""
+     bak = path.with_suffix(path.suffix + ".bak")
+-    rotated = sorted(
+-        (p for p in path.parent.glob(path.name + ".bak.*") if p.is_file() and p != bak),
+-        key=lambda p: p.stat().st_mtime,
+-        reverse=True,
+-    )
++    prefix = path.name + ".bak."
++    # No glob: names such as "001_trip[1].json" would be read as a character class.
++    candidates: list[tuple[float, Path]] = []
++    try:
++        entries = list(path.parent.iterdir())
++    except OSError:
++        return
++    for p in entries:
++        if not p.name.startswith(prefix) or p == bak:
++            continue
++        try:
++            if p.is_file():
++                candidates.append((p.stat().st_mtime, p))
++        except OSError:
++            continue
++    rotated = [p for _, p in sorted(candidates, key=lambda item: item[0], reverse=True)]
+     for old in rotated[keep:]:
+         with contextlib.suppress(OSError):
+             old.unlink()
+diff --git a/clio/tests/test_fix_file_service.py b/clio/tests/test_fix_file_service.py
+--- a/clio/tests/test_fix_file_service.py
++++ b/clio/tests/test_fix_file_service.py
+@@ -46,3 +46,21 @@
+     assert target.with_suffix(".json.bak").read_bytes() == b"2"
+     rotated = [p for p in tmp_path.iterdir() if p.name.startswith("a.json.bak.")]
+     assert [p.read_bytes() for p in rotated] == [b"1"]
++
++
++def test_prune_rotated_backups_handles_glob_metacharacters(tmp_path: Path):
++    from clio.ui.services.file_service import _prune_rotated_backups
++
++    target = tmp_path / "001_trip[1].json"
++    target.write_bytes(b"x")
++    for i in range(6):
++        rotated = tmp_path / f"001_trip[1].json.bak.{i}"
++        rotated.write_bytes(b"old")
++        os.utime(rotated, (1_000_000 + i, 1_000_000 + i))
++    (tmp_path / "001_trip[1].json.bak").write_bytes(b"bak")
++
++    _prune_rotated_backups(target, keep=3)
++
++    left = sorted(p.name for p in tmp_path.iterdir() if p.name.startswith("001_trip[1].json.bak."))
++    assert left == ["001_trip[1].json.bak.3", "001_trip[1].json.bak.4", "001_trip[1].json.bak.5"]
++    assert (tmp_path / "001_trip[1].json.bak").exists()

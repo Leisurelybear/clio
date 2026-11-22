@@ -34,10 +34,19 @@ import { phaseNewSource } from './video-fade.js';
 import { preloadNextSegment, clearPreload } from './preview-preload.js';
 import { videoUrlFor } from './video-url.js';
 import { resolvePlanMedia, localSecForPlayer } from './plan-preview-media.js';
+import { findPlanVideo, findTimelineVideoIndex } from './plan-video.js';
 import { t, onLocaleChange } from './i18n.js';
 import { planIndexesKey, renderPlanSubtitleSettings, syncPlanExpandFromPreview } from './viewer-preview-support.js';
 
 let _fadeCancel = null;
+/** Pending one-shot `loadedmetadata` handler of the last source switch. */
+let _pendingMetadata = null;
+
+function _clearPendingMetadata() {
+  if (!_pendingMetadata) return;
+  _pendingMetadata.player.removeEventListener('loadedmetadata', _pendingMetadata.handler);
+  _pendingMetadata = null;
+}
 
 function isGlobalTimelineUi() {
   return state.currentEntity === 'plan'
@@ -129,6 +138,9 @@ function _loadAndSeekSource(v, seekSec, wantPlay, media = null) {
       ? { day: v.cut_day, rev: v.rev, project: state.currentProjectName }
       : { abspath: v.abs_path, project: state.currentProjectName })
     && player.readyState >= 1;
+  // A previous switch whose metadata never arrived must not seek/play the
+  // new source with stale arguments.
+  _clearPendingMetadata();
   if (same) {
     doSeek();
   } else {
@@ -143,12 +155,15 @@ function _loadAndSeekSource(v, seekSec, wantPlay, media = null) {
     } else {
       player.src = url;
     }
-    player.addEventListener('loadedmetadata', () => {
+    const onMetadata = () => {
+      if (_pendingMetadata?.handler === onMetadata) _pendingMetadata = null;
       if (!isGlobalTimelineUi()) {
         $('player-time').textContent = `${fmtTime(0)} / ${fmtTime(player.duration)}`;
       }
       doSeek();
-    }, { once: true });
+    };
+    _pendingMetadata = { player, handler: onMetadata };
+    player.addEventListener('loadedmetadata', onMetadata, { once: true });
   }
   if (!isGlobalTimelineUi()) {
     loadWaveformForCurrentVideo();
@@ -345,15 +360,14 @@ function _resyncPlanPreviewFromPlayer(player, opts = {}) {
   const curFile = state.currentVideo;
   const v = (state.videos || []).find((x) => x.file === curFile)
     || (state.previewIndex >= 0
-      ? state.videos.find(
-        (x) => String(x.index) === String(tl.segments[state.previewIndex]?.videoIndex),
-      )
+      ? findPlanVideo(state.videos, tl.segments[state.previewIndex]?.videoIndex)
       : null);
   if (!v) return false;
 
   const offset = state.source === 'original' ? (v.offset_sec || 0) : 0;
   const planSec = Math.max(0, player.currentTime - offset);
-  const loc = locateSegmentByPlanSec(tl, v.index, planSec, state.previewIndex);
+  const timelineIndex = findTimelineVideoIndex(v, tl) ?? v.index;
+  const loc = locateSegmentByPlanSec(tl, timelineIndex, planSec, state.previewIndex);
   if (!loc) return false;
 
   state.previewIndex = loc.segIndex;

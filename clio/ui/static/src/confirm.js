@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Promise-based replacements for the browser's native dialogs.
  *
  * Native confirm/alert/prompt block the event loop, cannot be styled, and are

@@ -246,7 +246,8 @@ describe('videoThumbHtml', () => {
     expect(html).toContain('/api/cover?');
     expect(html).toContain('file=001_title.jpg');
     expect(html).toContain('project=France');
-    expect(html).toContain('token=tok123');
+    expect(html).not.toContain('token=');
+    expect(html).not.toContain('tok123');
     expect(html).toContain('video-thumb-fallback');
   });
 });
@@ -293,7 +294,7 @@ describe('removeSelectedVideosFromProject', () => {
       if (method === 'GET' && url === '/api/videos/selected') {
         return { videos: ['D:/clips/001_a.mp4', 'D:/clips/002_b.mp4', 'D:/clips/003_c.mp4'] };
       }
-      if (method === 'PUT' && url === '/api/videos/selected') return { ok: true };
+      if (method === 'POST' && url === '/api/videos/selected/remove') return { ok: true };
       if (method === 'GET' && String(url).startsWith('/api/videos?')) {
         return { videos: [{ file: '002_b.mp4', abs_path: 'D:/clips/002_b.mp4' }], groups: {} };
       }
@@ -305,9 +306,10 @@ describe('removeSelectedVideosFromProject', () => {
 
     expect(confirmSpy).toHaveBeenCalledWith('确定从项目中移除所选的 2 个视频吗？', expect.anything());
     expect(result).toEqual({ removed: 2, failed: 0 });
-    expect(api).toHaveBeenCalledWith('PUT', '/api/videos/selected', {
-      videos: ['D:/clips/002_b.mp4'],
+    expect(api).toHaveBeenCalledWith('POST', '/api/videos/selected/remove', {
+      paths: ['D:/clips/001_a.mp4', 'D:/clips/003_c.mp4'],
     });
+    expect(api).not.toHaveBeenCalledWith('PUT', '/api/videos/selected', expect.anything());
     expect(state.selectedFiles).toEqual([]);
     vi.unstubAllGlobals();
   });
@@ -345,7 +347,7 @@ describe('removeSelectedVideosFromProject', () => {
       if (method === 'GET' && url === '/api/videos/selected') {
         return { videos: ['D:/clips/001_a.mp4', 'D:/clips/002_b.mp4'] };
       }
-      if (method === 'PUT' && url === '/api/videos/selected') return { ok: true };
+      if (method === 'POST' && url === '/api/videos/selected/remove') return { ok: true };
       if (method === 'GET' && String(url).startsWith('/api/videos?')) {
         return { videos: [state.videos[1]], groups: {} };
       }
@@ -356,10 +358,86 @@ describe('removeSelectedVideosFromProject', () => {
     const result = await removeSelectedVideosFromProject();
 
     expect(result).toEqual({ removed: 1, failed: 0 });
-    expect(api).toHaveBeenCalledWith('PUT', '/api/videos/selected', {
-      videos: ['D:/clips/002_b.mp4'],
+    expect(api).toHaveBeenCalledWith('POST', '/api/videos/selected/remove', {
+      paths: ['D:/clips/001_a.mp4'],
     });
     expect(state.selectedFiles).toEqual([]);
     vi.unstubAllGlobals();
+  });
+
+  it('serializes overlapping removals so the second one sees the first', async () => {
+    document.body.innerHTML = `
+      <button id=btn-select-videos></button>
+      <ul id=video-list></ul>
+    `;
+    const { api } = await import('../api.js');
+    api.mockReset();
+    const { state } = await import('../state.js');
+    state.videos = [];
+    state.selectedFiles = [];
+    state.source = 'original';
+    let server = ['D:/clips/001_a.mp4', 'D:/clips/002_b.mp4', 'D:/clips/003_c.mp4'];
+    api.mockImplementation(async (method, url, body) => {
+      if (method === 'GET' && url === '/api/videos/selected') {
+        const snapshot = server.slice();
+        await new Promise(resolve => setTimeout(resolve, 0));
+        return { videos: snapshot };
+      }
+      if (method === 'POST' && url === '/api/videos/selected/remove') {
+        const drop = new Set(body.paths);
+        const removed = server.filter(p => drop.has(p));
+        server = server.filter(p => !drop.has(p));
+        return { ok: true, removed, videos: server.slice() };
+      }
+      if (method === 'GET' && String(url).startsWith('/api/videos?')) return { videos: [], groups: {} };
+      return {};
+    });
+
+    const { removeVideoFromProject } = await import('../sidebar-data.js');
+    await Promise.all([
+      removeVideoFromProject('001_a.mp4', 'D:/clips/001_a.mp4'),
+      removeVideoFromProject('003_c.mp4', 'D:/clips/003_c.mp4'),
+    ]);
+
+    expect(server).toEqual(['D:/clips/002_b.mp4']);
+  });
+
+  it('keeps a video added elsewhere between loading the list and removing', async () => {
+    document.body.innerHTML = `
+      <button id=btn-select-videos></button>
+      <ul id=video-list></ul>
+    `;
+    const { api } = await import('../api.js');
+    api.mockReset();
+    const { state } = await import('../state.js');
+    state.videos = [];
+    state.selectedFiles = [];
+    state.source = 'original';
+    let server = ['D:/clips/001_a.mp4', 'D:/clips/002_b.mp4'];
+    let addedElsewhere = false;
+    api.mockImplementation(async (method, url, body) => {
+      if (method === 'GET' && url === '/api/videos/selected') {
+        const snapshot = server.slice();
+        if (!addedElsewhere) {
+          server = [...server, 'D:/clips/004_new.mp4']; // another tab adds a clip once
+          addedElsewhere = true;
+        }
+        return { videos: snapshot };
+      }
+      if (method === 'POST' && url === '/api/videos/selected/remove') {
+        const drop = new Set(body.paths);
+        server = server.filter(p => !drop.has(p));
+        return { ok: true, removed: body.paths, videos: server.slice() };
+      }
+      if (method === 'GET' && String(url).startsWith('/api/videos?')) return { videos: [], groups: {} };
+      return {};
+    });
+
+    const { removeVideoFromProject } = await import('../sidebar-data.js');
+    const result = await removeVideoFromProject('001_a.mp4', 'D:/clips/001_a.mp4');
+
+    expect(result).toEqual({ removed: 1, failed: 0 });
+    expect(server).toEqual(['D:/clips/002_b.mp4', 'D:/clips/004_new.mp4']);
+    expect(api).not.toHaveBeenCalledWith('PUT', '/api/videos/selected', expect.anything());
   });
 });

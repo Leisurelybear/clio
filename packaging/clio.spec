@@ -21,6 +21,13 @@ from PyInstaller.utils.hooks import collect_submodules
 
 ROOT = Path(SPECPATH).parent.resolve()
 
+# collect_submodules("keyring") only warns when the package is missing, which
+# would ship a bundle that silently stores credentials in a plaintext .env.
+try:
+    import keyring  # noqa: F401
+except ImportError as exc:
+    raise SystemExit('keyring is required for the desktop build: pip install "keyring==25.7.0"') from exc
+
 IS_MAC = sys.platform == "darwin"
 
 _PLATFORM_HIDDENIMPORTS = [

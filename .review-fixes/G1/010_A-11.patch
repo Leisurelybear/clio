@@ -1,0 +1,149 @@
+diff --git a/clio/analyze.py b/clio/analyze.py
+--- a/clio/analyze.py
++++ b/clio/analyze.py
+@@ -80,6 +80,14 @@
+ 
+ logger = logging.getLogger("clio.analyze")
+ 
++
++class AnalysisCancelled(InterruptedError, RuntimeError):
++    """Raised at every user-cancellation point in AI analysis/planning.
++
++    Subclasses InterruptedError (the project-wide cancel signal) and, for
++    callers that historically caught the RuntimeError raised here, RuntimeError.
++    """
++
+ _trip_context_cache: dict[str, str] = {}
+ _trip_context_lock = threading.Lock()
+ 
+@@ -642,7 +650,7 @@
+ ) -> str:
+     # Check cancel_event before starting AI call
+     if cancel_event and cancel_event.is_set():
+-        raise RuntimeError(t("analyze.cancelled_by_user", {"label": label}))
++        raise AnalysisCancelled(t("analyze.cancelled_by_user", {"label": label}))
+ 
+     if debug_print:
+         print("=" * 60)
+@@ -1264,7 +1272,7 @@
+         text = call_analyze(prompt)
+         # Check cancel_event after AI call but before validation
+         if cancel_event and cancel_event.is_set():
+-            raise RuntimeError(t("analyze.cancelled"))
++            raise AnalysisCancelled(t("analyze.cancelled"))
+         result = _validate_with_retry(
+             text,
+             video_path,
+@@ -1297,7 +1305,7 @@
+     task_prompts: dict[str, str] | None = None,
+ ) -> dict:
+     if cancel_event and cancel_event.is_set():
+-        raise RuntimeError(t("analyze.voiceover_cancelled"))
++        raise AnalysisCancelled(t("analyze.voiceover_cancelled"))
+ 
+     provider, model = get_task_provider(config, TaskName.VOICEOVER)
+ 
+@@ -1387,7 +1395,7 @@
+ ) -> dict:
+     """Generate one voiceover from its planned sequence position and adjacent context."""
+     if cancel_event and cancel_event.is_set():
+-        raise RuntimeError(t("analyze.voiceover_cancelled"))
++        raise AnalysisCancelled(t("analyze.voiceover_cancelled"))
+ 
+     sequence = plan.get("sequence", [])
+     if not isinstance(sequence, list) or position < 0 or position >= len(sequence):
+@@ -1754,6 +1762,7 @@
+             debug_print=config.ai.debug_print_prompt,
+             token_store=token_store,
+             task_name=token_task_name,
++            cancel_event=cancel_event,
+             system_message=system,
+             **_usage_meta(config, TaskName.VLOG_PLAN),
+         )
+@@ -2111,10 +2120,10 @@
+             )
+     except Exception as exc:  # translate provider failures after cancellation
+         if cancel_event is not None and cancel_event.is_set():
+-            raise InterruptedError(t("analyze.cancelled")) from exc
++            raise AnalysisCancelled(t("analyze.cancelled")) from exc
+         raise
+     if cancel_event is not None and cancel_event.is_set():
+-        raise InterruptedError(t("analyze.cancelled"))
++        raise AnalysisCancelled(t("analyze.cancelled"))
+     result = extract_json(text)
+     if not isinstance(result, dict):
+         print(t("analyze.refine_text_bad_structure"))
+@@ -2168,10 +2177,10 @@
+             )
+     except Exception as exc:  # translate provider failures after cancellation
+         if cancel_event is not None and cancel_event.is_set():
+-            raise InterruptedError(t("analyze.cancelled")) from exc
++            raise AnalysisCancelled(t("analyze.cancelled")) from exc
+         raise
+     if cancel_event is not None and cancel_event.is_set():
+-        raise InterruptedError(t("analyze.cancelled"))
++        raise AnalysisCancelled(t("analyze.cancelled"))
+ 
+     candidate = extract_json(text)
+     if not isinstance(candidate, dict) or any(
+@@ -2254,10 +2263,10 @@
+             )
+     except Exception as exc:  # translate provider failures after cancellation
+         if cancel_event is not None and cancel_event.is_set():
+-            raise InterruptedError(t("analyze.cancelled")) from exc
++            raise AnalysisCancelled(t("analyze.cancelled")) from exc
+         raise
+     if cancel_event is not None and cancel_event.is_set():
+-        raise InterruptedError(t("analyze.cancelled"))
++        raise AnalysisCancelled(t("analyze.cancelled"))
+     result = extract_json(text)
+     if not isinstance(result, dict):
+         print(t("analyze.refine_script_bad_structure"))
+diff --git a/clio/tests/test_analyze_funcs.py b/clio/tests/test_analyze_funcs.py
+--- a/clio/tests/test_analyze_funcs.py
++++ b/clio/tests/test_analyze_funcs.py
+@@ -2219,3 +2219,44 @@
+     )
+     result = plan_daily_vlog([{"index": "001", "timeline": [{"start": "00:00", "end": "00:10"}]}], _fake_config())
+     assert result["day_title"] == "draft"
++
++
++def test_call_ai_cancellation_is_an_interrupted_error():
++    from clio.analyze import AnalysisCancelled
++
++    cancel = threading.Event()
++    cancel.set()
++    provider_call = MagicMock()
++
++    with pytest.raises(InterruptedError) as excinfo:
++        _call_ai("plan", "p", "m", "prompt", provider_call, cancel_event=cancel)
++
++    assert isinstance(excinfo.value, AnalysisCancelled)
++    assert isinstance(excinfo.value, RuntimeError)  # backwards compatible with older callers
++    provider_call.assert_not_called()
++
++
++def test_plan_daily_vlog_forwards_cancel_event_to_every_stage(monkeypatch):
++    cfg = _fake_config()
++    cancel = threading.Event()
++    seen: list[Any] = []
++
++    def fake_call_ai(*_args: Any, **kwargs: Any) -> str:
++        seen.append(kwargs.get("cancel_event"))
++        return json.dumps(
++            {
++                "day_title": "day1",
++                "theme": "",
++                "total_estimated_sec": 10,
++                "sequence": [{"index": "001", "use_timeline": "00:00-00:10"}],
++            }
++        )
++
++    monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (MagicMock(), "model"))
++    monkeypatch.setattr("clio.analyze._call_ai", fake_call_ai)
++    clips = [{"index": "001", "title": "A", "timeline": [{"start": "00:00", "end": "00:10", "description": "x"}]}]
++
++    plan_daily_vlog(clips, cfg, "day1", use_transcripts=False, cancel_event=cancel)
++
++    assert seen
++    assert all(event is cancel for event in seen)

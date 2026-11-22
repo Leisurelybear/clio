@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import logging
 import math
 import threading
 from collections.abc import Callable, Sequence
@@ -24,6 +25,7 @@ from clio.ai.structured import (
 )
 from clio.ai.token_usage import estimate_cost_usd
 from clio.config import AppConfig
+from clio.config.models import resolve_model_prices
 from clio.cut import parse_time_range
 from clio.i18n import t
 from clio.log import format_size, timed
@@ -32,6 +34,16 @@ from clio.plan_input import (
     plan_candidate_limit,
     resolve_plan_candidates,
     should_shortlist_plan_clips,
+)
+from clio.plan_pacing import (
+    MAX_REPORTED_SHORT_SEGMENTS,
+    MIN_SEGMENT_SEC,
+    MIN_TOTAL_DURATION_RATIO,
+    effective_max_segments,
+    is_pacing_improvement,
+    notable_fragments,
+    segment_durations,
+    total_seconds,
 )
 from clio.prompt_overrides import format_prompt_template, resolve_prompt_template
 from clio.prompts import (
@@ -63,10 +75,23 @@ from clio.prompts import (
     WINDOW_SUMMARY_PROMPT,
 )
 from clio.scene import align_shots_to_boundaries, format_scene_timestamp, scene_ranges
+from clio.timecode import parse_timestamp
 from clio.transition_review import review_plan_transitions
 from clio.utils import extract_json
 
+logger = logging.getLogger("clio.analyze")
+
+
+class AnalysisCancelled(InterruptedError, RuntimeError):
+    """Raised at every user-cancellation point in AI analysis/planning.
+
+    Subclasses InterruptedError (the project-wide cancel signal) and, for
+    callers that historically caught the RuntimeError raised here, RuntimeError.
+    """
+
+
 _trip_context_cache: dict[str, str] = {}
+_trip_context_lock = threading.Lock()
 
 
 def _task_temperature(config: AppConfig, task: TaskName) -> float | None:
@@ -87,11 +112,22 @@ def _usage_meta(config: AppConfig, task: TaskName) -> dict[str, Any]:
             "provider_name": "",
             "prompt_price_per_1m_usd": 0.0,
             "completion_price_per_1m_usd": 0.0,
+            "price_known": False,
         }
+    prices = resolve_model_prices(provider_cfg, task_cfg.model) if provider_cfg is not None else None
+    if prices is None:
+        return {
+            "provider_name": task_cfg.provider,
+            "prompt_price_per_1m_usd": 0.0,
+            "completion_price_per_1m_usd": 0.0,
+            "price_known": False,
+        }
+    prompt_price, completion_price = prices
     return {
         "provider_name": task_cfg.provider,
-        "prompt_price_per_1m_usd": float(getattr(provider_cfg, "prompt_price_per_1m_usd", 0.0) or 0.0),
-        "completion_price_per_1m_usd": float(getattr(provider_cfg, "completion_price_per_1m_usd", 0.0) or 0.0),
+        "prompt_price_per_1m_usd": prompt_price,
+        "completion_price_per_1m_usd": completion_price,
+        "price_known": True,
     }
 
 
@@ -114,10 +150,16 @@ _REFINEMENT_IMMUTABLE_FIELDS = {
 def _store_trip_context(project_dir: str, key: str, text: str) -> None:
     """Keep at most one cached trip context for each project directory."""
     prefix = f"{project_dir}@"
-    for cached_key in list(_trip_context_cache):
-        if cached_key.startswith(prefix):
-            del _trip_context_cache[cached_key]
-    _trip_context_cache[key] = text
+    with _trip_context_lock:
+        for cached_key in list(_trip_context_cache):
+            if cached_key.startswith(prefix):
+                _trip_context_cache.pop(cached_key, None)
+        _trip_context_cache[key] = text
+
+
+def _cached_trip_context(key: str) -> str | None:
+    with _trip_context_lock:
+        return _trip_context_cache.get(key)
 
 
 def _refinement_value_compatible(original: Any, candidate: Any) -> bool:
@@ -139,38 +181,51 @@ def _refinement_timeline_is_incomplete(original: Any, candidate: Any) -> bool:
     return any(not isinstance(item, dict) for item in candidate)
 
 
+def _trip_context_version(path: Path) -> str:
+    stat = path.stat()
+    return f"{stat.st_mtime_ns}:{stat.st_size}"
+
+
 def _read_trip_context(project_dir: str) -> str:
-    """读取 trip_context.md，按项目目录 + 文件 mtime 缓存。
+    """读取 trip_context.md，按项目目录 + 文件 mtime_ns/size 缓存。
 
     查找优先级：
-    1. <project_dir>/templates/trip_context.md（项目级）
+    1. <project_dir>/templates/trip_context.md（项目级；未设置 project_dir 时跳过，
+       避免读到进程当前目录下的文件）
     2. <default_package>/templates/trip_context.md（包默认）
+
+    项目级文件不是合法 UTF-8（例如被记事本以 ANSI/GBK 保存）时记录警告并回退到包默认。
     """
     from clio.resources import find_resource
     from clio.utils import validate_within_root
 
-    project_root = Path(project_dir).resolve()
-    project_path = project_root / "templates" / "trip_context.md"
-    if project_path.is_file():
-        try:
-            validate_within_root(project_path, project_root)
-        except ValueError:
-            return ""
-        mtime = project_path.stat().st_mtime
-        key = f"{project_dir}@{mtime}"
-        if key in _trip_context_cache:
-            return _trip_context_cache[key]
-        text = project_path.read_text(encoding="utf-8").strip()
-        if text:
-            _store_trip_context(project_dir, key, text)
-            return text
+    if project_dir:
+        project_root = Path(project_dir).resolve()
+        project_path = project_root / "templates" / "trip_context.md"
+        if project_path.is_file():
+            try:
+                validate_within_root(project_path, project_root)
+            except ValueError:
+                return ""
+            key = f"{project_dir}@{_trip_context_version(project_path)}"
+            cached = _cached_trip_context(key)
+            if cached is not None:
+                return cached
+            try:
+                text = project_path.read_text(encoding="utf-8-sig").strip()
+            except UnicodeDecodeError:
+                logger.warning("trip_context.md is not valid UTF-8, using the default template: %s", project_path)
+                text = ""
+            if text:
+                _store_trip_context(project_dir, key, text)
+                return text
     default_path = find_resource("templates/trip_context.md")
     if default_path is not None:
-        mtime = default_path.stat().st_mtime
-        key = f"{project_dir}@default@{mtime}"
-        if key in _trip_context_cache:
-            return _trip_context_cache[key]
-        text = default_path.read_text(encoding="utf-8").strip()
+        key = f"{project_dir}@default@{_trip_context_version(default_path)}"
+        cached = _cached_trip_context(key)
+        if cached is not None:
+            return cached
+        text = default_path.read_text(encoding="utf-8-sig").strip()
         if text:
             _store_trip_context(project_dir, key, text)
             return text
@@ -592,11 +647,12 @@ def _call_ai(
     provider_name: str = "",
     prompt_price_per_1m_usd: float = 0.0,
     completion_price_per_1m_usd: float = 0.0,
+    price_known: bool = True,
     retry_on_truncated: bool = True,
 ) -> str:
     # Check cancel_event before starting AI call
     if cancel_event and cancel_event.is_set():
-        raise RuntimeError(t("analyze.cancelled_by_user", {"label": label}))
+        raise AnalysisCancelled(t("analyze.cancelled_by_user", {"label": label}))
 
     if debug_print:
         print("=" * 60)
@@ -624,6 +680,7 @@ def _call_ai(
                     prompt_price_per_1m_usd,
                     completion_price_per_1m_usd,
                 ),
+                price_known=price_known,
             )
         if resp.blocked:
             raise RuntimeError(t("ai.response_blocked", {"reason": resp.block_reason}))
@@ -638,22 +695,8 @@ def _call_ai(
 
 def _timeline_intervals(clip: dict) -> list[tuple[float, float]]:
     def parse_strict(value: Any) -> float:
-        if isinstance(value, bool) or value is None:
-            raise ValueError("invalid timestamp")
-        if isinstance(value, (int, float)):
-            result = float(value)
-            if math.isfinite(result):
-                return result
-            raise ValueError("invalid timestamp")
-        text = str(value).strip()
-        parts = text.split(":")
-        if len(parts) == 2:
-            result = int(parts[0]) * 60 + float(parts[1])
-        elif len(parts) == 3:
-            result = int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
-        else:
-            raise ValueError("invalid timestamp")
-        if not math.isfinite(result):
+        result = parse_timestamp(value)
+        if result is None:
             raise ValueError("invalid timestamp")
         return result
 
@@ -699,6 +742,50 @@ def _plan_index_key(value: Any) -> int | str:
         return int(str(value).strip())
     except (TypeError, ValueError):
         return str(value).strip()
+
+
+def _plan_pacing_issues(result: dict, target_duration_sec: float) -> list[str]:
+    """Report pacing problems that are advisory for the review pass.
+
+    These issues never fail the plan on their own: short days may genuinely have
+    little material. They are fed to the review pass so the model extends or
+    merges existing cuts instead of shipping a string of 5-second fragments.
+    """
+    sequence = [segment for segment in result.get("sequence", []) if isinstance(segment, dict)]
+    if not sequence:
+        return []
+    durations = segment_durations(sequence)
+    total = sum(durations)
+    issues: list[str] = []
+
+    if target_duration_sec > 0:
+        minimum = target_duration_sec * MIN_TOTAL_DURATION_RATIO
+        if total + 0.05 < minimum:
+            issues.append(
+                t(
+                    "analyze.plan_issue_total_short",
+                    {
+                        "total": f"{total:.1f}",
+                        "target": f"{target_duration_sec:.1f}",
+                        "minimum": f"{minimum:.1f}",
+                    },
+                )
+            )
+
+    fragments = notable_fragments(durations)
+    if fragments:
+        shown = fragments[:MAX_REPORTED_SHORT_SEGMENTS]
+        issues.append(
+            t(
+                "analyze.plan_issue_fragments",
+                {
+                    "positions": ", ".join(str(position) for position in shown),
+                    "count": len(fragments),
+                    "min": f"{MIN_SEGMENT_SEC:.0f}",
+                },
+            )
+        )
+    return issues
 
 
 def _plan_validation_issues(
@@ -1173,7 +1260,7 @@ def analyze_video(
         text = call_analyze(prompt)
         # Check cancel_event after AI call but before validation
         if cancel_event and cancel_event.is_set():
-            raise RuntimeError(t("analyze.cancelled"))
+            raise AnalysisCancelled(t("analyze.cancelled"))
         result = _validate_with_retry(
             text,
             video_path,
@@ -1206,7 +1293,7 @@ def generate_voiceover(
     task_prompts: dict[str, str] | None = None,
 ) -> dict:
     if cancel_event and cancel_event.is_set():
-        raise RuntimeError(t("analyze.voiceover_cancelled"))
+        raise AnalysisCancelled(t("analyze.voiceover_cancelled"))
 
     provider, model = get_task_provider(config, TaskName.VOICEOVER)
 
@@ -1296,7 +1383,7 @@ def generate_plan_voiceover(
 ) -> dict:
     """Generate one voiceover from its planned sequence position and adjacent context."""
     if cancel_event and cancel_event.is_set():
-        raise RuntimeError(t("analyze.voiceover_cancelled"))
+        raise AnalysisCancelled(t("analyze.voiceover_cancelled"))
 
     sequence = plan.get("sequence", [])
     if not isinstance(sequence, list) or position < 0 or position >= len(sequence):
@@ -1635,8 +1722,9 @@ def plan_daily_vlog(
     outline_template = resolve_prompt_template("plan_outline", PLAN_OUTLINE_PROMPT, config, task_prompts=task_prompts)
     review_template = resolve_prompt_template("plan_review", PLAN_REVIEW_PROMPT, config, task_prompts=task_prompts)
     max_clips = int(getattr(config.plan, "max_clips_per_day", 0) or 0)
-    max_segments = int(getattr(config.plan, "max_segments", 40) or 0)
+    raw_max_segments = int(getattr(config.plan, "max_segments", 40) or 0)
     target_duration_sec = float(getattr(config.plan, "target_duration_sec", 0) or 0)
+    max_segments = effective_max_segments(raw_max_segments, target_duration_sec)
     system = _system_context(config)
 
     def call_stage(
@@ -1662,6 +1750,7 @@ def plan_daily_vlog(
             debug_print=config.ai.debug_print_prompt,
             token_store=token_store,
             task_name=token_task_name,
+            cancel_event=cancel_event,
             system_message=system,
             **_usage_meta(config, TaskName.VLOG_PLAN),
         )
@@ -1683,6 +1772,49 @@ def plan_daily_vlog(
                 print(t("analyze.plan_review_fallback"))
                 return draft
             raise
+
+    def try_pacing_repair(plan_obj: dict, issues: list[str]) -> dict | None:
+        """One extra review pass for pacing only; never raises on model failure."""
+        prompt = _make_plan_review_prompt(
+            plan_obj,
+            issues,
+            review_template=review_template,
+            clips_json=clips_json,
+            max_clips=max_clips,
+            max_segments=max_segments,
+            target_duration_sec=target_duration_sec,
+            day_label=day_label,
+            context_suffix=context_suffix,
+            config=config,
+            context_override=context_override,
+        )
+        try:
+            text = call_stage(t("analyze.label.vlog_plan_review"), prompt, VLOG_PLAN_REVIEW_OUTPUT)
+        except InterruptedError:
+            raise
+        except Exception:
+            if cancel_event is not None and cancel_event.is_set():
+                raise
+            return None
+        try:
+            payload = extract_json(text)
+        except ValueError:
+            return None
+        candidate = _plan_from_review_payload(payload)
+        if candidate is None:
+            return None
+        repaired, problems = _validate_plan_candidate(
+            candidate,
+            selected_clips=selected_clips,
+            day_label=day_label,
+            selected_validation_clips=selected_validation_clips,
+            target_duration_sec=target_duration_sec,
+            max_clips=max_clips,
+            max_segments=max_segments,
+        )
+        if problems or not repaired.get("sequence"):
+            return None
+        return repaired
 
     with provider_use(provider, acquire=lambda: get_task_provider(config, TaskName.VLOG_PLAN)[0]) as provider:
         if should_shortlist_plan_clips(clips, config):
@@ -1803,19 +1935,27 @@ def plan_daily_vlog(
         if outline is None:
             print(t("analyze.plan_outline_fallback"))
 
-        draft_text = call_stage(
-            t("analyze.label.vlog_plan"),
-            _make_shot_selection_prompt(
-                outline,
-                base=base,
-                context_suffix=context_suffix,
-                day_label=day_label,
-                config=config,
-                context_override=context_override,
-            ),
-            VLOG_PLAN_OUTPUT,
+        draft_prompt = _make_shot_selection_prompt(
+            outline,
+            base=base,
+            context_suffix=context_suffix,
+            day_label=day_label,
+            config=config,
+            context_override=context_override,
         )
-        draft = _validate_plan(extract_json(draft_text), day_label)
+        draft_text = call_stage(t("analyze.label.vlog_plan"), draft_prompt, VLOG_PLAN_OUTPUT)
+        try:
+            draft_payload = extract_json(draft_text)
+        except ValueError as exc:
+            # One parse retry, like analyze/voiceover: don't waste the shortlist/outline tokens.
+            print(t("analyze.parse_retry", {"errors": str(exc)}))
+            draft_text = call_stage(
+                t("analyze.label.vlog_plan"),
+                draft_prompt + "\n\n" + PARSE_RETRY_PROMPT,
+                VLOG_PLAN_OUTPUT,
+            )
+            draft_payload = extract_json(draft_text)
+        draft = _validate_plan(draft_payload, day_label)
         raw_sequence_count = len(draft.get("sequence", []))
         draft, draft_issues = _validate_plan_candidate(
             draft,
@@ -1826,11 +1966,12 @@ def plan_daily_vlog(
             max_clips=max_clips,
             max_segments=max_segments,
         )
+        review_issues = [*draft_issues, *_plan_pacing_issues(draft, target_duration_sec)]
 
         reviewed = call_review(
             _make_plan_review_prompt(
                 draft,
-                draft_issues,
+                review_issues,
                 review_template=review_template,
                 clips_json=clips_json,
                 max_clips=max_clips,
@@ -1883,6 +2024,26 @@ def plan_daily_vlog(
                 ),
                 result,
             )
+
+        if valid_plan is not None:
+            pacing_issues = _plan_pacing_issues(valid_plan, target_duration_sec)
+            if pacing_issues:
+                print(t("analyze.plan_pacing_repair", {"errors": "；".join(pacing_issues)}))
+                repaired_plan = try_pacing_repair(valid_plan, pacing_issues)
+                if repaired_plan is not None and is_pacing_improvement(valid_plan, repaired_plan, target_duration_sec):
+                    valid_plan = repaired_plan
+                    remaining = _plan_pacing_issues(valid_plan, target_duration_sec)
+                    if remaining:
+                        print(t("analyze.plan_pacing_still_short", {"errors": "；".join(remaining)}))
+                    else:
+                        print(
+                            t("analyze.plan_pacing_repaired", {"total": f"{total_seconds(valid_plan['sequence']):.1f}"})
+                        )
+                else:
+                    if repaired_plan is None:
+                        print(t("analyze.plan_pacing_repair_failed"))
+                    else:
+                        print(t("analyze.plan_pacing_repair_no_improvement"))
 
     if valid_plan is None:
         raise AssertionError("plan review loop exited unexpectedly")
@@ -1955,10 +2116,10 @@ def refine_text(
             )
     except Exception as exc:  # translate provider failures after cancellation
         if cancel_event is not None and cancel_event.is_set():
-            raise InterruptedError(t("analyze.cancelled")) from exc
+            raise AnalysisCancelled(t("analyze.cancelled")) from exc
         raise
     if cancel_event is not None and cancel_event.is_set():
-        raise InterruptedError(t("analyze.cancelled"))
+        raise AnalysisCancelled(t("analyze.cancelled"))
     result = extract_json(text)
     if not isinstance(result, dict):
         print(t("analyze.refine_text_bad_structure"))
@@ -2012,10 +2173,10 @@ def summarize_window_analysis(
             )
     except Exception as exc:  # translate provider failures after cancellation
         if cancel_event is not None and cancel_event.is_set():
-            raise InterruptedError(t("analyze.cancelled")) from exc
+            raise AnalysisCancelled(t("analyze.cancelled")) from exc
         raise
     if cancel_event is not None and cancel_event.is_set():
-        raise InterruptedError(t("analyze.cancelled"))
+        raise AnalysisCancelled(t("analyze.cancelled"))
 
     candidate = extract_json(text)
     if not isinstance(candidate, dict) or any(
@@ -2098,10 +2259,10 @@ def refine_script(
             )
     except Exception as exc:  # translate provider failures after cancellation
         if cancel_event is not None and cancel_event.is_set():
-            raise InterruptedError(t("analyze.cancelled")) from exc
+            raise AnalysisCancelled(t("analyze.cancelled")) from exc
         raise
     if cancel_event is not None and cancel_event.is_set():
-        raise InterruptedError(t("analyze.cancelled"))
+        raise AnalysisCancelled(t("analyze.cancelled"))
     result = extract_json(text)
     if not isinstance(result, dict):
         print(t("analyze.refine_script_bad_structure"))

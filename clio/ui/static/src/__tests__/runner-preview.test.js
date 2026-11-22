@@ -152,8 +152,10 @@ describe('renderRunPreviewHtml', () => {
       ],
     });
 
-    expect(html).toContain('待执行 1–3');
-    expect(html).toContain('跳过 1–3');
+    expect(html).not.toContain('待执行 1–3');
+    expect(html).toContain('待执行 0–2');
+    expect(html).toContain('跳过 0–2');
+    expect(html).not.toContain('跳过 1–3');
     expect(html).toContain('受 压缩 同批次重跑影响');
     expect(html).toContain('估算值为下限');
   });

@@ -6,11 +6,11 @@ from __future__ import annotations
 import contextlib
 import copy
 import json
+import math
 import tempfile
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from urllib.parse import unquote
 
 import yaml
 
@@ -21,7 +21,7 @@ from clio.ai.provider_security import (
     provider_key_env_error,
     provider_rebind_error,
 )
-from clio.config import CONFIG_DESCRIPTIONS, deep_merge, load_config, load_global_config
+from clio.config import CONFIG_DESCRIPTIONS, deep_merge, load_config, load_global_config, validate_project_yaml
 from clio.config.models import (
     AnalyzeConfig,
     ExportConfig,
@@ -47,6 +47,7 @@ from clio.ui.services.file_service import (
     _save_atomic,
 )
 from clio.ui.services.project_service import _project_output_dir, _registry_path, _registry_project_paths
+from clio.utils import path_write_lock
 
 if TYPE_CHECKING:
     from clio.ui.handler_protocol import HandlerProtocol
@@ -55,6 +56,25 @@ _YAML_READ_ERRORS = (OSError, UnicodeDecodeError, yaml.YAMLError, TypeError, Val
 _YAML_WRITE_ERRORS = (yaml.YAMLError, TypeError, ValueError)
 _PROVIDER_TYPES = {"gemini", "openai", "openai_compat", "ollama"}
 _DEFAULT_PROVIDERS = frozenset({"gemini", "openai", "deepseek"})
+
+
+def _write_project_yaml_validated(config_path: Path, proj_dir: Path, data: bytes) -> Exception | None:
+    """Validate candidate project.yaml bytes, then write them atomically.
+
+    The candidate is validated in memory with ``validate_project_yaml`` (same
+    parsing and checks as ``load_config``), so an invalid config never reaches
+    disk and concurrent readers (pipelines, CLI) can never observe it.
+    Validation and write run under project.yaml's path lock, shared with every
+    UI writer of that file. Returns the validation error, or None on success.
+    """
+    proj_yaml = proj_dir / "project.yaml"
+    with path_write_lock(proj_yaml):
+        try:
+            validate_project_yaml(data.decode("utf-8"), proj_dir, config_path=config_path)
+        except Exception as e:  # noqa: BLE001 - project config validation boundary reports any failure
+            return e
+        _save_atomic(proj_yaml, data)
+    return None
 
 
 def _provider_name_error(name: str) -> str | None:
@@ -154,16 +174,8 @@ def handle_put_config_raw(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
             yml = yaml.dump(obj, allow_unicode=True, default_flow_style=False, sort_keys=False, indent=2)
         except _YAML_WRITE_ERRORS as e:
             return handler._send_json({"ok": False, "error": f"YAML serialization failed: {e}"}, 400)
-        orig_backup = target_path.read_bytes() if target_path.is_file() else None
-        try:
-            _save_atomic(target_path, yml.encode("utf-8"))
-            load_config(config_path, project_dir=proj_dir)
-        except Exception as e:  # noqa: BLE001 - config validation boundary restores the previous file
-            if orig_backup is not None:
-                target_path.write_bytes(orig_backup)
-            else:
-                target_path.unlink(missing_ok=True)
-            return handler._send_json({"ok": False, "error": f"config validation failed: {e}"}, 400)
+        if error := _write_project_yaml_validated(config_path, proj_dir, yml.encode("utf-8")):
+            return handler._send_json({"ok": False, "error": f"config validation failed: {error}"}, 400)
         handler.__class__._config_cache.invalidate_key(str(proj_dir.resolve()))
         _clear_provider_cache()
         return handler._send_json({"ok": True, "path": str(target_path)})
@@ -321,8 +333,31 @@ def _global_type_reference(existing: Any) -> dict[str, Any]:
     return _type_reference(defaults, existing)
 
 
+def _model_price_type_reference() -> dict[str, float]:
+    return {
+        "prompt_price_per_1m_usd": 0.0,
+        "completion_price_per_1m_usd": 0.0,
+    }
+
+
 def _provider_type_reference() -> dict[str, Any]:
-    return _json_safe(asdict(ProviderConfig(name="", type="")))
+    ref = _json_safe(asdict(ProviderConfig(name="", type="")))
+    ref["model_prices"] = _model_price_type_reference()
+    return ref
+
+
+def _coerce_model_prices(raw: object) -> object:
+    """Coerce prices keyed by arbitrary model ids.
+
+    ``_coerce_config_types`` cannot infer the value type for dynamic dict keys,
+    so model-level prices need a dedicated pass.
+    """
+    if not isinstance(raw, dict):
+        return raw
+    ref = _model_price_type_reference()
+    return {
+        model: _coerce_config_types(price, ref) if isinstance(price, dict) else price for model, price in raw.items()
+    }
 
 
 def _coerce_provider_entries(raw: dict[str, Any]) -> None:
@@ -333,7 +368,10 @@ def _coerce_provider_entries(raw: dict[str, Any]) -> None:
     ref = _provider_type_reference()
     for name, provider in list(providers.items()):
         if isinstance(provider, dict):
-            providers[name] = _coerce_config_types(provider, ref)
+            coerced = _coerce_config_types(provider, ref)
+            if isinstance(coerced, dict):
+                coerced["model_prices"] = _coerce_model_prices(coerced.get("model_prices", {}))
+            providers[name] = coerced
 
 
 def _project_type_reference(proj_yaml: Path) -> dict[str, Any]:
@@ -404,6 +442,43 @@ def _validate_no_foreign_fields(obj: dict, layer: str) -> str | None:
                     )
 
     return None
+
+
+def _merge_global_layer(ref_raw: dict, client: dict) -> dict:
+    """Overlay the client's global-layer config onto the on-disk config.yaml.
+
+    ``GET /api/config/global`` hides project-only sections and the non-global
+    keys of split sections, so a client PUT never contains them. Keep those
+    from *ref_raw*; everything the GET exposes is owned by the client (keys it
+    dropped are deleted). On-disk key order is preserved.
+    """
+    merged: dict = {}
+    for section, val in ref_raw.items():
+        client_val = client.get(section)
+        if isinstance(val, dict) and section in _SPLIT_GLOBAL:
+            owned = _SPLIT_GLOBAL.get(section, set())
+            client_sec = client_val if isinstance(client_val, dict) else {}
+            sec: dict = {}
+            for key, sub in val.items():
+                if key not in owned:
+                    sec[key] = sub
+                elif key in client_sec:
+                    sec[key] = client_sec[key]
+            for key, sub in client_sec.items():
+                if key not in sec:
+                    sec[key] = sub
+            if section in client and not isinstance(client_val, dict):
+                merged[section] = client_val
+            elif sec:
+                merged[section] = sec
+        elif isinstance(val, dict) and not _is_global_section(section):
+            merged[section] = client_val if section in client else val
+        elif section in client:
+            merged[section] = client_val
+    for section, client_val in client.items():
+        if section not in merged and section not in ref_raw:
+            merged[section] = client_val
+    return merged
 
 
 def handle_get_config_global(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
@@ -517,8 +592,11 @@ def handle_put_config_global(handler: HandlerProtocol, qs: dict[str, Any], obj: 
     if error := _validate_provider_bindings(ref_raw, coerced, config_path.parent):
         return handler._send_json({"ok": False, "error": error}, 400)
     _strip_provider_api_keys(coerced)
+    # The GET view omits project-layer fields; writing the client object as the
+    # whole file used to drop them (e.g. after a language switch).
+    merged = _merge_global_layer(ref_raw if isinstance(ref_raw, dict) else {}, coerced)
     try:
-        yml = yaml.dump(coerced, allow_unicode=True, default_flow_style=False, sort_keys=False, indent=2)
+        yml = yaml.dump(merged, allow_unicode=True, default_flow_style=False, sort_keys=False, indent=2)
     except _YAML_WRITE_ERRORS as e:
         return handler._send_json({"ok": False, "error": f"YAML serialization failed: {e}"}, 400)
     tmp_path: Path | None = None
@@ -548,6 +626,7 @@ def handle_put_config_global(handler: HandlerProtocol, qs: dict[str, Any], obj: 
     handler._send_json({"ok": True, "path": str(config_path)})
 
 
+@serialized_store_write
 def handle_put_config_project(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
     """Handle PUT /api/config/project."""
     config_path = handler.config_path
@@ -565,16 +644,8 @@ def handle_put_config_project(handler: HandlerProtocol, qs: dict[str, Any], obj:
         yml = yaml.dump(obj, allow_unicode=True, default_flow_style=False, sort_keys=False, indent=2)
     except _YAML_WRITE_ERRORS as e:
         return handler._send_json({"ok": False, "error": f"YAML serialization failed: {e}"}, 400)
-    orig_backup = proj_yaml.read_bytes() if proj_yaml.is_file() else None
-    try:
-        _save_atomic(proj_yaml, yml.encode("utf-8"))
-        load_config(config_path, project_dir=proj_dir)
-    except Exception as e:  # noqa: BLE001 - project config validation boundary restores the previous file
-        if orig_backup is not None:
-            proj_yaml.write_bytes(orig_backup)
-        else:
-            proj_yaml.unlink()
-        return handler._send_json({"ok": False, "error": f"config validation failed: {e}"}, 400)
+    if error := _write_project_yaml_validated(config_path, proj_dir, yml.encode("utf-8")):
+        return handler._send_json({"ok": False, "error": f"config validation failed: {error}"}, 400)
     handler.__class__._config_cache.invalidate_key(str(proj_dir.resolve()))
     _clear_provider_cache()
     handler._send_json({"ok": True, "path": str(proj_yaml)})
@@ -614,6 +685,25 @@ def _provider_error(name: str, provider: dict[str, Any]) -> str | None:
         not isinstance(capabilities, list) or any(not isinstance(c, str) for c in capabilities)
     ):
         return "capabilities must be a list of strings"
+    return _model_prices_error(provider.get("model_prices"))
+
+
+def _model_prices_error(prices: object) -> str | None:
+    if prices is None:
+        return None
+    if not isinstance(prices, dict):
+        return "model_prices must be a mapping"
+    for model, price in prices.items():
+        if not isinstance(model, str) or not model.strip():
+            return "model_prices model ids must be non-empty strings"
+        if not isinstance(price, dict):
+            return f"model_prices.{model} must be a mapping"
+        for field in ("prompt_price_per_1m_usd", "completion_price_per_1m_usd"):
+            value = price.get(field, 0.0)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                return f"model_prices.{model}.{field} must be a number"
+            if not math.isfinite(value) or value < 0:
+                return f"model_prices.{model}.{field} must be a finite non-negative number"
     return None
 
 
@@ -633,6 +723,7 @@ def _normalize_provider(name: str, obj: dict[str, Any]) -> dict[str, Any]:
         "timeout_sec": obj.get("timeout_sec", 120.0),
         "max_tokens": obj.get("max_tokens", 0),
         "video_upload_max_mb": obj.get("video_upload_max_mb", 200),
+        "model_prices": obj.get("model_prices", {}),
         "prompt_price_per_1m_usd": obj.get("prompt_price_per_1m_usd", 0.0),
         "completion_price_per_1m_usd": obj.get("completion_price_per_1m_usd", 0.0),
         "models": obj.get("models", []),
@@ -640,7 +731,15 @@ def _normalize_provider(name: str, obj: dict[str, Any]) -> dict[str, Any]:
     }
     if obj.get("name"):
         data["name"] = name
-    return _coerce_config_types(data, _provider_type_reference())
+    coerced = _coerce_config_types(data, _provider_type_reference())
+    if not isinstance(coerced, dict):
+        return coerced
+    model_prices = _coerce_model_prices(coerced.get("model_prices", {}))
+    models = coerced.get("models")
+    if isinstance(models, list) and isinstance(model_prices, dict):
+        model_prices = {model: price for model, price in model_prices.items() if model in models}
+    coerced["model_prices"] = model_prices
+    return coerced
 
 
 def _provider_mapping(raw: dict[str, Any]) -> dict[str, Any]:
@@ -862,7 +961,7 @@ def handle_post_provider(handler: HandlerProtocol, qs: dict[str, Any], obj: dict
 
 @serialized_store_write
 def handle_put_provider(handler: HandlerProtocol, qs: dict[str, Any], obj: dict[str, Any], name: str) -> None:
-    name = unquote(name).strip()
+    name = name.strip()
     raw, error = _read_global_config_raw(handler.config_path)
     if error:
         return handler._send_json({"ok": False, "error": error}, 500)
@@ -911,7 +1010,7 @@ def handle_put_provider(handler: HandlerProtocol, qs: dict[str, Any], obj: dict[
 
 @serialized_store_write
 def handle_delete_provider(handler: HandlerProtocol, qs: dict[str, Any], name: str) -> None:
-    name = unquote(name).strip()
+    name = name.strip()
     if error := _provider_name_error(name):
         return handler._send_json({"ok": False, "error": error}, 400)
     if name in _DEFAULT_PROVIDERS:

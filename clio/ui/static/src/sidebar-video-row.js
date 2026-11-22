@@ -12,6 +12,12 @@ import { bindCoverThumbFallback, videoDisplayName, videoThumbHtml } from './side
 let _portalDropdown = null;
 let _portalCloseHandler = null;
 
+/** Close the portal row menu; its closure targets a row that is being replaced. */
+export function closeVideoRowMenu() {
+  if (_portalDropdown) { _portalDropdown.remove(); _portalDropdown = null; }
+  if (_portalCloseHandler) { document.removeEventListener('click', _portalCloseHandler); _portalCloseHandler = null; }
+}
+
 async function requestRerun(payload) {
   try {
     return await api('POST', '/api/rerun', payload);
@@ -81,7 +87,7 @@ export function renderVideoItem(v, { relinkVideo, removeVideoFromProject, rerend
 
   li.innerHTML = `${videoThumbHtml(v)}
     <div class="video-info">
-      <div class="video-name">${checkboxHtml}${v.index ? '[' + v.index + '] ' : ''}${escapeHtml(display)}${durHtml}</div>
+      <div class="video-name">${checkboxHtml}${v.index ? '[' + escapeHtml(v.index) + '] ' : ''}${escapeHtml(display)}${durHtml}</div>
       <div class="video-step-dots">${stepDots}</div>
       ${v.title ? `<div class="video-title">${escapeHtml(v.title)}</div>` : ''}
       <div class="video-match">${matchBadge}</div>

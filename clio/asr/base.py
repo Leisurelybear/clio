@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
@@ -36,6 +36,17 @@ class ProviderCapabilities:
     requires_public_url: bool = False
     max_audio_mb: int | None = None
     supported_languages: list[str] = field(default_factory=lambda: ["*"])
+    # i18n key for display_name. Capabilities are class attributes built at
+    # import time, so the name is translated again whenever it is read out.
+    display_name_key: str = ""
+
+    def localized(self) -> ProviderCapabilities:
+        """Copy with display_name translated in the currently active locale."""
+        if not self.display_name_key:
+            return self
+        from clio.i18n import t
+
+        return replace(self, display_name=t(self.display_name_key))
 
 
 @runtime_checkable

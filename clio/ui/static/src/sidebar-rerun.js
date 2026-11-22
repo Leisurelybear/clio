@@ -7,6 +7,24 @@ import { subscribeTaskEvents, fetchTask } from './task-center.js';
 import { t } from './i18n.js';
 
 let _rerunTaskUnsubscribe = null;
+// Delayed auto-hide after a rerun finishes. Kept so a new rerun started in
+// the meantime is not hidden (and unsubscribed) by the old timer.
+let _rerunHideTimer = null;
+
+function _clearRerunHideTimer() {
+  if (_rerunHideTimer !== null) {
+    clearTimeout(_rerunHideTimer);
+    _rerunHideTimer = null;
+  }
+}
+
+function _scheduleRerunHide(ms) {
+  _clearRerunHideTimer();
+  _rerunHideTimer = setTimeout(() => {
+    _rerunHideTimer = null;
+    hideRerunProgress();
+  }, ms);
+}
 
 /** Menu + empty CTA send task "analyze"; legacy alias "texts". */
 export function shouldReloadTextsAfterRerun(task) {
@@ -18,6 +36,7 @@ export function shouldReloadVoiceoverAfterRerun(task) {
 }
 
 export function showRerunProgress(task, file, taskId) {
+  _clearRerunHideTimer();
   const overlay = $('rerun-overlay');
   if (!overlay) return;
   overlay.classList.add('active');
@@ -42,6 +61,7 @@ export function showRerunProgress(task, file, taskId) {
 }
 
 export function hideRerunProgress() {
+  _clearRerunHideTimer();
   const overlay = $('rerun-overlay');
   if (!overlay) return;
   overlay.classList.remove('active');
@@ -84,9 +104,11 @@ function _rerunTerminal(task, file, label, message, toastKind, statusKind) {
   setStatus(message, statusKind === 'success' ? 'ok' : statusKind === 'warning' ? 'warn' : 'err', { persist: persisted });
   addToast(message, toastKind, statusKind === 'error' ? 6000 : undefined, { persist: persisted, title: t('sidebar.rerun_toast_title') });
   if (statusKind === 'success') {
-    setTimeout(() => { hideRerunProgress(); refreshAfterRerun(task, file); }, 2000);
+    // Refresh artifacts independently of the overlay's lifetime.
+    setTimeout(() => { refreshAfterRerun(task, file); }, 2000);
+    _scheduleRerunHide(2000);
   } else {
-    setTimeout(hideRerunProgress, statusKind === 'error' ? 8000 : 4000);
+    _scheduleRerunHide(statusKind === 'error' ? 8000 : 4000);
   }
 }
 

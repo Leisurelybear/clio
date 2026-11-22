@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from dataclasses import asdict
 from pathlib import Path
 
-from clio.credentials.models import CredentialMetadata, validate_value
+from clio.credentials.models import MASKED_PLACEHOLDERS, CredentialMetadata, validate_value
 from clio.credentials.stores import CredentialStore, DotenvStore, EnvironmentStore, InlineLegacyStore, KeyringStore
 
 BUILTIN_ENVS = (
@@ -78,7 +78,9 @@ class CredentialService:
             self.provider_refs[name] = ref
             self.consumers.setdefault(ref, []).append(f"ai.providers.{name}")
             inline = provider.get("api_key") or ""
-            if inline not in {"***", "********", "••••••••••"}:
+            # An empty inline value carries nothing to compare; skipping it keeps the
+            # result independent of the order the sharing providers are listed in.
+            if inline and inline not in MASKED_PLACEHOLDERS:
                 previous_inline = self.legacy.get(ref)
                 if previous_inline and previous_inline != inline:
                     raise ValueError("shared credential reference has conflicting inline values")
@@ -126,7 +128,7 @@ class CredentialService:
                 return value
         fallback = self.environment.get(env) or (self.dotenv.get(env) if self.dotenv and env else None)
         inline = provider.get("api_key") or ""
-        return fallback or ("" if inline in {"***", "********", "••••••••••"} else inline)
+        return fallback or ("" if inline in MASKED_PLACEHOLDERS else inline)
 
     def status(self, ref: str) -> dict:
         meta = self.metadata(ref)

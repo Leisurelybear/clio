@@ -59,7 +59,9 @@ class ConfigCache:
                 if key in self._cache:
                     old_cfg_fp, old_proj_fp = self._meta.get(key, ((0, 0), (0, 0)))
                     if cfg_fp == old_cfg_fp and proj_fp == old_proj_fp:
-                        cached = self._cache[key]
+                        # Re-insert so the dict order is least- to most-recently used.
+                        cached = self._cache.pop(key)
+                        self._cache[key] = cached
                         _apply_locale(cached)
                         return copy.deepcopy(cached)
                     del self._cache[key]
@@ -73,7 +75,8 @@ class ConfigCache:
                     oldest_key = next(iter(self._cache))
                     self._cache.pop(oldest_key)
                     self._meta.pop(oldest_key, None)
-                    self._locks.pop(oldest_key, None)
+                    # Keep the evicted key's lock: another thread may hold it, and
+                    # replacing it would let two threads load that key at once.
 
                 self._cache[key] = new_config
                 self._meta[key] = (cfg_fp, proj_fp)

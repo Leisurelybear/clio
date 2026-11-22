@@ -1551,7 +1551,7 @@ class TestRunPortErrors:
         ("host", "expected_token", "expected_local_session"),
         [
             ("0.0.0.0", "generated-token", False),
-            ("127.0.0.1", "", True),
+            ("127.0.0.1", "generated-token", True),
         ],
     )
     def test_blank_token_is_normalized_by_access_mode(self, monkeypatch, host, expected_token, expected_local_session):

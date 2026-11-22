@@ -1,0 +1,66 @@
+diff --git a/clio/asr/upload.py b/clio/asr/upload.py
+--- a/clio/asr/upload.py
++++ b/clio/asr/upload.py
+@@ -2,6 +2,7 @@
+ 
+ import os
+ import threading
++import uuid
+ from collections.abc import Callable, Mapping
+ from pathlib import Path
+ from typing import Any, Protocol
+@@ -58,12 +59,17 @@
+     policy: dict[str, Any] = resp.json()["data"]
+ 
+     file_name = audio_path.name
+-    key = f"{policy['upload_dir']}/{file_name}"
++    attempt_keys: list[str] = []
+ 
+     if progress_callback:
+         progress_callback(2)
+ 
+     def upload_file() -> httpx.Response:
++        # With x-oss-forbid-overwrite, a retry after a timed-out-but-stored
++        # upload would be rejected for the same key, so retries use a fresh one.
++        prefix = f"{uuid.uuid4().hex[:8]}_" if attempt_keys else ""
++        key = f"{policy['upload_dir']}/{prefix}{file_name}"
++        attempt_keys.append(key)
+         with open(audio_path, "rb") as f:
+             return httpx.post(
+                 policy["upload_host"],
+@@ -83,4 +89,4 @@
+     request_with_retry(upload_file, label=t("asr.upload.label_upload"), cancel_event=cancel_event)
+     if progress_callback:
+         progress_callback(5)
+-    return f"oss://{key}"
++    return f"oss://{attempt_keys[-1]}"
+diff --git a/clio/tests/test_asr_upload.py b/clio/tests/test_asr_upload.py
+--- a/clio/tests/test_asr_upload.py
++++ b/clio/tests/test_asr_upload.py
+@@ -40,9 +40,25 @@
+     ):
+         url = dashscope_upload(audio)
+ 
+-    assert url == "oss://uploads/audio.wav"
++    keys = [call.kwargs["data"]["key"] for call in post.call_args_list]
++    assert keys[0] == "uploads/audio.wav"
++    assert keys[1] != keys[0]
++    assert keys[1].startswith("uploads/") and keys[1].endswith("_audio.wav")
++    assert url == f"oss://{keys[1]}"
+     assert get.call_count == 2
+     assert post.call_count == 2
++
++
++def test_upload_first_attempt_keeps_plain_key(tmp_path: Path):
++    audio = tmp_path / "audio.wav"
++    audio.write_bytes(b"audio")
++
++    with (
++        patch.dict("os.environ", {"DASHSCOPE_API_KEY": "test-key"}),
++        patch("httpx.get", return_value=_policy_response()),
++        patch("httpx.post", return_value=MagicMock()),
++    ):
++        assert dashscope_upload(audio) == "oss://uploads/audio.wav"
+ 
+ 
+ def test_upload_policy_403_is_not_retried(tmp_path: Path):

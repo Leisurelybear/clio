@@ -1,0 +1,135 @@
+diff --git a/clio/ffmpeg_install.py b/clio/ffmpeg_install.py
+--- a/clio/ffmpeg_install.py
++++ b/clio/ffmpeg_install.py
+@@ -122,6 +122,40 @@
+         return None
+     machine_key = _normalized_machine(machine, windows=system_key == "win32")
+     return _ASSETS.get((system_key, machine_key))
++
++
++_ARCHIVE_NAME_RE = re.compile(
++    r"ffmpeg-n(?P<major>\d+)\.(?P<minor>\d+)-latest-(?P<platform>[a-z0-9]+)-gpl-(?P=major)\.(?P=minor)"
++    r"(?P<ext>\.zip|\.tar\.xz)"
++)
++
++
++def resolve_archive_name(checksums_text: str, asset: _Asset) -> str:
++    """Pick the release archive for *asset* from the published checksum list.
++
++    ``releases/latest`` renames its assets when upstream moves to a new FFmpeg
++    release branch (n9.0 -> n9.1), so a hard-coded name would 404. Prefer the
++    known name; otherwise use the newest ``ffmpeg-nX.Y-latest-<platform>-gpl``
++    build for the same platform and archive type.
++    """
++    names = []
++    for line in checksums_text.splitlines():
++        match = re.fullmatch(r"[0-9a-fA-F]{64}\s+\*?(.+)", line.strip())
++        if match:
++            names.append(match.group(1).strip())
++    if asset.archive in names:
++        return asset.archive
++    wanted = _ARCHIVE_NAME_RE.fullmatch(asset.archive)
++    if wanted is None:
++        raise ValueError(f"checksum not found for {asset.archive}")
++    candidates: list[tuple[int, int, str]] = []
++    for name in names:
++        found = _ARCHIVE_NAME_RE.fullmatch(name)
++        if found and found["platform"] == wanted["platform"] and found["ext"] == wanted["ext"]:
++            candidates.append((int(found["major"]), int(found["minor"]), name))
++    if not candidates:
++        raise ValueError(f"checksum not found for {asset.archive}")
++    return max(candidates)[2]
+ 
+ 
+ def parse_checksum(text: str, asset_name: str) -> str:
+@@ -581,7 +615,6 @@
+         with tempfile.TemporaryDirectory(prefix="clio-ffmpeg-") as temp_name:
+             temp = Path(temp_name)
+             checksum_file = temp / "checksums.sha256"
+-            archive_file = temp / asset.archive
+             download = downloader or _download
+             download(
+                 CHECKSUMS_URL,
+@@ -591,10 +624,13 @@
+                 cancel_event=cancel_event,
+             )
+             _check_cancel(cancel_event)
+-            expected = parse_checksum(checksum_file.read_text(encoding="utf-8"), asset.archive)
++            checksums_text = checksum_file.read_text(encoding="utf-8")
++            archive_name = resolve_archive_name(checksums_text, asset)
++            expected = parse_checksum(checksums_text, archive_name)
++            archive_file = temp / archive_name
+             _emit(reporter, 15, "Downloading FFmpeg")
+             download(
+-                f"{RELEASE_BASE}/{asset.archive}",
++                f"{RELEASE_BASE}/{archive_name}",
+                 archive_file,
+                 max_bytes=MAX_ARCHIVE_BYTES,
+                 reporter=reporter,
+@@ -614,7 +650,7 @@
+                 )
+                 _check_cancel(cancel_event)
+                 try:
+-                    expected = parse_checksum(checksum_file.read_text(encoding="utf-8"), asset.archive)
++                    expected = parse_checksum(checksum_file.read_text(encoding="utf-8"), archive_name)
+                 except ValueError:
+                     expected = ""
+             if actual != expected:
+diff --git a/clio/tests/test_ffmpeg_install.py b/clio/tests/test_ffmpeg_install.py
+--- a/clio/tests/test_ffmpeg_install.py
++++ b/clio/tests/test_ffmpeg_install.py
+@@ -806,3 +806,54 @@
+         installer._run_cancellable(["winget", "install"], timeout=900, cancel_event=cancel)
+ 
+     assert proc.terminated
++
++
++def test_resolve_archive_name_follows_upstream_release_bump():
++    asset = _selected_asset("win32", "amd64")
++    digest = "a" * 64
++    listing = "\n".join(
++        f"{digest}  {name}"
++        for name in (
++            "ffmpeg-master-latest-win64-gpl.zip",
++            "ffmpeg-n9.1-latest-win64-gpl-9.1.zip",
++            "ffmpeg-n9.1-latest-win64-gpl-shared-9.1.zip",
++            "ffmpeg-n9.1-latest-linux64-gpl-9.1.tar.xz",
++            "ffmpeg-n8.1-latest-win64-gpl-8.1.zip",
++        )
++    )
++
++    assert installer.resolve_archive_name(listing, asset) == "ffmpeg-n9.1-latest-win64-gpl-9.1.zip"
++    assert installer.resolve_archive_name(f"{digest}  {asset.archive}\n{listing}", asset) == asset.archive
++    with pytest.raises(ValueError, match="not found"):
++        installer.resolve_archive_name(f"{digest}  ffmpeg-master-latest-win64-gpl.zip", asset)
++
++
++def test_install_downloads_renamed_release_asset(tmp_path):
++    root = tmp_path / "managed"
++    archive_bytes = io.BytesIO()
++    with zipfile.ZipFile(archive_bytes, "w") as archive:
++        archive.writestr("build/bin/ffmpeg.exe", b"ffmpeg")
++        archive.writestr("build/bin/ffprobe.exe", b"ffprobe")
++    payload = archive_bytes.getvalue()
++    digest = hashlib.sha256(payload).hexdigest()
++    renamed = "ffmpeg-n9.1-latest-win64-gpl-9.1.zip"
++    urls = []
++
++    def download(url, dest, **kwargs):
++        urls.append(url)
++        dest.parent.mkdir(parents=True, exist_ok=True)
++        if url.endswith("checksums.sha256"):
++            dest.write_text(f"{digest}  {renamed}\n", encoding="utf-8")
++        else:
++            dest.write_bytes(payload)
++
++    result = installer.install_ffmpeg(
++        system="win32",
++        machine="amd64",
++        root=root,
++        runner=_fake_runner,
++        downloader=download,
++    )
++
++    assert result.ok is True
++    assert urls[-1].endswith("/" + renamed)

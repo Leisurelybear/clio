@@ -3,6 +3,7 @@
 import { apiWithMeta } from './api.js';
 import { state, setArtifactVersion } from './state.js';
 import { t } from './i18n.js';
+import { findPlanVideo } from './plan-video.js';
 
 /**
  * Prefill a segment's subtitle textarea with the saved plan subtitle, or fall
@@ -20,7 +21,7 @@ export function prefillPlanSegmentSubtitle(li, seg) {
     subEl.placeholder = '';
     return;
   }
-  const v = state.videos.find((x) => String(x.index) === String(seg.index));
+  const v = findPlanVideo(state.videos, seg.index);
   if (!v) { subEl.placeholder = t('plan.subtitle.no_video'); return; }
   if (!v.script_json) { subEl.placeholder = t('plan.subtitle.no_script'); return; }
   apiWithMeta('GET', `/api/voiceover?file=${encodeURIComponent(v.script_json)}`)

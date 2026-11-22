@@ -91,6 +91,19 @@ def _stems_for_index(index: str, stems: list[str]) -> list[str]:
     return [stem for stem in stems if expand_index_keys(_stem_to_index(stem)) & wanted]
 
 
+def _normalize_segment_index(value: object) -> int | None:
+    """Normalize persisted split indexes without treating booleans as integers."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if text.isdigit():
+            return int(text)
+    return None
+
+
 # ── Index ────────────────────────────────────────────────────────────────
 
 
@@ -129,6 +142,7 @@ class ArtifactIndex:
         self._by_original_stem: dict[str, list[ArtifactGroup]] = {}
         self._groups: list[ArtifactGroup] = []
         self._ambiguous_artifacts: list[Path] = []
+        self._analysis_indexes_by_media: dict[tuple[str, int | None], set[str]] = {}
 
     # ── Public API ──────────────────────────────────────────────────────
 
@@ -138,6 +152,7 @@ class ArtifactIndex:
         self._by_original_stem.clear()
         self._groups = []
         self._ambiguous_artifacts = []
+        self._analysis_indexes_by_media.clear()
         self._scan_compressed()
         self._scan_texts()
         self._scan_scripts()
@@ -153,6 +168,18 @@ class ArtifactIndex:
     def ambiguous_artifacts(self) -> tuple[Path, ...]:
         """Artifacts skipped because a legacy index maps to multiple videos."""
         return tuple(self._ambiguous_artifacts)
+
+    def analysis_indexes_for_media(
+        self,
+        original_stem: str,
+        segment_index: int | None = None,
+    ) -> list[str]:
+        """Return all analysis indexes for one original media identity."""
+        normalized_stem = str(original_stem).strip().casefold()
+        if not normalized_stem:
+            return []
+        key = (normalized_stem, _normalize_segment_index(segment_index))
+        return sorted(self._analysis_indexes_by_media.get(key, set()))
 
     @overload
     def lookup(self, *, compressed_stem: str, original_stem: None = None) -> ArtifactGroup | None: ...
@@ -217,6 +244,14 @@ class ArtifactIndex:
             group = self._get_or_create_group(stem)
             group.compressed = VideoEntry(path=p, stem=stem, index=index, identity=identity)
 
+    def _record_analysis_identity(self, identity: MediaIdentity) -> None:
+        original_stem = identity.original_stem.strip()
+        analysis_index = str(identity.index).strip()
+        if not original_stem or not analysis_index:
+            return
+        key = (original_stem.casefold(), _normalize_segment_index(identity.segment_index))
+        self._analysis_indexes_by_media.setdefault(key, set()).add(analysis_index)
+
     def _scan_texts(self) -> None:
         if not self._texts_dir.is_dir():
             return
@@ -231,6 +266,8 @@ class ArtifactIndex:
             # Skip voiceover files (handled by _scan_scripts)
             if stem.endswith("_voiceover"):
                 continue
+            if identity is not None:
+                self._record_analysis_identity(identity)
             title = data.get("title", stem)
             # Determine compressed stem from identity first, then compressed_file, then index
             cs = identity.compressed_stem if identity else ""

@@ -83,12 +83,18 @@ function parseTimecode(s) {
   return NaN;
 }
 
+// Config paths come from YAML keys; never let them reach Object.prototype.
+const _UNSAFE_PATH_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 function getDeep(obj, path) {
-  return String(path).split('.').reduce((o, k) => (o != null ? o[k] : undefined), obj);
+  const keys = String(path).split('.');
+  if (keys.some(k => _UNSAFE_PATH_KEYS.has(k))) return undefined;
+  return keys.reduce((o, k) => (o != null ? o[k] : undefined), obj);
 }
 
 function setDeep(obj, path, value) {
   const keys = String(path).split('.');
+  if (keys.some(k => _UNSAFE_PATH_KEYS.has(k))) return;
   let cur = obj;
   for (let i = 0; i < keys.length - 1; i++) {
     if (!cur[keys[i]] || typeof cur[keys[i]] !== 'object') cur[keys[i]] = {};
@@ -97,7 +103,11 @@ function setDeep(obj, path, value) {
   cur[keys[keys.length - 1]] = value;
 }
 
-function markDirty() { state.dirty = true; updateSaveBtn(); }
+function markDirty() {
+  state.editSeq = (state.editSeq || 0) + 1;
+  state.dirty = true;
+  updateSaveBtn();
+}
 
 /** Clear unsaved flag and sync the Save button label (discard / after save). */
 function clearDirty() { state.dirty = false; updateSaveBtn(); }
@@ -114,6 +124,8 @@ function updateSaveBtn() {
   label.textContent = t(key);
 }
 
+let _statusClearTimer = null;
+
 function setStatus(msg, kind = '', options = {}) {
   const el = $('status');
   if (el) {
@@ -124,7 +136,15 @@ function setStatus(msg, kind = '', options = {}) {
     const captured = msg;
     // Errors stick longer so users can read them; info/ok clear quickly
     const ttl = kind === 'err' || kind === 'error' ? 8000 : 4000;
-    if (el) setTimeout(() => { if (el.textContent === captured) el.textContent = ''; }, ttl);
+    // Keep only the latest clear timer: an older one must not wipe a newer
+    // (possibly identical) message early.
+    if (el) {
+      clearTimeout(_statusClearTimer);
+      _statusClearTimer = setTimeout(() => {
+        _statusClearTimer = null;
+        if (el.textContent === captured) el.textContent = '';
+      }, ttl);
+    }
     const severity = kind === 'err' || kind === 'error'
       ? 'error'
       : kind === 'warn' || kind === 'warning'

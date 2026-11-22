@@ -122,6 +122,18 @@ class TestWriteTextFile:
         assert "0:00 - 1:30" in text
         assert "great shot" in text
 
+    def test_keeps_refine_changelog(self, tmp_path: Path):
+        out = tmp_path / "001_test.txt"
+        analysis = {"title": "T", "_changelog": ["fixed the location"]}
+        _write_text_file(out, analysis, tmp_path / "source.mp4", tmp_path / "compressed.mp4")
+        rewritten = tmp_path / "002_test.txt"
+        _rewrite_text_file(rewritten, {**analysis, "source_file": "source.mp4"})
+
+        text = out.read_text(encoding="utf-8")
+        assert "fixed the location" in text
+        assert "compressed.mp4" in text
+        assert text.replace("\n" + text.splitlines()[3], "", 1) == rewritten.read_text(encoding="utf-8")
+
     def test_empty_analysis(self, tmp_path: Path):
         out = tmp_path / "001_test.txt"
         _write_text_file(out, {}, tmp_path / "source.mp4", tmp_path / "compressed.mp4")
@@ -240,6 +252,34 @@ class TestWriteCsv:
         assert "001" in text
         assert "Test" in text
         assert "Paris" in text
+
+    def test_formula_like_text_is_escaped_and_round_trips(self, tmp_path: Path, monkeypatch):
+        import csv
+
+        from clio.tasks._helpers import _clip_records_from_csv
+
+        monkeypatch.setattr("clio.tasks._helpers.resolve_binary", lambda *a: "ffprobe")
+        out = tmp_path / "summary.csv"
+        analysis = {
+            "title": '=HYPERLINK("http://evil","x")',
+            "summary": "+1 great day",
+            "location": "@home",
+            "mood": "-calm",
+            "suggested_use": "intro",
+        }
+        records = [ClipRecord(index=1, stem="001_a", source_path=Path("a.mp4"), analysis=analysis, duration_sec=3.0)]
+        _write_csv(out, records, _fake_config())
+
+        with out.open(encoding="utf-8-sig", newline="") as f:
+            row = next(csv.DictReader(f))
+        assert row["title"] == "'" + analysis["title"]
+        assert row["summary"] == "'+1 great day"
+        assert row["location"] == "'@home"
+        assert row["mood"] == "'-calm"
+        assert row["suggested_use"] == "intro"
+
+        loaded = _clip_records_from_csv(out)
+        assert loaded[0].analysis == analysis
 
     def test_atomic_write_leaves_no_tmp(self, tmp_path: Path, monkeypatch):
         """P2-P2-01: summary.csv must be committed via exclusive temp + replace."""

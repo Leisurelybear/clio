@@ -352,13 +352,13 @@ class TestWrapWithContext:
         project_dir = str(tmp_path)
 
         assert analyze_mod._read_trip_context(project_dir) == "first version"
-        assert list(analyze_mod._trip_context_cache) == [f"{project_dir}@{ctx_file.stat().st_mtime}"]
+        assert list(analyze_mod._trip_context_cache) == [f"{project_dir}@{analyze_mod._trip_context_version(ctx_file)}"]
 
         ctx_file.write_text("second version", encoding="utf-8")
         os.utime(ctx_file, (1_000_000_100, 1_000_000_100))
 
         assert analyze_mod._read_trip_context(project_dir) == "second version"
-        assert list(analyze_mod._trip_context_cache) == [f"{project_dir}@{ctx_file.stat().st_mtime}"]
+        assert list(analyze_mod._trip_context_cache) == [f"{project_dir}@{analyze_mod._trip_context_version(ctx_file)}"]
 
     def test_trip_context_cache_switches_projects_without_stale_entries(self, tmp_path: Path):
         import clio.analyze as analyze_mod
@@ -382,8 +382,8 @@ class TestWrapWithContext:
 
         assert analyze_mod._read_trip_context(str(project_a)) == "context A updated"
         assert analyze_mod._trip_context_cache == {
-            f"{project_a}@{ctx_a.stat().st_mtime}": "context A updated",
-            f"{project_b}@{project_b.joinpath('templates', 'trip_context.md').stat().st_mtime}": "context B",
+            f"{project_a}@{analyze_mod._trip_context_version(ctx_a)}": "context A updated",
+            f"{project_b}@{analyze_mod._trip_context_version(project_b.joinpath('templates', 'trip_context.md'))}": "context B",
         }
 
     def test_trip_context_cache_replaces_default_and_empty_entries(self, tmp_path: Path, monkeypatch):
@@ -405,7 +405,9 @@ class TestWrapWithContext:
         assert analyze_mod._read_trip_context(project_dir) == "project context"
         project_ctx.unlink()
         assert analyze_mod._read_trip_context(project_dir) == "default context"
-        assert list(analyze_mod._trip_context_cache) == [f"{project_dir}@default@{default_ctx.stat().st_mtime}"]
+        assert list(analyze_mod._trip_context_cache) == [
+            f"{project_dir}@default@{analyze_mod._trip_context_version(default_ctx)}"
+        ]
 
         default_ctx.unlink()
         assert analyze_mod._read_trip_context(project_dir) == ""
@@ -1802,7 +1804,8 @@ class TestPlanDailyVlog:
         short_plan = json.dumps({"sequence": [{"index": "001", "use_timeline": "00:00-00:05"}]})
         cfg = _fake_config()
         cfg.plan.target_duration_sec = 30
-        call = MagicMock(side_effect=["{}", short_plan, short_plan])
+        # outline, draft, review, then one advisory pacing-repair pass
+        call = MagicMock(side_effect=["{}", short_plan, short_plan, short_plan])
         monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (MagicMock(), "model"))
         monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, cfg, **kw: prompt)
         monkeypatch.setattr("clio.analyze._call_ai", call)
@@ -1811,7 +1814,7 @@ class TestPlanDailyVlog:
 
         assert [segment["use_timeline"] for segment in result["sequence"]] == ["00:00-00:05"]
         assert result["total_estimated_sec"] == 5.0
-        assert call.call_count == 3
+        assert call.call_count == 4
 
 
 def test_validate_plan_voiceover_collects_contract_issues():
@@ -2218,3 +2221,78 @@ def test_plan_invalid_review_corrections_fall_back_to_valid_draft(monkeypatch):
     )
     result = plan_daily_vlog([{"index": "001", "timeline": [{"start": "00:00", "end": "00:10"}]}], _fake_config())
     assert result["day_title"] == "draft"
+
+
+def test_call_ai_cancellation_is_an_interrupted_error():
+    from clio.analyze import AnalysisCancelled
+
+    cancel = threading.Event()
+    cancel.set()
+    provider_call = MagicMock()
+
+    with pytest.raises(InterruptedError) as excinfo:
+        _call_ai("plan", "p", "m", "prompt", provider_call, cancel_event=cancel)
+
+    assert isinstance(excinfo.value, AnalysisCancelled)
+    assert isinstance(excinfo.value, RuntimeError)  # backwards compatible with older callers
+    provider_call.assert_not_called()
+
+
+def test_plan_daily_vlog_forwards_cancel_event_to_every_stage(monkeypatch):
+    cfg = _fake_config()
+    cancel = threading.Event()
+    seen: list[Any] = []
+
+    def fake_call_ai(*_args: Any, **kwargs: Any) -> str:
+        seen.append(kwargs.get("cancel_event"))
+        return json.dumps(
+            {
+                "day_title": "day1",
+                "theme": "",
+                "total_estimated_sec": 10,
+                "sequence": [{"index": "001", "use_timeline": "00:00-00:10"}],
+            }
+        )
+
+    monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (MagicMock(), "model"))
+    monkeypatch.setattr("clio.analyze._call_ai", fake_call_ai)
+    clips = [{"index": "001", "title": "A", "timeline": [{"start": "00:00", "end": "00:10", "description": "x"}]}]
+
+    plan_daily_vlog(clips, cfg, "day1", use_transcripts=False, cancel_event=cancel)
+
+    assert seen
+    assert all(event is cancel for event in seen)
+
+
+def test_plan_daily_vlog_retries_draft_once_on_invalid_json(monkeypatch):
+    from clio.i18n import t
+    from clio.prompts import PARSE_RETRY_PROMPT
+
+    cfg = _fake_config()
+    draft_label = t("analyze.label.vlog_plan")
+    draft_prompts: list[str] = []
+    plan_json = json.dumps(
+        {
+            "day_title": "day1",
+            "theme": "",
+            "total_estimated_sec": 10,
+            "sequence": [{"index": "001", "use_timeline": "00:00-00:10"}],
+        }
+    )
+
+    def fake_call_ai(label: str, _provider: str, _model: str, prompt: str, *_a: Any, **_kw: Any) -> str:
+        if label == draft_label:
+            draft_prompts.append(prompt)
+            if len(draft_prompts) == 1:
+                return "sorry, here is the plan: not json"
+        return plan_json
+
+    monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (MagicMock(), "model"))
+    monkeypatch.setattr("clio.analyze._call_ai", fake_call_ai)
+    clips = [{"index": "001", "title": "A", "timeline": [{"start": "00:00", "end": "00:10", "description": "x"}]}]
+
+    result = plan_daily_vlog(clips, cfg, "day1", use_transcripts=False)
+
+    assert result["sequence"][0]["index"] == "001"
+    assert len(draft_prompts) == 2
+    assert PARSE_RETRY_PROMPT in draft_prompts[1]

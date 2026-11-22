@@ -23,11 +23,10 @@ let _onUp = null;
 function videoUrlFor(v) {
   const projParam = state.currentProjectName
     ? `&project=${encodeURIComponent(state.currentProjectName)}` : '';
-  const tokenParam = sessionStorage.getItem('api_token');
-  const extraParam = tokenParam ? `&token=${encodeURIComponent(tokenParam)}` : '';
+  // No ?token=: the session cookie authenticates same-origin media requests.
   const absParam = v?.abs_path ? `&abspath=${encodeURIComponent(v.abs_path)}` : '';
   const source = state.source || 'compressed';
-  return `/api/video?file=${encodeURIComponent(v.file)}&source=${source}${absParam}${projParam}${extraParam}`;
+  return `/api/video?file=${encodeURIComponent(v.file)}&source=${source}${absParam}${projParam}`;
 }
 
 function minSpanForDuration(duration) {

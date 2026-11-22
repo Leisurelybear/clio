@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api.js';
 import { confirmDialog } from '../confirm.js';
-import { attachCredentialFields, renderCredentialField, saveCredential } from '../credential-field.js';
+import { _watchedCredentialFieldCount, attachCredentialFields, renderCredentialField, saveCredential } from '../credential-field.js';
 import { loadCredentials } from '../editor-credentials.js';
 
 vi.mock('../api.js', () => ({ api: vi.fn() }));
@@ -88,6 +88,29 @@ describe('credential fields', () => {
       value: 'new-secret', source: 'dotenv',
     }));
     expect(api.mock.calls.some(([, url]) => url === '/api/env')).toBe(false);
+    expect(input.value).toBe('');
+  });
+
+  it('stops watching a field once it is removed from the DOM', async () => {
+    const before = _watchedCredentialFieldCount();
+    const root = mount();
+    expect(_watchedCredentialFieldCount()).toBe(before + 1);
+    document.body.appendChild(document.createElement('p'));
+    await Promise.resolve();
+    expect(_watchedCredentialFieldCount()).toBe(before + 1);
+    root.remove();
+    await vi.waitFor(() => expect(_watchedCredentialFieldCount()).toBe(before));
+  });
+
+  it('clears and removes the replace dialog when closed with Escape', async () => {
+    const { closeTopModal } = await import('../modal-escape.js');
+    const root = mount();
+    root.querySelector('[data-credential-replace]').click();
+    const dialog = document.querySelector('.modal');
+    const input = dialog.querySelector('[data-new-value]');
+    input.value = 'typed-secret';
+    expect(closeTopModal()).toBe(true);
+    expect(dialog.isConnected).toBe(false);
     expect(input.value).toBe('');
   });
 

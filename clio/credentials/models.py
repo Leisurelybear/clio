@@ -7,6 +7,8 @@ ID_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]{0,127}$")
 ENV_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 KINDS = {"api_key", "access_key", "secret", "password"}
 SOURCES = {"auto", "environment", "keyring", "dotenv", "inline"}
+# Placeholders the UI shows instead of a secret; never a real credential value.
+MASKED_PLACEHOLDERS = frozenset({"***", "********", "••••••••••"})
 
 
 @dataclass(frozen=True)
@@ -41,5 +43,5 @@ class CredentialMetadata:
 def validate_value(value: str) -> None:
     if not isinstance(value, str) or len(value.encode("utf-8")) > 4096 or any(c in value for c in "\r\n\0"):
         raise ValueError("credential must be a single-line string of at most 4096 bytes")
-    if value in {"***", "********", "••••••••••"}:
+    if value in MASKED_PLACEHOLDERS:
         raise ValueError("a masked placeholder is not a credential")

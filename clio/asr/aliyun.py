@@ -16,6 +16,18 @@ from clio.i18n import t
 _POLL_INTERVAL_S = 3
 _MAX_NETWORK_RETRIES = 3
 _POLL_TIMEOUT_S = 30 * 60
+# DashScope async task states that mean "keep polling"; anything else
+# (FAILED, CANCELED, UNKNOWN for expired/missing tasks, ...) is terminal.
+_IN_PROGRESS_STATUSES = frozenset({"PENDING", "RUNNING"})
+
+
+def _response_output(data: object, field: str) -> object:
+    """Return ``data["output"][field]`` or raise a readable error."""
+    output = data.get("output") if isinstance(data, dict) else None
+    value = output.get(field) if isinstance(output, dict) else None
+    if value in (None, ""):
+        raise RuntimeError(t("asr.aliyun.malformed_response", {"field": f"output.{field}"}))
+    return value
 
 
 @register_provider
@@ -23,6 +35,7 @@ class AliyunASRProvider:
     capabilities = ProviderCapabilities(
         id="aliyun",
         display_name=t("asr.aliyun.display_name"),
+        display_name_key="asr.aliyun.display_name",
         supports_local_file=True,
         requires_public_url=False,
         max_audio_mb=1024,
@@ -95,8 +108,7 @@ class AliyunASRProvider:
             attempts=_MAX_NETWORK_RETRIES,
             cancel_event=cancel_event,
         )
-        data = resp.json()
-        return data["output"]["task_id"]
+        return str(_response_output(resp.json(), "task_id"))
 
     def _poll_task(
         self,
@@ -123,11 +135,12 @@ class AliyunASRProvider:
                 cancel_event=cancel_event,
             )
             data: dict = resp.json()
-            status = data["output"]["task_status"]
+            status = str(_response_output(data, "task_status")).upper()
             if status == "SUCCEEDED":
                 return data
-            if status == "FAILED":
-                message = data["output"].get("message", t("asr.aliyun.unknown_error"))
+            if status not in _IN_PROGRESS_STATUSES:
+                output = data["output"]
+                message = output.get("message") or output.get("code") or status or t("asr.aliyun.unknown_error")
                 raise RuntimeError(t("asr.aliyun.transcribe_failed", {"message": message}))
 
             elapsed = time.monotonic() - start

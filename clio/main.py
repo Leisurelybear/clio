@@ -18,6 +18,7 @@ from clio.shutdown import before_stop, install_hooks
 from clio.utils import discover_ffmpeg_bin, plan_day_stem, resolve_binary
 
 PLACEHOLDER_KEYS = {"your_api_key_here", "YOUR_API_KEY", ""}
+SERVE_TOKEN_ENV = "CLIO_API_TOKEN"
 
 
 def _add_io_args(
@@ -316,6 +317,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     p_serve.add_argument("--port", type=int, default=8765, help=t("cli.help.serve.port"))
     p_serve.add_argument("--no-browser", action="store_true", help=t("cli.help.serve.no_browser"))
     p_serve.add_argument("--token", type=str, default=None, help=t("cli.help.serve.token"))
+    p_serve.add_argument(
+        "--token-file",
+        type=Path,
+        default=None,
+        help=f"Read the API token from this file (or set {SERVE_TOKEN_ENV}); --token is visible in the process list",
+    )
 
     sub.add_parser(
         "desktop",
@@ -571,38 +578,54 @@ def _run_refine_command(args: argparse.Namespace, config, context_override: str 
     return 0
 
 
-def _run_cut_command(args: argparse.Namespace, config) -> int:
-    from clio.pipeline import run_cut_all
+def _load_checked_plan(args: argparse.Namespace, config, *, source: str) -> Path | None:
+    """Load the day's plan and run the cut/export readiness checks.
+
+    Returns the plan path when the command may proceed; otherwise prints the
+    error (and every blocking issue) to stderr and returns None.
+    """
     from clio.plan_model import Plan
     from clio.plan_readiness import (
         check_plan_export_readiness,
+        collect_media_index_aliases,
         collect_project_analysis_timelines,
         collect_project_indices,
         collect_project_media_durations,
         readiness_block_payload,
     )
-    from clio.tasks.reindex import auto_reindex_if_needed
 
-    auto_reindex_if_needed(config)
     plan_path = config.plans_dir / f"{plan_day_stem(args.day)}_plan.json"
     if not plan_path.is_file():
         print(t("cli.error", {"detail": t("cli.plan.not_found", {"path": plan_path})}), file=sys.stderr)
-        return 1
-    plan = Plan.from_dict(json.loads(plan_path.read_text(encoding="utf-8")))
-    known, offline = collect_project_indices(config)
+        return None
+    plan = Plan.from_dict(json.loads(plan_path.read_text(encoding="utf-8-sig")))
+    media_aliases = collect_media_index_aliases(config)
+    known, offline = collect_project_indices(config, media_aliases=media_aliases)
     ready = check_plan_export_readiness(
         plan,
         known_indices=known,
         offline_indices=offline,
-        media_durations=collect_project_media_durations(config),
+        media_durations=collect_project_media_durations(config, media_aliases=media_aliases),
         analysis_timelines=collect_project_analysis_timelines(config),
-        source=args.source,
+        source=source,
+        target_duration_sec=float(getattr(config.plan, "target_duration_sec", 0) or 0),
     )
-    blocked = readiness_block_payload(ready, force=bool(getattr(args, "force", False)))
+    force = bool(getattr(args, "force", False))
+    blocked = readiness_block_payload(ready, force=force)
     if blocked is not None:
         print(t("cli.error", {"detail": blocked["error"]}), file=sys.stderr)
-        for issue in ready.errors + (ready.warnings if not getattr(args, "force", False) else []):
+        for issue in ready.errors + (ready.warnings if not force else []):
             print(f"  [{issue.level}] {issue.message}", file=sys.stderr)
+        return None
+    return plan_path
+
+
+def _run_cut_command(args: argparse.Namespace, config) -> int:
+    from clio.pipeline import run_cut_all
+    from clio.tasks.reindex import auto_reindex_if_needed
+
+    auto_reindex_if_needed(config)
+    if _load_checked_plan(args, config, source=args.source) is None:
         return 1
     run_cut_all(
         config,
@@ -616,39 +639,14 @@ def _run_cut_command(args: argparse.Namespace, config) -> int:
 
 def _run_export_command(args: argparse.Namespace, config) -> int:
     from clio.export import export_plan
-    from clio.plan_model import Plan
-    from clio.plan_readiness import (
-        check_plan_export_readiness,
-        collect_project_analysis_timelines,
-        collect_project_indices,
-        collect_project_media_durations,
-        readiness_block_payload,
-    )
 
-    plan_path = config.plans_dir / f"{plan_day_stem(args.day)}_plan.json"
-    if not plan_path.is_file():
-        print(t("cli.error", {"detail": t("cli.plan.not_found", {"path": plan_path})}), file=sys.stderr)
-        return 1
-    plan = Plan.from_dict(json.loads(plan_path.read_text(encoding="utf-8")))
-    known, offline = collect_project_indices(config)
-    ready = check_plan_export_readiness(
-        plan,
-        known_indices=known,
-        offline_indices=offline,
-        media_durations=collect_project_media_durations(config),
-        analysis_timelines=collect_project_analysis_timelines(config),
-        source="original",
-    )
-    blocked = readiness_block_payload(ready, force=bool(getattr(args, "force", False)))
-    if blocked is not None:
-        print(t("cli.error", {"detail": blocked["error"]}), file=sys.stderr)
-        for issue in ready.errors + (ready.warnings if not getattr(args, "force", False) else []):
-            print(f"  [{issue.level}] {issue.message}", file=sys.stderr)
+    plan_path = _load_checked_plan(args, config, source="original")
+    if plan_path is None:
         return 1
     out_dir = (
         getattr(args, "export_out_dir", None)
         or getattr(args, "output", None)
-        or config.paths.output_dir / "export" / f"{args.day}_{args.format}"
+        or config.paths.output_dir / "export" / f"{plan_day_stem(args.day)}_{args.format}"
     )
     export_plan(
         args.format,
@@ -690,8 +688,39 @@ def _run_maintenance_command(args: argparse.Namespace, config, config_path: Path
     return None
 
 
+def _resolve_serve_token(args: argparse.Namespace, config) -> str | None:
+    """Pick the API token: --token, --token-file, $CLIO_API_TOKEN, then config.
+
+    A token passed on the command line is visible to other local users via the
+    process list and shell history, so it still works but prints a warning.
+    """
+    cli_token = getattr(args, "token", None)
+    if cli_token:
+        print(
+            f"warning: --token exposes the API token in the process list; use --token-file or {SERVE_TOKEN_ENV}",
+            file=sys.stderr,
+        )
+        return cli_token
+    token_file = getattr(args, "token_file", None)
+    if token_file is not None:
+        token = Path(token_file).read_text(encoding="utf-8-sig").strip()
+        if not token:
+            raise ValueError(f"token file is empty: {token_file}")
+        return token
+    env_token = os.environ.get(SERVE_TOKEN_ENV, "").strip()
+    if env_token:
+        return env_token
+    return config.server.api_token or None
+
+
 def _run_serve_command(args: argparse.Namespace, config, config_path: Path) -> int:
     import time as _time
+
+    try:
+        api_token = _resolve_serve_token(args, config)
+    except (OSError, UnicodeDecodeError, ValueError) as e:
+        print(t("cli.error", {"detail": e}), file=sys.stderr)
+        return 1
 
     t_ui = _time.perf_counter()
     print("[startup] importing UI modules…")
@@ -704,7 +733,7 @@ def _run_serve_command(args: argparse.Namespace, config, config_path: Path) -> i
         host=args.host,
         port=args.port,
         open_browser=not args.no_browser,
-        api_token=args.token or config.server.api_token or None,
+        api_token=api_token,
     )
 
 
@@ -749,7 +778,11 @@ def main(argv: list[str] | None = None) -> int:
         return result
     _setup_runtime_logging(base_config, serve_t0)
 
-    result = _run_unprepared_command(args, config_path)
+    try:
+        result = _run_unprepared_command(args, config_path)
+    except Exception as e:  # noqa: BLE001 - same CLI boundary as configured commands below
+        print(t("cli.error", {"detail": e}), file=sys.stderr)
+        return 1
     if result is not None:
         return result
 

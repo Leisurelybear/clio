@@ -1,0 +1,54 @@
+diff --git a/clio/ui/static/src/editor-plan-insert.js b/clio/ui/static/src/editor-plan-insert.js
+--- a/clio/ui/static/src/editor-plan-insert.js
++++ b/clio/ui/static/src/editor-plan-insert.js
+@@ -1,4 +1,4 @@
+-﻿import { state } from './state.js';
++import { state } from './state.js';
+ import { $, escapeHtml } from './utils.js';
+ import { addToast } from './toast.js';
+ import { t } from './i18n.js';
+diff --git a/clio/ui/static/src/editor-providers.js b/clio/ui/static/src/editor-providers.js
+--- a/clio/ui/static/src/editor-providers.js
++++ b/clio/ui/static/src/editor-providers.js
+@@ -1,4 +1,4 @@
+-﻿/**
++/**
+  * Provider list rendering, modal editing, connection tests, and handlers.
+  */
+ import { api, icon } from './api.js';
+diff --git a/clio/ui/static/src/video-selection.js b/clio/ui/static/src/video-selection.js
+--- a/clio/ui/static/src/video-selection.js
++++ b/clio/ui/static/src/video-selection.js
+@@ -1,4 +1,4 @@
+-﻿// @ts-check
++// @ts-check
+ /**
+  * Pure helpers for videos.json selection mutations (add / remove).
+  */
+diff --git a/clio/ui/static/src/confirm.js b/clio/ui/static/src/confirm.js
+--- a/clio/ui/static/src/confirm.js
++++ b/clio/ui/static/src/confirm.js
+@@ -1,4 +1,4 @@
+-﻿/**
++/**
+  * Promise-based replacements for the browser's native dialogs.
+  *
+  * Native confirm/alert/prompt block the event loop, cannot be styled, and are
+diff --git a/clio/ui/static/src/__tests__/confirm.test.js b/clio/ui/static/src/__tests__/confirm.test.js
+--- a/clio/ui/static/src/__tests__/confirm.test.js
++++ b/clio/ui/static/src/__tests__/confirm.test.js
+@@ -1,4 +1,4 @@
+-﻿import { beforeEach, describe, expect, it } from 'vitest';
++import { beforeEach, describe, expect, it } from 'vitest';
+ 
+ import { alertDialog, confirmDialog, promptDialog } from '../confirm.js';
+ 
+diff --git a/clio/ui/static/src/__tests__/main-tab-switch.test.js b/clio/ui/static/src/__tests__/main-tab-switch.test.js
+--- a/clio/ui/static/src/__tests__/main-tab-switch.test.js
++++ b/clio/ui/static/src/__tests__/main-tab-switch.test.js
+@@ -1,4 +1,4 @@
+-﻿import { readFileSync } from 'node:fs';
++import { readFileSync } from 'node:fs';
+ import { resolve } from 'node:path';
+ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+ 

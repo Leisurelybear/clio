@@ -1,0 +1,121 @@
+diff --git a/clio/ui/routes/config_routes.py b/clio/ui/routes/config_routes.py
+--- a/clio/ui/routes/config_routes.py
++++ b/clio/ui/routes/config_routes.py
+@@ -433,6 +433,43 @@
+     return None
+ 
+ 
++def _merge_global_layer(ref_raw: dict, client: dict) -> dict:
++    """Overlay the client's global-layer config onto the on-disk config.yaml.
++
++    ``GET /api/config/global`` hides project-only sections and the non-global
++    keys of split sections, so a client PUT never contains them. Keep those
++    from *ref_raw*; everything the GET exposes is owned by the client (keys it
++    dropped are deleted). On-disk key order is preserved.
++    """
++    merged: dict = {}
++    for section, val in ref_raw.items():
++        client_val = client.get(section)
++        if isinstance(val, dict) and section in _SPLIT_GLOBAL:
++            owned = _SPLIT_GLOBAL.get(section, set())
++            client_sec = client_val if isinstance(client_val, dict) else {}
++            sec: dict = {}
++            for key, sub in val.items():
++                if key not in owned:
++                    sec[key] = sub
++                elif key in client_sec:
++                    sec[key] = client_sec[key]
++            for key, sub in client_sec.items():
++                if key not in sec:
++                    sec[key] = sub
++            if section in client and not isinstance(client_val, dict):
++                merged[section] = client_val
++            elif sec:
++                merged[section] = sec
++        elif isinstance(val, dict) and not _is_global_section(section):
++            merged[section] = client_val if section in client else val
++        elif section in client:
++            merged[section] = client_val
++    for section, client_val in client.items():
++        if section not in merged and section not in ref_raw:
++            merged[section] = client_val
++    return merged
++
++
+ def handle_get_config_global(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
+     """Handle GET /api/config/global."""
+     config_path = handler.config_path
+@@ -544,8 +581,11 @@
+     if error := _validate_provider_bindings(ref_raw, coerced, config_path.parent):
+         return handler._send_json({"ok": False, "error": error}, 400)
+     _strip_provider_api_keys(coerced)
+-    try:
+-        yml = yaml.dump(coerced, allow_unicode=True, default_flow_style=False, sort_keys=False, indent=2)
++    # The GET view omits project-layer fields; writing the client object as the
++    # whole file used to drop them (e.g. after a language switch).
++    merged = _merge_global_layer(ref_raw if isinstance(ref_raw, dict) else {}, coerced)
++    try:
++        yml = yaml.dump(merged, allow_unicode=True, default_flow_style=False, sort_keys=False, indent=2)
+     except _YAML_WRITE_ERRORS as e:
+         return handler._send_json({"ok": False, "error": f"YAML serialization failed: {e}"}, 400)
+     tmp_path: Path | None = None
+diff --git a/clio/tests/test_fix_config_global.py b/clio/tests/test_fix_config_global.py
+new file mode 100644
+--- /dev/null
++++ b/clio/tests/test_fix_config_global.py
+@@ -0,0 +1,55 @@
++"""Regression tests: PUT /api/config/global must not drop project-layer fields."""
++
++from __future__ import annotations
++
++from pathlib import Path
++from unittest.mock import MagicMock
++
++import yaml
++
++from clio.ui.routes.config_routes import _merge_global_layer, handle_put_config_global
++
++
++def test_merge_keeps_hidden_fields_and_client_owned_deletions():
++    ref = {
++        "ui": {"language": "zh-CN"},
++        "paths": {"output_dir": "./output", "ffmpeg": "ffmpeg"},
++        "whisper": {"model_size": "small", "hf_endpoint": ""},
++        "analyze": {"texts_subdir": "analysis"},
++        "proxy": {"enabled": False},
++    }
++    client = {"ui": {"language": "en"}, "paths": {"ffmpeg": "/usr/bin/ffmpeg"}, "whisper": {"hf_endpoint": "x"}}
++    merged = _merge_global_layer(ref, client)
++    assert merged["ui"] == {"language": "en"}
++    assert merged["paths"] == {"output_dir": "./output", "ffmpeg": "/usr/bin/ffmpeg"}
++    assert merged["whisper"] == {"model_size": "small", "hf_endpoint": "x"}
++    assert merged["analyze"] == {"texts_subdir": "analysis"}
++    assert "proxy" not in merged  # exposed by GET, dropped by the client
++    assert list(merged) == ["ui", "paths", "whisper", "analyze"]
++
++
++def test_language_switch_keeps_project_fields_in_config_yaml(tmp_path: Path):
++    cfg = tmp_path / "config.yaml"
++    cfg.write_text(
++        yaml.safe_dump(
++            {
++                "ui": {"language": "zh-CN"},
++                "paths": {"output_dir": "./output"},
++                "compress": {"target_size_mb": 50},
++                "analyze": {"skip_existing": True},
++            }
++        ),
++        encoding="utf-8",
++    )
++    handler = MagicMock()
++    handler.config_path = cfg
++    handler.__class__._config_cache = MagicMock()
++    handler._send_json = MagicMock()
++
++    handle_put_config_global(handler, {}, {"ui": {"language": "zh-CN"}})
++
++    assert handler._send_json.call_args.args[0]["ok"] is True
++    data = yaml.safe_load(cfg.read_text(encoding="utf-8"))
++    assert data["paths"]["output_dir"] == "./output"
++    assert data["compress"]["target_size_mb"] == 50
++    assert data["analyze"]["skip_existing"] is True

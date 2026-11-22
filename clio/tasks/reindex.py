@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
 import subprocess
+import threading
 import time as _time
 from collections import defaultdict
 from pathlib import Path
@@ -81,11 +83,34 @@ def _offline_cache_hit(entry: dict, files: list[Path], project_dir: Path | None)
     return entry.get("fingerprint") == _file_set_fingerprint(files, project_dir)
 
 
-def _find_original_for_stem(stem: str, project_dir: Path | None = None) -> Path | None:
-    """Try to find original video by stem via videos.json (or project_dir scan)."""
+_selected_cache: dict[str, tuple[tuple[str, int, int], list[Path]]] = {}
+_selected_cache_lock = threading.Lock()
+
+
+def _selected_videos(project_dir: Path | None) -> list[Path]:
+    """videos.json entries, parsed once per file version instead of per compressed file."""
     from clio.tasks._video_loader import load_selected_videos
 
+    if project_dir is None:
+        return []
+    try:
+        st = (Path(project_dir) / "videos.json").stat()
+    except OSError:
+        return load_selected_videos(project_dir)
+    key = (str(project_dir), st.st_mtime_ns, st.st_size)
+    with _selected_cache_lock:
+        cached = _selected_cache.get("videos")
+        if cached is not None and cached[0] == key:
+            return list(cached[1])
     selected = load_selected_videos(project_dir)
+    with _selected_cache_lock:
+        _selected_cache["videos"] = (key, list(selected))
+    return selected
+
+
+def _find_original_for_stem(stem: str, project_dir: Path | None = None) -> Path | None:
+    """Try to find original video by stem via videos.json (or project_dir scan)."""
+    selected = _selected_videos(project_dir)
     for p in selected:
         if p.stem.lower() == stem.lower() and p.suffix.lower() in VIDEO_EXTS:
             return p
@@ -149,7 +174,7 @@ def auto_reindex_if_needed(config: AppConfig, ffprobe: str | None = None) -> boo
     offline_cache = _load_offline_cache(compressed_dir)
     missing: list[str] = []
     for stem, stem_files in groups.items():
-        if VideoIndex.read(stem, compressed_dir):
+        if VideoIndex.read(stem, compressed_dir) and not _has_unindexed_source(stem, stem_files, compressed_dir):
             continue
         entry = offline_cache.get(stem)
         if entry is not None and _offline_cache_hit(entry, stem_files, config.project_dir):
@@ -180,6 +205,20 @@ def auto_reindex_if_needed(config: AppConfig, ffprobe: str | None = None) -> boo
     # Brief pause so the banner is readable in interactive terminals
     _time.sleep(0.4)
     return True
+
+
+def _has_unindexed_source(stem: str, files: list[Path], compressed_dir: Path) -> bool:
+    """True when a same-stem file's .vmeta names an existing original that has no index yet."""
+    indexed = {os.path.normcase(v.source_path) for v in VideoIndex.read_all(stem, compressed_dir)}
+    for p in files:
+        meta = VideoMeta.read(p)
+        if meta is None or not meta.source_path:
+            continue
+        source = meta.source_path_obj()
+        with contextlib.suppress(OSError):
+            if source.is_file() and os.path.normcase(str(source.resolve())) not in indexed:
+                return True
+    return False
 
 
 def _collect_compressed_groups(compressed_dir: Path, project_dir: Path | None) -> dict[str, list[Path]]:
@@ -222,17 +261,32 @@ def _find_group_source(
 
 
 def _build_segment_entries(
-    comp_files: list[Path], source_path: Path, source_dur: float, ffprobe: str
+    comp_files: list[Path],
+    source_path: Path,
+    source_dur: float,
+    ffprobe: str,
+    stale: list[Path] | None = None,
 ) -> list[SegmentEntry]:
+    """Build index entries for *comp_files* that belong to *source_path*.
+
+    Existing ``.vmeta`` sidecars are never overwritten: a sidecar that points at
+    another original (same stem, different folder) is left for that source, and a
+    stale one (source or target changed) is reported via *stale* so the caller does
+    not stamp outdated compressed output as fresh.
+    """
     comp_files.sort(key=lambda p: int(p.stem.split("_", 1)[0]))
     seg_entries: list[SegmentEntry] = []
     for cp in comp_files:
         idx_str = cp.stem.split("_", 1)[0]
         meta = VideoMeta.read(cp)
-        if meta is not None and not (
-            source_path.resolve() == meta.source_path_obj().resolve() and not meta.is_stale(source_path, cp)
-        ):
-            meta = None
+        if meta is not None and source_path.resolve() != meta.source_path_obj().resolve():
+            print(t("task.reindex.skip_foreign_meta", {"name": cp.name, "source": meta.source_path}))
+            continue
+        if meta is not None and meta.is_stale(source_path, cp):
+            print(t("task.reindex.skip_stale_meta", {"name": cp.name}))
+            if stale is not None:
+                stale.append(cp)
+            continue
         if meta is not None and meta.split_info:
             si = meta.split_info
             seg_entries.append(
@@ -277,11 +331,53 @@ def _write_group_index(
     source_dur: float,
     comp_files: list[Path],
     ffprobe: str,
-) -> None:
-    seg_entries = _build_segment_entries(comp_files, source_path, source_dur, ffprobe)
+) -> bool:
+    stale: list[Path] = []
+    seg_entries = _build_segment_entries(comp_files, source_path, source_dur, ffprobe, stale)
+    if stale or not seg_entries:
+        # Stale output must be re-compressed first; never index it as fresh.
+        print(t("task.reindex.skip_group", {"name": orig_stem}))
+        return False
     vindex = VideoIndex.build(source=source_path, source_duration=source_dur, segments=seg_entries)
     vindex.write(compressed_dir)
-    print(t("task.reindex.ok", {"name": orig_stem, "count": len(comp_files)}))
+    print(t("task.reindex.ok", {"name": orig_stem, "count": len(seg_entries)}))
+    return True
+
+
+def _write_foreign_source_indexes(
+    orig_stem: str,
+    compressed_dir: Path,
+    primary_source: Path,
+    comp_files: list[Path],
+    ffprobe: str,
+) -> int:
+    """Index same-stem files whose .vmeta names another existing original.
+
+    Two originals with the same stem in different folders end up in one stem
+    group; the primary source is indexed by ``_write_group_index`` and every
+    other source gets its own (hash-suffixed) .vindex here.
+    """
+    primary = primary_source.resolve()
+    foreign: dict[Path, list[Path]] = defaultdict(list)
+    for cp in comp_files:
+        meta = VideoMeta.read(cp)
+        if meta is None or not meta.source_path:
+            continue
+        src = meta.source_path_obj()
+        try:
+            if not src.is_file() or src.resolve() == primary:
+                continue
+            foreign[src.resolve()].append(cp)
+        except OSError:
+            continue
+    written = 0
+    for src, files in foreign.items():
+        source_dur = 0.0
+        with contextlib.suppress(*_PROBE_ERRORS):
+            source_dur = get_duration_sec(src, ffprobe)
+        if _write_group_index(orig_stem, compressed_dir, src, source_dur, files, ffprobe):
+            written += 1
+    return written
 
 
 def run_reindex(config: AppConfig, ffprobe: str | None = None, stems: set[str] | None = None) -> int:
@@ -321,8 +417,9 @@ def run_reindex(config: AppConfig, ffprobe: str | None = None, stems: set[str] |
         with contextlib.suppress(*_PROBE_ERRORS):
             source_dur = get_duration_sec(source_path, ffprobe)
 
-        _write_group_index(orig_stem, compressed_dir, source_path, source_dur, comp_files, ffprobe)
-        written_index += 1
+        if _write_group_index(orig_stem, compressed_dir, source_path, source_dur, comp_files, ffprobe):
+            written_index += 1
+        written_index += _write_foreign_source_indexes(orig_stem, compressed_dir, source_path, comp_files, ffprobe)
 
     _save_offline_cache(compressed_dir, offline_cache)
     print(t("task.reindex.done", {"count": written_index}))

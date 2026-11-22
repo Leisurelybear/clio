@@ -33,8 +33,10 @@ from clio.tasks.analyze import (
 )
 from clio.tasks.compress import _find_reusable, _scan_existing_compressed
 from clio.tasks.consistency import entity_consistency_paths, load_entity_consistency
+from clio.tasks.label import _find_compressed_video, _label_index
 from clio.tasks.plan import (
     _collect_plan_clips,
+    _no_analyzed_media_for_day_message,
     _plan_lineage_fingerprint,
     _resolve_filter_by_day,
     discover_day_labels,
@@ -168,6 +170,7 @@ def _row_is_reusable(row: dict[str, Any]) -> bool:
         total > 0
         and not row.get("disabled")
         and not row.get("deferred")
+        and not row.get("blocking")
         and not row.get("warnings")
         and not row.get("cascade_assumed")
         and int(row.get("will_run") or 0) == 0
@@ -316,6 +319,7 @@ def _preview_signature(preview_steps: list[dict[str, Any]]) -> tuple[Any, ...]:
         "cascade_assumed",
         "estimate_is_minimum",
         "warnings",
+        "blocking",
         "disabled",
     )
     return tuple(
@@ -329,6 +333,10 @@ def _build_stage_summary(selected_steps: list[str], preview_steps: list[dict[str
     The detailed step rows remain in the response for custom execution and
     compatibility. This compact projection gives the guided UI one authoritative
     status/next-action contract without making it repeat cache rules locally.
+
+    Stage-level count fields remain additive for status decisions and older
+    clients. They are not comparable across day-scoped and media-scoped steps,
+    so the UI uses ``step_counts`` for presentation.
     """
     rows_by_name = {str(row.get("name")): row for row in preview_steps}
     selected = set(selected_steps)
@@ -354,9 +362,12 @@ def _build_stage_summary(selected_steps: list[str], preview_steps: list[dict[str
         cascade_from = sorted({str(item) for row in required_rows for item in (row.get("cascade_from") or [])})
         reusable = bool(required_rows) and known and all(_row_is_reusable(row) for row in required_rows)
         missing_inputs = any(int(row.get("total") or 0) == 0 for row in required_rows if not row.get("deferred"))
-        # Missing inputs or unresolved warnings block a stage only when nothing
-        # in it can run right now.
-        blocked = will_run == 0 and (missing_inputs or (bool(required_warnings) and not reusable))
+        # A row that cannot use the requested scope blocks its stage even when a
+        # sibling step can still run. Otherwise the run button would remain enabled
+        # while the scoped consistency/plan work silently does nothing.
+        blocked = any(row.get("blocking") for row in required_rows) or (
+            will_run == 0 and (missing_inputs or (bool(required_warnings) and not reusable))
+        )
         # A deferred stage is satisfied later in the same run, so it waits instead
         # of acting as a final blocker while nothing is actionable yet.
         waiting = not blocked and will_run == 0 and bool(deferred_rows)
@@ -395,6 +406,26 @@ def _build_stage_summary(selected_steps: list[str], preview_steps: list[dict[str
                 "will_run_max": will_run_max,
                 "will_skip": will_skip,
                 "will_skip_min": will_skip_min,
+                "step_counts": [
+                    {
+                        "name": str(row.get("name") or ""),
+                        "label": str(row.get("label") or ""),
+                        "total": int(row.get("total") or 0),
+                        "will_run": int(row.get("will_run") or 0),
+                        "will_run_max": int(row.get("will_run_max", row.get("will_run") or 0)),
+                        "will_skip": int(row.get("will_skip") or 0),
+                        "will_skip_min": int(row.get("will_skip_min", row.get("will_skip") or 0)),
+                        "deferred": bool(row.get("deferred")),
+                        "disabled": bool(row.get("disabled")),
+                        "waiting_on": [str(item) for item in (row.get("waiting_on") or [])],
+                        "warnings": [str(item) for item in (row.get("warnings") or [])],
+                        "blocking": bool(row.get("blocking")),
+                        "cascade_from": [str(item) for item in (row.get("cascade_from") or [])],
+                        "cascade_assumed": int(row.get("cascade_assumed") or 0),
+                        "estimate_is_minimum": bool(row.get("estimate_is_minimum")),
+                    }
+                    for row in rows
+                ],
                 "warnings": warnings,
                 "blockers": missing if status in {"unknown", "blocked"} else [],
                 "estimate": usage,
@@ -442,7 +473,7 @@ def build_run_preview(
 
     all_recursive_source_videos = list(_load_source_videos(config))
     compressed_input_info, all_compressed_videos = _compressed_input_info(config)
-    all_analysis_jsons = _analysis_jsons(config)
+    all_analysis_jsons = _analysis_jsons(config, files=files)
     index = ArtifactIndex(
         output_dir=config.paths.output_dir,
         project_dir=config.project_dir or Path(),
@@ -455,7 +486,7 @@ def build_run_preview(
 
     filtered_source_videos = _filter_stem_paths(all_source_videos, selected)
     compressed_videos = _filter_stem_paths(all_compressed_videos, selected, artifact=True)
-    analysis_jsons = _filter_artifact_paths(all_analysis_jsons, selected)
+    analysis_jsons = all_analysis_jsons
 
     input_info = compressed_input_info if _starts_from_compressed(selected_steps) else source_input_info
     input_info = {
@@ -1306,12 +1337,19 @@ def _consistency_step(
     if not analysis_jsons:
         return _warning_step("consistency", t("api.preview_missing_analyze_consistency"))
     total = len(day_labels)
+    available_days = discover_day_labels(config)
     running_days: list[str] = []
+    blocking_warnings: list[str] = []
     for scoped_day in day_labels:
         out_json, out_md = entity_consistency_paths(config, scoped_day)
         clips, _, _ = _collect_plan_clips(
             config, scoped_day, files, filter_by_day=True, cancel_event=None, report=False
         )
+        if files is None and not clips:
+            scope_warning = _no_analyzed_media_for_day_message(config, scoped_day, available=available_days)
+            if scope_warning is not None:
+                blocking_warnings.append(scope_warning)
+                continue
         if (
             force
             or files is not None
@@ -1324,6 +1362,8 @@ def _consistency_step(
         total=total,
         will_run=len(running_days),
         will_skip=total - len(running_days),
+        warnings=blocking_warnings,
+        blocking=bool(blocking_warnings),
         usage=usage,
     )
 
@@ -1370,7 +1410,10 @@ def _plan_step(
     if not analysis_jsons:
         return _warning_step("plan", t("api.preview_missing_analyze_plan"))
     total = len(day_labels)
+    filter_by_day = _resolve_filter_by_day(config, files, None)
+    available_days = discover_day_labels(config)
     running_days: list[str] = []
+    blocking_warnings: list[str] = []
     for scoped_day in day_labels:
         safe_day = plan_day_stem(scoped_day)
         plan_json = config.plans_dir / f"{safe_day}_plan.json"
@@ -1379,10 +1422,15 @@ def _plan_step(
             config,
             scoped_day,
             files,
-            filter_by_day=_resolve_filter_by_day(config, files, None),
+            filter_by_day=filter_by_day,
             cancel_event=None,
             report=False,
         )
+        if filter_by_day and not clips:
+            scope_warning = _no_analyzed_media_for_day_message(config, scoped_day, available=available_days)
+            if scope_warning is not None:
+                blocking_warnings.append(scope_warning)
+                continue
         lineage = _plan_lineage_fingerprint(
             config, clips, day_label=scoped_day, task_prompts=task_prompts, context_override=context_override
         )
@@ -1400,6 +1448,8 @@ def _plan_step(
         total=total,
         will_run=len(running_days),
         will_skip=total - len(running_days),
+        warnings=blocking_warnings,
+        blocking=bool(blocking_warnings),
         usage=usage,
     )
 
@@ -1450,16 +1500,37 @@ def _plan_voiceover_step(
     )
 
 
+def _label_has_compressed_input(config: AppConfig, analysis_json: Path) -> bool:
+    """Mirror run_label_videos input resolution for preview counts.
+
+    Malformed or unreadable analysis should remain runnable in the preview so the
+    runtime surfaces its concrete error instead of the row being silently reusable.
+    """
+    try:
+        data = json.loads(analysis_json.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeError):
+        return True
+    if not isinstance(data, dict):
+        return True
+    index = _label_index(data, analysis_json, config.naming.index_width)
+    compressed = _find_compressed_video(config.compressed_dir, index)
+    return compressed is not None and compressed.exists()
+
+
 def _label_step(config: AppConfig, analysis_jsons: list[Path], *, force: bool) -> dict[str, Any]:
     total = len(analysis_jsons)
     if total == 0:
         return _warning_step("label", t("api.preview_missing_analyze_label"))
     labeled_dir = config.paths.output_dir / "labeled"
-    skipped = (
-        0
-        if force
-        else sum(1 for analysis_json in analysis_jsons if (labeled_dir / f"{analysis_json.stem}_labeled.mp4").exists())
-    )
+
+    def will_skip(analysis_json: Path) -> bool:
+        if not _label_has_compressed_input(config, analysis_json):
+            return True
+        if force or not config.analyze.skip_existing:
+            return False
+        return (labeled_dir / f"{analysis_json.stem}_labeled.mp4").exists()
+
+    skipped = sum(1 for analysis_json in analysis_jsons if will_skip(analysis_json))
     return _step("label", total=total, will_run=total - skipped, will_skip=skipped)
 
 
@@ -1479,6 +1550,7 @@ def _step(
     will_skip: int,
     warnings: list[str] | None = None,
     usage: dict[str, Any] | None = None,
+    blocking: bool = False,
 ) -> dict[str, Any]:
     return {
         "name": name,
@@ -1487,14 +1559,27 @@ def _step(
         "will_run": will_run,
         "will_skip": will_skip,
         "warnings": warnings or [],
+        **({"blocking": True} if blocking else {}),
         **not_applicable_usage(),
         **(usage or {}),
     }
 
 
-def _analysis_jsons(config: AppConfig) -> list[Path]:
+def _analysis_jsons(config: AppConfig, files: list[str] | None = None) -> list[Path]:
     texts_dirs = _find_texts_dirs(config.texts_dir)
-    return sorted(path for texts_dir in texts_dirs for path in texts_dir.iterdir() if path.suffix.lower() == ".json")
+    paths = sorted(path for texts_dir in texts_dirs for path in texts_dir.iterdir() if path.suffix.lower() == ".json")
+    if not paths:
+        return []
+    # Re-analysis can leave two artifacts for the same source identity under
+    # different numeric indexes. Preview counts and downstream rows must use
+    # one current artifact per identity rather than every historical JSON.
+    from clio.run_scope import resolve_run_scope
+
+    resolved = resolve_run_scope(config, all_days=True, files=files, steps=["preview"])
+    # Preview also needs selected analyses whose current compressed media is
+    # missing so label/plan rows can report them as skipped instead of silently
+    # dropping them. Planning scopes continue to use ``resolved.analyses``.
+    return resolved.all_deduplicated_analyses
 
 
 def _find_texts_dirs(texts_dir: Path) -> list[Path]:

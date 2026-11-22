@@ -10,18 +10,36 @@ function stageNamesText(names) {
     .join(t('common.list_separator'));
 }
 
+function countRange(minValue, maxValue) {
+  const min = Math.max(0, Number(minValue) || 0);
+  const max = Math.max(min, Number(maxValue ?? min) || 0);
+  return { min, max };
+}
+
+function renderStepCount(row) {
+  const label = t(`run.step.${row.name}.label`);
+  if (row.deferred) {
+    return html`<li class="run-stage-step-count waiting"><span>${label}</span><small>${t('run.guide.waiting_on', {
+      steps: stageNamesText(row.waitingOn),
+    })}</small></li>`;
+  }
+  const run = countRange(row.willRun, row.willRunMax);
+  const skip = countRange(row.willSkipMin, row.willSkip);
+  const runText = run.min === run.max
+    ? t('run.preview.will_run', { count: run.min })
+    : t('run.preview.will_run_range', { min: run.min, max: run.max });
+  const skipText = skip.min === skip.max
+    ? t('run.preview.will_skip', { count: skip.max })
+    : t('run.preview.will_skip_range', { min: skip.min, max: skip.max });
+  return html`<li class="run-stage-step-count"><span>${label}</span><small>${t('run.guide.step_count_pair', { run: runText, skip: skipText })}</small></li>`;
+}
+
 function renderStageCounts(stage) {
-  const pending = Number(stage.pending || 0);
-  const pendingMax = Math.max(pending, Number(stage.pendingMax ?? pending) || 0);
-  const skipped = Number(stage.skipped || 0);
-  const skippedMin = Math.min(skipped, Number(stage.skippedMin ?? skipped) || 0);
-  if (Number(stage.total) <= 0) return '';
-  return html`<small>${t('run.guide.count_ranges', {
-    run_min: pending,
-    run_max: pendingMax,
-    skip_min: skippedMin,
-    skip_max: skipped,
-  })}</small>`;
+  const rows = Array.isArray(stage.stepCounts) ? stage.stepCounts : [];
+  if (!rows.length) return '';
+  return html`<ul class="run-stage-step-counts" aria-label="${t('run.guide.step_counts')}">
+    ${rows.map(row => renderStepCount(row))}
+  </ul>`;
 }
 
 export function renderStageBoard(container, model, onOpenOutput) {

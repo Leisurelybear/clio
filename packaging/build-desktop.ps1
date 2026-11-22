@@ -9,11 +9,16 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Push-Location $root
 try {
+    # Prefer the project venv (where setup.ps1 installs dependencies) over PATH python.
+    $python = Join-Path $root ".venv\Scripts\python.exe"
+    if (-not (Test-Path $python)) {
+        $python = "python"
+    }
     $extra = @()
     if (-not $NoClean) {
         $extra += "--clean"
     }
-    python -m PyInstaller $extra packaging/clio.spec --noconfirm
+    & $python -m PyInstaller $extra packaging/clio.spec --noconfirm
     if ($LASTEXITCODE -ne 0) {
         throw "PyInstaller failed with exit code $LASTEXITCODE"
     }

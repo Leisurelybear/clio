@@ -34,7 +34,14 @@ from clio.i18n import t
 from clio.task_center.manager import TaskManager
 from clio.task_center.store import TaskStore
 from clio.ui.handler_protocol import HandlerProtocol
-from clio.ui.handler_security import has_valid_api_token, validate_local_session, validate_request_origin
+from clio.ui.handler_security import (
+    api_token_source,
+    has_valid_api_token,
+    session_cookie_header,
+    validate_fetch_site,
+    validate_local_session,
+    validate_request_origin,
+)
 from clio.ui.http_server import (
     BUSY_ERROR,
     REQUEST_TIMEOUT_SEC,
@@ -60,6 +67,15 @@ class _ServerState:
     job_lock: threading.Lock = field(default_factory=threading.Lock)
     job_thread: threading.Thread | None = None
     job_cancel_event: threading.Event = field(default_factory=threading.Event)
+
+
+# _read_json_body status meaning "error response already sent" (invalid JSON).
+_BODY_ERROR_SENT = -400
+_BODY_ERROR_MESSAGES: dict[int, str] = {
+    413: "request body too large",
+    400: "invalid Content-Length",
+    415: "unsupported media type, expected application/json",
+}
 
 
 def _setting_int(value: Any, default: int) -> int:
@@ -124,6 +140,8 @@ class _RequestHandler(BaseHTTPRequestHandler, HandlerProtocol):
     _http_response_started: bool = False
     _http_streaming: bool = False
     _http_stream_status: int | None = None
+    # Set-Cookie value to attach to the next response (session token hand-off).
+    _pending_session_cookie: str | None = None
 
     # Injected by BoundedThreadingHTTPServer; None disables the split budget.
     request_budget: ClassVar[RequestBudget | None] = None
@@ -139,6 +157,7 @@ class _RequestHandler(BaseHTTPRequestHandler, HandlerProtocol):
         self._http_response_started = False
         self._http_streaming = False
         self._http_stream_status = None
+        self._pending_session_cookie = None
         try:
             super().handle_one_request()
         finally:
@@ -216,6 +235,10 @@ class _RequestHandler(BaseHTTPRequestHandler, HandlerProtocol):
         super().send_header(keyword, value)
 
     def end_headers(self) -> None:
+        cookie = self._pending_session_cookie
+        if cookie:
+            self._pending_session_cookie = None
+            self.send_header("Set-Cookie", cookie)
         for key, value in self.__class__._security_headers:
             if key.lower() not in self._sent_header_names:
                 self.send_header(key, value)
@@ -303,11 +326,30 @@ class _RequestHandler(BaseHTTPRequestHandler, HandlerProtocol):
         print(f"  {line} STREAM")
 
     def _require_auth(self) -> bool:
-        """Reject requests without the configured bearer or query token."""
-        if has_valid_api_token(self.headers, self.path, self.__class__._api_token):
+        """Reject requests without the session cookie, bearer or query token."""
+        token = self.__class__._api_token
+        source = api_token_source(self.headers, self.path, token)
+        if source is not None:
+            if token and source in ("bearer", "query"):
+                # Swap header/URL tokens for the HttpOnly cookie so <img>/<video>/
+                # EventSource requests no longer need ?token= in their URLs.
+                self._pending_session_cookie = session_cookie_header(token)
             return True
         self._send_json({"error": t("api.unauthorized")}, 401)
         return False
+
+    def _offer_session_cookie(self) -> None:
+        """Attach the session cookie to the SPA index response.
+
+        On a loopback bind the index hands the cookie to any same-machine
+        browser (SameSite=Strict keeps other sites from using it). On a LAN
+        bind it is only issued to a request that already proved the token.
+        """
+        token = self.__class__._api_token
+        if not token:
+            return
+        if self.__class__._enforce_local_session or has_valid_api_token(self.headers, self.path, token):
+            self._pending_session_cookie = session_cookie_header(token)
 
     def _require_local_session(self) -> bool:
         """Reject cross-origin requests and, on loopback, foreign Host values."""
@@ -317,25 +359,43 @@ class _RequestHandler(BaseHTTPRequestHandler, HandlerProtocol):
             error = validate_request_origin(self.headers)
         else:
             error = None
+        if error is None and (self.__class__._enforce_local_session or self.__class__._enforce_request_origin):
+            # A cross-site <img>/<video> GET carries no Origin and can drop the
+            # Referer, so the Origin check above lets it through; Fetch Metadata
+            # still tells us it came from another site.
+            request_path = urlparse(getattr(self, "path", "") or "").path
+            if request_path == "/api" or request_path.startswith("/api/"):
+                error = validate_fetch_site(self.headers)
         if error is None:
             return True
         self._send_json({"error": t(error)}, 403)
         return False
 
-    def _read_json_body(self) -> tuple[dict | None, int | None]:
-        """Parse JSON object body and send payload errors before dispatch."""
+    def _read_json_body(self, *, allow_empty: bool = False) -> tuple[dict | None, int | None]:
+        """Parse JSON object body; invalid JSON is answered here (status _BODY_ERROR_SENT)."""
         result = read_json_body(
             self.headers,
             self.rfile,
             require_json_content_type=self.__class__._enforce_json_ct,
+            allow_empty=allow_empty,
         )
         self._log_request_body(result)
         if result.error == "invalid_json":
             self._send_json({"ok": False, "error": f"invalid JSON: {result.detail}"}, 400)
-            return None, -400
+            return None, _BODY_ERROR_SENT
         if result.status is not None:
             return None, result.status
         return result.obj, None
+
+    def _read_json_body_or_reply(self, *, allow_empty: bool = False) -> dict | None:
+        """Return the JSON body, or send the matching error response and return None."""
+        obj, err_status = self._read_json_body(allow_empty=allow_empty)
+        if err_status is None:
+            return obj
+        message = _BODY_ERROR_MESSAGES.get(err_status)
+        if message is not None:
+            self._send_json({"ok": False, "error": message}, err_status)
+        return None
 
     def _log_request_body(self, result: JsonBodyResult) -> None:
         self._http_request_body_log = prepare_body(
@@ -446,8 +506,13 @@ class _RequestHandler(BaseHTTPRequestHandler, HandlerProtocol):
     def _send_video_range(self, path: Path) -> None:
         self.__class__._video_range_sender(self, path)
 
-    def _resolve_texts(self, basename: str, proj_out: Path | None = None) -> Path | None:
-        return self.__class__._texts_resolver(basename, proj_out, self.__class__.output_dir)
+    def _resolve_texts(
+        self,
+        basename: str,
+        proj_out: Path | None = None,
+        preferred_subdir: str | None = None,
+    ) -> Path | None:
+        return self.__class__._texts_resolver(basename, proj_out, self.__class__.output_dir, preferred_subdir)
 
     def _resolve_in(self, subdir: str, basename: str, proj_out: Path | None = None) -> Path | None:
         return self.__class__._file_resolver(subdir, basename, proj_out, self.__class__.output_dir)
@@ -462,6 +527,7 @@ class _RequestHandler(BaseHTTPRequestHandler, HandlerProtocol):
         path = url.path
 
         if path in ("/", "/index.html"):
+            self._offer_session_cookie()
             return self._call_special_handler("handle_index")
         if path == "/favicon.ico":
             return self._call_special_handler("handle_favicon")
@@ -509,16 +575,8 @@ class _RequestHandler(BaseHTTPRequestHandler, HandlerProtocol):
         path = url.path
         if self.__class__._router.get_policy("PUT", path).auth_required and not self._require_auth():
             return
-        obj, err_status = self._read_json_body()
-        if err_status == -400:
-            return  # invalid JSON already sent
-        if err_status == 413:
-            return self._send_json({"ok": False, "error": "request body too large"}, 413)
-        if err_status == 400:
-            return self._send_json({"ok": False, "error": "invalid Content-Length"}, 400)
-        if err_status == 415:
-            return self._send_json({"ok": False, "error": "unsupported media type, expected application/json"}, 415)
-        if err_status is not None:
+        obj = self._read_json_body_or_reply()
+        if obj is None:
             return
 
         handler_fn, path_kwargs, route = self.__class__._router.dispatch("PUT", path)
@@ -537,16 +595,9 @@ class _RequestHandler(BaseHTTPRequestHandler, HandlerProtocol):
         path = url.path
         if self.__class__._router.get_policy("POST", path).auth_required and not self._require_auth():
             return
-        obj, err_status = self._read_json_body()
-        if err_status == -400:
-            return  # invalid JSON already sent
-        if err_status == 413:
-            return self._send_json({"ok": False, "error": "request body too large"}, 413)
-        if err_status == 400:
-            return self._send_json({"ok": False, "error": "invalid Content-Length"}, 400)
-        if err_status == 415:
-            return self._send_json({"ok": False, "error": "unsupported media type, expected application/json"}, 415)
-        if err_status is not None:
+        # A bodyless POST (e.g. `curl -X POST .../api/webhook/trigger`) means {}.
+        obj = self._read_json_body_or_reply(allow_empty=True)
+        if obj is None:
             return
 
         handler_fn, path_kwargs, route = self.__class__._router.dispatch("POST", path)

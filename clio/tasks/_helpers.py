@@ -30,6 +30,23 @@ from clio.utils import (
 )
 from clio.vmeta import VideoIndex, VideoMeta
 
+_PLAN_SEGMENT_TEXT_FIELDS = ("index", "title", "use_timeline", "subtitle", "transition")
+
+
+def normalize_plan_segment(segment: object) -> dict:
+    """Return a copy of one plan ``sequence`` entry with its text fields as ``str``.
+
+    Hand-edited, legacy or non-structured plans may carry ``index`` as an int or
+    ``title: null``; every reader (cut, JianYing export) goes through this first.
+    """
+    if not isinstance(segment, dict):
+        return {}
+    normalized = dict(segment)
+    for key in _PLAN_SEGMENT_TEXT_FIELDS:
+        value = normalized.get(key)
+        normalized[key] = "" if value is None else str(value).strip()
+    return normalized
+
 
 def _task_lineage_settings(config: AppConfig, task_name: str) -> dict[str, object]:
     """Return provider settings that can change a task's AI output."""
@@ -343,7 +360,7 @@ def _artifact_source_path(path: Path) -> Path | None:
         if stem in seen:
             continue
         seen.add(stem)
-        vindex = VideoIndex.read(stem, path.parent)
+        vindex = VideoIndex.read(stem, path.parent, segment_filename=path.name)
         if vindex is not None and any(segment.filename == path.name for segment in vindex.segments):
             return Path(vindex.source_path)
     return None
@@ -395,7 +412,7 @@ def _matches_selected_artifact(path: Path, selected: MediaSelection | set[str] |
     if not sel.paths and _matches_selected_stem(path, sel):
         return True
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         return False
     if not isinstance(data, dict):
@@ -501,50 +518,28 @@ def _format_highlight(highlight: object) -> str:
     return str(highlight)
 
 
-def _write_text_file(path: Path, analysis: dict, source: Path, compressed: Path) -> None:
-    lines = [
-        t("md.title", {"title": analysis.get("title") or t("md.untitled")}),
-        "",
-        t("md.source_file", {"name": source.name}),
-        t("md.compressed_file", {"name": compressed.name}),
-        "",
-        t("md.summary_section"),
-        analysis.get("summary") or "",
-        "",
-        t("md.location", {"value": analysis.get("location") or t("md.unknown")}),
-        t("md.mood", {"value": analysis.get("mood") or ""}),
-        t("md.suggested_use", {"value": analysis.get("suggested_use") or ""}),
-        "",
-        t("md.timeline_section"),
-    ]
-    for item in analysis.get("timeline", []):
-        lines.append(f"- [{item.get('start', '?')} - {item.get('end', '?')}] {item.get('description', '')}")
-        if item.get("transcript"):
-            lines.append(t("md.transcript_line", {"text": item.get("transcript")}))
-    lines.extend(["", t("md.highlights_section")])
-    for h in analysis.get("highlights", []):
-        lines.append(f"- {_format_highlight(h)}")
-
-    write_text_atomic(path, "\n".join(lines))
-
-
-def _rewrite_text_file(path: Path, analysis: dict) -> None:
-    """根据已存在的 analysis 重写 .txt（不需要源文件/压缩文件路径）。"""
-    source_name = analysis.get("source_file") or analysis.get("compressed_file") or "?"
+def _analysis_md_lines(analysis: dict, source_name: str, compressed_name: str | None = None) -> list[str]:
+    """Render an analysis as the human-readable .txt body (shared by all writers)."""
     lines = [
         t("md.title", {"title": analysis.get("title") or t("md.untitled")}),
         "",
         t("md.source_file", {"name": source_name}),
-        "",
-        t("md.summary_section"),
-        analysis.get("summary") or "",
-        "",
-        t("md.location", {"value": analysis.get("location") or t("md.unknown")}),
-        t("md.mood", {"value": analysis.get("mood") or ""}),
-        t("md.suggested_use", {"value": analysis.get("suggested_use") or ""}),
-        "",
-        t("md.timeline_section"),
     ]
+    if compressed_name is not None:
+        lines.append(t("md.compressed_file", {"name": compressed_name}))
+    lines.extend(
+        [
+            "",
+            t("md.summary_section"),
+            analysis.get("summary") or "",
+            "",
+            t("md.location", {"value": analysis.get("location") or t("md.unknown")}),
+            t("md.mood", {"value": analysis.get("mood") or ""}),
+            t("md.suggested_use", {"value": analysis.get("suggested_use") or ""}),
+            "",
+            t("md.timeline_section"),
+        ]
+    )
     for item in analysis.get("timeline", []):
         lines.append(f"- [{item.get('start', '?')} - {item.get('end', '?')}] {item.get('description', '')}")
         if item.get("transcript"):
@@ -554,9 +549,19 @@ def _rewrite_text_file(path: Path, analysis: dict) -> None:
         lines.append(f"- {_format_highlight(h)}")
     if analysis.get("_changelog"):
         lines.extend(["", t("md.changelog_section")])
-        for item in analysis["_changelog"]:
-            lines.append(f"- {item}")
-    write_text_atomic(path, "\n".join(lines))
+        for entry in analysis["_changelog"]:
+            lines.append(f"- {entry}")
+    return lines
+
+
+def _write_text_file(path: Path, analysis: dict, source: Path, compressed: Path) -> None:
+    write_text_atomic(path, "\n".join(_analysis_md_lines(analysis, source.name, compressed.name)))
+
+
+def _rewrite_text_file(path: Path, analysis: dict) -> None:
+    """根据已存在的 analysis 重写 .txt（不需要源文件/压缩文件路径）。"""
+    source_name = analysis.get("source_file") or analysis.get("compressed_file") or "?"
+    write_text_atomic(path, "\n".join(_analysis_md_lines(analysis, source_name)))
 
 
 def _rewrite_script_md(path: Path, script: dict) -> None:
@@ -590,6 +595,24 @@ def _get_video_info(rec: ClipRecord, ffprobe: str) -> dict:
     return probe_video_info(rec.source_path, ffprobe) if rec.source_path.exists() else {}
 
 
+# Spreadsheet apps evaluate cells starting with these characters as formulas.
+_CSV_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_safe(value: object) -> object:
+    """Neutralise LLM-written text that Excel would run as a formula."""
+    if isinstance(value, str) and value.startswith(_CSV_FORMULA_PREFIXES):
+        return "'" + value
+    return value
+
+
+def _csv_unescape(value: str) -> str:
+    """Undo ``_csv_safe`` when summary.csv is read back for merging."""
+    if value.startswith("'") and value[1:].startswith(_CSV_FORMULA_PREFIXES):
+        return value[1:]
+    return value
+
+
 def _clip_records_from_csv(path: Path) -> list[ClipRecord]:
     """Load summary.csv rows back into ClipRecords (for selection re-analyze merge)."""
     if not path.is_file():
@@ -602,7 +625,7 @@ def _clip_records_from_csv(path: Path) -> list[ClipRecord]:
                 idx = int(raw_idx)
             except ValueError:
                 continue
-            stem = (row.get("stem") or "").strip()
+            stem = _csv_unescape((row.get("stem") or "").strip())
             if not stem:
                 continue
             try:
@@ -620,11 +643,8 @@ def _clip_records_from_csv(path: Path) -> list[ClipRecord]:
                     compressed_path=Path(compressed_raw) if compressed_raw else None,
                     text_path=Path(text_raw) if text_raw else None,
                     analysis={
-                        "title": row.get("title", ""),
-                        "summary": row.get("summary", ""),
-                        "location": row.get("location", ""),
-                        "mood": row.get("mood", ""),
-                        "suggested_use": row.get("suggested_use", ""),
+                        key: _csv_unescape(row.get(key) or "")
+                        for key in ("title", "summary", "location", "mood", "suggested_use")
                     },
                     duration_sec=duration_sec,
                 )
@@ -672,12 +692,12 @@ def _write_csv(path: Path, records: list[ClipRecord], config: AppConfig) -> None
         writer.writerow(
             {
                 "index": format_index(rec.index, config.naming.index_width),
-                "stem": rec.stem,
-                "title": a.get("title", ""),
-                "summary": a.get("summary", ""),
-                "location": a.get("location", ""),
-                "mood": a.get("mood", ""),
-                "suggested_use": a.get("suggested_use", ""),
+                "stem": _csv_safe(rec.stem),
+                "title": _csv_safe(a.get("title", "")),
+                "summary": _csv_safe(a.get("summary", "")),
+                "location": _csv_safe(a.get("location", "")),
+                "mood": _csv_safe(a.get("mood", "")),
+                "suggested_use": _csv_safe(a.get("suggested_use", "")),
                 "source_file": str(rec.source_path),
                 "compressed_file": str(rec.compressed_path) if rec.compressed_path else "",
                 "text_file": str(rec.text_path) if rec.text_path else "",

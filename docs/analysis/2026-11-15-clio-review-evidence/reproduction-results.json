@@ -1,0 +1,57 @@
+{
+  "probe_count": 13,
+  "results": [
+    {
+      "id": "R01",
+      "observed": "preview skips a runtime-stale compressed file"
+    },
+    {
+      "id": "R02",
+      "observed": "codec and CRF changes leave compression cache valid"
+    },
+    {
+      "id": "R03",
+      "observed": "refine overwrites a concurrent edit and does not create TXT"
+    },
+    {
+      "id": "R07",
+      "observed": "configured custom artifacts exist but Web resolvers return None"
+    },
+    {
+      "id": "R08",
+      "observed": "Web script resolver follows a symlink rejected by containment helper"
+    },
+    {
+      "id": "R09",
+      "observed": "auto-copy omits draft metadata and subtitle sidecar"
+    },
+    {
+      "id": "R10",
+      "observed": "second auto-copy overwrites an edited destination without backup"
+    },
+    {
+      "id": "R11",
+      "observed": "cache clear closes a provider while provider_use is active"
+    },
+    {
+      "id": "R12",
+      "observed": "two successful independent usage writers persist only one call"
+    },
+    {
+      "id": "R13",
+      "observed": "plan PUT changes JSON but leaves Markdown unchanged"
+    },
+    {
+      "id": "R14",
+      "observed": "CLI check rejects credential-free Ollama binding"
+    },
+    {
+      "id": "R15",
+      "observed": "same-basename source videos overwrite the first source's vindex"
+    },
+    {
+      "id": "R16",
+      "observed": "same-size source changes inside one second do not invalidate vmeta"
+    }
+  ]
+}

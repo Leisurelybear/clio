@@ -574,6 +574,28 @@ async function refreshRunPreview({ silent = false } = {}) {
   return null;
 }
 
+// renderVideoList() ends with updateRunFilesBadge(), so every checkbox toggle,
+// drag-select step or list re-render used to POST /api/run/preview. Run the
+// first refresh at once and fold any further calls in the window into one.
+const RUN_PREVIEW_COALESCE_MS = 300;
+let _badgePreviewTimer = null;
+let _badgePreviewQueued = false;
+
+function _refreshRunPreviewCoalesced() {
+  if (_badgePreviewTimer) {
+    _badgePreviewQueued = true;
+    return;
+  }
+  refreshRunPreview({ silent: true });
+  _badgePreviewTimer = setTimeout(() => {
+    _badgePreviewTimer = null;
+    if (_badgePreviewQueued) {
+      _badgePreviewQueued = false;
+      _refreshRunPreviewCoalesced();
+    }
+  }, RUN_PREVIEW_COALESCE_MS);
+}
+
 function updateRunFilesBadge() {
   const badge = $('run-files-badge');
   if (badge) {
@@ -591,7 +613,7 @@ function updateRunFilesBadge() {
   const overwrap = $('option-overwrite-wrap');
   if (overwrap) overwrap.style.display = 'flex';
   updateRunStartButtonState();
-  if ($('run-preview')) refreshRunPreview({ silent: true });
+  if ($('run-preview')) _refreshRunPreviewCoalesced();
 }
 
 async function startRun(stageSteps) {
@@ -703,6 +725,7 @@ async function startRun(stageSteps) {
 }
 
 async function cancelRun() {
+  if (!_managedTaskId) return;
   const btn = $('btn-run-cancel');
   if (btn) { btn.disabled = true; btn.innerHTML = t('run.cancelling'); }
   try {

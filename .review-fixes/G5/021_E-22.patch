@@ -1,0 +1,66 @@
+diff --git a/clio/ui/static/src/api.js b/clio/ui/static/src/api.js
+--- a/clio/ui/static/src/api.js
++++ b/clio/ui/static/src/api.js
+@@ -83,6 +83,7 @@
+     video: '<polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>',
+     save: '<path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>',
+     export: '<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
++    download: '<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
+     cut: '<circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><line x1="8.12" y1="8.12" x2="15.88" y2="15.88"/><line x1="15.88" y1="8.12" x2="8.12" y2="15.88"/>',
+     search: '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+     chevron_right: '<polyline points="9 18 15 12 9 6"/>',
+diff --git a/clio/ui/static/src/editor-config-page.js b/clio/ui/static/src/editor-config-page.js
+--- a/clio/ui/static/src/editor-config-page.js
++++ b/clio/ui/static/src/editor-config-page.js
+@@ -79,7 +79,7 @@
+ 
+ function _renderEnvEditor() {
+   return `<div style="margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:12px">
+-    <button id="btn-env-toggle" class="btn-secondary" style="font-size:var(--text-sm)">${icon('file-text', 14)} ${t('settings.env_edit')}</button>
++    <button id="btn-env-toggle" class="btn-secondary" style="font-size:var(--text-sm)">${icon('file_text', 14)} ${t('settings.env_edit')}</button>
+     <div id="env-editor" style="display:none;margin-top:8px">
+       <p class="hint">${t('credentials.env_guidance')} <a href="#credentials-panel">${t('credentials.title')}</a></p>
+       <textarea id="env-textarea" style="width:100%;min-height:160px;font-family:var(--font-mono,monospace);font-size:var(--text-xs,12px);padding:8px;background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);border-radius:var(--radius-sm)" spellcheck="false"></textarea>
+@@ -102,7 +102,7 @@
+     envToggle.onclick = async () => {
+       const visible = envEditor.style.display !== 'none';
+       envEditor.style.display = visible ? 'none' : 'block';
+-      envToggle.innerHTML = visible ? `${icon('file-text', 14)} ${t('settings.env_edit')}` : `${icon('x', 14)} ${t('settings.env.collapse')}`;
++      envToggle.innerHTML = visible ? `${icon('file_text', 14)} ${t('settings.env_edit')}` : `${icon('x', 14)} ${t('settings.env.collapse')}`;
+       if (!visible && !envData.content) {
+         try {
+           envData = await api('GET', '/api/env');
+diff --git a/clio/ui/static/src/__tests__/icon-names.test.js b/clio/ui/static/src/__tests__/icon-names.test.js
+new file mode 100644
+--- /dev/null
++++ b/clio/ui/static/src/__tests__/icon-names.test.js
+@@ -0,0 +1,29 @@
++import { readFileSync, readdirSync } from 'node:fs';
++import { dirname, join, resolve } from 'node:path';
++import { fileURLToPath } from 'node:url';
++import { describe, expect, it } from 'vitest';
++import { icon } from '../api.js';
++
++const SRC_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
++
++function usedIconNames() {
++  const names = new Set();
++  for (const file of readdirSync(SRC_ROOT)) {
++    if (!file.endsWith('.js')) continue;
++    const source = readFileSync(join(SRC_ROOT, file), 'utf8');
++    for (const match of source.matchAll(/\bicon\('([^']+)'/g)) names.add(match[1]);
++  }
++  return [...names];
++}
++
++describe('icon names', () => {
++  it('every literal icon() name used in the UI exists in the icon set', () => {
++    const fallback = icon('__missing__');
++    const unknown = usedIconNames().filter(name => name !== 'file' && icon(name) === fallback);
++    expect(unknown).toEqual([]);
++  });
++
++  it('has a dedicated download icon', () => {
++    expect(icon('download')).not.toBe(icon('__missing__'));
++  });
++});

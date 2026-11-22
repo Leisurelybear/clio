@@ -6,6 +6,7 @@ import math
 from typing import Any
 
 from clio.config import AppConfig
+from clio.timecode import parse_timestamp
 
 _CAMERAS = frozenset({"fixed", "handheld", "pan", "zoom", "follow"})
 _QUALITIES = frozenset({"ok", "shaky", "dark", "blocked"})
@@ -20,22 +21,8 @@ def _positive_limit(config: AppConfig, name: str, default: int) -> int:
 
 
 def _timestamp_seconds(value: Any) -> float | None:
-    if isinstance(value, bool) or value is None:
-        return None
-    if isinstance(value, (int, float)):
-        seconds = float(value)
-        return seconds if math.isfinite(seconds) and seconds >= 0 else None
-    parts = str(value).strip().split(":")
-    if len(parts) not in (2, 3):
-        return None
-    try:
-        if len(parts) == 2:
-            seconds = int(parts[0]) * 60 + float(parts[1])
-        else:
-            seconds = int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
-    except (TypeError, ValueError):
-        return None
-    return seconds if math.isfinite(seconds) and seconds >= 0 else None
+    seconds = parse_timestamp(value)
+    return seconds if seconds is not None and seconds >= 0 else None
 
 
 def _format_time(seconds: float) -> str:

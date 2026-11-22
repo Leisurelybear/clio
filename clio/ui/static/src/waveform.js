@@ -3,6 +3,7 @@ import { api } from './api.js';
 import { $ } from './utils.js';
 import { buildTimeline } from './plan-timeline.js';
 import { composePlanPeaks } from './plan-waveform.js';
+import { findPlanVideo } from './plan-video.js';
 import { subscribeTaskEvents, fetchTask } from './task-center.js';
 import { t } from './i18n.js';
 
@@ -409,7 +410,7 @@ export async function loadPlanWaveform() {
 
   await Promise.all(indexes.map(async (idx) => {
     if (token !== _planLoadToken) return;
-    const v = (state.videos || []).find((x) => String(x.index) === String(idx));
+    const v = findPlanVideo(state.videos, idx);
     if (!v) {
       _planCache.set(idx, null);
       return;
@@ -476,7 +477,7 @@ export async function loadPlanWaveform() {
       if (token !== _planLoadToken) return;
       let still = [];
       await Promise.all(pendingKeys.map(async (idx) => {
-        const v = (state.videos || []).find((x) => String(x.index) === String(idx));
+        const v = findPlanVideo(state.videos, idx);
         if (!v) {
           _planCache.set(idx, null);
           return;

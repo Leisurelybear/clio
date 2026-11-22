@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import random
 import re
@@ -20,6 +21,8 @@ from typing import Any, TypeVar
 from clio._constants import VIDEO_EXTENSIONS
 from clio.i18n import t
 from clio.shutdown import register_process, unregister_process
+
+logger = logging.getLogger("clio.utils")
 
 T = TypeVar("T")
 R = TypeVar("R")
@@ -370,16 +373,24 @@ def mask_if_looks_like_key(value: str) -> str:
 
 
 def _ffmpeg_search_roots() -> list[Path]:
-    local_app = Path(os.environ.get("LOCALAPPDATA", ""))
-    user_home = Path(os.environ.get("USERPROFILE", ""))
-    search_roots = [
-        local_app / "Microsoft/WinGet/Packages",
-        Path("C:/ProgramData/chocolatey/lib/ffmpeg/tools/ffmpeg/bin"),
-        user_home / "scoop/apps/ffmpeg/current/bin",
-        Path("C:/Program Files/ffmpeg/bin"),
-        Path("C:/Tools/ffmpeg/bin"),
-    ]
-    ffmpeg_home = os.environ.get("FFMPEG_HOME")
+    """Well-known Windows install locations, plus ``$FFMPEG_HOME`` everywhere.
+
+    The Windows roots are skipped on other platforms ("C:/..." is a *relative*
+    path on POSIX) and when their environment variable is unset (``Path("")``
+    would be the CWD), so a binary planted in the working directory is never
+    picked up.
+    """
+    search_roots: list[Path] = []
+    if os.name == "nt":
+        local_app = os.environ.get("LOCALAPPDATA", "").strip()
+        user_home = os.environ.get("USERPROFILE", "").strip()
+        if local_app:
+            search_roots.append(Path(local_app) / "Microsoft/WinGet/Packages")
+        search_roots.append(Path("C:/ProgramData/chocolatey/lib/ffmpeg/tools/ffmpeg/bin"))
+        if user_home:
+            search_roots.append(Path(user_home) / "scoop/apps/ffmpeg/current/bin")
+        search_roots.extend([Path("C:/Program Files/ffmpeg/bin"), Path("C:/Tools/ffmpeg/bin")])
+    ffmpeg_home = os.environ.get("FFMPEG_HOME", "").strip()
     if ffmpeg_home:
         search_roots.append(Path(ffmpeg_home))
     return search_roots
@@ -413,8 +424,8 @@ def discover_ffmpeg_bin(name: str) -> str | None:
         managed = managed_binary(name)
         if managed.is_file():
             return str(managed)
-    except Exception:  # noqa: BLE001 - managed lookup must not break legacy discovery
-        pass
+    except Exception as exc:  # noqa: BLE001 - managed lookup must not break legacy discovery
+        logger.debug("managed %s lookup failed: %s: %s", name, type(exc).__name__, exc)
 
     for search_root in _ffmpeg_search_roots():
         if not search_root.is_dir():
@@ -624,6 +635,27 @@ def _set_cached_probe_info(key: tuple[str, str, int, int] | None, info: dict[str
 
 
 _DEFAULT_PROBE_TIMEOUT = 30.0
+_PROBE_CANCEL_POLL_SEC = 0.2
+
+
+def _probe_wants_json(cmd: list[str]) -> bool:
+    """True when the ffprobe command asks for JSON output (``-of json`` / ``-print_format json``)."""
+    for flag, value in zip(cmd, cmd[1:], strict=False):
+        if flag in ("-of", "-print_format", "-output_format") and value.split("=", 1)[0] == "json":
+            return True
+    return False
+
+
+def _stop_probe(proc: subprocess.Popen) -> None:
+    """Terminate *proc* and reap it so no zombie is left behind."""
+    with suppress(OSError):
+        proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        with suppress(OSError):
+            proc.kill()
+        proc.wait()
 
 
 def run_probe(
@@ -633,20 +665,33 @@ def run_probe(
     cancel_event: threading.Event | None = None,
     max_output_bytes: int = 4096,
 ) -> subprocess.CompletedProcess:
-    """Run ffprobe with timeout, cancel signal, and output limit."""
+    """Run ffprobe with timeout, cancel signal, and output limit.
+
+    *cancel_event* is polled while waiting, so cancellation takes effect
+    within ``_PROBE_CANCEL_POLL_SEC``. *max_output_bytes* truncates plain-text
+    output only: JSON output is never cut, because a truncated document cannot
+    be parsed by the caller.
+    """
     proc = popen_subprocess(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors="replace")
     register_process(proc)
     try:
-        if cancel_event and cancel_event.is_set():
-            proc.terminate()
-            raise InterruptedError("probe cancelled")
-        try:
-            stdout, stderr = proc.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
-            raise TimeoutError(f"probe timed out after {timeout}s: {' '.join(cmd)}") from None
-        if len(stdout) > max_output_bytes:
+        deadline = time.monotonic() + timeout
+        while True:
+            if cancel_event is not None and cancel_event.is_set():
+                _stop_probe(proc)
+                raise InterruptedError("probe cancelled")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                proc.kill()
+                proc.wait()
+                raise TimeoutError(f"probe timed out after {timeout}s: {' '.join(cmd)}")
+            wait = min(remaining, _PROBE_CANCEL_POLL_SEC) if cancel_event is not None else remaining
+            try:
+                stdout, stderr = proc.communicate(timeout=wait)
+                break
+            except subprocess.TimeoutExpired:
+                continue
+        if len(stdout) > max_output_bytes and not _probe_wants_json(cmd):
             stdout = stdout[:max_output_bytes]
         result = subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
         if proc.returncode != 0:
@@ -726,8 +771,10 @@ def _write_bytes_atomic_unlocked(path: Path, data: bytes) -> None:
         except OSError:
             existing_mode = None
     tmp, fd = _exclusive_random_tmp(path)
+    fd_owned = True  # True until os.fdopen takes over (and later closes) the fd
     try:
         with os.fdopen(fd, "wb") as f:
+            fd_owned = False
             f.write(data)
             f.flush()
             os.fsync(f.fileno())
@@ -737,8 +784,9 @@ def _write_bytes_atomic_unlocked(path: Path, data: bytes) -> None:
         os.replace(tmp, path)
         _fsync_dir(path.parent)
     except BaseException:
-        with suppress(OSError):
-            os.close(fd)
+        if fd_owned:
+            with suppress(OSError):
+                os.close(fd)
         tmp.unlink(missing_ok=True)
         raise
 
@@ -828,15 +876,18 @@ def write_secret_atomic(path: Path, text: str) -> None:
     if _secret_has_insecure_perms(path):
         raise PermissionError(t("utils.secret.insecure", {"path": path}))
     tmp, fd = _exclusive_random_tmp(path)
+    fd_owned = True  # True until os.fdopen takes over (and later closes) the fd
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
+            fd_owned = False
             f.write(text)
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp, path)
     except BaseException:
-        with suppress(OSError):
-            os.close(fd)
+        if fd_owned:
+            with suppress(OSError):
+                os.close(fd)
         tmp.unlink(missing_ok=True)
         raise
     _restrict_secret_to_owner(path)

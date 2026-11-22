@@ -239,7 +239,12 @@ class TestGenerateText:
 
         resp = self._mock_response()
         self._mock_client.post.return_value = resp
-        schema = {"type": "object", "properties": {"voiceover": {"type": "string"}}, "required": ["voiceover"]}
+        schema = {
+            "type": "object",
+            "properties": {"voiceover": {"type": "string"}},
+            "required": ["voiceover"],
+            "additionalProperties": False,
+        }
 
         self._prov.generate_text(
             "hello",
@@ -286,7 +291,7 @@ class TestGenerateText:
         assert self._mock_client.post.call_count == 2
         assert "response_format" in self._mock_client.post.call_args_list[0].kwargs["json"]
         assert "response_format" not in self._mock_client.post.call_args_list[1].kwargs["json"]
-        assert self._prov._structured_output_disabled is True
+        assert self._prov._structured_output_disabled("compatible-model", "json_object") is True
 
     def test_does_not_hide_unrelated_bad_request(self):
         unsupported = self._mock_response(status_code=400, text='{"error":"model not found"}')

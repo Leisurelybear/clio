@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from urllib.parse import unquote
 
 
 @dataclass(frozen=True)
@@ -54,7 +55,9 @@ class Router:
             else:
                 m = pattern.match(path)
                 if m:
-                    kwargs = dict(zip(param_names, m.groups(), strict=True))
+                    # Path params arrive percent-encoded (the client encodeURIComponent()s
+                    # them); decode once here so every route sees the real value.
+                    kwargs = {name: unquote(value) for name, value in zip(param_names, m.groups(), strict=True)}
                     return self._resolve_handler(route), kwargs, route
         return None, {}, None
 

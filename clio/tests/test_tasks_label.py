@@ -92,6 +92,24 @@ class TestRunLabelVideos:
     @patch("clio.tasks.label.resolve_drawtext_font")
     @patch("clio.tasks.label.run_ffmpeg")
     @patch("clio.tasks.label.resolve_binary")
+    def test_corrupt_json_is_skipped_and_batch_continues(self, mock_resolve, mock_ffmpeg, mock_font, cfg, tmp_path):
+        font = tmp_path / "arial.ttf"
+        font.write_bytes(b"\x00")
+        mock_font.return_value = font
+        (cfg.texts_dir / "001_bad.json").write_text("{half-written", encoding="utf-8")
+        (cfg.texts_dir / "002_list.json").write_text("[]", encoding="utf-8")
+        (cfg.texts_dir / "003_good.json").write_text('{"index": 3}', encoding="utf-8")
+        (cfg.compressed_dir / "003_good.mp4").write_bytes(b"\x00")
+        mock_resolve.return_value = "ffmpeg"
+
+        from clio.tasks.label import run_label_videos
+
+        run_label_videos(cfg)
+        mock_ffmpeg.assert_called_once()
+
+    @patch("clio.tasks.label.resolve_drawtext_font")
+    @patch("clio.tasks.label.run_ffmpeg")
+    @patch("clio.tasks.label.resolve_binary")
     def test_labels_video(self, mock_resolve, mock_ffmpeg, mock_font, cfg, tmp_path):
         font = tmp_path / "arial.ttf"
         font.write_bytes(b"\x00")

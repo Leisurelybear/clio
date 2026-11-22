@@ -83,6 +83,12 @@ class NotificationQuery:
             raise ValueError("notification query offset must be non-negative")
 
 
+# Unread inbox entries outlive read ones, but must not keep their tasks (and
+# events) forever when the user never opens the inbox.
+_UNREAD_NOTIFICATION_MIN_RETENTION_DAYS = 90
+_UNREAD_NOTIFICATION_RETENTION_FACTOR = 3
+
+
 class TaskStore:
     def __init__(self, path: Path, *, busy_timeout_ms: int = 5000):
         if busy_timeout_ms <= 0:
@@ -94,6 +100,9 @@ class TaskStore:
         # Writers notify this condition after committing; SSE streams wait here
         # instead of polling SQLite while idle.
         self._change_condition = threading.Condition()
+        # Bumped under the condition after every commit. Waiters compare it
+        # instead of querying SQLite while holding the lock writers need.
+        self._change_revision = 0
         self._waiters_stopped = False
         self.path.parent.mkdir(parents=True, exist_ok=True)
         # Create the database eagerly so startup failures are reported at the
@@ -112,7 +121,6 @@ class TaskStore:
         try:
             connection.execute("PRAGMA foreign_keys = ON")
             connection.execute(f"PRAGMA busy_timeout = {self._busy_timeout_ms}")
-            connection.execute("PRAGMA journal_mode = WAL")
             connection.execute("PRAGMA synchronous = NORMAL")
             self._ensure_schema(connection)
             yield connection
@@ -126,6 +134,9 @@ class TaskStore:
             identity = (stat.st_dev, stat.st_ino, schema_version)
             if identity == self._schema_identity:
                 return
+            # journal_mode is persistent in the database file: set it once per
+            # database identity instead of on every short-lived connection.
+            connection.execute("PRAGMA journal_mode = WAL")
             initialize_schema(connection)
             stat = self.path.stat()
             schema_version = int(connection.execute("PRAGMA schema_version").fetchone()[0])
@@ -218,6 +229,17 @@ class TaskStore:
             sql += " WHERE " + " AND ".join(where)
         with self._connect() as connection:
             return int(connection.execute(sql, params).fetchone()[0])
+
+    def active_task_ids(self) -> builtins.list[str]:
+        """IDs of queued/running/cancelling tasks without decoding their rows."""
+        statuses = (TaskStatus.QUEUED, TaskStatus.RUNNING, TaskStatus.CANCELLING)
+        placeholders = ", ".join("?" for _ in statuses)
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"SELECT id FROM tasks WHERE status IN ({placeholders}) ORDER BY updated_at DESC, id DESC",  # noqa: S608
+                [status.value for status in statuses],
+            ).fetchall()
+        return [str(row[0]) for row in rows]
 
     def active_tasks(self) -> builtins.list[TaskRecord]:
         statuses = (TaskStatus.QUEUED, TaskStatus.RUNNING, TaskStatus.CANCELLING)
@@ -349,7 +371,22 @@ class TaskStore:
 
     def _notify_change(self) -> None:
         with self._change_condition:
+            self._change_revision += 1
             self._change_condition.notify_all()
+
+    def _change_snapshot(self) -> int | None:
+        """Return the current change revision, or None once waiters are stopped."""
+        with self._change_condition:
+            return None if self._waiters_stopped else self._change_revision
+
+    def _wait_for_change(self, revision: int, timeout: float) -> bool:
+        """Sleep until a commit after *revision*; False on timeout or stop."""
+        with self._change_condition:
+            self._change_condition.wait_for(
+                lambda: self._waiters_stopped or self._change_revision != revision,
+                timeout,
+            )
+            return not self._waiters_stopped and self._change_revision != revision
 
     def stop_waiters(self) -> None:
         """Permanently retire SSE waiters without blocking in-flight writes."""
@@ -365,30 +402,31 @@ class TaskStore:
     def wait_for_events(self, *, after_seq: int, timeout: float, limit: int = 200) -> builtins.list[TaskEvent]:
         """Return events after ``after_seq``, sleeping until one is committed.
 
-        The initial query and the wait share the condition lock so an event
-        committed between them cannot be missed.
+        The change revision is read before the query, so an event committed
+        after the query bumps it and the wait returns immediately; SQLite is
+        never queried while holding the lock that writers notify through.
         """
-        with self._change_condition:
-            if self._waiters_stopped:
-                return []
-            events = self.events(after_seq=after_seq, limit=limit)
-            if events:
-                return events
-            if not self._change_condition.wait(timeout) or self._waiters_stopped:
-                return []
-            return self.events(after_seq=after_seq, limit=limit)
+        revision = self._change_snapshot()
+        if revision is None:
+            return []
+        events = self.events(after_seq=after_seq, limit=limit)
+        if events:
+            return events
+        if not self._wait_for_change(revision, timeout):
+            return []
+        return self.events(after_seq=after_seq, limit=limit)
 
     def wait_for_notification_revision(self, *, after_seq: int, timeout: float) -> int:
         """Return the notification revision, sleeping until it advances."""
-        with self._change_condition:
-            if self._waiters_stopped:
-                return after_seq
-            revision = self.latest_notification_seq()
-            if revision > after_seq:
-                return revision
-            if not self._change_condition.wait(timeout) or self._waiters_stopped:
-                return after_seq
-            return max(after_seq, self.latest_notification_seq())
+        change = self._change_snapshot()
+        if change is None:
+            return after_seq
+        revision = self.latest_notification_seq()
+        if revision > after_seq:
+            return revision
+        if not self._wait_for_change(change, timeout):
+            return after_seq
+        return max(after_seq, self.latest_notification_seq())
 
     def create_notification(self, notification: Notification) -> Notification:
         """Persist a UI-originated notification, returning the deduped row."""
@@ -561,11 +599,15 @@ class TaskStore:
                 "? AND NOT EXISTS (SELECT 1 FROM notifications WHERE notifications.task_id = tasks.id)",  # noqa: S608
                 (*terminal_values, cutoff),
             ).rowcount
+            # Every terminal task counts towards the cap; only tasks still linked
+            # from a (capped) notification survive beyond it.
             excess_rows = connection.execute(
                 f"""
-                SELECT id FROM tasks WHERE status IN ({placeholders})
-                AND NOT EXISTS (SELECT 1 FROM notifications WHERE notifications.task_id = tasks.id)
-                ORDER BY finished_at DESC, id DESC LIMIT -1 OFFSET ?
+                SELECT id FROM (
+                    SELECT id FROM tasks WHERE status IN ({placeholders})
+                    ORDER BY finished_at DESC, id DESC LIMIT -1 OFFSET ?
+                ) AS excess
+                WHERE NOT EXISTS (SELECT 1 FROM notifications WHERE notifications.task_id = excess.id)
                 """,  # noqa: S608
                 (*terminal_values, max_terminal_tasks),
             ).fetchall()
@@ -588,17 +630,28 @@ class TaskStore:
                 "DELETE FROM notifications WHERE read_at IS NOT NULL AND created_at < ?",
                 (cutoff,),
             ).rowcount
-            excess_rows = connection.execute(
-                "SELECT id FROM notifications WHERE read_at IS NOT NULL ORDER BY seq DESC LIMIT -1 OFFSET ?",
-                (max(0, max_notifications),),
-            ).fetchall()
-            if excess_rows:
-                ids = [row[0] for row in excess_rows]
-                placeholders = ",".join("?" for _ in ids)
-                removed += connection.execute(
-                    f"DELETE FROM notifications WHERE id IN ({placeholders})",  # noqa: S608
-                    ids,
-                ).rowcount
+            unread_days = max(
+                retention_days * _UNREAD_NOTIFICATION_RETENTION_FACTOR, _UNREAD_NOTIFICATION_MIN_RETENTION_DAYS
+            )
+            unread_cutoff = (
+                (now - timedelta(days=unread_days)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+            )
+            removed += connection.execute(
+                "DELETE FROM notifications WHERE read_at IS NULL AND created_at < ?",
+                (unread_cutoff,),
+            ).rowcount
+            for read_clause in ("read_at IS NOT NULL", "read_at IS NULL"):
+                excess_rows = connection.execute(
+                    f"SELECT id FROM notifications WHERE {read_clause} ORDER BY seq DESC LIMIT -1 OFFSET ?",  # noqa: S608
+                    (max(0, max_notifications),),
+                ).fetchall()
+                if excess_rows:
+                    ids = [row[0] for row in excess_rows]
+                    placeholders = ",".join("?" for _ in ids)
+                    removed += connection.execute(
+                        f"DELETE FROM notifications WHERE id IN ({placeholders})",  # noqa: S608
+                        ids,
+                    ).rowcount
             if removed:
                 self._bump_notification_revision(connection)
             connection.commit()
@@ -749,9 +802,15 @@ class TaskStore:
         else:
             return None
         row = connection.execute(
-            "SELECT title, project_id, project_name FROM tasks WHERE id = ?", (event.task_id,)
+            "SELECT title, project_id, project_name, visibility FROM tasks WHERE id = ?", (event.task_id,)
         ).fetchone()
         if row is None:
+            return None
+        # Background tasks (e.g. waveform peaks) run on every page view; only a
+        # failure is worth an inbox entry.
+        if row[3] == TaskVisibility.BACKGROUND.value and not (
+            event.type is TaskEventType.STATUS and target_status == TaskStatus.FAILED.value
+        ):
             return None
         fallback_title = t("taskcenter.notify.fallback_title")
         label_text = t("taskcenter.notify.separator") + label

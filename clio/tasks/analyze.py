@@ -75,6 +75,7 @@ from clio.tasks._helpers import (
     _path_key,
     _project_selection_stems,
     _selection_from_files,
+    _stem_variants,
     _task_lineage_settings,
     _write_csv,
     _write_text_file,
@@ -452,7 +453,7 @@ def analysis_cache_status(
     if not overwrite and config.analyze.skip_existing:
         for candidate in existing:
             try:
-                data = json.loads(candidate.read_text(encoding="utf-8"))
+                data = json.loads(candidate.read_text(encoding="utf-8-sig"))
             except (json.JSONDecodeError, OSError, UnicodeError):
                 invalid = True
                 continue
@@ -515,7 +516,7 @@ def _load_transcript_context(config: AppConfig, compressed: Path) -> str:
         return ""
     path = transcripts_dir / f"{compressed.stem}_transcript.json"
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return ""
     if not isinstance(data, dict) or not isinstance(data.get("segments"), list) or not data["segments"]:
@@ -1334,13 +1335,32 @@ def _list_compressed_videos(directory: Path) -> list[Path]:
     return prefer_canonical_compressed(paths)
 
 
+def _compressed_belongs_to(compressed: Path, single_file: Path) -> bool:
+    """True when *compressed* was produced from *single_file*.
+
+    The ``.vmeta`` source path decides when it still points at an existing file;
+    otherwise the compressed stem must equal the original stem (index prefix and
+    legacy split suffix stripped), never merely contain it.
+    """
+    meta = VideoMeta.read(compressed)
+    if meta is not None:
+        source = meta.source_path_obj()
+        try:
+            if source.is_file():
+                return source.resolve() == single_file.resolve()
+        except OSError:
+            pass
+    return single_file.stem.lower() in _stem_variants(compressed.stem, include_segment_base=True)
+
+
 def _collect_single_file_items(
     single_file: Path,
     config: AppConfig,
 ) -> list[tuple[Path, Path, str]] | None:
     items: list[tuple[Path, Path, str]] = []
     # Prefer the .vindex sidecar: O(1) split discovery for multi-segment originals.
-    vindex = VideoIndex.read(single_file.stem, config.compressed_dir)
+    # source_path picks the right index when two originals share a stem.
+    vindex = VideoIndex.read(single_file.stem, config.compressed_dir, source_path=single_file)
     if vindex is not None:
         comp_paths = vindex.compressed_paths(config.compressed_dir)
         if not comp_paths:
@@ -1349,7 +1369,7 @@ def _collect_single_file_items(
     else:
         # Fall back to original-stem matching so every matching segment is analyzed.
         comp_paths = [
-            p for p in _list_compressed_videos(config.compressed_dir) if single_file.stem.lower() in p.stem.lower()
+            p for p in _list_compressed_videos(config.compressed_dir) if _compressed_belongs_to(p, single_file)
         ]
         if not comp_paths:
             print(t("task.analyze.compressed_missing", {"name": single_file.name}))

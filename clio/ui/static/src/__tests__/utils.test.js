@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { state } from '../state.js';
 import {
   escapeHtml,
@@ -10,6 +10,7 @@ import {
   setDeep,
   markDirty,
   clearDirty,
+  setStatus,
 } from '../utils.js';
 
 describe('escapeHtml', () => {
@@ -164,6 +165,15 @@ describe('setDeep', () => {
     setDeep(obj, 'x.y.z', 'deep');
     expect(obj.x.y.z).toBe('deep');
   });
+
+  it('ignores prototype-polluting path segments', () => {
+    const obj = {};
+    setDeep(obj, '__proto__.polluted', 1);
+    setDeep(obj, 'a.constructor.prototype.polluted', 1);
+    expect({}.polluted).toBeUndefined();
+    expect(Object.prototype.polluted).toBeUndefined();
+    expect(getDeep(obj, '__proto__')).toBeUndefined();
+  });
 });
 
 describe('markDirty / clearDirty', () => {
@@ -197,5 +207,34 @@ describe('markDirty / clearDirty', () => {
     expect(state.dirty).toBe(false);
     expect(btn.textContent).toBe('保存');
     expect(btn.classList.contains('dirty')).toBe(false);
+  });
+
+  it('markDirty bumps editSeq so in-flight saves can detect newer edits', () => {
+    const before = state.editSeq;
+    markDirty();
+    markDirty();
+    expect(state.editSeq).toBe(before + 2);
+    clearDirty();
+    expect(state.editSeq).toBe(before + 2);
+  });
+});
+
+describe('setStatus clear timer', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    document.body.innerHTML = '';
+  });
+
+  it('does not clear a repeated message early with the previous timer', () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = '<span id="status"></span>';
+    const el = document.getElementById('status');
+    setStatus('same');
+    vi.advanceTimersByTime(3000);
+    setStatus('same');
+    vi.advanceTimersByTime(1500);
+    expect(el.textContent).toBe('same');
+    vi.advanceTimersByTime(3000);
+    expect(el.textContent).toBe('');
   });
 });

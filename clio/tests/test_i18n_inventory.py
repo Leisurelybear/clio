@@ -95,7 +95,7 @@ def _docstring_ids(tree: ast.AST) -> set[int]:
 
 
 def _chinese_literals(path: Path) -> list[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+    tree = ast.parse(path.read_text(encoding="utf-8-sig"))
     docstrings = _docstring_ids(tree)
     found = []
     for node in ast.walk(tree):
@@ -108,7 +108,7 @@ def _chinese_literals(path: Path) -> list[str]:
 
 
 def _translation_keys(path: Path) -> list[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+    tree = ast.parse(path.read_text(encoding="utf-8-sig"))
     keys = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call) or not node.args:

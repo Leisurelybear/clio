@@ -1,0 +1,154 @@
+diff --git a/clio/ui/static/src/modal-escape.js b/clio/ui/static/src/modal-escape.js
+new file mode 100644
+--- /dev/null
++++ b/clio/ui/static/src/modal-escape.js
+@@ -0,0 +1,26 @@
++/**
++ * Global Escape handling for `.modal` elements.
++ *
++ * Dynamically created modals register their own close routine as
++ * `modal._closeModal` so Escape runs the same cleanup as their Cancel button
++ * (clearing secret inputs, removing the node) instead of only hiding them.
++ */
++
++/** Close the topmost visible modal. Returns false when no modal is open. */
++export function closeTopModal(root = document) {
++  const openModals = [...root.querySelectorAll('.modal')].filter(m => m.style.display !== 'none');
++  if (!openModals.length) return false;
++  const top = openModals[openModals.length - 1];
++  if (typeof top._closeModal === 'function') {
++    top._closeModal();
++  } else if (top.id === 'modal-relink') {
++    import('./sidebar-relink.js').then(m => m.closeRelinkModal());
++  } else if (top.id === 'modal-video-manage') {
++    import('./sidebar-video-manage.js').then(m => m.closeVideoManager());
++  } else if (top.id === 'modal-batch-relink') {
++    import('./sidebar-batch-relink.js').then(m => m.closeBatchRelinkModal());
++  } else {
++    top.style.display = 'none';
++  }
++  return true;
++}
+diff --git a/clio/ui/static/src/main.js b/clio/ui/static/src/main.js
+--- a/clio/ui/static/src/main.js
++++ b/clio/ui/static/src/main.js
+@@ -7,6 +7,7 @@
+ import { pickFolder, pickFile, applyPickToInput, initDesktopPickers } from './desktop-pick.js';
+ import { addToast } from './toast.js';
+ import { confirmDialog } from './confirm.js';
++import { closeTopModal } from './modal-escape.js';
+ import { setupPlayer } from './viewer.js';
+ import { save, initProjectConfig, renderActiveTab, refineCurrentFile } from './editor.js';
+ import {
+@@ -424,21 +425,7 @@
+     }
+     if (e.key === 'Escape') {
+       // Close topmost open modal only (preserve stacked dialog state)
+-      const openModals = [...$$('.modal')].filter(m => m.style.display !== 'none');
+-      if (openModals.length) {
+-        const top = openModals[openModals.length - 1];
+-        if (top.id === 'modal-relink') {
+-          import('./sidebar-relink.js').then(m => m.closeRelinkModal());
+-        } else if (top.id === 'modal-video-manage') {
+-          import('./sidebar-video-manage.js').then(m => m.closeVideoManager());
+-        } else if (top.id === 'modal-batch-relink') {
+-          import('./sidebar-batch-relink.js').then(m => m.closeBatchRelinkModal());
+-        } else {
+-          top.style.display = 'none';
+-        }
+-      } else {
+-        setProjectMenuOpen(false);
+-      }
++      if (!closeTopModal()) setProjectMenuOpen(false);
+     }
+     if (mod && e.key >= '1' && e.key <= '6') {
+       e.preventDefault();
+diff --git a/clio/ui/static/src/credential-field.js b/clio/ui/static/src/credential-field.js
+--- a/clio/ui/static/src/credential-field.js
++++ b/clio/ui/static/src/credential-field.js
+@@ -86,6 +86,8 @@
+       select.value = inventory.backends.default_source;
+       select.querySelector('[value="keyring"]').disabled = !inventory.backends.keyring.available;
+       const close = () => { input.value = ''; dialog.remove(); };
++      // Global Escape (modal-escape.js) must run the same cleanup.
++      dialog._closeModal = close;
+       dialog.querySelector('[data-cancel]').onclick = close;
+       dialog.querySelector('.modal-backdrop').onclick = close;
+       dialog.querySelector('[data-save]').onclick = async () => {
+diff --git a/clio/ui/static/src/editor-providers.js b/clio/ui/static/src/editor-providers.js
+--- a/clio/ui/static/src/editor-providers.js
++++ b/clio/ui/static/src/editor-providers.js
+@@ -837,8 +837,14 @@
+     }
+   };
+ 
+-  backdrop.querySelector('#modal-cancel').onclick = () => backdrop.remove();
+-  backdrop.querySelector('.modal-backdrop').onclick = () => backdrop.remove();
++  const closeModal = () => {
++    keyInput.value = '';
++    backdrop.remove();
++  };
++  // Global Escape (modal-escape.js) must remove the node and drop the key too.
++  backdrop._closeModal = closeModal;
++  backdrop.querySelector('#modal-cancel').onclick = closeModal;
++  backdrop.querySelector('.modal-backdrop').onclick = closeModal;
+ }
+ 
+ function _chooseProviderTestModel(provider) {
+diff --git a/clio/ui/static/src/__tests__/modal-escape.test.js b/clio/ui/static/src/__tests__/modal-escape.test.js
+new file mode 100644
+--- /dev/null
++++ b/clio/ui/static/src/__tests__/modal-escape.test.js
+@@ -0,0 +1,30 @@
++import { describe, expect, it, vi } from 'vitest';
++import { closeTopModal } from '../modal-escape.js';
++
++describe('closeTopModal', () => {
++  it('returns false when no modal is visible', () => {
++    document.body.innerHTML = '<div class="modal" style="display:none"></div>';
++    expect(closeTopModal()).toBe(false);
++  });
++
++  it('runs the registered close routine of the topmost modal', () => {
++    document.body.innerHTML = '<div class="modal" id="below"></div>';
++    const top = document.createElement('div');
++    top.className = 'modal';
++    top.innerHTML = '<input type="password" value="sk-secret">';
++    const close = vi.fn(() => { top.querySelector('input').value = ''; top.remove(); });
++    top._closeModal = close;
++    document.body.appendChild(top);
++
++    expect(closeTopModal()).toBe(true);
++    expect(close).toHaveBeenCalledOnce();
++    expect(top.isConnected).toBe(false);
++    expect(document.getElementById('below').style.display).toBe('');
++  });
++
++  it('falls back to hiding static modals', () => {
++    document.body.innerHTML = '<div class="modal" id="m" style="display:flex"></div>';
++    expect(closeTopModal()).toBe(true);
++    expect(document.getElementById('m').style.display).toBe('none');
++  });
++});
+diff --git a/clio/ui/static/src/__tests__/credential-field.test.js b/clio/ui/static/src/__tests__/credential-field.test.js
+--- a/clio/ui/static/src/__tests__/credential-field.test.js
++++ b/clio/ui/static/src/__tests__/credential-field.test.js
+@@ -91,6 +91,18 @@
+     expect(input.value).toBe('');
+   });
+ 
++  it('clears and removes the replace dialog when closed with Escape', async () => {
++    const { closeTopModal } = await import('../modal-escape.js');
++    const root = mount();
++    root.querySelector('[data-credential-replace]').click();
++    const dialog = document.querySelector('.modal');
++    const input = dialog.querySelector('[data-new-value]');
++    input.value = 'typed-secret';
++    expect(closeTopModal()).toBe(true);
++    expect(dialog.isConnected).toBe(false);
++    expect(input.value).toBe('');
++  });
++
+   it('confirms migration and deletes the effective writable backend', async () => {
+     api.mockResolvedValue({ ok: true });
+     const root = mount();

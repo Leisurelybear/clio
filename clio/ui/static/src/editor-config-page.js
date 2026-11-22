@@ -10,10 +10,7 @@ import { ensureGlobalUiDefaults } from './language-switcher.js';
 import { state } from './state.js';
 import { $, clearDirty, setStatus } from './utils.js';
 import {
-  DEFAULT_MODELS,
-  DEFAULT_PROVIDERS,
   attachProviderListHandlers,
-  providerCapabilities,
 } from './editor-providers.js';
 import { attachTaskBindingHandlers } from './editor-task-binding.js';
 import { renderLogs } from './editor-logs.js';
@@ -82,7 +79,7 @@ function _renderFallbackWarn() {
 
 function _renderEnvEditor() {
   return `<div style="margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:12px">
-    <button id="btn-env-toggle" class="btn-secondary" style="font-size:var(--text-sm)">${icon('file-text', 14)} ${t('settings.env_edit')}</button>
+    <button id="btn-env-toggle" class="btn-secondary" style="font-size:var(--text-sm)">${icon('file_text', 14)} ${t('settings.env_edit')}</button>
     <div id="env-editor" style="display:none;margin-top:8px">
       <p class="hint">${t('credentials.env_guidance')} <a href="#credentials-panel">${t('credentials.title')}</a></p>
       <textarea id="env-textarea" style="width:100%;min-height:160px;font-family:var(--font-mono,monospace);font-size:var(--text-xs,12px);padding:8px;background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);border-radius:var(--radius-sm)" spellcheck="false"></textarea>
@@ -105,7 +102,7 @@ function _attachEnvEditor() {
     envToggle.onclick = async () => {
       const visible = envEditor.style.display !== 'none';
       envEditor.style.display = visible ? 'none' : 'block';
-      envToggle.innerHTML = visible ? `${icon('file-text', 14)} ${t('settings.env_edit')}` : `${icon('x', 14)} ${t('settings.env.collapse')}`;
+      envToggle.innerHTML = visible ? `${icon('file_text', 14)} ${t('settings.env_edit')}` : `${icon('x', 14)} ${t('settings.env.collapse')}`;
       if (!visible && !envData.content) {
         try {
           envData = await api('GET', '/api/env');
@@ -140,25 +137,6 @@ function _attachEnvEditor() {
         void setStatus(message, 'err');
       }
     };
-  }
-}
-
-function _ensureDefaultProviderModels() {
-  const providers = state.configGlobal?.ai?.providers;
-  if (!providers) return;
-  for (const [name, p] of Object.entries(providers)) {
-    if (p && (!p.capabilities || p.capabilities.length === 0)) {
-      p.capabilities = [...providerCapabilities(p)];
-    }
-  }
-  for (const name of DEFAULT_PROVIDERS) {
-    const p = providers[name];
-    if (p && (!p.models || p.models.length === 0)) {
-      const defaults = DEFAULT_MODELS[name];
-      if (defaults) {
-        p.models = [...defaults];
-      }
-    }
   }
 }
 
@@ -237,7 +215,6 @@ export function renderConfig() {
     return;
   }
 
-  _ensureDefaultProviderModels();
 
   const isFallback = state.configRaw._config_source === 'global_fallback';
   const active = state.configTab || 'project';

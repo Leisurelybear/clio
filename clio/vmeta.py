@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import glob
 import hashlib
 import json
+import os
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import cast
@@ -80,7 +83,7 @@ class VideoMeta:
         if not meta_path.is_file():
             return None
         try:
-            raw = json.loads(meta_path.read_text(encoding="utf-8"))
+            raw = json.loads(meta_path.read_text(encoding="utf-8-sig"))
             data = raw.get("data", raw)
             si = data.get("split_info")
             return VideoMeta(
@@ -157,8 +160,24 @@ class VideoIndex:
             segments=segments,
         )
 
+    def index_path(self, compressed_dir: Path) -> Path:
+        """Sidecar path for this index.
+
+        ``<stem>.vindex`` stays the default. When that file already belongs to
+        another original with the same stem (different folder), a source-path
+        hash suffix (``<stem>.<hash8>.vindex``) keeps both indexes.
+        """
+        legacy = compressed_dir / f"{self.source_stem}{VINDEX_EXT}"
+        hashed = compressed_dir / f"{self.source_stem}.{_source_key(self.source_path)}{VINDEX_EXT}"
+        if hashed.is_file():
+            return hashed
+        owner = _index_source_path(legacy)
+        if owner is None or _same_source(owner, self.source_path):
+            return legacy
+        return hashed
+
     def write(self, compressed_dir: Path) -> Path:
-        index_path = compressed_dir / f"{self.source_stem}{VINDEX_EXT}"
+        index_path = self.index_path(compressed_dir)
         data = {
             "version": self.version,
             "source_stem": self.source_stem,
@@ -173,12 +192,54 @@ class VideoIndex:
         return index_path
 
     @staticmethod
-    def read(source_stem: str, compressed_dir: Path) -> VideoIndex | None:
-        index_path = compressed_dir / f"{source_stem}{VINDEX_EXT}"
+    def read(
+        source_stem: str,
+        compressed_dir: Path,
+        *,
+        segment_filename: str | None = None,
+        source_path: Path | str | None = None,
+    ) -> VideoIndex | None:
+        """Read the index for *source_stem*.
+
+        Without filters only ``<stem>.vindex`` is read (legacy behaviour). With
+        ``segment_filename`` and/or ``source_path`` every same-stem index
+        (including hash-suffixed ones) is tried and the first match returned.
+        """
+        if segment_filename is None and source_path is None:
+            return VideoIndex._read_path(compressed_dir / f"{source_stem}{VINDEX_EXT}")
+        wanted_source = None
+        if source_path is not None:
+            try:
+                wanted_source = str(Path(source_path).resolve())
+            except OSError:
+                wanted_source = str(source_path)
+        for index_path in _candidate_index_paths(source_stem, compressed_dir):
+            vindex = VideoIndex._read_path(index_path)
+            if vindex is None:
+                continue
+            if segment_filename is not None and not any(s.filename == segment_filename for s in vindex.segments):
+                continue
+            if wanted_source is not None and not _same_source(vindex.source_path, wanted_source):
+                continue
+            return vindex
+        return None
+
+    @staticmethod
+    def read_all(source_stem: str, compressed_dir: Path) -> list[VideoIndex]:
+        """All readable indexes for *source_stem* (legacy name first, then hash-suffixed)."""
+        result = []
+        for index_path in _candidate_index_paths(source_stem, compressed_dir):
+            vindex = VideoIndex._read_path(index_path)
+            if vindex is not None:
+                result.append(vindex)
+        return result
+
+    @staticmethod
+    def _read_path(index_path: Path) -> VideoIndex | None:
         if not index_path.is_file():
             return None
         try:
-            raw = json.loads(index_path.read_text(encoding="utf-8"))
+            raw = json.loads(index_path.read_text(encoding="utf-8-sig"))
             segs = [SegmentEntry(**s) for s in raw.get("segments", [])]
             return VideoIndex(
                 source_stem=raw["source_stem"],
@@ -224,6 +285,37 @@ class VideoIndex:
             return int(st.st_mtime) != self.source_modifyTime or st.st_size != self.source_size
         except OSError:
             return True
+
+
+def _source_key(source_path: str) -> str:
+    """Short, stable hash of a resolved source path (case-folded on Windows)."""
+    return hashlib.sha1(os.path.normcase(source_path).encode("utf-8")).hexdigest()[:8]
+
+
+def _same_source(a: str, b: str) -> bool:
+    return os.path.normcase(a) == os.path.normcase(b)
+
+
+def _index_source_path(index_path: Path) -> str | None:
+    """``source_path`` recorded in an existing index file, or None if missing/unreadable."""
+    try:
+        raw = json.loads(index_path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeError, ValueError):
+        return None
+    source = raw.get("source_path") if isinstance(raw, dict) else None
+    return source if isinstance(source, str) and source else None
+
+
+def _candidate_index_paths(source_stem: str, compressed_dir: Path) -> list[Path]:
+    """``<stem>.vindex`` followed by any ``<stem>.<hash8>.vindex`` siblings."""
+    paths = [compressed_dir / f"{source_stem}{VINDEX_EXT}"]
+    pattern = re.compile(re.escape(source_stem) + r"\.[0-9a-f]{8}" + re.escape(VINDEX_EXT), re.IGNORECASE)
+    try:
+        hashed = sorted(compressed_dir.glob(f"{glob.escape(source_stem)}.*{VINDEX_EXT}"))
+    except OSError:
+        hashed = []
+    paths.extend(p for p in hashed if pattern.fullmatch(p.name))
+    return paths
 
 
 def _quick_hash(path: Path, chunk: int = 1024 * 1024) -> str:

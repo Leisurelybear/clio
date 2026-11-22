@@ -13,6 +13,7 @@ from clio.i18n import t
 from clio.plan_model import Plan
 from clio.plan_readiness import (
     check_plan_export_readiness,
+    collect_media_index_aliases,
     collect_project_analysis_timelines,
     collect_project_indices,
     collect_project_media_durations,
@@ -161,19 +162,22 @@ def handle_post_export(
         return
 
     try:
-        plan = Plan.from_dict(json.loads(plan_path.read_text(encoding="utf-8")))
+        plan = Plan.from_dict(json.loads(plan_path.read_text(encoding="utf-8-sig")))
     except (json.JSONDecodeError, OSError) as e:
         handler._send_json({"ok": False, "error": str(e)}, 400)
         return
 
-    known, offline = collect_project_indices(cfg)
+    # Scan texts/ + compressed/ for index aliases once and share it.
+    media_aliases = collect_media_index_aliases(cfg)
+    known, offline = collect_project_indices(cfg, media_aliases=media_aliases)
     result = check_plan_export_readiness(
         plan,
         known_indices=known,
         offline_indices=offline,
-        media_durations=collect_project_media_durations(cfg),
+        media_durations=collect_project_media_durations(cfg, media_aliases=media_aliases),
         analysis_timelines=collect_project_analysis_timelines(cfg),
         source="original",
+        target_duration_sec=float(getattr(cfg.plan, "target_duration_sec", 0) or 0),
     )
     blocked = readiness_block_payload(result, force=force)
     if blocked is not None:

@@ -648,7 +648,7 @@ def test_install_cancellation_and_manual_platform(tmp_path):
 
 
 def test_install_system_mode_does_not_fall_back_to_download(tmp_path, monkeypatch):
-    monkeypatch.setattr(installer.shutil, "which", lambda name: None)
+    monkeypatch.setattr(installer.shutil, "which", lambda name, path=None: None)
     result = installer.install_ffmpeg(
         mode="system",
         allow_system=True,
@@ -699,3 +699,176 @@ def test_cli_reports_install_result(monkeypatch, capsys):
     )
     assert installer.main(["--mode", "download"]) == 0
     assert "installed" in capsys.readouterr().out
+
+
+def test_install_refetches_checksums_once_when_latest_was_republished(tmp_path):
+    root = tmp_path / "managed"
+    archive_bytes = io.BytesIO()
+    with zipfile.ZipFile(archive_bytes, "w") as archive:
+        archive.writestr("build/bin/ffmpeg.exe", b"ffmpeg")
+        archive.writestr("build/bin/ffprobe.exe", b"ffprobe")
+    payload = archive_bytes.getvalue()
+    new_digest = hashlib.sha256(payload).hexdigest()
+    asset = _selected_asset("win32", "amd64").archive
+    checksum_requests = []
+
+    def download(url, dest, **kwargs):
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if url.endswith("checksums.sha256"):
+            checksum_requests.append(url)
+            digest = "0" * 64 if len(checksum_requests) == 1 else new_digest  # stale list first
+            dest.write_text(f"{digest}  {asset}\n", encoding="utf-8")
+        else:
+            dest.write_bytes(payload)
+
+    result = installer.install_ffmpeg(
+        system="win32",
+        machine="amd64",
+        root=root,
+        runner=_fake_runner,
+        downloader=download,
+    )
+
+    assert result.ok is True
+    assert len(checksum_requests) == 2
+
+
+def test_package_manager_install_is_found_outside_process_path(tmp_path, monkeypatch):
+    """winget updates the registry PATH only; look in its Links dir right after install."""
+    local_app = tmp_path / "LocalAppData"
+    links = local_app / "Microsoft" / "WinGet" / "Links"
+    monkeypatch.setenv("LOCALAPPDATA", str(local_app))
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    searched = []
+
+    def fake_which(name, path=None):
+        searched.append(path)
+        if name == "winget":
+            return "winget"
+        if path and str(links) in path.split(os.pathsep):
+            return str(links / f"{name}.exe")
+        return None
+
+    monkeypatch.setattr(installer.shutil, "which", fake_which)
+    runner = MagicMock(return_value=subprocess.CompletedProcess([], 0, "", ""))
+    monkeypatch.setattr(installer, "verify_binaries", lambda ffmpeg, ffprobe, **_k: "WinGet" in str(ffmpeg))
+
+    result = installer.install_ffmpeg(
+        mode="system",
+        allow_system=True,
+        system="win32",
+        machine="amd64",
+        root=tmp_path / "managed",
+        runner=runner,
+    )
+
+    assert result.ok is True
+    assert result.method == "system"
+    assert result.ffmpeg == str(links / "ffmpeg.exe")
+
+
+def test_package_manager_failures_are_logged(monkeypatch, caplog):
+    monkeypatch.setattr(installer.shutil, "which", lambda name, path=None: name if name == "winget" else None)
+
+    def boom(*_args, **_kwargs):
+        raise subprocess.TimeoutExpired("winget", 900)
+
+    with caplog.at_level("WARNING", logger="clio.ffmpeg_install"):
+        installer._try_package_manager("win32", None, boom)
+
+    assert "winget" in caplog.text
+    assert "TimeoutExpired" in caplog.text
+
+
+def test_package_manager_wait_observes_cancellation(monkeypatch):
+    cancel = threading.Event()
+
+    class _Proc:
+        returncode = None
+        terminated = False
+
+        def communicate(self, timeout=None):
+            if self.terminated:
+                return "", ""
+            cancel.set()
+            raise subprocess.TimeoutExpired("winget", timeout)
+
+        def terminate(self):
+            self.terminated = True
+
+        def kill(self):
+            self.terminated = True
+
+    proc = _Proc()
+    monkeypatch.setattr(installer, "popen_subprocess", lambda *_a, **_k: proc)
+
+    with pytest.raises(InterruptedError):
+        installer._run_cancellable(["winget", "install"], timeout=900, cancel_event=cancel)
+
+    assert proc.terminated
+
+
+def test_resolve_archive_name_follows_upstream_release_bump():
+    asset = _selected_asset("win32", "amd64")
+    digest = "a" * 64
+    listing = "\n".join(
+        f"{digest}  {name}"
+        for name in (
+            "ffmpeg-master-latest-win64-gpl.zip",
+            "ffmpeg-n9.1-latest-win64-gpl-9.1.zip",
+            "ffmpeg-n9.1-latest-win64-gpl-shared-9.1.zip",
+            "ffmpeg-n9.1-latest-linux64-gpl-9.1.tar.xz",
+            "ffmpeg-n8.1-latest-win64-gpl-8.1.zip",
+        )
+    )
+
+    assert installer.resolve_archive_name(listing, asset) == "ffmpeg-n9.1-latest-win64-gpl-9.1.zip"
+    assert installer.resolve_archive_name(f"{digest}  {asset.archive}\n{listing}", asset) == asset.archive
+    with pytest.raises(ValueError, match="not found"):
+        installer.resolve_archive_name(f"{digest}  ffmpeg-master-latest-win64-gpl.zip", asset)
+
+
+def test_install_downloads_renamed_release_asset(tmp_path):
+    root = tmp_path / "managed"
+    archive_bytes = io.BytesIO()
+    with zipfile.ZipFile(archive_bytes, "w") as archive:
+        archive.writestr("build/bin/ffmpeg.exe", b"ffmpeg")
+        archive.writestr("build/bin/ffprobe.exe", b"ffprobe")
+    payload = archive_bytes.getvalue()
+    digest = hashlib.sha256(payload).hexdigest()
+    renamed = "ffmpeg-n9.1-latest-win64-gpl-9.1.zip"
+    urls = []
+
+    def download(url, dest, **kwargs):
+        urls.append(url)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if url.endswith("checksums.sha256"):
+            dest.write_text(f"{digest}  {renamed}\n", encoding="utf-8")
+        else:
+            dest.write_bytes(payload)
+
+    result = installer.install_ffmpeg(
+        system="win32",
+        machine="amd64",
+        root=root,
+        runner=_fake_runner,
+        downloader=download,
+    )
+
+    assert result.ok is True
+    assert urls[-1].endswith("/" + renamed)
+
+
+def test_verify_binaries_logs_why_a_binary_is_rejected(tmp_path, caplog):
+    ffmpeg = tmp_path / "ffmpeg"
+    ffprobe = tmp_path / "ffprobe"
+    ffmpeg.write_bytes(b"x")
+    ffprobe.write_bytes(b"x")
+
+    def broken(*_args, **_kwargs):
+        raise PermissionError("access denied")
+
+    with caplog.at_level("DEBUG", logger="clio.ffmpeg_install"):
+        assert installer.verify_binaries(ffmpeg, ffprobe, runner=broken) is False
+
+    assert "PermissionError" in caplog.text

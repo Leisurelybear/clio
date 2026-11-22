@@ -1,0 +1,119 @@
+diff --git a/clio/asr/base.py b/clio/asr/base.py
+--- a/clio/asr/base.py
++++ b/clio/asr/base.py
+@@ -2,7 +2,7 @@
+ 
+ import threading
+ from collections.abc import Callable, Mapping
+-from dataclasses import dataclass, field
++from dataclasses import dataclass, field, replace
+ from pathlib import Path
+ from typing import Protocol, runtime_checkable
+ 
+@@ -36,6 +36,17 @@
+     requires_public_url: bool = False
+     max_audio_mb: int | None = None
+     supported_languages: list[str] = field(default_factory=lambda: ["*"])
++    # i18n key for display_name. Capabilities are class attributes built at
++    # import time, so the name is translated again whenever it is read out.
++    display_name_key: str = ""
++
++    def localized(self) -> ProviderCapabilities:
++        """Copy with display_name translated in the currently active locale."""
++        if not self.display_name_key:
++            return self
++        from clio.i18n import t
++
++        return replace(self, display_name=t(self.display_name_key))
+ 
+ 
+ @runtime_checkable
+diff --git a/clio/asr/aliyun.py b/clio/asr/aliyun.py
+--- a/clio/asr/aliyun.py
++++ b/clio/asr/aliyun.py
+@@ -35,6 +35,7 @@
+     capabilities = ProviderCapabilities(
+         id="aliyun",
+         display_name=t("asr.aliyun.display_name"),
++        display_name_key="asr.aliyun.display_name",
+         supports_local_file=True,
+         requires_public_url=False,
+         max_audio_mb=1024,
+diff --git a/clio/asr/local.py b/clio/asr/local.py
+--- a/clio/asr/local.py
++++ b/clio/asr/local.py
+@@ -14,6 +14,7 @@
+     capabilities = ProviderCapabilities(
+         id="local",
+         display_name=t("asr.local.display_name"),
++        display_name_key="asr.local.display_name",
+         supports_local_file=True,
+     )
+ 
+diff --git a/clio/asr/factory.py b/clio/asr/factory.py
+--- a/clio/asr/factory.py
++++ b/clio/asr/factory.py
+@@ -17,7 +17,7 @@
+ 
+ 
+ def list_providers() -> list[ProviderCapabilities]:
+-    return [cls.capabilities for cls in _PROVIDERS.values()]
++    return [cls.capabilities.localized() for cls in _PROVIDERS.values()]
+ 
+ 
+ def build_provider(engine_id: str, config) -> TranscriptionProvider:
+diff --git a/clio/asr/readiness.py b/clio/asr/readiness.py
+--- a/clio/asr/readiness.py
++++ b/clio/asr/readiness.py
+@@ -32,7 +32,7 @@
+     error = provider.readiness_error(environ)
+     return ASRReadiness(
+         engine=engine_id,
+-        display_name=provider.capabilities.display_name,
++        display_name=provider.capabilities.localized().display_name,
+         ready=error is None,
+         error=error,
+     )
+diff --git a/clio/tests/test_fix_asr_i18n.py b/clio/tests/test_fix_asr_i18n.py
+new file mode 100644
+--- /dev/null
++++ b/clio/tests/test_fix_asr_i18n.py
+@@ -0,0 +1,38 @@
++"""Regression test: ASR provider names follow the active locale."""
++
++from __future__ import annotations
++
++from unittest.mock import MagicMock, patch
++
++from clio import i18n
++from clio.asr.aliyun import AliyunASRProvider
++from clio.asr.factory import list_providers
++from clio.asr.readiness import check_asr_ready
++
++
++def test_provider_names_are_translated_at_read_time(monkeypatch):
++    monkeypatch.delenv("CLIO_LANG", raising=False)
++    previous = i18n.get_active_locale()
++    try:
++        i18n.set_active_locale("en")
++        names = {caps.id: caps.display_name for caps in list_providers()}
++        assert names["aliyun"] == i18n.t("asr.aliyun.display_name", locale="en")
++        assert names["local"] == i18n.t("asr.local.display_name", locale="en")
++
++        i18n.set_active_locale("zh-CN")
++        names = {caps.id: caps.display_name for caps in list_providers()}
++        assert names["aliyun"] == i18n.t("asr.aliyun.display_name", locale="zh-CN")
++    finally:
++        i18n.set_active_locale(previous)
++
++
++def test_readiness_uses_active_locale_name(monkeypatch):
++    monkeypatch.delenv("CLIO_LANG", raising=False)
++    previous = i18n.get_active_locale()
++    try:
++        i18n.set_active_locale("en")
++        with patch.object(AliyunASRProvider, "readiness_error", return_value=None):
++            readiness = check_asr_ready(MagicMock(), engine="aliyun", environ={})
++        assert readiness.display_name == i18n.t("asr.aliyun.display_name", locale="en")
++    finally:
++        i18n.set_active_locale(previous)

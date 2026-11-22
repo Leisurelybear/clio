@@ -20,6 +20,7 @@ import {
   formatDuration,
   formatFps,
   formatMtime,
+  hideVideoInfoTip,
   infoSectionsToHtml,
   openVideoInfoModal,
 } from '../video-info.js';
@@ -225,6 +226,48 @@ describe('hover tooltip', () => {
     tip.dispatchEvent(new MouseEvent('mouseleave'));
     await vi.advanceTimersByTimeAsync(200);
     expect(tip.classList.contains('open')).toBe(false);
+  });
+
+  it('shares one in-flight probe between hover and the modal', async () => {
+    let finish;
+    api.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    document.body.insertAdjacentHTML('beforeend', `
+      <div id="modal-video-info" class="modal" style="display:none;">
+        <span id="video-info-name"></span><div id="video-info-body"></div>
+      </div>`);
+    const li = document.getElementById('row');
+    const video = { file: '001_a.mp4' };
+    bindVideoInfoHover(li, video, 'compressed');
+
+    li.dispatchEvent(new MouseEvent('mouseenter'));
+    await vi.advanceTimersByTimeAsync(400);
+    const modal = openVideoInfoModal(video, 'compressed');
+    expect(api).toHaveBeenCalledTimes(1);
+    finish(SAMPLE_INFO);
+    await modal;
+    expect(document.getElementById('video-info-body').textContent).toContain('640×360');
+  });
+
+  it('does not open a card for a row replaced before the delay', async () => {
+    api.mockResolvedValue(SAMPLE_INFO);
+    const li = document.getElementById('row');
+    bindVideoInfoHover(li, { file: '001_a.mp4' }, 'compressed');
+    li.dispatchEvent(new MouseEvent('mouseenter'));
+    li.remove();
+    await vi.advanceTimersByTimeAsync(400);
+    expect(api).not.toHaveBeenCalled();
+    expect(document.querySelector('.video-info-tooltip.open')).toBeNull();
+  });
+
+  it('closes the card when hideVideoInfoTip is called on re-render', async () => {
+    api.mockResolvedValue(SAMPLE_INFO);
+    const li = document.getElementById('row');
+    bindVideoInfoHover(li, { file: '001_a.mp4' }, 'compressed');
+    li.dispatchEvent(new MouseEvent('mouseenter'));
+    await vi.advanceTimersByTimeAsync(400);
+    expect(document.querySelector('.video-info-tooltip').classList.contains('open')).toBe(true);
+    hideVideoInfoTip();
+    expect(document.querySelector('.video-info-tooltip').classList.contains('open')).toBe(false);
   });
 
   it('does not fetch when the pointer leaves before the delay', async () => {

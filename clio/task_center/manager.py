@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import logging
 import threading
 import time
+import zlib
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -28,7 +30,16 @@ from clio.task_center.models import (
 )
 from clio.task_center.reporter import TaskCancelled, TaskReporter
 from clio.task_center.state_machine import InvalidTaskTransition, transition_task
-from clio.task_center.store import TaskQuery, TaskStore, TaskStoreError, TaskUpdateConflictError
+from clio.task_center.store import TaskStore, TaskStoreDataError, TaskStoreError, TaskUpdateConflictError
+
+logger = logging.getLogger("clio.task_center")
+
+# Finishing a task writes to SQLite; a busy database must not leave it RUNNING.
+_FINISH_ATTEMPTS = 3
+_FINISH_RETRY_DELAY_SEC = 0.2
+# Tasks not run by this process (recovered rows, foreign IDs from the API)
+# share a fixed pool of locks instead of adding a dict entry per ID forever.
+_LOCK_STRIPES = 64
 
 
 class TaskNotCancellableError(ValueError):
@@ -71,6 +82,7 @@ class TaskManager:
         self._condition = threading.Condition(self._lock)
         self._runtime: dict[str, _RuntimeTask] = {}
         self._task_locks: dict[str, threading.Lock] = {}
+        self._stripe_locks = tuple(threading.Lock() for _ in range(_LOCK_STRIPES))
         self._semaphores: dict[str, threading.BoundedSemaphore] = {}
         self._semaphore_limits: dict[str, int] = {}
         self._closed = False
@@ -273,14 +285,26 @@ class TaskManager:
                 raise InvalidTaskTransition(f"cannot update progress for {task.status.value} task")
             next_current = task.current if current is None else current
             next_total = task.total if total is None else total
+            next_pct = normalized_progress(next_current, next_total)
+            next_phase = task.phase if phase is None else phase
+            next_message = task.message if message is None else message
+            if (next_phase, next_current, next_total, next_message) == (
+                task.phase,
+                task.current,
+                task.total,
+                task.message,
+            ):
+                # ffmpeg reports progress several times a second with the same
+                # percentage; skip the write transaction and duplicate event.
+                return task
             changed_at = utc_now_iso()
             updated = replace(
                 task,
-                phase=task.phase if phase is None else phase,
+                phase=next_phase,
                 current=next_current,
                 total=next_total,
-                progress_pct=normalized_progress(next_current, next_total),
-                message=task.message if message is None else message,
+                progress_pct=next_pct,
+                message=next_message,
                 heartbeat_at=changed_at,
                 updated_at=changed_at,
             )
@@ -339,38 +363,44 @@ class TaskManager:
                 self._condition.wait(timeout=remaining)
 
     def recover_interrupted(self) -> int:
+        """Mark tasks left active by a previous process as interrupted.
+
+        Rows that cannot be decoded are skipped (and logged) one by one so a
+        single corrupt task never makes the whole task center unavailable.
+        """
         recovered = 0
         active_statuses = (TaskStatus.QUEUED, TaskStatus.RUNNING, TaskStatus.CANCELLING)
-        while True:
-            tasks = self.store.list(TaskQuery(statuses=active_statuses, limit=200))
-            if not tasks:
-                return recovered
-            for task in tasks:
-                lock = self._task_lock(task.id)
-                with lock:
-                    current = self.store.require(task.id)
-                    if current.status not in active_statuses:
-                        continue
-                    changed_at = utc_now_iso()
-                    updated = transition_task(
-                        current,
-                        TaskStatus.INTERRUPTED,
-                        at=changed_at,
-                        message=t("task.restart_interrupted"),
-                    )
-                    event = TaskEvent(
-                        task_id=current.id,
-                        type=TaskEventType.STATUS,
-                        created_at=changed_at,
-                        message=updated.message,
-                        level=TaskEventLevel.WARNING,
-                        data={"from": current.status.value, "to": TaskStatus.INTERRUPTED.value},
-                    )
-                    try:
-                        self.store.save_with_event(updated, event, expected_status=current.status)
-                    except TaskUpdateConflictError:
-                        continue
-                    recovered += 1
+        for task_id in self.store.active_task_ids():
+            lock = self._task_lock(task_id)
+            with lock:
+                try:
+                    current = self.store.require(task_id)
+                except TaskStoreDataError as e:
+                    logger.warning("skipping unreadable task %s during recovery: %s", task_id, e)
+                    continue
+                if current.status not in active_statuses:
+                    continue
+                changed_at = utc_now_iso()
+                updated = transition_task(
+                    current,
+                    TaskStatus.INTERRUPTED,
+                    at=changed_at,
+                    message=t("task.restart_interrupted"),
+                )
+                event = TaskEvent(
+                    task_id=current.id,
+                    type=TaskEventType.STATUS,
+                    created_at=changed_at,
+                    message=updated.message,
+                    level=TaskEventLevel.WARNING,
+                    data={"from": current.status.value, "to": TaskStatus.INTERRUPTED.value},
+                )
+                try:
+                    self.store.save_with_event(updated, event, expected_status=current.status)
+                except TaskUpdateConflictError:
+                    continue
+                recovered += 1
+        return recovered
 
     def shutdown(self, *, timeout: float = 5.0) -> None:
         with self._condition:
@@ -426,18 +456,40 @@ class TaskManager:
                 self._finish_cancelled(task_id)
             else:
                 self._finish_succeeded(task_id, result or {})
-        except TaskCancelled as e:
-            self._finish_cancelled(task_id, message=str(e))
-        except Exception as e:  # noqa: BLE001 - task executors must persist every failure as a failed task
-            self._finish_failed(task_id, e)
+        except TaskCancelled as exc:
+            # Bind before the lambda: the except block deletes ``exc`` on exit.
+            cancel_message = str(exc)
+            self._settle(task_id, lambda: self._finish_cancelled(task_id, message=cancel_message))
+        except Exception as exc:  # noqa: BLE001 - task executors must persist every failure as a failed task
+            failure = exc
+            self._settle(task_id, lambda: self._finish_failed(task_id, failure))
         finally:
             if semaphore is not None:
                 semaphore.release()
-            self._maybe_cleanup()
+            try:
+                self._maybe_cleanup()
+            except Exception:  # cleanup is housekeeping; never kill the worker thread
+                logger.exception("task cleanup failed after %s", task_id)
             with self._condition:
                 self._runtime.pop(task_id, None)
                 self._condition.notify_all()
             self._release_task_lock_if_terminal(task_id)
+
+    def _settle(self, task_id: str, finish) -> None:
+        """Run a terminal transition, retrying transient store errors.
+
+        An exception escaping here would end the worker thread with the task
+        still RUNNING until the next restart, so failures are logged instead.
+        """
+        for attempt in range(1, _FINISH_ATTEMPTS + 1):
+            try:
+                finish()
+                return
+            except Exception:  # see docstring
+                if attempt == _FINISH_ATTEMPTS:
+                    logger.exception("could not record final status of task %s", task_id)
+                    return
+                time.sleep(_FINISH_RETRY_DELAY_SEC * attempt)
 
     def _transition_status(
         self,
@@ -563,7 +615,12 @@ class TaskManager:
 
     def _task_lock(self, task_id: str) -> threading.Lock:
         with self._lock:
-            return self._task_locks.setdefault(task_id, threading.Lock())
+            lock = self._task_locks.get(task_id)
+            if lock is not None:
+                return lock
+            if task_id in self._runtime:
+                return self._task_locks.setdefault(task_id, threading.Lock())
+            return self._stripe_locks[zlib.crc32(task_id.encode("utf-8")) % _LOCK_STRIPES]
 
     def _release_task_lock_if_terminal(self, task_id: str) -> None:
         try:

@@ -3,9 +3,11 @@
 
 A JSON lock file (``clio.lock``) in the config dir records the first
 instance's server port. A second instance decides liveness by POSTing the
-focus endpoint: any HTTP response proves the first instance is alive, while a
-connection error means the lock is stale and can be taken over. PID checks are
-deliberately avoided because os.kill(pid, 0) is unreliable on Windows.
+focus endpoint: a Clio reply (200, or an error carrying Clio's JSON body)
+proves the first instance is alive, while a connection error or a "no such
+endpoint" reply from some other local server means the lock is stale and can
+be taken over. PID checks are deliberately avoided because os.kill(pid, 0) is
+unreliable on Windows.
 """
 
 from __future__ import annotations
@@ -97,12 +99,33 @@ def remove_lock(config_dir: Path, token: str | None = None) -> bool:
         return False
 
 
+# Clio always routes POST /api/desktop/focus, so these statuses come from a
+# different server that now owns the port recorded in a stale lock.
+_FOREIGN_FOCUS_STATUSES = frozenset({404, 405, 501})
+
+
+def _is_clio_focus_error(exc: urllib.error.HTTPError) -> bool:
+    """Tell a Clio error reply (e.g. 503 while starting) from a foreign server."""
+    try:
+        body = exc.read(4096) or b""
+    except (OSError, ValueError, AttributeError):
+        body = b""
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        data = None
+    if isinstance(data, dict) and "ok" in data:
+        return True
+    return exc.code not in _FOREIGN_FOCUS_STATUSES
+
+
 def focus_first_instance(host: str, port: int, timeout: float = 3.0) -> bool:
     """Ask the first instance to focus its window.
 
-    Returns True when any HTTP response is received (the first instance is
-    alive — including 5xx while its window is still starting up). Returns
-    False only when the server is unreachable (stale lock / connection error).
+    Returns True when the first instance answers — including 5xx while its
+    window is still starting up. Returns False when the server is unreachable,
+    or when the reply shows the port now belongs to another HTTP service
+    (404/405/501 without Clio's JSON body), i.e. the lock is stale.
     """
     try:
         req = urllib.request.Request(
@@ -113,8 +136,8 @@ def focus_first_instance(host: str, port: int, timeout: float = 3.0) -> bool:
         )
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.status == 200
-    except urllib.error.HTTPError:
-        return True
+    except urllib.error.HTTPError as exc:
+        return _is_clio_focus_error(exc)
     except OSError:
         return False
 

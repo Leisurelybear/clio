@@ -255,6 +255,35 @@ class TestHandlePostProjectCreate:
 
         assert handler._send_json.call_args[0][1] == 500
         assert not (tmp_path / "projects.json").is_file()
+        # No half-created project: a retry must not be rejected with 409.
+        assert not (proj_dir / "project.json").exists()
+
+        handler._send_json.reset_mock()
+        with (
+            patch("clio.ui.routes.projects._create_project_yaml", return_value=proj_dir / "project.yaml"),
+            patch("clio.ui.routes.projects._add_to_registry"),
+        ):
+            handle_post_project_create(handler, {"name": "Paris", "input_dir": str(proj_dir)})
+        assert handler._send_json.call_args[0][0]["ok"] is True
+        assert (proj_dir / "project.json").is_file()
+
+    def test_add_does_not_leave_project_json_when_yaml_fails(self, tmp_path: Path):
+        from unittest.mock import patch
+
+        handler = MagicMock()
+        proj_dir = tmp_path / "existing_dir"
+        proj_dir.mkdir()
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text("paths: {}\n", encoding="utf-8")
+        handler.config_path = cfg
+        handler.__class__._config_cache = MagicMock()
+        handler._send_json = MagicMock()
+
+        with patch("clio.ui.routes.projects._create_project_yaml", return_value=None):
+            handle_post_project_add(handler, {"project_dir": str(proj_dir)})
+
+        assert handler._send_json.call_args[0][1] == 500
+        assert not (proj_dir / "project.json").exists()
 
 
 class TestHandlePostProjectAdd:

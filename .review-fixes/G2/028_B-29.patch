@@ -1,0 +1,106 @@
+diff --git a/clio/task_center/manager.py b/clio/task_center/manager.py
+--- a/clio/task_center/manager.py
++++ b/clio/task_center/manager.py
+@@ -3,6 +3,7 @@
+ import logging
+ import threading
+ import time
++import zlib
+ from dataclasses import dataclass, replace
+ from typing import Any
+ 
+@@ -36,6 +37,9 @@
+ # Finishing a task writes to SQLite; a busy database must not leave it RUNNING.
+ _FINISH_ATTEMPTS = 3
+ _FINISH_RETRY_DELAY_SEC = 0.2
++# Tasks not run by this process (recovered rows, foreign IDs from the API)
++# share a fixed pool of locks instead of adding a dict entry per ID forever.
++_LOCK_STRIPES = 64
+ 
+ 
+ class TaskNotCancellableError(ValueError):
+@@ -78,6 +82,7 @@
+         self._condition = threading.Condition(self._lock)
+         self._runtime: dict[str, _RuntimeTask] = {}
+         self._task_locks: dict[str, threading.Lock] = {}
++        self._stripe_locks = tuple(threading.Lock() for _ in range(_LOCK_STRIPES))
+         self._semaphores: dict[str, threading.BoundedSemaphore] = {}
+         self._semaphore_limits: dict[str, int] = {}
+         self._closed = False
+@@ -607,7 +612,12 @@
+ 
+     def _task_lock(self, task_id: str) -> threading.Lock:
+         with self._lock:
+-            return self._task_locks.setdefault(task_id, threading.Lock())
++            lock = self._task_locks.get(task_id)
++            if lock is not None:
++                return lock
++            if task_id in self._runtime:
++                return self._task_locks.setdefault(task_id, threading.Lock())
++            return self._stripe_locks[zlib.crc32(task_id.encode("utf-8")) % _LOCK_STRIPES]
+ 
+     def _release_task_lock_if_terminal(self, task_id: str) -> None:
+         try:
+diff --git a/clio/tasks/waveform.py b/clio/tasks/waveform.py
+--- a/clio/tasks/waveform.py
++++ b/clio/tasks/waveform.py
+@@ -46,8 +46,9 @@
+ _job_slots = threading.BoundedSemaphore(MAX_CONCURRENT_JOBS)
+ # Keys with a live job thread in *this* process (orphan recovery after restart).
+ _active_job_keys: set[str] = set()
+-_key_locks: dict[str, threading.Lock] = {}
+-_key_locks_guard = threading.Lock()
++# Fixed lock pool: one entry per cache key would grow with every video ever viewed.
++_KEY_LOCK_STRIPES = 64
++_key_locks: tuple[threading.Lock, ...] = tuple(threading.Lock() for _ in range(_KEY_LOCK_STRIPES))
+ 
+ 
+ def _pid_alive(pid: int) -> bool:
+@@ -243,10 +244,7 @@
+ 
+ 
+ def _key_lock(key: str) -> threading.Lock:
+-    with _key_locks_guard:
+-        if key not in _key_locks:
+-            _key_locks[key] = threading.Lock()
+-        return _key_locks[key]
++    return _key_locks[int(hashlib.sha1(key.encode("utf-8")).hexdigest()[:8], 16) % _KEY_LOCK_STRIPES]
+ 
+ 
+ def _persist_peaks(project_output: Path, key: str, payload: dict[str, Any]) -> None:
+diff --git a/clio/tests/test_fix_task_center.py b/clio/tests/test_fix_task_center.py
+--- a/clio/tests/test_fix_task_center.py
++++ b/clio/tests/test_fix_task_center.py
+@@ -249,3 +249,19 @@
+ 
+         assert manager.wait(task.id, timeout=5).status is TaskStatus.FAILED
+         assert calls["n"] == 2
++
++
++class TestTaskLockTable:
++    def test_unknown_task_ids_do_not_grow_the_lock_table(self, tmp_path):
++        import pytest
++
++        from clio.task_center.manager import TaskManager
++        from clio.task_center.store import TaskNotFoundError
++
++        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
++        before = len(manager._task_locks)
++        for i in range(200):
++            with pytest.raises(TaskNotFoundError):
++                manager.request_cancel(f"missing-{i}")
++
++        assert len(manager._task_locks) == before
+diff --git a/clio/tests/test_fix_waveform.py b/clio/tests/test_fix_waveform.py
+--- a/clio/tests/test_fix_waveform.py
++++ b/clio/tests/test_fix_waveform.py
+@@ -136,3 +136,9 @@
+     def test_min_sample_maps_to_full_scale(self):
+         pcm = struct.pack("<h", -32768) + b"\x00\x00" * 9
+         assert wf.peaks_from_pcm_s16le(pcm, bin_count=2) == [1.0, 0.0]
++
++
++def test_key_locks_are_a_fixed_pool():
++    locks = {id(wf._key_lock(f"key-{i}")) for i in range(1000)}
++    assert len(locks) <= wf._KEY_LOCK_STRIPES
++    assert wf._key_lock("same") is wf._key_lock("same")

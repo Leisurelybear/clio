@@ -116,6 +116,15 @@ passed. No live AI pipeline was started during verification.
 | P2 | 59 | 31 | 28 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P3 | 14 | 10 | 2 | 0 | 2 | 0 | 0 | 0 | 0 |
 
+Working-tree review (2026-11-21): the
+[full review](2026-11-21-clio-full-review.md) re-verified the carried R03-R17 rows against the
+current tree and added local N01-N07. It found two new P1 media-identity defects (stale-index cuts
+and export rebuilt from raw analysis indexes), plus preview re-scan cost, duplicated identity
+helpers, a wrong plan-dedupe reason, token-in-URL, and a typecheck coverage gap. The current
+working tree fails `ruff format --check` (4 files), `mypy` (4 test errors), and one Vitest price
+assertion; the backend suite result is unconfirmed. N- and V-series IDs are local to that review
+and are not folded into the historical 117-row totals.
+
 ## Item status
 
 | # | Priority | ID | Issue | Status | Evidence / verification |
@@ -269,3 +278,19 @@ plan diagnostic (3405 passed, 12 skipped, 1 failed). Restored the specific corru
 message; all 81 planning tests and full Ruff/mypy checks pass after the correction.
 Final full pytest: 3409 passed, 12 skipped. All five follow-up findings are closed;
 the two original confirmed P3 items remain open.
+
+Unknown day-scope handling (2026-11-19): consistency and planning now fail with an actionable
+message when a requested day label has no analyzed media, instead of returning no work and
+letting the task report success. Guided Run preview marks those rows as blocking and reports
+the requested and available day labels, so the next-stage Run button stays disabled. Explicit
+empty selections (`files=[]`) remain a no-op, and a project with no analyzed media keeps its
+existing behavior. Focused verification: 146 pytest and 95 runner Vitest passed. Full backend:
+3524 passed, 12 skipped. Frontend typecheck, Ruff, mypy, and `main.py check` from `.venv`
+passed. Full npm test reached 1023 passed with one pre-existing editor-config price-label failure
+outside this change.
+Labeled-delivery preview consistency (2026-11-19): the final Run stage now mirrors the label
+runtime's compressed-input lookup. Analyses with stale index numbers are counted as skipped
+when no matching compressed video exists, instead of remaining permanently pending while the
+runtime skips them. Malformed analysis JSON stays runnable so the runtime can surface the
+concrete error. Focused verification: 204 pytest passed; Ruff format/check and git diff check
+passed.

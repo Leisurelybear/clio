@@ -10,6 +10,10 @@ const ACTIVE = new Set(['queued', 'running', 'cancelling']);
 const TERMINAL = new Set(['succeeded', 'failed', 'cancelled', 'interrupted']);
 let _stream = null;
 let _streamCursor = 0;
+const STREAM_RETRY_MIN_MS = 1_000;
+const STREAM_RETRY_MAX_MS = 30_000;
+let _streamRetryDelay = STREAM_RETRY_MIN_MS;
+let _streamRetryTimer = null;
 let _detailRequest = 0;
 const _eventListeners = new Set();
 const _taskEventSeq = new Map();
@@ -114,6 +118,8 @@ function _detailHtml(detail) {
 function _render() {
   const pane = $('tab-tasks');
   if (!pane) return;
+  const prevListScroll = pane.querySelector('.task-list')?.scrollTop || 0;
+  const prevEventsScroll = pane.querySelector('.task-events')?.scrollTop || 0;
   const filtered = filterTasks(state.tasks);
   const projects = [...new Set(state.tasks.map(task => task.project_name || task.project_id || t('task.unnamed')))].sort();
   const activeCount = state.tasks.filter(task => ACTIVE.has(task.status)).length;
@@ -133,6 +139,38 @@ function _render() {
   _updateNavBadge();
   pane.querySelector('.task-cancel')?.addEventListener('click', () => mutateTask('cancel'));
   pane.querySelector('.task-retry')?.addEventListener('click', () => mutateTask('retry'));
+  const list = pane.querySelector('.task-list');
+  if (list && prevListScroll) list.scrollTop = prevListScroll;
+  const eventsEl = pane.querySelector('.task-events');
+  if (eventsEl && prevEventsScroll) eventsEl.scrollTop = prevEventsScroll;
+}
+
+let _streamRenderPending = false;
+let _streamRenderWaitsForBlur = false;
+
+/** Coalesce SSE-driven re-renders to one per frame; never rebuild under an open filter. */
+function _scheduleStreamRender() {
+  if (_streamRenderPending) return;
+  _streamRenderPending = true;
+  const raf = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : cb => setTimeout(cb, 16);
+  raf(() => {
+    _streamRenderPending = false;
+    if (state.currentEntity !== 'tasks') return;
+    const pane = $('tab-tasks');
+    const active = document.activeElement;
+    if (pane && active && active.tagName === 'SELECT' && pane.contains(active)) {
+      // Rebuilding the toolbar would close the dropdown the user is using.
+      if (!_streamRenderWaitsForBlur) {
+        _streamRenderWaitsForBlur = true;
+        active.addEventListener('blur', () => {
+          _streamRenderWaitsForBlur = false;
+          _scheduleStreamRender();
+        }, { once: true });
+      }
+      return;
+    }
+    _render();
+  });
 }
 
 export async function loadTasks() {
@@ -168,7 +206,10 @@ export async function selectTask(taskId) {
     if (request !== _detailRequest) return;
     state.taskDetail = result;
     _render();
-  } catch (error) { setStatus(t('task.detail_load_failed', { detail: error.message }), 'err'); }
+  } catch (error) {
+    if (request !== _detailRequest) return;
+    setStatus(t('task.detail_load_failed', { detail: error.message }), 'err');
+  }
 }
 
 /** Fetch one task snapshot for consumers that may subscribe after a fast task finished. */
@@ -202,11 +243,23 @@ async function mutateTask(action) {
 
 export function startTaskStream() {
   if (_stream) return;
-  let url = `/api/tasks/stream?after=${encodeURIComponent(_streamCursor)}`;
-  const token = sessionStorage.getItem('api_token');
-  if (token) url += `&token=${encodeURIComponent(token)}`;
+  // EventSource cannot send headers; the HttpOnly session cookie authenticates it.
+  const url = `/api/tasks/stream?after=${encodeURIComponent(_streamCursor)}`;
   try { _stream = new EventSource(url); } catch { return; }
-  _stream.onmessage = event => {
+  const stream = _stream;
+  stream.onopen = () => { _streamRetryDelay = STREAM_RETRY_MIN_MS; };
+  stream.onerror = () => {
+    if (_stream !== stream) return;
+    // The browser retries transient drops itself; once it gives up (non-200
+    // reconnect, e.g. 401 after a server restart) the stream is CLOSED for
+    // good and every waitForTask() would hang. Rebuild it with backoff.
+    const closed = typeof EventSource !== 'undefined' && Number.isInteger(EventSource.CLOSED) ? EventSource.CLOSED : 2;
+    if (stream.readyState !== closed) return;
+    try { stream.close(); } catch { /* already closed */ }
+    _stream = null;
+    _scheduleStreamReconnect();
+  };
+  stream.onmessage = event => {
     try {
       const payload = JSON.parse(event.data);
       const seq = Number(payload.seq) || 0;
@@ -225,13 +278,26 @@ export function startTaskStream() {
           state.taskDetail = { ...state.taskDetail, task: payload.task, events };
         }
         _updateNavBadge();
-        if (state.currentEntity === 'tasks') _render();
+        if (state.currentEntity === 'tasks') _scheduleStreamRender();
       }
       _eventListeners.forEach(listener => {
         try { listener(payload); } catch { /* one consumer must not break the stream */ }
       });
     } catch { /* ignore malformed event */ }
   };
+}
+
+function _scheduleStreamReconnect() {
+  if (_streamRetryTimer) return;
+  const delay = _streamRetryDelay;
+  _streamRetryDelay = Math.min(delay * 2, STREAM_RETRY_MAX_MS);
+  _streamRetryTimer = setTimeout(() => {
+    _streamRetryTimer = null;
+    if (_stream) return;
+    startTaskStream();
+    // Resync anything the replay cursor cannot cover (e.g. server restart).
+    if (_stream) loadTasks();
+  }, delay);
 }
 
 /** Subscribe to the process-wide task event stream without owning its EventSource. */

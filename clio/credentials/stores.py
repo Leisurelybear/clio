@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import threading
 from collections.abc import Mapping
@@ -10,6 +11,8 @@ from typing import Any, Protocol
 
 from clio.credentials.environment import inherited_value, sync_dotenv
 from clio.credentials.models import ENV_RE, validate_value
+
+logger = logging.getLogger("clio.credentials")
 
 STORE_LOCK = threading.RLock()
 
@@ -64,7 +67,7 @@ class DotenvStore:
         from clio.config.loader import parse_dotenv
 
         path = self._path()
-        content = path.read_text(encoding="utf-8") if path.is_file() else ""
+        content = path.read_text(encoding="utf-8-sig") if path.is_file() else ""
         return parse_dotenv(content).get(account) or None
 
     def _update(self, account: str, value: str | None) -> None:
@@ -80,7 +83,8 @@ class DotenvStore:
             validate_value(value)
         with STORE_LOCK:
             path = self._path()
-            content = path.read_text(encoding="utf-8") if path.is_file() else ""
+            # utf-8-sig drops a Notepad BOM so the first key matches and is not rewritten with it.
+            content = path.read_text(encoding="utf-8-sig") if path.is_file() else ""
             lines = []
             for line in content.splitlines(keepends=True):
                 match = assignment.match(line.rstrip("\r\n"))
@@ -119,6 +123,7 @@ class KeyringStore:
 
     def __init__(self, backend: Any = None):
         self.backend = backend
+        self.unavailable_reason = ""
         if backend is None:
             try:
                 import keyring
@@ -135,8 +140,16 @@ class KeyringStore:
                     and candidate.priority > 0
                 ):
                     self.backend = candidate
-            except Exception:  # noqa: BLE001 - optional platform backend discovery
-                pass
+                else:
+                    kind = type(candidate)
+                    self.unavailable_reason = f"unsupported backend {kind.__module__}.{kind.__name__}"
+            except ModuleNotFoundError:
+                self.unavailable_reason = "keyring package is not installed"
+            except Exception as exc:  # noqa: BLE001 - optional platform backend discovery
+                # Only the exception type: platform messages may carry paths or secrets.
+                self.unavailable_reason = f"backend discovery failed ({type(exc).__name__})"
+            if self.backend is None:
+                logger.info("OS keyring unavailable: %s", self.unavailable_reason)
 
     def _call(self, method: str, account: str, *args: str) -> Any:
         if self.backend is None:
@@ -150,7 +163,11 @@ class KeyringStore:
         try:
             return self._call("get_password", account)
         except ValueError:
-            self.backend = None
+            # A locked keychain, DBus timeout or denied prompt is transient. Keep the
+            # backend so later saves never silently fall back to a plaintext .env.
+            if self.backend is not None and not getattr(self, "_read_failure_logged", False):
+                self._read_failure_logged = True
+                logger.warning("OS keyring read failed; treating the credential as missing")
             return None
 
     def set(self, account: str, value: str) -> None:
@@ -158,13 +175,15 @@ class KeyringStore:
         self._call("set_password", account, value)
 
     def delete(self, account: str) -> None:
-        if self.get(account) is not None:
+        # Read through _call so an unavailable or failing keyring is reported, not ignored.
+        if self._call("get_password", account) is not None:
             self._call("delete_password", account)
-        elif self.backend is None:
-            raise ValueError("OS keyring is unavailable")
 
     def contains(self, account: str) -> bool:
         return bool(self.get(account))
 
     def describe(self, account: str) -> dict:
-        return {"available": self.backend is not None, "writable": self.backend is not None}
+        info: dict[str, Any] = {"available": self.backend is not None, "writable": self.backend is not None}
+        if self.backend is None:
+            info["reason"] = getattr(self, "unavailable_reason", "") or "unavailable"
+        return info

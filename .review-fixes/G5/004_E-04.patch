@@ -1,0 +1,67 @@
+diff --git a/clio/ui/static/src/sidebar-data.js b/clio/ui/static/src/sidebar-data.js
+--- a/clio/ui/static/src/sidebar-data.js
++++ b/clio/ui/static/src/sidebar-data.js
+@@ -71,7 +71,18 @@
+     .map(_removeTarget);
+ }
+ 
+-async function _removeVideos(targets) {
++// videos.json is updated with a read-modify-write (GET then PUT of the whole
++// list), so overlapping removals in this tab would overwrite each other.
++// Run them strictly one after another.
++let _removeChain = Promise.resolve();
++
++function _removeVideos(targets) {
++  const run = _removeChain.then(() => _removeVideosNow(targets));
++  _removeChain = run.catch(() => {});
++  return run;
++}
++
++async function _removeVideosNow(targets) {
+   const list = (Array.isArray(targets) ? targets : []).filter(Boolean);
+   if (!list.length) return null;
+   try {
+diff --git a/clio/ui/static/src/__tests__/sidebar-data.test.js b/clio/ui/static/src/__tests__/sidebar-data.test.js
+--- a/clio/ui/static/src/__tests__/sidebar-data.test.js
++++ b/clio/ui/static/src/__tests__/sidebar-data.test.js
+@@ -362,4 +362,39 @@
+     expect(state.selectedFiles).toEqual([]);
+     vi.unstubAllGlobals();
+   });
+-});
++
++  it('serializes overlapping removals so the second PUT sees the first', async () => {
++    document.body.innerHTML = `
++      <button id=btn-select-videos></button>
++      <ul id=video-list></ul>
++    `;
++    const { api } = await import('../api.js');
++    api.mockReset();
++    const { state } = await import('../state.js');
++    state.videos = [];
++    state.selectedFiles = [];
++    state.source = 'original';
++    let server = ['D:/clips/001_a.mp4', 'D:/clips/002_b.mp4', 'D:/clips/003_c.mp4'];
++    api.mockImplementation(async (method, url, body) => {
++      if (method === 'GET' && url === '/api/videos/selected') {
++        const snapshot = server.slice();
++        await new Promise(resolve => setTimeout(resolve, 0));
++        return { videos: snapshot };
++      }
++      if (method === 'PUT' && url === '/api/videos/selected') {
++        server = body.videos.slice();
++        return { ok: true };
++      }
++      if (method === 'GET' && String(url).startsWith('/api/videos?')) return { videos: [], groups: {} };
++      return {};
++    });
++
++    const { removeVideoFromProject } = await import('../sidebar-data.js');
++    await Promise.all([
++      removeVideoFromProject('001_a.mp4', 'D:/clips/001_a.mp4'),
++      removeVideoFromProject('003_c.mp4', 'D:/clips/003_c.mp4'),
++    ]);
++
++    expect(server).toEqual(['D:/clips/002_b.mp4']);
++  });
++});

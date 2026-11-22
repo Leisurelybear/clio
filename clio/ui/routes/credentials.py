@@ -6,7 +6,6 @@ import contextlib
 import hmac
 from dataclasses import asdict, replace
 from typing import Any
-from urllib.parse import unquote
 
 import yaml
 
@@ -70,7 +69,7 @@ def handle_put_credential(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
     try:
         with STORE_LOCK:
             service = _service(handler)
-            ref = unquote(credential_id)
+            ref = credential_id
             new = ref not in service.registry
             if new:
                 fields = obj.get("metadata", {})
@@ -115,7 +114,7 @@ def handle_post_credential_reveal(handler: HandlerProtocol, qs: dict[str, Any], 
         if obj.get("confirmed") is not True:
             raise ValueError("reveal requires confirmation")
         service = _service(handler)
-        value = service.resolve(unquote(credential_id))
+        value = service.resolve(credential_id)
         handler._send_json({"ok": True, "value": value}, extra_headers={"Pragma": "no-cache"})
     except (OSError, UnicodeError, KeyError, ValueError, yaml.YAMLError) as exc:
         _error(handler, exc)
@@ -127,7 +126,7 @@ def handle_delete_credential(handler: HandlerProtocol, qs: dict[str, Any], crede
             raise ValueError("deletion requires confirmation")
         with STORE_LOCK:
             service = _service(handler)
-            ref = unquote(credential_id)
+            ref = credential_id
             source = (qs.get("source") or [""])[0]
             service.write(ref, None, source)
             _invalidate(handler, service, ref)
@@ -142,7 +141,7 @@ def handle_post_credential_migrate(handler: HandlerProtocol, qs: dict[str, Any],
             raise ValueError("migration requires confirmation")
         with STORE_LOCK:
             service = _service(handler)
-            ref = unquote(credential_id)
+            ref = credential_id
             value = service.resolve(ref)
             if not value:
                 raise ValueError("credential is empty")

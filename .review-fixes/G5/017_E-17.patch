@@ -1,0 +1,58 @@
+diff --git a/clio/ui/static/src/main.js b/clio/ui/static/src/main.js
+--- a/clio/ui/static/src/main.js
++++ b/clio/ui/static/src/main.js
+@@ -178,16 +178,25 @@
+         if (!removeBtn) return;
+         removeBtn.onclick = async (e) => {
+           e.stopPropagation();
++          if (removeBtn.disabled) return;
+           if (!(await confirmDialog(t('project.remove_confirm', { name }), { danger: true }))) return;
+-          const r2 = await api('POST', '/api/project/remove', { project_dir: projectDir });
+-          if (r2.ok) {
+-            if (name === state.currentProject?.name && projectDir === state.currentProjectDir) {
+-              openModal.style.display = 'none';
+-              window.location.search = '';
+-            } else {
+-              $('btn-open-project').click();
++          removeBtn.disabled = true;
++          try {
++            const r2 = await api('POST', '/api/project/remove', { project_dir: projectDir });
++            if (r2.ok) {
++              if (name === state.currentProject?.name && projectDir === state.currentProjectDir) {
++                openModal.style.display = 'none';
++                window.location.search = '';
++              } else {
++                $('btn-open-project').click();
++              }
++              return;
+             }
++            setStatus(t('project.remove_failed', { detail: r2.error || t('common.unknown_error') }), 'err');
++          } catch (err) {
++            setStatus(t('project.remove_failed', { detail: err.message }), 'err');
+           }
++          removeBtn.disabled = false;
+         };
+       }
+       function _setupMigrateBtn(card, name, projectDir) {
+diff --git a/clio/ui/static/locales/zh-CN.json b/clio/ui/static/locales/zh-CN.json
+--- a/clio/ui/static/locales/zh-CN.json
++++ b/clio/ui/static/locales/zh-CN.json
+@@ -441,6 +441,7 @@
+   "project.opening": "打开中...",
+   "project.output_dir_label": "输出目录: {path}",
+   "project.remove_confirm": "从项目列表移除「{name}」？",
++  "project.remove_failed": "移除失败: {detail}",
+   "project.remove_title": "从项目列表移除",
+   "project.reveal_failed": "打开目录失败: {detail}",
+   "project.step_done_title": "{label} 完成",
+diff --git a/clio/ui/static/locales/en.json b/clio/ui/static/locales/en.json
+--- a/clio/ui/static/locales/en.json
++++ b/clio/ui/static/locales/en.json
+@@ -441,6 +441,7 @@
+   "project.opening": "Opening...",
+   "project.output_dir_label": "Output folder: {path}",
+   "project.remove_confirm": "Remove \"{name}\" from the project list?",
++  "project.remove_failed": "Remove failed: {detail}",
+   "project.remove_title": "Remove from the project list",
+   "project.reveal_failed": "Failed to open the folder: {detail}",
+   "project.step_done_title": "{label} done",

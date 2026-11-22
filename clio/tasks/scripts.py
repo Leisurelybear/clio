@@ -104,8 +104,8 @@ def _voiceover_needs_overwrite(
     if not out.is_file():
         return False
     try:
-        data = json.loads(json_file.read_text(encoding="utf-8"))
-        existing = json.loads(out.read_text(encoding="utf-8"))
+        data = json.loads(json_file.read_text(encoding="utf-8-sig"))
+        existing = json.loads(out.read_text(encoding="utf-8-sig"))
     except (json.JSONDecodeError, OSError, UnicodeError):
         return True
     if not isinstance(data, dict) or not isinstance(existing, dict):
@@ -168,7 +168,7 @@ def _process_one_script(
     if cancel_event and cancel_event.is_set():
         return "cancelled"
 
-    data = json.loads(json_file.read_text(encoding="utf-8"))
+    data = json.loads(json_file.read_text(encoding="utf-8-sig"))
     data["index"] = data.get("index", json_file.stem[:3])
     orig_stem = Path(data.get("source_file") or json_file.stem).stem
     out, md_out = _voiceover_output_paths(json_file, config)
@@ -482,7 +482,7 @@ def _load_plan_voiceover_inputs(
     if config.texts_dir.is_dir():
         for analysis_file in sorted(config.texts_dir.glob("*.json")):
             try:
-                data = json.loads(analysis_file.read_text(encoding="utf-8"))
+                data = json.loads(analysis_file.read_text(encoding="utf-8-sig"))
             except (json.JSONDecodeError, OSError, UnicodeError):
                 continue
             if not isinstance(data, dict):
@@ -497,7 +497,7 @@ def _load_plan_voiceover_inputs(
     if config.transcripts_dir.is_dir():
         for transcript_file in sorted(config.transcripts_dir.glob("*_transcript.json")):
             try:
-                data = json.loads(transcript_file.read_text(encoding="utf-8"))
+                data = json.loads(transcript_file.read_text(encoding="utf-8-sig"))
             except (json.JSONDecodeError, OSError, UnicodeError):
                 continue
             if not isinstance(data, dict):
@@ -573,7 +573,7 @@ def _plan_voiceover_needs_overwrite(
     if not out_json.is_file():
         return False
     try:
-        existing = json.loads(out_json.read_text(encoding="utf-8"))
+        existing = json.loads(out_json.read_text(encoding="utf-8-sig"))
     except (json.JSONDecodeError, OSError, UnicodeError):
         return True
     if not isinstance(existing, dict):
@@ -603,7 +603,7 @@ def plan_voiceover_artifact_overwrite_required(
     if not plan_json.is_file():
         return []
     try:
-        plan = json.loads(plan_json.read_text(encoding="utf-8"))
+        plan = json.loads(plan_json.read_text(encoding="utf-8-sig"))
     except (json.JSONDecodeError, OSError, UnicodeError):
         return []
     if not isinstance(plan, dict):
@@ -736,7 +736,7 @@ def _load_plan_voiceover_plan(
         print(t("task.plan_voiceover.no_plan", {"day": day_label, "path": plan_json.name}))
         return None
     try:
-        plan = json.loads(plan_json.read_text(encoding="utf-8"))
+        plan = json.loads(plan_json.read_text(encoding="utf-8-sig"))
     except (json.JSONDecodeError, OSError, UnicodeError) as exc:
         raise RuntimeError(t("task.plan_voiceover.plan_unreadable", {"day": day_label, "detail": exc})) from exc
     if not isinstance(plan, dict):

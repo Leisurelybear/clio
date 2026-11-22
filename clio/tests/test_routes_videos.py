@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from http import HTTPStatus
 from pathlib import Path
 from types import SimpleNamespace
@@ -9,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from clio.identity import MediaIdentity, _identity_to_dict
 from clio.ui.routes.videos import (
     _VIDEOS_CACHE,
     _cover_for_text_json,
@@ -111,6 +113,89 @@ class TestHandleGetVideos:
         assert len(payload["videos"]) == 1
         assert payload["videos"][0]["file"] == "001_GL010695.mp4"
         assert payload["videos"][0]["index"] == "001"
+
+    def test_compressed_exposes_legacy_analysis_index_aliases(self, tmp_path: Path):
+        handler = MagicMock()
+        proj_dir = tmp_path / "input"
+        proj_dir.mkdir()
+        proj_out = tmp_path / "output"
+        proj_out.mkdir()
+        comp_dir = proj_out / "compressed"
+        texts_dir = proj_out / "texts"
+        comp_dir.mkdir()
+        texts_dir.mkdir()
+        compressed = comp_dir / "197_GX011275.mp4"
+        compressed.write_bytes(b"video")
+
+        for stem, index in (("016_Legacy", "016"), ("197_Current", "197")):
+            identity = MediaIdentity(
+                original_stem="GX011275",
+                original_path=str(proj_dir / "GX011275.mp4"),
+                compressed_stem="197_GX011275",
+                compressed_path=str(compressed),
+                index=index,
+            )
+            (texts_dir / f"{stem}.json").write_text(
+                json.dumps(
+                    {
+                        "version": 2,
+                        "title": stem,
+                        "compressed_file": compressed.name,
+                        "media_identity": _identity_to_dict(identity),
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+        handler._resolve_project_dir.return_value = proj_dir
+        handler._get_project_output.return_value = proj_out
+        handler._get_config.return_value = SimpleNamespace(
+            whisper=SimpleNamespace(transcripts_subdir="transcripts"),
+            paths=SimpleNamespace(ffprobe=""),
+        )
+        handler._send_json = MagicMock()
+
+        handle_get_videos(handler, {"source": ["compressed"]})
+
+        payload = handler._send_json.call_args[0][0]
+        video = next(item for item in payload["videos"] if item["file"] == compressed.name)
+        assert video["index"] == "197"
+        assert video["analysis_indexes"] == ["016", "197"]
+
+    def test_disk_cache_v1_is_rebuilt_for_analysis_indexes(self, tmp_path: Path):
+        proj_dir = tmp_path / "input"
+        proj_dir.mkdir()
+        proj_out = tmp_path / "output"
+        proj_out.mkdir()
+        comp_dir = proj_out / "compressed"
+        comp_dir.mkdir()
+        (comp_dir / "001_GL010695.mp4").write_bytes(b"")
+        cache_dir = proj_out / ".cache"
+        cache_dir.mkdir()
+        (cache_dir / "videos_compressed.json").write_text(
+            json.dumps({"version": 1, "signature": "ignored", "payload": {}}),
+            encoding="utf-8",
+        )
+
+        handler = MagicMock()
+        handler._resolve_project_dir.return_value = proj_dir
+        handler._get_project_output.return_value = proj_out
+        handler._get_config.return_value = SimpleNamespace(
+            whisper=SimpleNamespace(transcripts_subdir="transcripts"),
+            paths=SimpleNamespace(ffprobe=""),
+        )
+        handler._send_json = MagicMock()
+
+        with patch(
+            "clio.ui.routes.videos._build_videos_payload",
+            wraps=__import__("clio.ui.routes.videos", fromlist=["_build_videos_payload"])._build_videos_payload,
+        ) as mock_build:
+            handle_get_videos(handler, {"source": ["compressed"]})
+
+        assert mock_build.call_count == 1
+        payload = handler._send_json.call_args[0][0]
+        assert payload["videos"][0]["file"] == "001_GL010695.mp4"
+        assert payload["videos"][0]["analysis_indexes"] == ["001"]
 
     def test_compressed_prefers_canonical_and_preserves_natural_part_suffix(self, tmp_path: Path):
         handler = MagicMock()

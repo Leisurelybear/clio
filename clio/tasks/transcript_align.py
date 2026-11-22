@@ -49,7 +49,7 @@ def _load_transcript(path: Path | None) -> dict[str, Any] | None:
     if path is None or not path.is_file():
         return None
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
     except (json.JSONDecodeError, OSError):
         return None
     return data if isinstance(data, dict) else None
@@ -139,7 +139,7 @@ def enrich_matching_analysis_files(config: AppConfig, transcript: dict[str, Any]
     updated = 0
     for json_path in sorted(texts_dir.glob("*.json")):
         try:
-            analysis = json.loads(json_path.read_text(encoding="utf-8"))
+            analysis = json.loads(json_path.read_text(encoding="utf-8-sig"))
         except (json.JSONDecodeError, OSError):
             continue
         analysis_identity = load_identity(analysis)

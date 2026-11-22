@@ -123,6 +123,23 @@ describe('artifact saves', () => {
     expect(artifactVersion('texts', 'a.json')).toBe('new-version');
   });
 
+  it('keeps dirty when the user edits while the save is in flight', async () => {
+    state.texts = { title: 'first' };
+    state.artifactVersions.texts['a.json'] = 'old-version';
+    apiWithMeta.mockImplementation(async () => {
+      // Simulate markDirty() from an edit made before the response arrives.
+      state.editSeq = (state.editSeq || 0) + 1;
+      state.dirty = true;
+      return { data: { ok: true }, version: 'new-version' };
+    });
+
+    await save();
+
+    expect(state.dirty).toBe(true);
+    expect(artifactVersion('texts', 'a.json')).toBe('new-version');
+    apiWithMeta.mockReset();
+  });
+
   it.each([
     {
       label: 'plan',
@@ -268,6 +285,17 @@ describe('save routing', () => {
     expect(onPlanSaved).toHaveBeenCalledOnce();
     expect(state.dirty).toBe(false);
     expect(artifactVersion('plan', 'day1')).toBe('new-plan');
+  });
+
+  it('encodes the day label in the plan save URL', async () => {
+    state.currentEntity = 'plan';
+    state.currentDay = 'a&b #1';
+    state.plan = { day_title: 'draft', sequence: [] };
+    apiWithMeta.mockResolvedValue({ data: { ok: true }, version: 'v2' });
+
+    await saveEditorPlan();
+
+    expect(apiWithMeta.mock.calls[0][1]).toBe('/api/plan?day=a%26b%20%231');
   });
 
   it('does not call the save API when the editor is clean', async () => {

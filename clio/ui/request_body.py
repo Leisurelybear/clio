@@ -62,8 +62,14 @@ def read_json_body(
     *,
     require_json_content_type: bool,
     max_bytes: int = MAX_JSON_BODY_BYTES,
+    allow_empty: bool = False,
 ) -> JsonBodyResult:
-    """Read a bounded JSON object and report protocol or payload errors."""
+    """Read a bounded JSON object and report protocol or payload errors.
+
+    ``allow_empty`` treats a zero-length body as ``{}`` (POST endpoints such as
+    ``/api/webhook/trigger`` called with ``curl -X POST``); the Content-Type
+    check still applies first.
+    """
     if require_json_content_type:
         content_type = (headers.get("Content-Type", "") or "").split(";", 1)[0].strip().lower()
         if content_type != "application/json":
@@ -76,6 +82,8 @@ def read_json_body(
         error: JsonBodyError = "invalid_content_length" if error_status == 400 else "too_large"
         return JsonBodyResult(status=error_status, error=error)
     assert length is not None
+    if length == 0 and allow_empty:
+        return JsonBodyResult(obj={}, raw=b"")
     raw = reader.read(length) if length else b""
     try:
         obj = json.loads(raw.decode("utf-8"))

@@ -407,7 +407,12 @@ def run_entity_consistency(
     task_prompts: dict[str, str] | None = None,
 ) -> dict[str, Any] | None:
     """Generate and persist the same-day entity/duplicate consistency report."""
-    from clio.tasks.plan import _collect_plan_clips, _report_skipped_inputs, _unusable_inputs_error
+    from clio.tasks.plan import (
+        _collect_plan_clips,
+        _no_analyzed_media_for_day_error,
+        _report_skipped_inputs,
+        _unusable_inputs_error,
+    )
 
     config.plans_dir.mkdir(parents=True, exist_ok=True)
     out_json, out_md = entity_consistency_paths(config, day_label)
@@ -425,6 +430,10 @@ def run_entity_consistency(
     if not clips:
         if skipped_inputs:
             raise _unusable_inputs_error(skipped_inputs)
+        if files is None:
+            scope_error = _no_analyzed_media_for_day_error(config, day_label)
+            if scope_error is not None:
+                raise scope_error
         print(t("task.consistency.no_usable_media"))
         return None
 

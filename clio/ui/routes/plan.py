@@ -15,6 +15,7 @@ from clio.plan_model import Plan
 from clio.plan_preview import build_preview_media
 from clio.plan_readiness import (
     check_plan_export_readiness,
+    collect_media_index_aliases,
     collect_project_analysis_timelines,
     collect_project_indices,
     collect_project_media_durations,
@@ -131,7 +132,7 @@ def handle_get_plans(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     plans = []
     if plans_dir.is_dir():
         for p in sorted(plans_dir.glob("*_plan.json")):
-            day_label = p.stem.replace("_plan", "")
+            day_label = p.stem.removesuffix("_plan")  # only the trailing marker
             if day_label:
                 plans.append({"day_label": day_label, "path": str(p)})
     handler._send_json({"plans": plans})
@@ -174,7 +175,7 @@ def handle_get_plan_preview_media(handler: HandlerProtocol, qs: dict[str, Any]) 
     if not plan_path.is_file():
         return handler._send_json({"ok": False, "error": t("api.plan_missing", {"path": plan_path})}, 404)
     try:
-        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        plan = json.loads(plan_path.read_text(encoding="utf-8-sig"))
         plan_mtime = plan_path.stat().st_mtime
     except (OSError, json.JSONDecodeError) as exc:
         return handler._send_json({"ok": False, "error": str(exc)}, 400)
@@ -295,19 +296,22 @@ def handle_post_plan_readiness(handler: HandlerProtocol, qs: dict[str, Any], obj
                 404,
             )
         try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
+            raw = json.loads(path.read_text(encoding="utf-8-sig"))
         except (json.JSONDecodeError, OSError) as e:
             return handler._send_json({"ok": False, "error": str(e)}, 400)
         plan = Plan.from_dict(raw if isinstance(raw, dict) else {})
 
-    known, offline = collect_project_indices(cfg)
+    # Scan texts/ + compressed/ for index aliases once and share it.
+    media_aliases = collect_media_index_aliases(cfg)
+    known, offline = collect_project_indices(cfg, media_aliases=media_aliases)
     result = check_plan_export_readiness(
         plan,
         known_indices=known,
         offline_indices=offline,
-        media_durations=collect_project_media_durations(cfg),
+        media_durations=collect_project_media_durations(cfg, media_aliases=media_aliases),
         analysis_timelines=collect_project_analysis_timelines(cfg),
         source=source,
+        target_duration_sec=float(getattr(cfg.plan, "target_duration_sec", 0) or 0),
     )
     handler._send_json(result.to_dict())
 
@@ -346,17 +350,20 @@ def handle_post_cut(handler: HandlerProtocol, qs: dict[str, list[str]], obj: dic
     if not plan_path.is_file():
         return handler._send_json({"ok": False, "error": t("api.plan_missing", {"path": plan_path})}, 404)
     try:
-        plan = Plan.from_dict(json.loads(plan_path.read_text(encoding="utf-8")))
+        plan = Plan.from_dict(json.loads(plan_path.read_text(encoding="utf-8-sig")))
     except (json.JSONDecodeError, OSError) as e:
         return handler._send_json({"ok": False, "error": str(e)}, 400)
-    known, offline = collect_project_indices(cfg)
+    # Scan texts/ + compressed/ for index aliases once and share it.
+    media_aliases = collect_media_index_aliases(cfg)
+    known, offline = collect_project_indices(cfg, media_aliases=media_aliases)
     result = check_plan_export_readiness(
         plan,
         known_indices=known,
         offline_indices=offline,
-        media_durations=collect_project_media_durations(cfg),
+        media_durations=collect_project_media_durations(cfg, media_aliases=media_aliases),
         analysis_timelines=collect_project_analysis_timelines(cfg),
         source=str(source),
+        target_duration_sec=float(getattr(cfg.plan, "target_duration_sec", 0) or 0),
     )
     blocked = readiness_block_payload(result, force=force)
     if blocked is not None:

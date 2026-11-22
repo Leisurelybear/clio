@@ -1,0 +1,104 @@
+diff --git a/clio/whisper_cli.py b/clio/whisper_cli.py
+--- a/clio/whisper_cli.py
++++ b/clio/whisper_cli.py
+@@ -1,5 +1,6 @@
+ from __future__ import annotations
+ 
++import subprocess
+ import sys
+ import tempfile
+ from pathlib import Path
+@@ -19,6 +20,11 @@
+ from clio.utils import run_subprocess
+ from clio.whisper_cache import is_model_cache_complete, largest_model_file_size
+ 
++# pip's own socket timeout/retries stop a stalled mirror from hanging forever;
++# the outer limit is generous because the CUDA wheels are ~2.8 GB.
++_PIP_NETWORK_ARGS = ["--timeout", "60", "--retries", "5"]
++_PIP_INSTALL_TIMEOUT_SEC = 3600
++
+ _snapshot_download: Any
+ try:
+     from huggingface_hub import snapshot_download
+@@ -54,16 +60,20 @@
+     pip_mirror = pip_mirror_for_config(cfg)
+     if pip_mirror:
+         print(t("whisper.pip_mirror", {"mirror": pip_mirror}))
+-    install_base = [sys.executable, "-m", "pip", "install"]
++    install_base = [sys.executable, "-m", "pip", "install", *_PIP_NETWORK_ARGS]
+     if pip_mirror:
+         install_base += ["-i", pip_mirror]
+-    result = run_subprocess(
+-        [*install_base, "-r", str(req)],
+-        capture_output=True,
+-        text=True,
+-    )
++    # Output is streamed to the console so the user can follow the download.
++    try:
++        result = run_subprocess(
++            [*install_base, "-r", str(req)],
++            timeout=_PIP_INSTALL_TIMEOUT_SEC,
++        )
++    except subprocess.TimeoutExpired:
++        print(t("whisper.install_failed"), f"pip timed out after {_PIP_INSTALL_TIMEOUT_SEC}s")
++        return 1
+     if result.returncode != 0:
+-        print(t("whisper.install_failed"), result.stderr)
++        print(t("whisper.install_failed"), result.stderr or "")
+         return 1
+     print(t("whisper.install_done"))
+     # Reload the module binding so this same process can import the new install.
+@@ -99,13 +109,17 @@
+             if cuda_avail:
+                 print(t("whisper.hint_manual_cuda"))
+         else:
+-            r = run_subprocess(
+-                [*install_base, *cublas_pkgs, "-q"],
+-            )
+-            if r.returncode == 0:
++            try:
++                returncode: int | str = run_subprocess(
++                    [*install_base, *cublas_pkgs, "-q"],
++                    timeout=_PIP_INSTALL_TIMEOUT_SEC,
++                ).returncode
++            except subprocess.TimeoutExpired:
++                returncode = "timeout"
++            if returncode == 0:
+                 print(t("whisper.cublas_installed", {"packages": "/".join(cublas_pkgs)}))
+             else:
+-                print(t("whisper.cublas_install_failed", {"packages": "/".join(cublas_pkgs), "code": r.returncode}))
++                print(t("whisper.cublas_install_failed", {"packages": "/".join(cublas_pkgs), "code": returncode}))
+ 
+     model_name = cfg.whisper.model_size
+     cache_dir = _resolve_cache_dir(cfg)
+diff --git a/clio/tests/test_whisper_cli.py b/clio/tests/test_whisper_cli.py
+--- a/clio/tests/test_whisper_cli.py
++++ b/clio/tests/test_whisper_cli.py
+@@ -171,3 +171,27 @@
+             assert result == 1
+             printed = [c[0][0] for c in mock_print.call_args_list]
+             assert any("安装失败" in p for p in printed)
++
++
++@patch("clio.whisper_cli.load_config")
++@patch("clio.whisper_cli.run_subprocess")
++@patch("builtins.print")
++def test_install_pip_has_timeout_and_reports_hang(mock_print, mock_subproc, mock_load_config, config_file):
++    import subprocess
++
++    mock_subproc.side_effect = subprocess.TimeoutExpired("pip", 3600)
++    mock_load_config.return_value.whisper.hf_endpoint = ""
++    mock_load_config.return_value.whisper.model_size = "small"
++    mock_load_config.return_value.whisper.cache_dir = None
++
++    with patch("clio.whisper_cli.PROJECT_ROOT", config_file.parent):
++        (config_file.parent / "requirements-whisper.txt").write_text("faster-whisper==1.0.0")
++        result = run_whisper_install(str(config_file))
++
++    assert result == 1
++    args, kwargs = mock_subproc.call_args
++    assert kwargs.get("timeout")
++    assert "--timeout" in args[0] and "--retries" in args[0]
++    assert "capture_output" not in kwargs
++    printed = [c[0][0] for c in mock_print.call_args_list]
++    assert any("安装失败" in p for p in printed)

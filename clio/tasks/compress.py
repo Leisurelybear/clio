@@ -241,6 +241,14 @@ def _write_vindex(records: list[ClipRecord], config: AppConfig, ffprobe: str) ->
         vindex.write(compressed_dir)
 
 
+def _write_vindex_best_effort(records: list[ClipRecord], config: AppConfig, ffprobe: str) -> None:
+    """Index already-finished outputs while another error is propagating."""
+    try:
+        _write_vindex(records, config, ffprobe)
+    except (OSError, ValueError) as e:
+        print(t("task.compress.vindex_partial_failed", {"detail": e}))
+
+
 def _select_compress_videos(
     config: AppConfig,
     single_file: Path | None,
@@ -475,25 +483,31 @@ def run_compress_all(
 
             # Leftover *_segNN files do NOT satisfy whole-file compress; continue to create
             # a new non-segment compressed file so the project can migrate forward.
-            record, elapsed = _compress_and_record(
-                original,
-                source,
-                config=config,
-                ffprobe=ffprobe,
-                existing_map=existing_map,
-                unverifiable=unverifiable,
-                tracker=tracker,
-                state=state,
-                cancel_event=cancel_event,
-                force_compress=force_compress,
-                reject_reason=reject_reason,
-                next_idx=next_idx,
-                completed=completed,
-                index=i,
-                total=len(items),
-                label_name=label_name,
-                elapsed_total=elapsed_total,
-            )
+            try:
+                record, elapsed = _compress_and_record(
+                    original,
+                    source,
+                    config=config,
+                    ffprobe=ffprobe,
+                    existing_map=existing_map,
+                    unverifiable=unverifiable,
+                    tracker=tracker,
+                    state=state,
+                    cancel_event=cancel_event,
+                    force_compress=force_compress,
+                    reject_reason=reject_reason,
+                    next_idx=next_idx,
+                    completed=completed,
+                    index=i,
+                    total=len(items),
+                    label_name=label_name,
+                    elapsed_total=elapsed_total,
+                )
+            except BaseException:
+                # Files finished before a failure or cancel must still get their
+                # .vindex; otherwise only the startup reindex would add it later.
+                _write_vindex_best_effort(records, config, ffprobe)
+                raise
             records.append(record)
             elapsed_total += elapsed
             completed += 1

@@ -1,0 +1,95 @@
+diff --git a/.githooks/pre-commit.py b/.githooks/pre-commit.py
+--- a/.githooks/pre-commit.py
++++ b/.githooks/pre-commit.py
+@@ -1,6 +1,7 @@
+ #!/usr/bin/env python3
+ """Pre-commit hook: auto-format staged .py files with ruff."""
+ 
++import shutil
+ import subprocess
+ import sys
+ from contextlib import suppress
+@@ -26,6 +27,18 @@
+     REPO_ROOT / ".venv" / "bin" / "ruff",  # Unix
+ ]
+ RUFF = next((p for p in ruff_candidates if p.is_file()), None)
++
++
++def _skip(reason: str) -> None:
++    # Loud on purpose: a silent skip let unformatted code reach CI's `ruff format --check`.
++    print(
++        f"[pre-commit] WARNING: {reason}; staged files were NOT formatted or linted.\n"
++        "[pre-commit] CI runs `ruff format --check` and will fail on unformatted code.",
++        file=sys.stderr,
++    )
++    sys.exit(0)
++
++
+ if RUFF is None:
+     # Fallback: try `python -m ruff`
+     python = REPO_ROOT / ".venv" / "Scripts" / "python.exe"
+@@ -36,27 +49,32 @@
+         if result.returncode == 0:
+             # We'll use python -m ruff as the command
+             RUFF = [str(python), "-m", "ruff"]
++    if RUFF is None:
++        # Last resort: a ruff on PATH (pipx / system install).
++        path_ruff = shutil.which("ruff")
++        if path_ruff:
++            RUFF = [path_ruff]
++        elif python.is_file():
++            _skip("ruff not found in .venv or on PATH")
+         else:
+-            print("[pre-commit] ruff not found, skipping format check")
+-            sys.exit(0)
+-    else:
+-        print("[pre-commit] no Python venv found, skipping format check")
+-        sys.exit(0)
++            _skip("no Python venv and no ruff on PATH")
+ 
+ if not isinstance(RUFF, list):
+     RUFF = [str(RUFF)]
+ 
+-# Get staged .py files (excluding deletions)
++# Get staged .py files (excluding deletions; R keeps renamed-and-edited files).
++# -z: NUL-separated, unquoted paths, so non-ASCII names are not escaped by core.quotepath.
+ result = subprocess.run(
+-    ["git", "diff", "--cached", "--name-only", "--diff-filter=ACM", "--", "*.py"],
++    ["git", "diff", "--cached", "--name-only", "-z", "--diff-filter=ACMR", "--", "*.py"],
+     capture_output=True,
+     text=True,
++    encoding="utf-8",
+     cwd=REPO_ROOT,
+ )
+-if result.returncode != 0 or not result.stdout.strip():
++if result.returncode != 0 or not result.stdout.strip("\0"):
+     sys.exit(0)
+ 
+-staged = [f for f in result.stdout.splitlines() if f]
++staged = [f for f in result.stdout.split("\0") if f]
+ if not staged:
+     sys.exit(0)
+ 
+@@ -88,14 +106,18 @@
+ 
+ # Only re-stage files that ruff actually modified
+ diff_result = subprocess.run(
+-    ["git", "diff", "--name-only", "--", *staged],
++    ["git", "diff", "--name-only", "-z", "--", *staged],
+     capture_output=True,
+     text=True,
++    encoding="utf-8",
+     cwd=REPO_ROOT,
+ )
+-if diff_result.returncode == 0 and diff_result.stdout.strip():
+-    modified = [f for f in diff_result.stdout.splitlines() if f]
+-    subprocess.run(["git", "add", *modified], cwd=REPO_ROOT)
++if diff_result.returncode == 0 and diff_result.stdout.strip("\0"):
++    modified = [f for f in diff_result.stdout.split("\0") if f]
++    add = subprocess.run(["git", "add", *modified], cwd=REPO_ROOT)
++    if add.returncode != 0:
++        print("[pre-commit] git add of the formatted files failed, check output above")
++        sys.exit(1)
+ 
+ # Lint check (only errors, ignore warnings like F811)
+ check = subprocess.run([*RUFF, "check", "--select", "F,E,I", *staged], cwd=REPO_ROOT)

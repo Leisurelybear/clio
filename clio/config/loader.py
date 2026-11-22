@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import contextlib
 import json
 import re
+import time
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -33,13 +33,13 @@ from clio.config.models import (
     UiConfig,
 )
 from clio.config.parsers import _parse_providers, _parse_tasks
-from clio.config.validators import _filter_dc, _validate_config, validate_global_config
+from clio.config.validators import _filter_dc, _section, _validate_config, validate_global_config
 from clio.i18n import t
 from clio.resources import find_resource
 
 
 def _resolve_engine(raw: dict) -> str:
-    whisper_raw = raw.get("whisper", {})
+    whisper_raw = _section(raw, "whisper")
     engine = whisper_raw.get("engine", "local")
     if engine == "cloud":
         cloud_provider = whisper_raw.get("cloud_provider", "") or "local"
@@ -84,12 +84,40 @@ def _path(value: str | None, base: Path | None = None) -> Path:
 
 
 _DOTENV_KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$")
+_DOTENV_INLINE_COMMENT_RE = re.compile(r"\s#")
+
+
+def _strip_dotenv_comment(value: str) -> str:
+    """Drop a trailing ``# comment`` from a dotenv value.
+
+    Unquoted values end at the first whitespace followed by ``#``. Quoted values
+    end at their closing quote (``\\"`` escapes are skipped in double quotes), so a
+    ``#`` inside the quotes is kept and a comment after them is ignored.
+    """
+    if value[:1] in {'"', "'"}:
+        quote = value[0]
+        index = 1
+        while index < len(value):
+            char = value[index]
+            if char == "\\" and quote == '"':
+                index += 2
+                continue
+            if char == quote:
+                rest = value[index + 1 :].strip()
+                return value[: index + 1] if not rest or rest.startswith("#") else value
+            index += 1
+        return value
+    if value.startswith("#"):
+        return ""
+    match = _DOTENV_INLINE_COMMENT_RE.search(value)
+    return value[: match.start()].rstrip() if match else value
 
 
 def parse_dotenv(content: str) -> dict[str, str]:
     """Parse simple KEY=value dotenv entries shared by config loading and UI saves."""
     values: dict[str, str] = {}
-    for raw_line in content.splitlines():
+    # Notepad saves a UTF-8 BOM; str.strip() keeps U+FEFF and would hide the first key.
+    for raw_line in content.lstrip("\ufeff").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
@@ -97,7 +125,7 @@ def parse_dotenv(content: str) -> dict[str, str]:
             line = line[7:].lstrip()
         match = _DOTENV_KEY_RE.match(line)
         if match:
-            value = match.group(2).strip()
+            value = _strip_dotenv_comment(match.group(2).strip())
             if value.startswith('"') and value.endswith('"'):
                 try:
                     value = json.loads(value)
@@ -113,7 +141,7 @@ def _load_dotenv(base: Path, override: bool = False) -> None:
     env_file = base / ".env"
     if not env_file.is_file():
         return
-    values = parse_dotenv(env_file.read_text(encoding="utf-8"))
+    values = parse_dotenv(env_file.read_text(encoding="utf-8-sig"))
     from clio.credentials.environment import sync_dotenv
 
     sync_dotenv(values, override=override)
@@ -324,15 +352,38 @@ def _filter_project_only(raw: dict) -> dict:
     return result
 
 
+def _write_migration_backup(path: Path) -> Path:
+    """Copy *path* byte-for-byte to a fresh backup before migration rewrites it.
+
+    An existing ``<name>.bak`` from an earlier run is never reused, because it
+    would not match the content being migrated now; the new snapshot gets a
+    timestamped name instead. Raises OSError when the backup cannot be written,
+    so callers abort rather than overwrite or delete the only copy.
+    """
+    bak = path.with_suffix(path.suffix + ".bak")
+    if bak.exists():
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        bak = path.with_name(f"{path.name}.bak.{stamp}")
+        counter = 1
+        while bak.exists():
+            bak = path.with_name(f"{path.name}.bak.{stamp}-{counter}")
+            counter += 1
+    data = path.read_bytes()
+    with bak.open("xb") as fh:
+        fh.write(data)
+    return bak
+
+
 def _migrate_v1_to_v2(config_path: Path) -> None:
     """Migrate merged V1 config.yaml to split V2 structure."""
     raw = _load_yaml_mapping(config_path)
 
-    # Backup original
-    bak = config_path.with_suffix(config_path.suffix + ".bak")
-    if not bak.exists():
-        with contextlib.suppress(OSError):
-            bak.write_text(config_path.read_text(encoding="utf-8"), encoding="utf-8")
+    # Backup original; without a backup the migration must not touch the file.
+    try:
+        bak = _write_migration_backup(config_path)
+    except OSError as exc:
+        print(f"[config] V1->V2 migration skipped: cannot back up {config_path.name} ({type(exc).__name__})")
+        return
 
     # Write V2 global config.yaml
     global_raw = _filter_global_only(raw)
@@ -386,11 +437,12 @@ def _migrate_v1_to_v2(config_path: Path) -> None:
             except (OSError, UnicodeError, ValueError):
                 continue
 
-            # Back up project.yaml first
-            proj_bak = proj_yaml.with_suffix(proj_yaml.suffix + ".bak")
-            if not proj_bak.exists():
-                with contextlib.suppress(OSError):
-                    proj_bak.write_text(proj_yaml.read_text(encoding="utf-8"), encoding="utf-8")
+            # Back up project.yaml first; skip this project when the backup fails.
+            try:
+                _write_migration_backup(proj_yaml)
+            except OSError as exc:
+                print(f"[config] {proj_dir.name}/project.yaml: migration skipped, backup failed ({type(exc).__name__})")
+                continue
 
             project_out = _filter_project_only(proj_raw)
             if not project_out:
@@ -471,29 +523,33 @@ def load_global_config(config_path: str | Path = "config.yaml") -> GlobalConfig:
 
     from clio.credentials import CredentialService
 
+    # Empty sections (``ai:``) load as None; normalize before anything reads them.
+    ai_raw = _section(raw, "ai")
+    providers_raw = _section(ai_raw, "providers", "ai.providers")
+    paths_raw = _section(raw, "paths")
+    whisper_raw = _section(raw, "whisper")
     credential_service = CredentialService(raw, base)
     # Providers receive resolved values without knowing their storage backend.
-    ai_raw = raw.get("ai", {})
     ai_typed = _filter_dc(ai_raw, GlobalAIConfig)
     ai_cfg = GlobalAIConfig(
-        providers=_parse_providers(ai_raw.get("providers"), credential_service),
-        default_tasks=_parse_tasks(ai_raw.get("default_tasks")),
+        providers=_parse_providers(providers_raw, credential_service),
+        default_tasks=_parse_tasks(_section(ai_raw, "default_tasks", "ai.default_tasks")),
         debug_print_prompt=ai_typed.get("debug_print_prompt", False),
         provider_ttl_min=ai_typed.get("provider_ttl_min", 60),
     )
 
-    compress_typed = _filter_dc(raw.get("compress", {}), GlobalCompressConfig)
+    compress_typed = _filter_dc(_section(raw, "compress"), GlobalCompressConfig)
     gc = GlobalConfig(
         credentials={key: credential_service.registry[key] for key in raw.get("credentials") or {}},
         credential_service=credential_service,
-        proxy=ProxyConfig(**_filter_dc(raw.get("proxy", {}), ProxyConfig)),
-        server=ServerConfig(**_filter_dc(raw.get("server", {}), ServerConfig)),
-        naming=NamingConfig(**_filter_dc(raw.get("naming", {}), NamingConfig)),
-        ui=UiConfig(**_filter_dc(raw.get("ui", {}), UiConfig)),
+        proxy=ProxyConfig(**_filter_dc(_section(raw, "proxy"), ProxyConfig)),
+        server=ServerConfig(**_filter_dc(_section(raw, "server"), ServerConfig)),
+        naming=NamingConfig(**_filter_dc(_section(raw, "naming"), NamingConfig)),
+        ui=UiConfig(**_filter_dc(_section(raw, "ui"), UiConfig)),
         paths=GlobalPathsConfig(
-            ffmpeg=raw.get("paths", {}).get("ffmpeg", ""),
-            ffprobe=raw.get("paths", {}).get("ffprobe", ""),
-            logs_dir=_path(raw.get("paths", {}).get("logs_dir", "./logs"), base),
+            ffmpeg=paths_raw.get("ffmpeg", ""),
+            ffprobe=paths_raw.get("ffprobe", ""),
+            logs_dir=_path(paths_raw.get("logs_dir", "./logs"), base),
         ),
         ai=ai_cfg,
         compress=GlobalCompressConfig(
@@ -503,8 +559,8 @@ def load_global_config(config_path: str | Path = "config.yaml") -> GlobalConfig:
             crf=compress_typed.get("crf", 32),
         ),
         whisper=GlobalWhisperConfig(
-            cache_dir=raw.get("whisper", {}).get("cache_dir"),
-            hf_endpoint=raw.get("whisper", {}).get("hf_endpoint", ""),
+            cache_dir=whisper_raw.get("cache_dir"),
+            hf_endpoint=whisper_raw.get("hf_endpoint", ""),
         ),
     )
     validate_global_config(gc)
@@ -515,32 +571,63 @@ def load_project_config(
     project_dir: Path,
     *,
     config_path: Path | None = None,
+    project_yaml_path: Path | None = None,
 ) -> ProjectConfig | None:
-    """Load project-level config (project.yaml), return ProjectConfig or None."""
-    project_yaml = project_dir.resolve() / "project.yaml"
-    if not project_yaml.is_file():
-        return None
+    """Load project-level config (project.yaml), return ProjectConfig or None.
 
-    raw = _load_yaml_mapping(project_yaml)
+    *project_yaml_path* reads a candidate file (for example a temp copy that is
+    about to replace project.yaml) instead of ``<project_dir>/project.yaml``;
+    relative paths inside it still resolve against *project_dir*. An explicit
+    path that does not exist raises FileNotFoundError instead of returning None.
+    """
+    if project_yaml_path is not None:
+        project_yaml = Path(project_yaml_path)
+        if not project_yaml.is_file():
+            raise FileNotFoundError(str(project_yaml))
+    else:
+        project_yaml = project_dir.resolve() / "project.yaml"
+        if not project_yaml.is_file():
+            return None
+    return _project_config_from_raw(_load_yaml_mapping(project_yaml), project_dir, config_path=config_path)
+
+
+def _parse_project_yaml_text(text: str, label: str) -> dict[str, Any]:
+    """Parse candidate project.yaml text with the same errors as _load_yaml_mapping."""
+    try:
+        raw = yaml.safe_load(text.lstrip("\ufeff")) or {}
+    except yaml.YAMLError as exc:
+        raise ValueError(t("config.yaml_parse_failed", {"path": label, "detail": exc})) from exc
+    if not isinstance(raw, dict):
+        raise ValueError(t("config.yaml_root_mapping", {"path": label}))
+    return raw
+
+
+def _project_config_from_raw(
+    raw: dict[str, Any],
+    project_dir: Path,
+    *,
+    config_path: Path | None = None,
+) -> ProjectConfig:
+    """Build a ProjectConfig from an already parsed project.yaml mapping."""
     if "credentials" in raw:
         raise ValueError("credentials are global-only; project.yaml cannot define credential metadata")
 
     project_base = project_dir.resolve()
     config_base = config_path.parent if config_path is not None else project_base
 
-    paths_raw = raw.get("paths", {})
-    ai_raw = raw.get("ai", {})
+    paths_raw = _section(raw, "paths")
+    ai_raw = _section(raw, "ai")
     context = _load_context(ai_raw, config_base, project_dir=project_dir)
-    compress_typed = _filter_dc(raw.get("compress", {}), ProjectCompressConfig)
-    script_typed = _filter_dc(raw.get("script", {}), ScriptConfig)
-    whisper_typed = _filter_dc(raw.get("whisper", {}), ProjectWhisperConfig)
+    compress_typed = _filter_dc(_section(raw, "compress"), ProjectCompressConfig)
+    script_typed = _filter_dc(_section(raw, "script"), ScriptConfig)
+    whisper_typed = _filter_dc(_section(raw, "whisper"), ProjectWhisperConfig)
 
     return ProjectConfig(
         paths=ProjectPathsConfig(
             output_dir=_path(paths_raw.get("output_dir", "./output"), project_base),
         ),
         ai=ProjectAIConfig(
-            tasks=_parse_tasks(ai_raw.get("tasks")),
+            tasks=_parse_tasks(_section(ai_raw, "tasks", "ai.tasks")),
             context=context,
         ),
         compress=ProjectCompressConfig(
@@ -549,7 +636,7 @@ def load_project_config(
             min_video_kbps=compress_typed.get("min_video_kbps", 800),
             max_video_kbps=compress_typed.get("max_video_kbps", 8000),
         ),
-        analyze=AnalyzeConfig(**_filter_dc(raw.get("analyze", {}), AnalyzeConfig)),
+        analyze=AnalyzeConfig(**_filter_dc(_section(raw, "analyze"), AnalyzeConfig)),
         script=ScriptConfig(
             scripts_subdir=script_typed.get("scripts_subdir", "scripts"),
             template_file=_path(
@@ -558,7 +645,7 @@ def load_project_config(
             ),
             target_words=script_typed.get("target_words", 80),
         ),
-        plan=PlanConfig(**_filter_dc(raw.get("plan", {}), PlanConfig)),
+        plan=PlanConfig(**_filter_dc(_section(raw, "plan"), PlanConfig)),
         whisper=ProjectWhisperConfig(
             enabled=whisper_typed.get("enabled", True),
             model_size=whisper_typed.get("model_size", "medium"),
@@ -568,10 +655,13 @@ def load_project_config(
             transcripts_subdir=whisper_typed.get("transcripts_subdir", "transcripts"),
             engine=_resolve_engine(raw),
         ),
-        export=ExportConfig(**_filter_dc(raw.get("export", {}), ExportConfig)),
+        export=ExportConfig(**_filter_dc(_section(raw, "export"), ExportConfig)),
         preview=PreviewConfig(
             subtitles=PreviewSubtitlesConfig(
-                **_filter_dc(raw.get("preview", {}).get("subtitles", {}), PreviewSubtitlesConfig)
+                **_filter_dc(
+                    _section(_section(raw, "preview"), "subtitles", "preview.subtitles"),
+                    PreviewSubtitlesConfig,
+                )
             )
         ),
     )
@@ -580,24 +670,55 @@ def load_project_config(
 def load_config(
     config_path: str | Path = "config.yaml",
     project_dir: Path | None = None,
+    *,
+    project_yaml_path: Path | None = None,
 ) -> AppConfig:
     """Load config using the new V2 split structure.
 
     Calls load_global_config + load_project_config internally,
     composes into AppConfig wrapper.
+
+    *project_yaml_path* validates a candidate project.yaml (e.g. a temp file)
+    in place of ``<project_dir>/project.yaml`` without touching the real file;
+    without *project_dir* the project dir defaults to the config directory.
     """
     config_file = Path(config_path).resolve()
     global_cfg = load_global_config(config_file)
     effective_project_dir = project_dir
-    if effective_project_dir is None and (config_file.parent / "project.yaml").is_file():
+    if effective_project_dir is None and (
+        project_yaml_path is not None or (config_file.parent / "project.yaml").is_file()
+    ):
         effective_project_dir = config_file.parent
     project_cfg = (
-        load_project_config(effective_project_dir, config_path=config_file)
+        load_project_config(effective_project_dir, config_path=config_file, project_yaml_path=project_yaml_path)
         if effective_project_dir is not None
         else None
     )
 
     config = AppConfig(global_cfg=global_cfg, project_cfg=project_cfg, project_dir=effective_project_dir)
+    _validate_config(config)
+    return config
+
+
+def validate_project_yaml(
+    text: str,
+    project_dir: Path,
+    *,
+    config_path: str | Path = "config.yaml",
+) -> AppConfig:
+    """Validate candidate project.yaml *text* for *project_dir* without writing it.
+
+    Runs the same parsing and checks as ``load_config(config_path, project_dir)``
+    would after the text was saved as project.yaml, and returns the resulting
+    AppConfig. Raises ValueError (parse errors, credentials in project.yaml,
+    invalid values) exactly like load_config. The real project.yaml is never
+    read or written.
+    """
+    config_file = Path(config_path).resolve()
+    global_cfg = load_global_config(config_file)
+    raw = _parse_project_yaml_text(text, str(Path(project_dir) / "project.yaml"))
+    project_cfg = _project_config_from_raw(raw, project_dir, config_path=config_file)
+    config = AppConfig(global_cfg=global_cfg, project_cfg=project_cfg, project_dir=project_dir)
     _validate_config(config)
     return config
 

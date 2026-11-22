@@ -162,6 +162,7 @@ from clio.ui.routes.videos import (
     handle_get_videos,
     handle_get_videos_selected,
     handle_get_vmeta,
+    handle_post_videos_selected_remove,
     handle_put_videos_relink,
     handle_put_videos_selected,
 )
@@ -214,8 +215,6 @@ SECURITY_HEADERS: tuple[tuple[str, str], ...] = (
 )
 
 _desktop_focus_callback: Callable[[], None] | None = None
-_STATE_CREATE_LOCK = threading.Lock()
-_TASK_MANAGER_CREATE_LOCK = threading.Lock()
 
 
 def register_builtin_task_handlers(manager: TaskManager) -> None:
@@ -256,12 +255,6 @@ def handle_post_desktop_focus(handler, qs, obj) -> None:
     except Exception as e:  # noqa: BLE001 — surface any focus failure to the caller
         return handler._send_json({"ok": False, "error": str(e)}, 500)
     return handler._send_json({"ok": True})
-
-
-def _setting_int(value: Any, default: int) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        return default
-    return max(0, value)
 
 
 def _parse_int_param(qs: dict, key: str, default: int, min_val: int = 0, max_val: int = 10_000_000) -> int:
@@ -359,7 +352,9 @@ def make_handler(
         project_resolver=lambda qs, project_dir, config_path: resolve_project_dir(qs, project_dir, config_path),
         project_output_resolver=lambda project_dir: _project_output_dir(project_dir),
         video_range_sender=lambda handler, path: send_video_range(handler, path),
-        texts_resolver=lambda basename, proj_out, output_dir: resolve_texts(basename, proj_out, output_dir),
+        texts_resolver=lambda basename, proj_out, output_dir, preferred_subdir=None: resolve_texts(
+            basename, proj_out, output_dir, preferred_subdir
+        ),
         file_resolver=lambda subdir, basename, proj_out, output_dir: resolve_in(subdir, basename, proj_out, output_dir),
     )
 
@@ -402,8 +397,13 @@ def run(
     host = host or "127.0.0.1"
     _is_local = host in ("127.0.0.1", "localhost", "::1")
     if TOKEN is None:
-        TOKEN = "" if _is_local else secrets.token_urlsafe(32)
-    if TOKEN:
+        # Always run with a session token, also on loopback: the SPA index hands
+        # it to the browser as an HttpOnly SameSite=Strict cookie, so other sites
+        # and token-less local clients cannot drive the API.
+        TOKEN = secrets.token_urlsafe(32)
+    if not _is_local:
+        # LAN clients need the token to get the cookie; loopback users do not,
+        # so keep it out of local console logs.
         print(f"  API Token: {TOKEN}")
         print(f"  Token URL: http://{host}:{port}/?token={TOKEN}")
 

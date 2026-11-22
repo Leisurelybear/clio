@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -18,6 +19,11 @@ from clio.transcribe import (
 )
 from clio.utils import run_subprocess
 from clio.whisper_cache import is_model_cache_complete, largest_model_file_size
+
+# pip's own socket timeout/retries stop a stalled mirror from hanging forever;
+# the outer limit is generous because the CUDA wheels are ~2.8 GB.
+_PIP_NETWORK_ARGS = ["--timeout", "60", "--retries", "5"]
+_PIP_INSTALL_TIMEOUT_SEC = 3600
 
 _snapshot_download: Any
 try:
@@ -54,16 +60,20 @@ def run_whisper_install(config_path: str | Path = "config.yaml") -> int:
     pip_mirror = pip_mirror_for_config(cfg)
     if pip_mirror:
         print(t("whisper.pip_mirror", {"mirror": pip_mirror}))
-    install_base = [sys.executable, "-m", "pip", "install"]
+    install_base = [sys.executable, "-m", "pip", "install", *_PIP_NETWORK_ARGS]
     if pip_mirror:
         install_base += ["-i", pip_mirror]
-    result = run_subprocess(
-        [*install_base, "-r", str(req)],
-        capture_output=True,
-        text=True,
-    )
+    # Output is streamed to the console so the user can follow the download.
+    try:
+        result = run_subprocess(
+            [*install_base, "-r", str(req)],
+            timeout=_PIP_INSTALL_TIMEOUT_SEC,
+        )
+    except subprocess.TimeoutExpired:
+        print(t("whisper.install_failed"), f"pip timed out after {_PIP_INSTALL_TIMEOUT_SEC}s")
+        return 1
     if result.returncode != 0:
-        print(t("whisper.install_failed"), result.stderr)
+        print(t("whisper.install_failed"), result.stderr or "")
         return 1
     print(t("whisper.install_done"))
     # Reload the module binding so this same process can import the new install.
@@ -99,13 +109,17 @@ def run_whisper_install(config_path: str | Path = "config.yaml") -> int:
             if cuda_avail:
                 print(t("whisper.hint_manual_cuda"))
         else:
-            r = run_subprocess(
-                [*install_base, *cublas_pkgs, "-q"],
-            )
-            if r.returncode == 0:
+            try:
+                returncode: int | str = run_subprocess(
+                    [*install_base, *cublas_pkgs, "-q"],
+                    timeout=_PIP_INSTALL_TIMEOUT_SEC,
+                ).returncode
+            except subprocess.TimeoutExpired:
+                returncode = "timeout"
+            if returncode == 0:
                 print(t("whisper.cublas_installed", {"packages": "/".join(cublas_pkgs)}))
             else:
-                print(t("whisper.cublas_install_failed", {"packages": "/".join(cublas_pkgs), "code": r.returncode}))
+                print(t("whisper.cublas_install_failed", {"packages": "/".join(cublas_pkgs), "code": returncode}))
 
     model_name = cfg.whisper.model_size
     cache_dir = _resolve_cache_dir(cfg)

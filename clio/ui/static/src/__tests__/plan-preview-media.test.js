@@ -92,6 +92,28 @@ describe('resolvePlanMedia', () => {
     expect(blocked.video.file).toBe('a.mp4');
   });
 
+  it('resolves a legacy plan index to the current compressed media', () => {
+    const legacyTimeline = buildTimeline([
+      { index: '016', use_timeline: '00:10-00:15' },
+    ]);
+    const legacyVideos = [
+      {
+        file: '197_GX011275.mp4',
+        index: '197',
+        analysis_indexes: ['016', '197'],
+        offset_sec: 0,
+      },
+    ];
+    const media = resolvePlanMedia(legacyTimeline, 0, {
+      videos: legacyVideos,
+      source: 'compressed',
+      localSec: 2,
+    });
+    expect(media.mode).toBe('source');
+    expect(media.video.file).toBe('197_GX011275.mp4');
+    expect(media.seekSec).toBe(12);
+  });
+
   it('rejects a stale mapping after the plan timeline changes', () => {
     const stale = cutPayload({ start_sec: 1, end_sec: 4, source: { video_index: '001' } });
     const media = resolvePlanMedia(timeline, 0, {

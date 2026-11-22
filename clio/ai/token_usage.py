@@ -4,16 +4,18 @@ from __future__ import annotations
 
 import copy
 import json
-import threading
+import logging
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from clio.utils import write_json_atomic
+from clio.utils import path_write_lock, write_json_atomic
 
 if TYPE_CHECKING:
     from clio.ai.base import TokenUsage
+
+logger = logging.getLogger("clio.ai.token_usage")
 
 
 class TokenUsageStore(ABC):
@@ -27,6 +29,7 @@ class TokenUsageStore(ABC):
         provider: str = "",
         prompt_version: str = "",
         cost_usd: float = 0.0,
+        price_known: bool = True,
     ) -> None: ...
     @abstractmethod
     def get_stats(self) -> dict[str, Any]: ...
@@ -35,10 +38,25 @@ class TokenUsageStore(ABC):
 
 
 _EMPTY_STATS: dict[str, Any] = {
-    "total": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "cost_usd": 0.0},
+    "total": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "cost_usd": 0.0,
+        "unknown_price_calls": 0,
+    },
     "by_model": {},
     "by_task": {},
     "history": [],
+}
+
+_EMPTY_BUCKET: dict[str, Any] = {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0,
+    "calls": 0,
+    "cost_usd": 0.0,
+    "unknown_price_calls": 0,
 }
 
 
@@ -66,30 +84,33 @@ def _merge_stats(
     ct: int,
     tt: int,
     cost_usd: float = 0.0,
+    price_known: bool = True,
 ) -> None:
     total = stats["total"]
     total["prompt_tokens"] += pt
     total["completion_tokens"] += ct
     total["total_tokens"] += tt
     _add_cost(total, cost_usd)
+    if not price_known:
+        total["unknown_price_calls"] = int(total.get("unknown_price_calls", 0)) + 1
 
-    model_key = stats["by_model"].setdefault(
-        model, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0, "cost_usd": 0.0}
-    )
+    model_key = stats["by_model"].setdefault(model, dict(_EMPTY_BUCKET))
     model_key["prompt_tokens"] += pt
     model_key["completion_tokens"] += ct
     model_key["total_tokens"] += tt
     model_key["calls"] += 1
     _add_cost(model_key, cost_usd)
+    if not price_known:
+        model_key["unknown_price_calls"] = int(model_key.get("unknown_price_calls", 0)) + 1
 
-    task_key = stats["by_task"].setdefault(
-        task, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0, "cost_usd": 0.0}
-    )
+    task_key = stats["by_task"].setdefault(task, dict(_EMPTY_BUCKET))
     task_key["prompt_tokens"] += pt
     task_key["completion_tokens"] += ct
     task_key["total_tokens"] += tt
     task_key["calls"] += 1
     _add_cost(task_key, cost_usd)
+    if not price_known:
+        task_key["unknown_price_calls"] = int(task_key.get("unknown_price_calls", 0)) + 1
 
 
 _MAX_TOKEN_HISTORY = 500
@@ -98,7 +119,9 @@ _MAX_TOKEN_HISTORY = 500
 class FileTokenUsageStore(TokenUsageStore):
     def __init__(self, output_dir: str):
         self._path = Path(output_dir) / ".token_usage.json"
-        self._lock = threading.Lock()
+        # Tasks each create their own store; a per-path lock shared by all instances in
+        # this process keeps concurrent read-merge-write cycles from losing records.
+        self._lock = path_write_lock(self._path)
 
     def record(
         self,
@@ -109,6 +132,7 @@ class FileTokenUsageStore(TokenUsageStore):
         provider: str = "",
         prompt_version: str = "",
         cost_usd: float = 0.0,
+        price_known: bool = True,
     ) -> None:
         with self._lock:
             raw = self._read_raw()
@@ -122,6 +146,7 @@ class FileTokenUsageStore(TokenUsageStore):
                 "completion_tokens": usage.completion_tokens,
                 "total_tokens": usage.total_tokens,
                 "cost_usd": round(cost_usd, 8),
+                "price_known": bool(price_known),
             }
             raw["history"].append(entry)
             if len(raw["history"]) > _MAX_TOKEN_HISTORY:
@@ -134,6 +159,7 @@ class FileTokenUsageStore(TokenUsageStore):
                 usage.completion_tokens,
                 usage.total_tokens,
                 cost_usd,
+                price_known=price_known,
             )
             write_json_atomic(self._path, raw)
 
@@ -144,22 +170,46 @@ class FileTokenUsageStore(TokenUsageStore):
     def close(self) -> None:
         pass
 
+    def _quarantine(self) -> None:
+        """Move an unreadable stats file aside so the next record cannot overwrite it."""
+        target = self._path.with_name(f"{self._path.name}.corrupt.{time.strftime('%Y%m%d-%H%M%S')}")
+        try:
+            self._path.replace(target)
+        except OSError as exc:
+            logger.warning("token usage file %s is corrupt and could not be moved aside: %s", self._path, exc)
+            return
+        logger.warning("token usage file %s was corrupt; kept as %s", self._path, target.name)
+
     def _read_raw(self) -> dict[str, Any]:
         if not self._path.is_file():
             return copy.deepcopy(_EMPTY_STATS)
         try:
             data = json.loads(self._path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
+        except OSError:
             return copy.deepcopy(_EMPTY_STATS)
-        if not isinstance(data, dict) or "history" not in data or not isinstance(data.get("history"), list):
+        except ValueError:  # JSONDecodeError / UnicodeDecodeError
+            self._quarantine()
             return copy.deepcopy(_EMPTY_STATS)
-        total = data.setdefault("total", {})
-        if isinstance(total, dict):
-            total.setdefault("cost_usd", 0.0)
-        for bucket_name in ("by_model", "by_task"):
-            buckets = data.get(bucket_name)
-            if isinstance(buckets, dict):
-                for bucket in buckets.values():
-                    if isinstance(bucket, dict):
-                        bucket.setdefault("cost_usd", 0.0)
-        return data
+        if not isinstance(data, dict) or not isinstance(data.get("history"), list):
+            self._quarantine()
+            return copy.deepcopy(_EMPTY_STATS)
+        return _fill_missing_stats(data)
+
+
+def _fill_missing_stats(data: dict[str, Any]) -> dict[str, Any]:
+    """Backfill fields that older or hand-edited files lack so merging never hits KeyError."""
+    total = data.get("total")
+    if not isinstance(total, dict):
+        total = data["total"] = {}
+    for key, default in _EMPTY_STATS["total"].items():
+        total.setdefault(key, default)
+    for bucket_name in ("by_model", "by_task"):
+        buckets = data.get(bucket_name)
+        if not isinstance(buckets, dict):
+            buckets = data[bucket_name] = {}
+        for name, bucket in list(buckets.items()):
+            if not isinstance(bucket, dict):
+                bucket = buckets[name] = {}
+            for key, default in _EMPTY_BUCKET.items():
+                bucket.setdefault(key, default)
+    return data

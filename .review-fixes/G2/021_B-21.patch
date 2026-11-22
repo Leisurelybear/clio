@@ -1,0 +1,106 @@
+diff --git a/clio/tasks/plan.py b/clio/tasks/plan.py
+--- a/clio/tasks/plan.py
++++ b/clio/tasks/plan.py
+@@ -871,6 +871,27 @@
+     )
+ 
+ 
++# Cannot collide with any "<day>_plan.json" (a day labelled "trip" used to
++# overwrite its own plan), and is not picked up by "*_plan.json" listings.
++TRIP_SUMMARY_FILENAME = "_trip_summary.json"
++
++
++def _check_day_plan_collisions(labels: list[str]) -> None:
++    """Refuse labels whose sanitized plan file names clash (e.g. "day 1" / "day_1")."""
++    owners: dict[str, str] = {}
++    for label in labels:
++        try:
++            stem = plan_day_stem(label)
++        except ValueError:
++            continue  # reported by run_plan_vlog for that day
++        key = stem.casefold()  # Windows / macOS file names are case-insensitive
++        other = owners.setdefault(key, label)
++        if other != label:
++            raise RuntimeError(
++                t("task.plan.day_label_conflict", {"first": other, "second": label, "file": f"{stem}_plan.json"})
++            )
++
++
+ def run_plan_all_days(
+     config: AppConfig,
+     tracker: ProgressReporter | None = None,
+@@ -887,6 +908,7 @@
+             raise _unusable_inputs_error(skipped_inputs)
+         print(t("task.plan.no_analysis"))
+         return None
++    _check_day_plan_collisions(labels)
+ 
+     summary: dict[str, Any] = {"days": []}
+     for day_label in labels:
+@@ -922,7 +944,7 @@
+         return None
+     add_schema_version(summary)
+     config.plans_dir.mkdir(parents=True, exist_ok=True)
+-    out_json = config.plans_dir / "trip_plan.json"
++    out_json = config.plans_dir / TRIP_SUMMARY_FILENAME
+     write_json_atomic(out_json, summary)
+     print(f"  -> {out_json.name}")
+     return summary
+diff --git a/clio/tests/test_plan.py b/clio/tests/test_plan.py
+--- a/clio/tests/test_plan.py
++++ b/clio/tests/test_plan.py
+@@ -858,7 +858,31 @@
+         assert [d["day_label"] for d in result["days"]] == ["day1", "day2"]
+         assert result["days"][0]["clip_count"] == 1
+         assert result["days"][0]["plan_file"] == "day1_plan.json"
+-        assert (loaded_config.plans_dir / "trip_plan.json").is_file()
++        assert (loaded_config.plans_dir / "_trip_summary.json").is_file()
++        assert not (loaded_config.plans_dir / "trip_plan.json").exists()
++
++    def test_day_named_trip_keeps_its_plan(self, loaded_config: AppConfig) -> None:
++        _write_analysis(loaded_config, _analysis("001", day="trip"))
++        fake_plan = {"day_title": "trip day", "theme": "", "total_estimated_sec": 0, "sequence": []}
++
++        def write_day_plan(config, *, day_label, **_kwargs):
++            (config.plans_dir).mkdir(parents=True, exist_ok=True)
++            (config.plans_dir / f"{day_label}_plan.json").write_text('{"day": true}', encoding="utf-8")
++            return fake_plan
++
++        with patch("clio.tasks.plan.run_plan_vlog", side_effect=write_day_plan):
++            run_plan_all_days(loaded_config)
++
++        assert (loaded_config.plans_dir / "trip_plan.json").read_text(encoding="utf-8") == '{"day": true}'
++
++    def test_colliding_day_labels_are_rejected(self, loaded_config: AppConfig) -> None:
++        _write_analysis(loaded_config, _analysis("001", day="day 1"))
++        _write_analysis(loaded_config, _analysis("002", source="SRC2", day="day_1"))
++
++        with patch("clio.tasks.plan.run_plan_vlog") as run_day:
++            with pytest.raises(RuntimeError, match="day_1_plan.json"):
++                run_plan_all_days(loaded_config)
++        run_day.assert_not_called()
+ 
+     def test_skips_failed_days(self, loaded_config: AppConfig) -> None:
+         _write_analysis(loaded_config, _analysis("001", day="day1"))
+diff --git a/clio/locales/en.json b/clio/locales/en.json
+--- a/clio/locales/en.json
++++ b/clio/locales/en.json
+@@ -652,6 +652,7 @@
+   "task.pipeline_title": "Run media processing pipeline",
+   "task.plan.all_days_cancelled": "[cancel] all-days plan terminated by the user",
+   "task.plan.cancelled": "[cancel] plan step terminated by the user",
++  "task.plan.day_label_conflict": "Days \"{first}\" and \"{second}\" would both be saved as {file}; rename one of the day labels",
+   "task.plan.budget_projection": "[plan] projecting {clips} clips, {rows} timeline rows, {chars} JSON chars into the prompt",
+   "task.plan.filter_selected": "[plan] filtering media by the selection ({count} stems)",
+   "task.plan.index_invalid_reason": "invalid index",
+diff --git a/clio/locales/zh-CN.json b/clio/locales/zh-CN.json
+--- a/clio/locales/zh-CN.json
++++ b/clio/locales/zh-CN.json
+@@ -652,6 +652,7 @@
+   "task.pipeline_title": "运行素材处理流水线",
+   "task.plan.all_days_cancelled": "[取消] all-days plan 被用户终止",
+   "task.plan.cancelled": "[取消] plan 步骤被用户终止",
++  "task.plan.day_label_conflict": "日期 \"{first}\" 和 \"{second}\" 会写入同一个计划文件 {file}，请修改其中一个日期标签",
+   "task.plan.budget_projection": "[规划] 注入规划 {clips} 条素材、{rows} 行时间轴，JSON {chars} 字符",
+   "task.plan.filter_selected": "[规划] 按选片过滤素材（{count} 个 stem）",
+   "task.plan.index_invalid_reason": "index 无效",

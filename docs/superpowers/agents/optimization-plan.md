@@ -13,7 +13,7 @@ Based on external code review (`docs/analysis/2026-06-20-review-part1.md`), cros
 | `make_handler` closure too large (432 lines) | Extract business logic to services | **U-001** | ✅ mostly done (routes/ + services/) |
 | config.py 406 lines, 14 dataclasses | Split into `config/` package | **U-003** | ✅ done |
 | File system as database | Repository layer (long-term) | Phase 3 | still future |
-| Config cache not true LRU | Fix in U-001a | **U-001** | ✅ done (`config_cache.py`) |
+| Config cache not true LRU | Make `ConfigCache.get` refresh order on hit | **U-001** | ⚠️ still open: hits do not `move_to_end`; see 2026-11-21 review O07 |
 | No domain models | `@dataclass VideoAnalysis/Segment/VoiceoverScript` | Phase 3 | still future |
 | No token cost tracking | `ai/cost_tracker.py` | Phase 3 | ✅ done via `clio/ai/token_usage.py` |
 | Pipeline cancel not covering analyze/scripts/plan/label | Add cancel_event to all loop steps | **U-005** | ✅ done |
@@ -46,4 +46,4 @@ Based on external code review (`docs/analysis/2026-06-20-review-part1.md`), cros
 
 ### Tracking
 
-See `ROADMAP.md` for current active work. This file is a compact review-derived reference, not the source of truth for task status.
+See `ROADMAP.md` for current active work and `docs/analysis/2026-11-21-clio-full-review.md` for the latest dated findings. This file is a compact review-derived reference, not the source of truth for task status.

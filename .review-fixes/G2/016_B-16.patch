@@ -1,0 +1,88 @@
+diff --git a/clio/asr/retry.py b/clio/asr/retry.py
+--- a/clio/asr/retry.py
++++ b/clio/asr/retry.py
+@@ -12,6 +12,9 @@
+ from clio.utils import parse_retry_after
+ 
+ RETRYABLE_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504})
++# A server-requested Retry-After longer than this fails fast instead of
++# blocking the task (and is never shortened, which would just hit the limit).
++MAX_RETRY_AFTER_SEC = 60.0
+ 
+ 
+ def _status_message(status_code: int) -> str:
+@@ -39,8 +42,13 @@
+     max_delay: float = 3.0,
+     sleep: Callable[[float], None] = time.sleep,
+     cancel_event: threading.Event | None = None,
++    max_retry_after: float = MAX_RETRY_AFTER_SEC,
+ ) -> httpx.Response:
+-    """Run a request and retry only transient network/service failures."""
++    """Run a request and retry only transient network/service failures.
++
++    ``max_delay`` caps the exponential backoff. A ``Retry-After`` header is a
++    lower bound for the next wait; above ``max_retry_after`` the call fails.
++    """
+ 
+     if attempts < 1:
+         raise ValueError("attempts must be at least 1")
+@@ -74,13 +82,18 @@
+                     t("asr.retry.http_failed", {"label": label, "status": status, "reason": reason})
+                 ) from exc
+             retry_after = _retry_after_seconds(exc.response)
++            if retry_after is not None and retry_after > max_retry_after:
++                reason = _status_message(status)
++                raise RuntimeError(
++                    t("asr.retry.http_failed", {"label": label, "status": status, "reason": reason})
++                ) from exc
+         except httpx.RequestError:
+             if attempt == attempts - 1:
+                 raise RuntimeError(t("asr.retry.network_failed", {"label": label})) from None
+ 
+         delay = min(base_delay * (2**attempt), max_delay)
+         if retry_after is not None:
+-            delay = min(retry_after, max_delay)
++            delay = max(retry_after, delay)
+         wait_before_retry(delay)
+ 
+     check_cancelled()
+diff --git a/clio/tests/test_asr_retry.py b/clio/tests/test_asr_retry.py
+--- a/clio/tests/test_asr_retry.py
++++ b/clio/tests/test_asr_retry.py
+@@ -50,7 +50,7 @@
+     assert delays == [2.0]
+ 
+ 
+-def test_retry_after_is_capped_by_max_delay():
++def test_retry_after_is_honored_beyond_max_delay():
+     responses = iter([_response_with_retry_after("30"), _response(200)])
+     delays: list[float] = []
+ 
+@@ -61,7 +61,26 @@
+         sleep=delays.append,
+     )
+ 
+-    assert delays == [3.0]
++    assert delays == [30.0]
++
++
++def test_retry_after_above_limit_fails_without_waiting():
++    calls = 0
++
++    def request():
++        nonlocal calls
++        calls += 1
++        return _response_with_retry_after("120")
++
++    with pytest.raises(RuntimeError, match="HTTP 429"):
++        request_with_retry(
++            request,
++            label="测试请求",
++            max_retry_after=60.0,
++            sleep=lambda _: pytest.fail("must not sleep past the Retry-After limit"),
++        )
++
++    assert calls == 1
+ 
+ 
+ def test_retry_after_http_date_is_supported(monkeypatch):

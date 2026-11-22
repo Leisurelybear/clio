@@ -13,6 +13,8 @@ from clio.config import WhisperModelSize
 from clio.i18n import t
 from clio.transcribe import _resolve_cache_dir, is_model_loaded, model_usage_lock
 from clio.ui.handler_protocol import HandlerProtocol
+from clio.ui.services.file_service import _save_atomic
+from clio.utils import path_write_lock
 from clio.whisper_cache import (
     REQUIRED_MODEL_FILES,
     is_model_cache_complete,
@@ -166,21 +168,23 @@ def handle_put_whisper_model(handler: HandlerProtocol, qs: dict[str, Any], obj: 
         return
     proj_dir = handler._resolve_project_dir(qs)
     proj_yaml = proj_dir / "project.yaml"
-    if not proj_yaml.is_file():
-        proj_yaml.parent.mkdir(parents=True, exist_ok=True)
-        raw: dict[str, Any] = {}
-    else:
-        with open(proj_yaml, encoding="utf-8") as f:
-            raw = yaml.safe_load(f) or {}
-    raw.setdefault("whisper", {})["model_size"] = model_name
-    suffix = os.urandom(4).hex()
-    tmp = proj_yaml.parent / f"{proj_yaml.name}.{suffix}.tmp"
-    try:
-        tmp.write_text(yaml.dump(raw, allow_unicode=True, default_flow_style=False), encoding="utf-8")
-        tmp.replace(proj_yaml)
-    except OSError:
-        tmp.unlink(missing_ok=True)
-        handler._send_json({"ok": False, "error": t("api.config_write_failed")}, 500)
-        return
+    # Same lock + atomic writer as the config routes, so a concurrent
+    # PUT /api/config/project cannot be lost; keep the user's key order.
+    with path_write_lock(proj_yaml):
+        if not proj_yaml.is_file():
+            proj_yaml.parent.mkdir(parents=True, exist_ok=True)
+            raw: dict[str, Any] = {}
+        else:
+            with open(proj_yaml, encoding="utf-8") as f:
+                raw = yaml.safe_load(f) or {}
+        raw.setdefault("whisper", {})["model_size"] = model_name
+        try:
+            _save_atomic(
+                proj_yaml,
+                yaml.dump(raw, allow_unicode=True, default_flow_style=False, sort_keys=False).encode("utf-8"),
+            )
+        except OSError:
+            handler._send_json({"ok": False, "error": t("api.config_write_failed")}, 500)
+            return
     handler.__class__._config_cache.invalidate_key(str(proj_dir.resolve()))
     handler._send_json({"ok": True, "model_size": model_name})

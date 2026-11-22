@@ -1,0 +1,279 @@
+diff --git a/clio/export/jianying.py b/clio/export/jianying.py
+--- a/clio/export/jianying.py
++++ b/clio/export/jianying.py
+@@ -115,7 +115,7 @@
+         return mapping
+     for p in sorted(texts_dir.glob("*.json")):
+         try:
+-            data = json.loads(p.read_text(encoding="utf-8"))
++            data = json.loads(p.read_text(encoding="utf-8-sig"))
+         except (json.JSONDecodeError, OSError) as e:
+             logger.debug(t("export.debug_read_failed", {"path": p, "error": e}))
+             continue
+@@ -160,7 +160,7 @@
+         return offsets
+     for p in sorted(texts_dir.glob("*.json")):
+         try:
+-            data = json.loads(p.read_text(encoding="utf-8"))
++            data = json.loads(p.read_text(encoding="utf-8-sig"))
+         except (json.JSONDecodeError, OSError):
+             continue
+         identity = load_identity(data)
+@@ -496,7 +496,7 @@
+     if not plan_path.is_file():
+         raise FileNotFoundError(t("export.plan_missing", {"path": plan_path}))
+ 
+-    plan_data = json.loads(plan_path.read_text(encoding="utf-8"))
++    plan_data = json.loads(plan_path.read_text(encoding="utf-8-sig"))
+     sequence = plan_data.get("sequence", [])
+     if not sequence:
+         print(t("export.plan_empty_sequence", {"path": plan_path}))
+diff --git a/clio/tasks/_helpers.py b/clio/tasks/_helpers.py
+--- a/clio/tasks/_helpers.py
++++ b/clio/tasks/_helpers.py
+@@ -413,7 +413,7 @@
+     if not sel.paths and _matches_selected_stem(path, sel):
+         return True
+     try:
+-        data = json.loads(path.read_text(encoding="utf-8"))
++        data = json.loads(path.read_text(encoding="utf-8-sig"))
+     except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+         return False
+     if not isinstance(data, dict):
+diff --git a/clio/tasks/analyze.py b/clio/tasks/analyze.py
+--- a/clio/tasks/analyze.py
++++ b/clio/tasks/analyze.py
+@@ -453,7 +453,7 @@
+     if not overwrite and config.analyze.skip_existing:
+         for candidate in existing:
+             try:
+-                data = json.loads(candidate.read_text(encoding="utf-8"))
++                data = json.loads(candidate.read_text(encoding="utf-8-sig"))
+             except (json.JSONDecodeError, OSError, UnicodeError):
+                 invalid = True
+                 continue
+@@ -516,7 +516,7 @@
+         return ""
+     path = transcripts_dir / f"{compressed.stem}_transcript.json"
+     try:
+-        data = json.loads(path.read_text(encoding="utf-8"))
++        data = json.loads(path.read_text(encoding="utf-8-sig"))
+     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+         return ""
+     if not isinstance(data, dict) or not isinstance(data.get("segments"), list) or not data["segments"]:
+diff --git a/clio/tasks/plan.py b/clio/tasks/plan.py
+--- a/clio/tasks/plan.py
++++ b/clio/tasks/plan.py
+@@ -196,7 +196,7 @@
+ def _read_voiceover(config: AppConfig, analysis_path: Path) -> str:
+     path = config.scripts_dir / f"{analysis_path.stem}_voiceover.json"
+     try:
+-        data = json.loads(path.read_text(encoding="utf-8"))
++        data = json.loads(path.read_text(encoding="utf-8-sig"))
+     except (OSError, UnicodeError, json.JSONDecodeError):
+         return ""
+     value = data.get("voiceover") if isinstance(data, dict) else None
+@@ -205,7 +205,7 @@
+ 
+ def _read_json_object(path: Path) -> tuple[dict[str, Any] | None, str | None]:
+     try:
+-        data = json.loads(path.read_text(encoding="utf-8"))
++        data = json.loads(path.read_text(encoding="utf-8-sig"))
+     except (json.JSONDecodeError, OSError, UnicodeError):
+         return None, t("task.plan.json_unreadable")
+     if not isinstance(data, dict):
+diff --git a/clio/tasks/transcribe.py b/clio/tasks/transcribe.py
+--- a/clio/tasks/transcribe.py
++++ b/clio/tasks/transcribe.py
+@@ -264,7 +264,7 @@
+     if overwrite or not config.analyze.skip_existing or not out_path.exists():
+         return False
+     try:
+-        existing = json.loads(out_path.read_text(encoding="utf-8"))
++        existing = json.loads(out_path.read_text(encoding="utf-8-sig"))
+     except (json.JSONDecodeError, OSError):
+         print(t("task.transcribe.retranscribe_corrupt", {"name": compressed_stem}))
+         return False
+diff --git a/clio/tasks/scripts.py b/clio/tasks/scripts.py
+--- a/clio/tasks/scripts.py
++++ b/clio/tasks/scripts.py
+@@ -104,8 +104,8 @@
+     if not out.is_file():
+         return False
+     try:
+-        data = json.loads(json_file.read_text(encoding="utf-8"))
+-        existing = json.loads(out.read_text(encoding="utf-8"))
++        data = json.loads(json_file.read_text(encoding="utf-8-sig"))
++        existing = json.loads(out.read_text(encoding="utf-8-sig"))
+     except (json.JSONDecodeError, OSError, UnicodeError):
+         return True
+     if not isinstance(data, dict) or not isinstance(existing, dict):
+@@ -168,7 +168,7 @@
+     if cancel_event and cancel_event.is_set():
+         return "cancelled"
+ 
+-    data = json.loads(json_file.read_text(encoding="utf-8"))
++    data = json.loads(json_file.read_text(encoding="utf-8-sig"))
+     data["index"] = data.get("index", json_file.stem[:3])
+     orig_stem = Path(data.get("source_file") or json_file.stem).stem
+     out, md_out = _voiceover_output_paths(json_file, config)
+@@ -482,7 +482,7 @@
+     if config.texts_dir.is_dir():
+         for analysis_file in sorted(config.texts_dir.glob("*.json")):
+             try:
+-                data = json.loads(analysis_file.read_text(encoding="utf-8"))
++                data = json.loads(analysis_file.read_text(encoding="utf-8-sig"))
+             except (json.JSONDecodeError, OSError, UnicodeError):
+                 continue
+             if not isinstance(data, dict):
+@@ -497,7 +497,7 @@
+     if config.transcripts_dir.is_dir():
+         for transcript_file in sorted(config.transcripts_dir.glob("*_transcript.json")):
+             try:
+-                data = json.loads(transcript_file.read_text(encoding="utf-8"))
++                data = json.loads(transcript_file.read_text(encoding="utf-8-sig"))
+             except (json.JSONDecodeError, OSError, UnicodeError):
+                 continue
+             if not isinstance(data, dict):
+@@ -573,7 +573,7 @@
+     if not out_json.is_file():
+         return False
+     try:
+-        existing = json.loads(out_json.read_text(encoding="utf-8"))
++        existing = json.loads(out_json.read_text(encoding="utf-8-sig"))
+     except (json.JSONDecodeError, OSError, UnicodeError):
+         return True
+     if not isinstance(existing, dict):
+@@ -603,7 +603,7 @@
+     if not plan_json.is_file():
+         return []
+     try:
+-        plan = json.loads(plan_json.read_text(encoding="utf-8"))
++        plan = json.loads(plan_json.read_text(encoding="utf-8-sig"))
+     except (json.JSONDecodeError, OSError, UnicodeError):
+         return []
+     if not isinstance(plan, dict):
+@@ -736,7 +736,7 @@
+         print(t("task.plan_voiceover.no_plan", {"day": day_label, "path": plan_json.name}))
+         return None
+     try:
+-        plan = json.loads(plan_json.read_text(encoding="utf-8"))
++        plan = json.loads(plan_json.read_text(encoding="utf-8-sig"))
+     except (json.JSONDecodeError, OSError, UnicodeError) as exc:
+         raise RuntimeError(t("task.plan_voiceover.plan_unreadable", {"day": day_label, "detail": exc})) from exc
+     if not isinstance(plan, dict):
+diff --git a/clio/tasks/transcript_align.py b/clio/tasks/transcript_align.py
+--- a/clio/tasks/transcript_align.py
++++ b/clio/tasks/transcript_align.py
+@@ -49,7 +49,7 @@
+     if path is None or not path.is_file():
+         return None
+     try:
+-        data = json.loads(path.read_text(encoding="utf-8"))
++        data = json.loads(path.read_text(encoding="utf-8-sig"))
+     except (json.JSONDecodeError, OSError):
+         return None
+     return data if isinstance(data, dict) else None
+@@ -139,7 +139,7 @@
+     updated = 0
+     for json_path in sorted(texts_dir.glob("*.json")):
+         try:
+-            analysis = json.loads(json_path.read_text(encoding="utf-8"))
++            analysis = json.loads(json_path.read_text(encoding="utf-8-sig"))
+         except (json.JSONDecodeError, OSError):
+             continue
+         analysis_identity = load_identity(analysis)
+diff --git a/clio/tasks/label.py b/clio/tasks/label.py
+--- a/clio/tasks/label.py
++++ b/clio/tasks/label.py
+@@ -127,7 +127,7 @@
+                 print(t("task.label.cancelled"))
+                 break
+             try:
+-                data = json.loads(json_file.read_text(encoding="utf-8"))
++                data = json.loads(json_file.read_text(encoding="utf-8-sig"))
+                 if not isinstance(data, dict):
+                     raise ValueError("analysis JSON root must be an object")
+             except (OSError, UnicodeDecodeError, ValueError) as exc:
+diff --git a/clio/tasks/cut.py b/clio/tasks/cut.py
+--- a/clio/tasks/cut.py
++++ b/clio/tasks/cut.py
+@@ -396,7 +396,7 @@
+             if project_selection is not None and not _matches_selected_artifact(path, project_selection):
+                 continue
+             try:
+-                data = json.loads(path.read_text(encoding="utf-8"))
++                data = json.loads(path.read_text(encoding="utf-8-sig"))
+             except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                 continue
+             if isinstance(data, dict):
+@@ -825,7 +825,7 @@
+     if not plan_path.is_file():
+         raise FileNotFoundError(t("task.cut.plan_missing", {"path": plan_path}))
+ 
+-    plan = json.loads(plan_path.read_text(encoding="utf-8"))
++    plan = json.loads(plan_path.read_text(encoding="utf-8-sig"))
+     raw_seq = plan.get("sequence", [])
+     seq = [normalize_plan_segment(seg) for seg in raw_seq] if isinstance(raw_seq, list) else []
+     if not seq:
+diff --git a/clio/tasks/refine.py b/clio/tasks/refine.py
+--- a/clio/tasks/refine.py
++++ b/clio/tasks/refine.py
+@@ -52,7 +52,7 @@
+     analysis_stem = stem[: -len("_voiceover")] if stem.endswith("_voiceover") else stem
+     candidate = texts_dir / f"{analysis_stem}.json"
+     if candidate.is_file():
+-        return json.loads(candidate.read_text(encoding="utf-8"))
++        return json.loads(candidate.read_text(encoding="utf-8-sig"))
+     return None
+ 
+ 
+@@ -96,7 +96,7 @@
+             t0 = time.monotonic()
+             try:
+                 original = json_file.read_bytes()
+-                analysis = json.loads(original.decode("utf-8"))
++                analysis = json.loads(original.decode("utf-8-sig"))
+                 refined = refine_text(
+                     analysis,
+                     config,
+@@ -170,7 +170,7 @@
+             t0 = time.monotonic()
+             try:
+                 original = json_file.read_bytes()
+-                script = json.loads(original.decode("utf-8"))
++                script = json.loads(original.decode("utf-8-sig"))
+                 analysis = _load_analysis_for_script(json_file, config.texts_dir)
+                 refined = refine_script(
+                     script,
+diff --git a/clio/tests/test_fix_json_bom_reads.py b/clio/tests/test_fix_json_bom_reads.py
+new file mode 100644
+--- /dev/null
++++ b/clio/tests/test_fix_json_bom_reads.py
+@@ -0,0 +1,26 @@
++"""Regression tests for A-06b: user-edited JSON saved with a UTF-8 BOM still loads."""
++
++from __future__ import annotations
++
++import json
++from pathlib import Path
++
++from clio.tasks.plan import _read_json_object
++from clio.tasks.transcript_align import _load_transcript
++
++
++def _write_bom_json(path: Path, data: dict) -> Path:
++    path.write_bytes(b"\xef\xbb\xbf" + json.dumps(data, ensure_ascii=False).encode("utf-8"))
++    return path
++
++
++def test_plan_reader_accepts_bom(tmp_path: Path) -> None:
++    path = _write_bom_json(tmp_path / "001_clip.json", {"title": "标题", "summary": "x"})
++    data, error = _read_json_object(path)
++    assert error is None
++    assert data is not None and data["title"] == "标题"
++
++
++def test_transcript_loader_accepts_bom(tmp_path: Path) -> None:
++    path = _write_bom_json(tmp_path / "001_clip_transcript.json", {"segments": []})
++    assert _load_transcript(path) == {"segments": []}

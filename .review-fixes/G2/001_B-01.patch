@@ -1,0 +1,104 @@
+diff --git a/clio/tasks/waveform.py b/clio/tasks/waveform.py
+--- a/clio/tasks/waveform.py
++++ b/clio/tasks/waveform.py
+@@ -239,6 +239,19 @@
+         return _key_locks[key]
+ 
+ 
++def _persist_peaks(project_output: Path, key: str, payload: dict[str, Any]) -> None:
++    """Write a ready cache file, or raise when ffmpeg could not decode the media.
++
++    ``read_peaks`` treats ``probe_error`` payloads as "no cache", so writing one as
++    ready would make every poll re-kick ffmpeg. Raising routes the failure through
++    the ``.error`` cool-down path instead.
++    """
++    if payload.get("probe_error"):
++        raise RuntimeError(str(payload.get("probe_error_msg") or "waveform extract failed"))
++    write_peaks_atomic(project_output, key, payload)
++    clear_error(project_output, key)
++
++
+ def _spawn_job(fn: Callable[[], None]) -> None:
+     t = threading.Thread(target=fn, daemon=True)
+     t.start()
+@@ -257,8 +270,7 @@
+             audio_source=str(input_data.get("audio_source") or "original"),
+             ffprobe=str(input_data.get("ffprobe") or ""),
+         )
+-        write_peaks_atomic(project_output, key, payload)
+-        clear_error(project_output, key)
++        _persist_peaks(project_output, key, payload)
+         return {"key": key, "bin_count": payload.get("bin_count", 0)}
+     except Exception as e:
+         with contextlib.suppress(OSError):
+@@ -490,8 +502,7 @@
+                     audio_source=audio_source,
+                     ffprobe=ffprobe,
+                 )
+-                write_peaks_atomic(project_output, key, payload)
+-                clear_error(project_output, key)
++                _persist_peaks(project_output, key, payload)
+             except Exception as e:  # noqa: BLE001 - daemon jobs must persist every failure
+                 with contextlib.suppress(OSError):
+                     error_path(project_output, key).write_text(str(e)[:500], encoding="utf-8")
+diff --git a/clio/tests/test_fix_waveform.py b/clio/tests/test_fix_waveform.py
+new file mode 100644
+--- /dev/null
++++ b/clio/tests/test_fix_waveform.py
+@@ -0,0 +1,56 @@
++"""Regression tests for waveform fixes."""
++
++from __future__ import annotations
++
++from pathlib import Path
++from unittest.mock import patch
++
++from clio.tasks import waveform as wf
++
++
++def _run_inline(fn):
++    fn()
++
++
++class TestFfmpegFailureCooldown:
++    def test_second_ensure_does_not_restart_ffmpeg(self, tmp_path: Path):
++        src = tmp_path / "broken.mp4"
++        src.write_bytes(b"not a video")
++        key = wf.cache_key(src)
++
++        with (
++            patch("clio.utils.probe_ffmpeg_deps", return_value={"ok": True, "detail": ""}),
++            patch("clio.utils.resolve_binary", return_value="C:/fake/ffmpeg.exe"),
++            patch("clio.tasks.waveform.has_audio_stream", return_value=True),
++            patch("clio.tasks.waveform._spawn_job", side_effect=_run_inline),
++            patch("clio.utils.run_ffmpeg", side_effect=RuntimeError("decode failed")) as run,
++        ):
++            first = wf.ensure_waveform(tmp_path, src, ffmpeg="", duration_sec=1.0)
++            second = wf.ensure_waveform(tmp_path, src, ffmpeg="", duration_sec=1.0)
++
++        assert first["status"] == "pending"
++        assert second["status"] == "error"
++        assert "decode failed" in second["error"]
++        assert run.call_count == 1
++        assert not wf.ready_path(tmp_path, key).exists()
++        assert wf.error_path(tmp_path, key).is_file()
++
++    def test_managed_task_fails_on_probe_error(self, tmp_path: Path):
++        from clio.task_center.manager import TaskManager
++        from clio.task_center.models import TaskStatus
++        from clio.task_center.store import TaskStore
++
++        src = tmp_path / "broken.mp4"
++        src.write_bytes(b"x")
++        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
++        payload = {"peaks": [], "bin_count": 400, "probe_error": True, "probe_error_msg": "bad"}
++        with (
++            patch("clio.utils.probe_ffmpeg_deps", return_value={"ok": True, "detail": ""}),
++            patch("clio.tasks.waveform.extract_peaks_for_video", return_value=payload),
++        ):
++            pending = wf.ensure_waveform(tmp_path, src, ffmpeg="ffmpeg", task_manager=manager)
++            task = manager.wait(pending["task_id"])
++
++        assert task.status is TaskStatus.FAILED
++        assert wf.read_peaks(tmp_path, pending["key"]) is None
++        assert wf.recent_error(tmp_path, pending["key"]) == "bad"

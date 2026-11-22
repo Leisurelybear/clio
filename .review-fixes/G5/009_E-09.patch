@@ -1,0 +1,82 @@
+diff --git a/clio/ui/static/src/runner.js b/clio/ui/static/src/runner.js
+--- a/clio/ui/static/src/runner.js
++++ b/clio/ui/static/src/runner.js
+@@ -574,6 +574,28 @@
+   return null;
+ }
+ 
++// renderVideoList() ends with updateRunFilesBadge(), so every checkbox toggle,
++// drag-select step or list re-render used to POST /api/run/preview. Run the
++// first refresh at once and fold any further calls in the window into one.
++const RUN_PREVIEW_COALESCE_MS = 300;
++let _badgePreviewTimer = null;
++let _badgePreviewQueued = false;
++
++function _refreshRunPreviewCoalesced() {
++  if (_badgePreviewTimer) {
++    _badgePreviewQueued = true;
++    return;
++  }
++  refreshRunPreview({ silent: true });
++  _badgePreviewTimer = setTimeout(() => {
++    _badgePreviewTimer = null;
++    if (_badgePreviewQueued) {
++      _badgePreviewQueued = false;
++      _refreshRunPreviewCoalesced();
++    }
++  }, RUN_PREVIEW_COALESCE_MS);
++}
++
+ function updateRunFilesBadge() {
+   const badge = $('run-files-badge');
+   if (badge) {
+@@ -591,7 +613,7 @@
+   const overwrap = $('option-overwrite-wrap');
+   if (overwrap) overwrap.style.display = 'flex';
+   updateRunStartButtonState();
+-  if ($('run-preview')) refreshRunPreview({ silent: true });
++  if ($('run-preview')) _refreshRunPreviewCoalesced();
+ }
+ 
+ async function startRun(stageSteps) {
+diff --git a/clio/ui/static/src/__tests__/runner.test.js b/clio/ui/static/src/__tests__/runner.test.js
+--- a/clio/ui/static/src/__tests__/runner.test.js
++++ b/clio/ui/static/src/__tests__/runner.test.js
+@@ -640,3 +640,37 @@
+     expect(html).toContain('当前没有 skipped 记录');
+   });
+ });
++
++describe('updateRunFilesBadge preview refresh', () => {
++  it('coalesces bursts of badge updates into a leading and a trailing preview', async () => {
++    vi.useFakeTimers();
++    try {
++      const { api } = await import('../api.js');
++      const { updateRunFilesBadge } = await import('../runner.js');
++      vi.mocked(api).mockReset();
++      vi.mocked(api).mockResolvedValue({ preview: null });
++      document.body.innerHTML = `
++        <input class="run-step-cb" data-step="compress" type="checkbox" checked>
++        <button id="btn-run-start"></button>
++        <div id="run-preview"></div>
++      `;
++      state.selectionMode = true;
++      state.selectedFiles = [];
++      const previewCalls = () => vi.mocked(api).mock.calls.filter(([, url]) => url === '/api/run/preview').length;
++
++      for (let i = 0; i < 5; i += 1) {
++        state.selectedFiles = Array.from({ length: i + 1 }, (_, n) => `v${n}.mp4`);
++        updateRunFilesBadge();
++      }
++      expect(previewCalls()).toBe(1);
++      vi.advanceTimersByTime(300);
++      expect(previewCalls()).toBe(2);
++      vi.advanceTimersByTime(1000);
++      expect(previewCalls()).toBe(2);
++    } finally {
++      vi.useRealTimers();
++      state.selectionMode = false;
++      state.selectedFiles = [];
++    }
++  });
++});

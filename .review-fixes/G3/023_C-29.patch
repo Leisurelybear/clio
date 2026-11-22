@@ -1,0 +1,35 @@
+diff --git a/clio/config/validators.py b/clio/config/validators.py
+--- a/clio/config/validators.py
++++ b/clio/config/validators.py
+@@ -295,7 +295,8 @@
+         available = ", ".join(CANVAS_PRESETS)
+         raise ValueError(f"export.canvas_ratio must be one of {available}, got: {config.export.canvas_ratio}")
+     if config.export.output_subdir != "export":
+-        raise NotImplementedError(t("config.export_output_subdir_unimplemented"))
++        # ValueError like every other field, so callers turn it into a user-facing message.
++        raise ValueError(t("config.export_output_subdir_unimplemented"))
+     _require_choice("preview.subtitles.mode", config.preview.subtitles.mode, ("auto", "multi", "scroll"))
+     _require_min("preview.subtitles.max_lines", config.preview.subtitles.max_lines, 1)
+     _require_min("preview.subtitles.max_len_per_line", config.preview.subtitles.max_len_per_line, 1)
+diff --git a/clio/tests/test_fix_config_export_subdir.py b/clio/tests/test_fix_config_export_subdir.py
+new file mode 100644
+--- /dev/null
++++ b/clio/tests/test_fix_config_export_subdir.py
+@@ -0,0 +1,17 @@
++"""Regression test: an unsupported export.output_subdir is a normal config error."""
++
++from __future__ import annotations
++
++from pathlib import Path
++
++import pytest
++
++from clio.config.loader import load_config
++
++
++def test_custom_export_subdir_raises_value_error(tmp_path: Path):
++    (tmp_path / "config.yaml").write_text("config_version: V2\n", encoding="utf-8")
++    (tmp_path / "project.yaml").write_text("export:\n  output_subdir: final\n", encoding="utf-8")
++
++    with pytest.raises(ValueError):
++        load_config(tmp_path / "config.yaml")

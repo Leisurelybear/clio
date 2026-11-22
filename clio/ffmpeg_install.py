@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import hashlib
+import logging
 import os
 import platform
 import re
@@ -14,6 +15,7 @@ import subprocess
 import tarfile
 import tempfile
 import threading
+import time
 import urllib.request
 import uuid
 import zipfile
@@ -21,7 +23,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
-from clio.utils import run_subprocess
+from clio.utils import popen_subprocess, run_subprocess
+
+logger = logging.getLogger("clio.ffmpeg_install")
 
 RELEASE_BASE = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest"
 CHECKSUMS_URL = f"{RELEASE_BASE}/checksums.sha256"
@@ -118,6 +122,40 @@ def select_asset(system: str | None = None, machine: str | None = None) -> _Asse
         return None
     machine_key = _normalized_machine(machine, windows=system_key == "win32")
     return _ASSETS.get((system_key, machine_key))
+
+
+_ARCHIVE_NAME_RE = re.compile(
+    r"ffmpeg-n(?P<major>\d+)\.(?P<minor>\d+)-latest-(?P<platform>[a-z0-9]+)-gpl-(?P=major)\.(?P=minor)"
+    r"(?P<ext>\.zip|\.tar\.xz)"
+)
+
+
+def resolve_archive_name(checksums_text: str, asset: _Asset) -> str:
+    """Pick the release archive for *asset* from the published checksum list.
+
+    ``releases/latest`` renames its assets when upstream moves to a new FFmpeg
+    release branch (n9.0 -> n9.1), so a hard-coded name would 404. Prefer the
+    known name; otherwise use the newest ``ffmpeg-nX.Y-latest-<platform>-gpl``
+    build for the same platform and archive type.
+    """
+    names = []
+    for line in checksums_text.splitlines():
+        match = re.fullmatch(r"[0-9a-fA-F]{64}\s+\*?(.+)", line.strip())
+        if match:
+            names.append(match.group(1).strip())
+    if asset.archive in names:
+        return asset.archive
+    wanted = _ARCHIVE_NAME_RE.fullmatch(asset.archive)
+    if wanted is None:
+        raise ValueError(f"checksum not found for {asset.archive}")
+    candidates: list[tuple[int, int, str]] = []
+    for name in names:
+        found = _ARCHIVE_NAME_RE.fullmatch(name)
+        if found and found["platform"] == wanted["platform"] and found["ext"] == wanted["ext"]:
+            candidates.append((int(found["major"]), int(found["minor"]), name))
+    if not candidates:
+        raise ValueError(f"checksum not found for {asset.archive}")
+    return max(candidates)[2]
 
 
 def parse_checksum(text: str, asset_name: str) -> str:
@@ -331,9 +369,11 @@ def verify_binaries(ffmpeg: Path, ffprobe: Path, *, runner: Callable[..., object
                 timeout=15,
                 check=False,
             )
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - any failure means "not usable"
+            logger.debug("%s -version failed: %s: %s", binary, type(exc).__name__, exc)
             return False
         if getattr(result, "returncode", 1) != 0:
+            logger.debug("%s -version exited with code %s", binary, getattr(result, "returncode", None))
             return False
     return True
 
@@ -368,17 +408,103 @@ def _package_manager_commands(system: str) -> list[list[str]]:
     return []
 
 
-def _try_package_manager(system: str, reporter: _PROGRESS | None, runner: Callable[..., object]) -> None:
+_PACKAGE_MANAGER_TIMEOUT_SEC = 900
+_CANCEL_POLL_SEC = 0.5
+
+
+def _package_manager_bin_dirs(system: str) -> list[Path]:
+    """Directories package managers link ffmpeg into.
+
+    winget/choco/scoop update the *registry* PATH, not this process's PATH, and
+    GUI apps on macOS often start without Homebrew's bin dir, so a fresh install
+    is not visible to a plain ``shutil.which``.
+    """
+    system = normalize_system(system)
+    dirs: list[Path] = []
+    if system == "win32":
+        local_app = os.environ.get("LOCALAPPDATA", "").strip()
+        if local_app:
+            dirs.append(Path(local_app) / "Microsoft" / "WinGet" / "Links")
+        scoop = os.environ.get("SCOOP", "").strip()
+        user_profile = os.environ.get("USERPROFILE", "").strip()
+        if scoop:
+            dirs.append(Path(scoop) / "shims")
+        elif user_profile:
+            dirs.append(Path(user_profile) / "scoop" / "shims")
+        choco = os.environ.get("CHOCOLATEYINSTALL", "").strip()
+        program_data = os.environ.get("PROGRAMDATA", "").strip()
+        if choco:
+            dirs.append(Path(choco) / "bin")
+        elif program_data:
+            dirs.append(Path(program_data) / "chocolatey" / "bin")
+    elif system == "darwin":
+        dirs.extend([Path("/opt/homebrew/bin"), Path("/usr/local/bin")])
+    return dirs
+
+
+def _find_system_binary(name: str, system: str) -> str | None:
+    """``shutil.which`` over this process's PATH plus package-manager bin dirs."""
+    search = [os.environ.get("PATH", ""), *(str(d) for d in _package_manager_bin_dirs(system))]
+    return shutil.which(name, path=os.pathsep.join(part for part in search if part))
+
+
+def _run_cancellable(
+    command: list[str], *, timeout: float, cancel_event: threading.Event | None
+) -> subprocess.CompletedProcess:
+    """Run *command* capturing output, polling *cancel_event* while it runs."""
+    proc = popen_subprocess(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    deadline = time.monotonic() + timeout
+    while True:
+        if cancel_event is not None and cancel_event.is_set():
+            proc.terminate()
+            try:
+                proc.communicate(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.communicate()
+            raise InterruptedError("ffmpeg installation cancelled")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            proc.kill()
+            proc.communicate()
+            raise subprocess.TimeoutExpired(command, timeout)
+        try:
+            stdout, stderr = proc.communicate(timeout=min(remaining, _CANCEL_POLL_SEC))
+        except subprocess.TimeoutExpired:
+            continue
+        return subprocess.CompletedProcess(command, proc.returncode, stdout, stderr)
+
+
+def _try_package_manager(
+    system: str,
+    reporter: _PROGRESS | None,
+    runner: Callable[..., object],
+    cancel_event: threading.Event | None = None,
+) -> None:
     for command in _package_manager_commands(system):
+        _check_cancel(cancel_event)
         if not shutil.which(command[0]):
             continue
         _emit(reporter, 8, f"Trying {command[0]}")
         try:
-            result = runner(command, capture_output=True, text=True, timeout=900, check=False)
-        except Exception:  # noqa: BLE001
+            if runner is run_subprocess:
+                result: object = _run_cancellable(
+                    command, timeout=_PACKAGE_MANAGER_TIMEOUT_SEC, cancel_event=cancel_event
+                )
+            else:
+                result = runner(
+                    command, capture_output=True, text=True, timeout=_PACKAGE_MANAGER_TIMEOUT_SEC, check=False
+                )
+        except InterruptedError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - try the next package manager, but leave a trace
+            logger.warning("%s failed to install ffmpeg: %s: %s", command[0], type(exc).__name__, exc)
             continue
-        if getattr(result, "returncode", 1) == 0:
+        returncode = getattr(result, "returncode", 1)
+        if returncode == 0:
             return
+        stderr_tail = str(getattr(result, "stderr", "") or "").strip()[-300:]
+        logger.warning("%s exited with code %s while installing ffmpeg: %s", command[0], returncode, stderr_tail)
 
 
 def _promote(
@@ -466,9 +592,9 @@ def install_ffmpeg(
             )
 
         if allow_system and mode in {"auto", "system"}:
-            _try_package_manager(system_name, reporter, run)
-            found_ffmpeg = shutil.which("ffmpeg")
-            found_ffprobe = shutil.which("ffprobe")
+            _try_package_manager(system_name, reporter, run, cancel_event)
+            found_ffmpeg = _find_system_binary("ffmpeg", system_name)
+            found_ffprobe = _find_system_binary("ffprobe", system_name)
             if found_ffmpeg and found_ffprobe and verify_binaries(Path(found_ffmpeg), Path(found_ffprobe), runner=run):
                 return InstallResult(True, "system", found_ffmpeg, found_ffprobe, "ffmpeg installed by package manager")
 
@@ -491,7 +617,6 @@ def install_ffmpeg(
         with tempfile.TemporaryDirectory(prefix="clio-ffmpeg-") as temp_name:
             temp = Path(temp_name)
             checksum_file = temp / "checksums.sha256"
-            archive_file = temp / asset.archive
             download = downloader or _download
             download(
                 CHECKSUMS_URL,
@@ -501,10 +626,13 @@ def install_ffmpeg(
                 cancel_event=cancel_event,
             )
             _check_cancel(cancel_event)
-            expected = parse_checksum(checksum_file.read_text(encoding="utf-8"), asset.archive)
+            checksums_text = checksum_file.read_text(encoding="utf-8")
+            archive_name = resolve_archive_name(checksums_text, asset)
+            expected = parse_checksum(checksums_text, archive_name)
+            archive_file = temp / archive_name
             _emit(reporter, 15, "Downloading FFmpeg")
             download(
-                f"{RELEASE_BASE}/{asset.archive}",
+                f"{RELEASE_BASE}/{archive_name}",
                 archive_file,
                 max_bytes=MAX_ARCHIVE_BYTES,
                 reporter=reporter,
@@ -512,6 +640,21 @@ def install_ffmpeg(
             )
             _check_cancel(cancel_event)
             actual = _sha256(archive_file, cancel_event)
+            if actual != expected:
+                # The mutable `latest` release can be republished between the two requests;
+                # re-read the checksum list once before treating this as corruption/tampering.
+                download(
+                    CHECKSUMS_URL,
+                    checksum_file,
+                    max_bytes=MAX_CHECKSUM_BYTES,
+                    reporter=None,
+                    cancel_event=cancel_event,
+                )
+                _check_cancel(cancel_event)
+                try:
+                    expected = parse_checksum(checksum_file.read_text(encoding="utf-8"), archive_name)
+                except ValueError:
+                    expected = ""
             if actual != expected:
                 return InstallResult(False, "download", message="FFmpeg archive checksum mismatch")
             _emit(reporter, 82, "Extracting binaries")

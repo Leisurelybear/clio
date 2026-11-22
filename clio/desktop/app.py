@@ -45,8 +45,12 @@ def _reject_real_webview_under_pytest() -> None:
     )
 
 
-def _ask_yes_no(title: str, message: str) -> bool:
-    """Show a native confirmation dialog, failing open for headless launches."""
+def _ask_yes_no(title: str, message: str, *, default: bool = True) -> bool:
+    """Show a native confirmation dialog; return *default* when none can be shown.
+
+    Launch prompts fail open so headless launches keep working; the quit prompt
+    passes ``default=False`` so a missing dialog never cancels running tasks.
+    """
     try:
         from tkinter import Tk, messagebox
 
@@ -58,7 +62,7 @@ def _ask_yes_no(title: str, message: str) -> bool:
         finally:
             root.destroy()
     except Exception:  # noqa: BLE001 - native dialog backends raise platform-specific failures
-        return True
+        return default
 
 
 def _confirm_web_continue() -> bool:
@@ -67,8 +71,12 @@ def _confirm_web_continue() -> bool:
 
 
 def _confirm_quit() -> bool:
-    """Native confirm dialog. Returns True (quit) when the user confirms or dialog fails."""
-    return _ask_yes_no(t("desktop.quit_title"), t("desktop.quit_confirm"))
+    """Native confirm dialog. Returns True (quit) only when the user confirms.
+
+    If no dialog can be shown, the window stays open instead of cancelling the
+    active runs without asking.
+    """
+    return _ask_yes_no(t("desktop.quit_title"), t("desktop.quit_confirm"), default=False)
 
 
 def _show_window_start_error(error: Exception) -> None:

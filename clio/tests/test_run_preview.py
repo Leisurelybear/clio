@@ -1074,8 +1074,12 @@ def test_preview_label_counts_labeled_outputs_per_analysis_json(tmp_path: Path) 
     input_dir.mkdir()
     texts_dir.mkdir(parents=True)
     labeled_dir.mkdir()
-    (texts_dir / "001_A.json").write_text("{}", encoding="utf-8")
-    (texts_dir / "002_B.json").write_text("{}", encoding="utf-8")
+    (texts_dir / "001_A.json").write_text('{"index": 1}', encoding="utf-8")
+    (texts_dir / "002_B.json").write_text('{"index": 2}', encoding="utf-8")
+    compressed_dir = output_dir / "compressed"
+    compressed_dir.mkdir()
+    (compressed_dir / "001_A.mp4").write_bytes(b"compressed")
+    (compressed_dir / "002_B.mp4").write_bytes(b"compressed")
     (labeled_dir / "001_A_labeled.mp4").write_bytes(b"labeled")
 
     from clio.tasks._video_loader import save_selected_videos
@@ -1134,7 +1138,7 @@ def test_preview_plan_skips_only_when_day_outputs_exist_and_json_valid(tmp_path:
     input_dir.mkdir()
     texts_dir.mkdir(parents=True)
     plans_dir.mkdir()
-    (texts_dir / "001_A.json").write_text("{}", encoding="utf-8")
+    (texts_dir / "001_A.json").write_text('{"day_label": "day2"}', encoding="utf-8")
     (plans_dir / "day2_plan.json").write_text("{}", encoding="utf-8")
     (plans_dir / "day2_plan.md").write_text("# plan", encoding="utf-8")
 
@@ -1165,7 +1169,7 @@ def test_preview_plan_skips_sanitized_day_outputs(tmp_path: Path) -> None:
     input_dir.mkdir()
     texts_dir.mkdir(parents=True)
     plans_dir.mkdir()
-    (texts_dir / "001_A.json").write_text("{}", encoding="utf-8")
+    (texts_dir / "001_A.json").write_text('{"day_label": "Ep2 - agnes-3-flash"}', encoding="utf-8")
     (plans_dir / "Ep2_-_agnes-3-flash_plan.json").write_text("{}", encoding="utf-8")
     (plans_dir / "Ep2_-_agnes-3-flash_plan.md").write_text("# plan", encoding="utf-8")
 
@@ -1196,7 +1200,7 @@ def test_preview_plan_invalid_json_does_not_skip(tmp_path: Path) -> None:
     input_dir.mkdir()
     texts_dir.mkdir(parents=True)
     plans_dir.mkdir()
-    (texts_dir / "001_A.json").write_text("{}", encoding="utf-8")
+    (texts_dir / "001_A.json").write_text('{"day_label": "day2"}', encoding="utf-8")
     (plans_dir / "day2_plan.json").write_text("{", encoding="utf-8")
     (plans_dir / "day2_plan.md").write_text("# plan", encoding="utf-8")
 
@@ -1217,6 +1221,35 @@ def test_preview_plan_invalid_json_does_not_skip(tmp_path: Path) -> None:
     assert preview["steps"][0]["total"] == 1
     assert preview["steps"][0]["will_run"] == 1
     assert preview["steps"][0]["will_skip"] == 0
+
+
+def test_preview_blocks_unknown_day_scope_even_when_voiceover_can_run(tmp_path: Path) -> None:
+    input_dir = tmp_path / "videos"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+    config = _config(input_dir, output_dir)
+    _write_day_analysis(config, "001", "A", "day1")
+    _write_day_analysis(config, "002", "B", "day2")
+
+    preview = build_run_preview(
+        config,
+        steps=["consistency", "voiceover", "plan"],
+        force=False,
+        use_transcripts=True,
+        day_label="new",
+    )
+
+    consistency = _row(preview, "consistency")
+    plan = _row(preview, "plan")
+    for row in (consistency, plan):
+        assert row["will_run"] == 0
+        assert row["blocking"] is True
+        assert any("new" in warning and "day1" in warning and "day2" in warning for warning in row["warnings"])
+
+    assert _row(preview, "voiceover")["will_run"] == 2
+    stage = next(stage for stage in preview["stages"] if stage["key"] == "plan_alignment")
+    assert stage["status"] == "blocked"
+    assert preview["next_stage"] == "plan_alignment"
 
 
 def test_preview_files_selection_filters_non_plan_steps(tmp_path: Path, monkeypatch) -> None:
@@ -1462,6 +1495,9 @@ def test_preview_files_selection_keeps_same_named_originals_apart(tmp_path: Path
 
 
 def _write_analysis(config: AppConfig, summary: str) -> None:
+    config.texts_dir.mkdir(parents=True, exist_ok=True)
+    config.compressed_dir.mkdir(parents=True, exist_ok=True)
+    (config.compressed_dir / "001_A.mp4").write_bytes(b"compressed")
     (config.texts_dir / "001_A.json").write_text(
         json.dumps(
             {
@@ -1469,6 +1505,16 @@ def _write_analysis(config: AppConfig, summary: str) -> None:
                 "title": "A",
                 "summary": summary,
                 "source_file": "A.mp4",
+                "compressed_file": "001_A.mp4",
+                "media_identity": {
+                    "original_stem": "A",
+                    "original_path": "A.mp4",
+                    "compressed_stem": "001_A",
+                    "compressed_path": "001_A.mp4",
+                    "index": "001",
+                    "segment_index": None,
+                    "segment_offset_sec": 0.0,
+                },
             }
         ),
         encoding="utf-8",
@@ -1808,6 +1854,8 @@ def _write_day_analysis(config: AppConfig, index: str, source: str, day_label: s
         },
     }
     (config.texts_dir / f"{compressed_stem}.json").write_text(json.dumps(data), encoding="utf-8")
+    config.compressed_dir.mkdir(parents=True, exist_ok=True)
+    (config.compressed_dir / f"{compressed_stem}.mp4").write_bytes(b"compressed")
 
 
 def test_preview_all_days_counts_each_discovered_plan(tmp_path: Path) -> None:
@@ -2302,6 +2350,34 @@ def _row(preview: dict[str, Any], name: str) -> dict[str, Any]:
     return next(step for step in preview["steps"] if step["name"] == name)
 
 
+@pytest.mark.parametrize(("force", "expected_run", "expected_skip"), [(False, 0, 2), (True, 1, 1)])
+def test_label_preview_skips_analyses_without_compressed_input(
+    tmp_path: Path,
+    force: bool,
+    expected_run: int,
+    expected_skip: int,
+) -> None:
+    config = _config(tmp_path / "videos", tmp_path / "output")
+    config.texts_dir.mkdir(parents=True)
+    (config.texts_dir / "001_stale.json").write_text(json.dumps({"index": 1}), encoding="utf-8")
+    config.compressed_dir.mkdir()
+    (config.compressed_dir / "002_current.mp4").write_bytes(b"compressed")
+    (config.texts_dir / "002_current.json").write_text(json.dumps({"index": 2}), encoding="utf-8")
+    labeled_dir = config.paths.output_dir / "labeled"
+    labeled_dir.mkdir()
+    (labeled_dir / "002_current_labeled.mp4").write_bytes(b"labeled")
+
+    preview = build_run_preview(config, ["label"], force=force, use_transcripts=True)
+    row = _row(preview, "label")
+
+    assert row["total"] == 2
+    assert row["will_run"] == expected_run
+    assert row["will_skip"] == expected_skip
+    delivery = next(stage for stage in preview["stages"] if stage["key"] == "voiceover_delivery")
+    assert delivery["status"] == ("ready" if force else "reusable")
+    assert preview["next_stage"] == ("voiceover_delivery" if force else None)
+
+
 def test_preview_compress_rerun_cascades_to_reusable_analyze(tmp_path: Path, monkeypatch) -> None:
     config, sources = _prepare_legacy_audio_project(tmp_path)
     original, compressed = sources[0]
@@ -2453,6 +2529,46 @@ def test_preview_plan_voiceover_without_selected_or_existing_plan_stays_blocked(
     assert preview["next_stage"] == "voiceover_delivery"
 
 
+def test_preview_copies_per_step_counts_without_mixing_day_and_media_units(tmp_path: Path) -> None:
+    config, _analysis, _compressed = _prepare_reusable_downstream(tmp_path)
+    from clio.tasks._video_loader import save_selected_videos
+
+    sources: list[Path] = [config.project_dir / "A.mp4"]
+    for index in range(2, 182):
+        source = config.project_dir / f"clip_{index:03d}.mp4"
+        compressed = config.compressed_dir / f"{index:03d}_clip_{index}.mp4"
+        source.write_bytes(b"source")
+        compressed.write_bytes(b"compressed")
+        analysis = _write_current_analysis(config, source, compressed)
+        _write_current_voiceover(config, analysis)
+        sources.append(source)
+    save_selected_videos(config.project_dir, sources)
+
+    preview = build_run_preview(
+        config,
+        ["consistency", "voiceover", "plan", "plan_voiceover"],
+        force=False,
+        use_transcripts=True,
+    )
+
+    alignment = next(stage for stage in preview["stages"] if stage["key"] == "plan_alignment")
+    counts = {row["name"]: row for row in alignment["step_counts"]}
+    assert counts["consistency"]["will_run"] == 1
+    assert counts["consistency"]["will_skip"] == 0
+    assert counts["voiceover"]["will_run"] == 0
+    assert counts["voiceover"]["will_skip"] == 181
+    assert counts["plan"]["will_run"] == 1
+    assert counts["plan"]["will_skip"] == 0
+    assert alignment["will_run"] == 2
+    assert alignment["will_skip"] == 181
+
+    delivery = next(stage for stage in preview["stages"] if stage["key"] == "voiceover_delivery")
+    plan_voiceover = next(row for row in delivery["step_counts"] if row["name"] == "plan_voiceover")
+    assert plan_voiceover["deferred"] is True
+    assert plan_voiceover["waiting_on"] == ["plan"]
+    assert delivery["waiting_on"] == ["plan"]
+
+
 def test_preview_plan_voiceover_waits_when_cascade_makes_plan_possibly_run(tmp_path: Path) -> None:
     config, analysis_path, _compressed = _prepare_reusable_downstream(tmp_path)
     _make_analysis_stale(analysis_path)
@@ -2508,3 +2624,34 @@ def test_preview_plan_voiceover_waits_even_with_stale_existing_output(tmp_path: 
     assert delivery["estimate"]["planned_calls"] == 0
     assert delivery["estimate"]["estimate_status"] == "not_applicable"
     assert preview["totals"]["planned_calls"] == _row(preview, "plan")["planned_calls"]
+
+
+def test_delivery_stage_counts_deduplicated_identities(tmp_path: Path) -> None:
+    """Reference-project symptom: one clip analysed under two indexes.
+
+    ``001_clip`` is stale (its compressed media is gone); ``182_clip`` is the
+    current analysis. The delivery stage must treat them as one media identity.
+    """
+    config = _config(tmp_path / "videos", tmp_path / "output")
+    config.compressed_dir.mkdir(parents=True)
+    (config.compressed_dir / "182_clip.mp4").write_bytes(b"compressed")
+    stable = {
+        "index": 1,
+        "source_file": "clip.MP4",
+        "compressed_file": "001_clip.mp4",
+        "media_identity": {"original_stem": "clip", "compressed_stem": "001_clip", "index": "001"},
+    }
+    current = {
+        "index": 182,
+        "source_file": "clip.MP4",
+        "compressed_file": "182_clip.mp4",
+        "media_identity": {"original_stem": "clip", "compressed_stem": "182_clip", "index": "182"},
+    }
+    config.texts_dir.mkdir(parents=True)
+    (config.texts_dir / "001_clip.json").write_text(json.dumps(stable), encoding="utf-8")
+    (config.texts_dir / "182_clip.json").write_text(json.dumps(current), encoding="utf-8")
+
+    preview = build_run_preview(config, ["plan_voiceover", "label"], force=False, use_transcripts=True)
+    delivery = next(stage for stage in preview["stages"] if stage["key"] == "voiceover_delivery")
+
+    assert delivery["total"] == 1

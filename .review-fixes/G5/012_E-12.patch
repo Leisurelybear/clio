@@ -1,0 +1,69 @@
+diff --git a/clio/ui/static/src/editor-plan-persistence.js b/clio/ui/static/src/editor-plan-persistence.js
+--- a/clio/ui/static/src/editor-plan-persistence.js
++++ b/clio/ui/static/src/editor-plan-persistence.js
+@@ -141,7 +141,7 @@
+     if (target.action === 'plan') {
+       versionKind = 'plan';
+       versionKey = day;
+-      requestUrl = `/api/plan?day=${day}`;
++      requestUrl = `/api/plan?day=${encodeURIComponent(day)}`;
+       requestBody = planData;
+     } else if (target.action === 'texts') {
+       const v = state.videos.find(x => x.file === videoFile);
+diff --git a/clio/ui/static/src/main.js b/clio/ui/static/src/main.js
+--- a/clio/ui/static/src/main.js
++++ b/clio/ui/static/src/main.js
+@@ -527,7 +527,7 @@
+       if (!hasDay) state.currentDay = state.availablePlans[0].day_label;
+       updateSidebarDay();
+       try {
+-        const loaded = await apiWithMeta('GET', `/api/plan?day=${state.currentDay}`);
++        const loaded = await apiWithMeta('GET', `/api/plan?day=${encodeURIComponent(state.currentDay)}`);
+         state.plan = loaded.data;
+         setArtifactVersion('plan', state.currentDay, loaded.version);
+       } catch (e) { /* ignore */ }
+diff --git a/clio/ui/static/src/editor-plan.js b/clio/ui/static/src/editor-plan.js
+--- a/clio/ui/static/src/editor-plan.js
++++ b/clio/ui/static/src/editor-plan.js
+@@ -681,7 +681,7 @@
+   try {
+     const dayLabel = state.currentDay;
+     try {
+-      const loaded = await apiWithMeta('GET', `/api/plan?day=${dayLabel}`);
++      const loaded = await apiWithMeta('GET', `/api/plan?day=${encodeURIComponent(dayLabel)}`);
+       setArtifactVersion('plan', dayLabel, loaded.version);
+     } catch (e) {
+       result.innerHTML = `<p class="err">${t('plan.cut_no_plan', { day: escapeHtml(dayLabel) })}</p>`;
+diff --git a/clio/ui/static/src/sidebar.js b/clio/ui/static/src/sidebar.js
+--- a/clio/ui/static/src/sidebar.js
++++ b/clio/ui/static/src/sidebar.js
+@@ -113,7 +113,7 @@
+   // Keep run SSE alive across entity switches so done/cancel handlers still fire.
+   try {
+     const [planResult, previewMedia] = await Promise.all([
+-      apiWithMeta('GET', `/api/plan?day=${day}`),
++      apiWithMeta('GET', `/api/plan?day=${encodeURIComponent(day)}`),
+       loadPlanPreviewMedia(day),
+     ]);
+     state.plan = planResult.data;
+diff --git a/clio/ui/static/src/__tests__/editor-artifact-save.test.js b/clio/ui/static/src/__tests__/editor-artifact-save.test.js
+--- a/clio/ui/static/src/__tests__/editor-artifact-save.test.js
++++ b/clio/ui/static/src/__tests__/editor-artifact-save.test.js
+@@ -287,6 +287,17 @@
+     expect(artifactVersion('plan', 'day1')).toBe('new-plan');
+   });
+ 
++  it('encodes the day label in the plan save URL', async () => {
++    state.currentEntity = 'plan';
++    state.currentDay = 'a&b #1';
++    state.plan = { day_title: 'draft', sequence: [] };
++    apiWithMeta.mockResolvedValue({ data: { ok: true }, version: 'v2' });
++
++    await saveEditorPlan();
++
++    expect(apiWithMeta.mock.calls[0][1]).toBe('/api/plan?day=a%26b%20%231');
++  });
++
+   it('does not call the save API when the editor is clean', async () => {
+     state.dirty = false;
+ 

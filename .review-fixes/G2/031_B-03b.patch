@@ -1,0 +1,158 @@
+diff --git a/clio/tasks/reindex.py b/clio/tasks/reindex.py
+--- a/clio/tasks/reindex.py
++++ b/clio/tasks/reindex.py
+@@ -4,6 +4,7 @@
+ 
+ import contextlib
+ import json
++import os
+ import subprocess
+ import threading
+ import time as _time
+@@ -173,7 +174,7 @@
+     offline_cache = _load_offline_cache(compressed_dir)
+     missing: list[str] = []
+     for stem, stem_files in groups.items():
+-        if VideoIndex.read(stem, compressed_dir):
++        if VideoIndex.read(stem, compressed_dir) and not _has_unindexed_source(stem, stem_files, compressed_dir):
+             continue
+         entry = offline_cache.get(stem)
+         if entry is not None and _offline_cache_hit(entry, stem_files, config.project_dir):
+@@ -204,6 +205,20 @@
+     # Brief pause so the banner is readable in interactive terminals
+     _time.sleep(0.4)
+     return True
++
++
++def _has_unindexed_source(stem: str, files: list[Path], compressed_dir: Path) -> bool:
++    """True when a same-stem file's .vmeta names an existing original that has no index yet."""
++    indexed = {os.path.normcase(v.source_path) for v in VideoIndex.read_all(stem, compressed_dir)}
++    for p in files:
++        meta = VideoMeta.read(p)
++        if meta is None or not meta.source_path:
++            continue
++        source = meta.source_path_obj()
++        with contextlib.suppress(OSError):
++            if source.is_file() and os.path.normcase(str(source.resolve())) not in indexed:
++                return True
++    return False
+ 
+ 
+ def _collect_compressed_groups(compressed_dir: Path, project_dir: Path | None) -> dict[str, list[Path]]:
+@@ -329,6 +344,42 @@
+     return True
+ 
+ 
++def _write_foreign_source_indexes(
++    orig_stem: str,
++    compressed_dir: Path,
++    primary_source: Path,
++    comp_files: list[Path],
++    ffprobe: str,
++) -> int:
++    """Index same-stem files whose .vmeta names another existing original.
++
++    Two originals with the same stem in different folders end up in one stem
++    group; the primary source is indexed by ``_write_group_index`` and every
++    other source gets its own (hash-suffixed) .vindex here.
++    """
++    primary = primary_source.resolve()
++    foreign: dict[Path, list[Path]] = defaultdict(list)
++    for cp in comp_files:
++        meta = VideoMeta.read(cp)
++        if meta is None or not meta.source_path:
++            continue
++        src = meta.source_path_obj()
++        try:
++            if not src.is_file() or src.resolve() == primary:
++                continue
++            foreign[src.resolve()].append(cp)
++        except OSError:
++            continue
++    written = 0
++    for src, files in foreign.items():
++        source_dur = 0.0
++        with contextlib.suppress(*_PROBE_ERRORS):
++            source_dur = get_duration_sec(src, ffprobe)
++        if _write_group_index(orig_stem, compressed_dir, src, source_dur, files, ffprobe):
++            written += 1
++    return written
++
++
+ def run_reindex(config: AppConfig, ffprobe: str | None = None, stems: set[str] | None = None) -> int:
+     """Scan compressed_dir and rebuild .vindex files.
+ 
+@@ -368,6 +419,7 @@
+ 
+         if _write_group_index(orig_stem, compressed_dir, source_path, source_dur, comp_files, ffprobe):
+             written_index += 1
++        written_index += _write_foreign_source_indexes(orig_stem, compressed_dir, source_path, comp_files, ffprobe)
+ 
+     _save_offline_cache(compressed_dir, offline_cache)
+     print(t("task.reindex.done", {"count": written_index}))
+diff --git a/clio/tests/test_fix_reindex_same_stem.py b/clio/tests/test_fix_reindex_same_stem.py
+new file mode 100644
+--- /dev/null
++++ b/clio/tests/test_fix_reindex_same_stem.py
+@@ -0,0 +1,61 @@
++"""Regression test for B-03b: reindex writes one .vindex per same-stem original."""
++
++from __future__ import annotations
++
++from pathlib import Path
++from unittest.mock import patch
++
++from clio.config import AppConfig
++from clio.config.models import (
++    AnalyzeConfig,
++    GlobalConfig,
++    GlobalPathsConfig,
++    ProjectConfig,
++    ProjectPathsConfig,
++)
++from clio.tasks.reindex import auto_reindex_if_needed, run_reindex
++from clio.vmeta import VideoIndex, VideoMeta
++
++
++def _two_sources(root: Path) -> tuple[Path, Path]:
++    src_a = root / "a" / "GL010683.mp4"
++    src_b = root / "b" / "GL010683.mp4"
++    for src in (src_a, src_b):
++        src.parent.mkdir(parents=True)
++        src.write_text(f"source {src.parent.name}")
++    return src_a, src_b
++
++
++class TestReindexSameStem:
++    def test_both_sources_indexed(self, tmp_path: Path) -> None:
++        input_dir = tmp_path / "input"
++        input_dir.mkdir()
++        src_a, src_b = _two_sources(input_dir)
++        comp = tmp_path / "compressed"
++        comp.mkdir()
++        cfg = AppConfig(
++            global_cfg=GlobalConfig(paths=GlobalPathsConfig(ffprobe="ffprobe")),
++            project_cfg=ProjectConfig(
++                paths=ProjectPathsConfig(output_dir=tmp_path),
++                analyze=AnalyzeConfig(compressed_subdir=comp.name),
++            ),
++            project_dir=input_dir,
++        )
++        comp_a = comp / "001_GL010683.mp4"
++        comp_b = comp / "002_GL010683.mp4"
++        comp_a.write_text("comp a")
++        comp_b.write_text("comp b")
++        VideoMeta.build(source=src_a, target=comp_a, source_duration=10.0, target_duration=10.0).write(comp_a)
++        VideoMeta.build(source=src_b, target=comp_b, source_duration=20.0, target_duration=20.0).write(comp_b)
++
++        with (
++            patch("clio.tasks.reindex.get_duration_sec", return_value=10.0),
++            patch("clio.tasks.reindex.resolve_binary", return_value="ffprobe"),
++        ):
++            assert run_reindex(cfg) == 2
++            # Startup check sees both sources as indexed and does not rebuild again.
++            assert auto_reindex_if_needed(cfg, "ffprobe") is False
++
++        indexes = VideoIndex.read_all("GL010683", comp)
++        by_source = {Path(v.source_path): [s.filename for s in v.segments] for v in indexes}
++        assert by_source == {src_a.resolve(): [comp_a.name], src_b.resolve(): [comp_b.name]}

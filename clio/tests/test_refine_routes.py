@@ -8,8 +8,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from clio.ui.routes.refine import _is_file_busy, _mark_busy, handle_post_refine
-from clio.ui.services.file_service import version_headers
+from clio.ui.routes.refine import _is_file_busy, _mark_busy, _try_mark_busy, handle_post_refine
+from clio.ui.services.file_service import ArtifactConflictError, content_version, version_headers
 
 
 @pytest.fixture(autouse=True)
@@ -25,7 +25,7 @@ def _mock_path(resolved: str = "/resolved/path.json", content: str | None = None
     """Create a MagicMock that looks like a Path for the refine route handler."""
     p = MagicMock(spec=Path)
     p.resolve.return_value = Path(resolved)
-    p.read_text.return_value = content or '{"key": "value"}'
+    p.read_bytes.return_value = (content or '{"key": "value"}').encode("utf-8")
     return p
 
 
@@ -196,7 +196,7 @@ class TestHandlePostRefineReadError:
     def test_oserror_returns_500(self):
         p = MagicMock(spec=Path)
         p.resolve.return_value = Path("/some/path.json")
-        p.read_text.side_effect = OSError("permission denied")
+        p.read_bytes.side_effect = OSError("permission denied")
         handler = _make_handler(p, with_config=False)
         handle_post_refine(handler, {}, {"file": "test.json", "type": "texts"})
         handler._send_json.assert_called_once()
@@ -208,6 +208,15 @@ class TestHandlePostRefineReadError:
 # ===========================================================================
 # handle_post_refine — success path: texts
 # ===========================================================================
+
+
+@pytest.fixture(autouse=True)
+def _no_sidecar_writes():
+    with (
+        patch("clio.ui.routes.refine._rewrite_text_file") as text_sidecar,
+        patch("clio.ui.routes.refine._rewrite_script_md") as script_sidecar,
+    ):
+        yield text_sidecar, script_sidecar
 
 
 class TestHandlePostRefineTextsSuccess:
@@ -230,9 +239,10 @@ class TestHandlePostRefineTextsSuccess:
         assert kwargs.get("context_override") is None
 
         mock_save.assert_called_once()
-        save_path, save_data = mock_save.call_args.args
+        save_path, save_data, expected_version = mock_save.call_args.args
         assert save_path is p
         assert json.loads(save_data) == refined_data
+        assert expected_version == content_version(b'{"index": 1, "title": "original"}')
         handler._send_json.assert_called_once_with(
             {"ok": True, "data": refined_data, "version": version},
             extra_headers=version_headers(version),
@@ -346,3 +356,50 @@ class TestHandlePostRefineError:
             handle_post_refine(handler, {}, {"file": "test.json", "type": "texts"})
 
         mock_save.assert_not_called()
+
+
+# ===========================================================================
+# D-04: atomic busy claim and no lost user edits
+# ===========================================================================
+
+
+class TestRefineRaceFixes:
+    def test_try_mark_busy_is_test_and_set(self):
+        assert _try_mark_busy("/race/file.json") is True
+        assert _try_mark_busy("/race/file.json") is False
+        _mark_busy("/race/file.json", False)
+        assert _try_mark_busy("/race/file.json") is True
+
+    @patch("clio.ui.routes.refine.refine_text")
+    @patch("clio.ui.routes.refine.save_with_version")
+    def test_conflict_when_file_changed_during_refine(self, mock_save, mock_refine, _no_sidecar_writes):
+        refined = {"index": 1, "title": "ai"}
+        mock_refine.return_value = refined
+        mock_save.side_effect = ArtifactConflictError("aaaaaaaaaaaaaaaa")
+
+        p = _mock_path(content='{"index": 1, "title": "original"}')
+        handler = _make_handler(p)
+        handle_post_refine(handler, {}, {"file": "test.json", "type": "texts"})
+
+        body, status = handler._send_json.call_args.args
+        assert status == 409
+        assert body["code"] == "artifact_conflict"
+        assert body["data"] == refined
+        assert body["current_version"] == "aaaaaaaaaaaaaaaa"
+        _no_sidecar_writes[0].assert_not_called()
+
+    @patch("clio.ui.routes.refine.refine_text")
+    @patch("clio.ui.routes.refine.save_with_version")
+    def test_texts_refine_keeps_server_fields_and_rewrites_txt(self, mock_save, mock_refine, _no_sidecar_writes):
+        mock_refine.return_value = {"index": 99, "title": "ai", "source_file": "spoofed.mp4"}
+        mock_save.return_value = "0123456789abcdef"
+
+        p = _mock_path(content='{"index": 1, "title": "original", "source_file": "GX01.mp4"}')
+        handler = _make_handler(p)
+        handle_post_refine(handler, {}, {"file": "test.json", "type": "texts"})
+
+        saved = json.loads(mock_save.call_args.args[1])
+        assert saved["index"] == 1
+        assert saved["source_file"] == "GX01.mp4"
+        assert saved["title"] == "ai"
+        _no_sidecar_writes[0].assert_called_once()

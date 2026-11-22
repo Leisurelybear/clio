@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import glob
 import hashlib
 import json
+import os
 import re
 import subprocess
 import threading
@@ -14,7 +16,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from clio._constants import VIDEO_EXTENSIONS, VIDEO_EXTS
 from clio.i18n import t
-from clio.identity import prefer_canonical_compressed
+from clio.identity import _extract_original_stem, prefer_canonical_compressed
 from clio.index import ArtifactIndex
 from clio.tasks._helpers import _path_key, _stem_variants
 from clio.tasks._video_loader import load_selected_videos, save_selected_videos
@@ -27,6 +29,7 @@ from clio.ui.services.file_service import (
 from clio.utils import (
     JsonValue,
     get_duration_sec,
+    path_write_lock,
     probe_media_details,
     resolve_binary,
     safe_basename,
@@ -41,6 +44,7 @@ _SEG_RE = re.compile(r"^(.+)_(?:seg|part|pt|chunk)(\d+)$", re.IGNORECASE)
 _MEDIA_PROBE_ERRORS = (OSError, subprocess.SubprocessError, TypeError, ValueError)
 _VIDEOS_CACHE_LOCK = threading.Lock()
 _VIDEOS_CACHE_MAX = 20
+_VIDEOS_DISK_CACHE_VERSION = 2
 _VIDEOS_CACHE: dict[tuple[str, str, str], tuple[tuple[Any, ...], dict[str, Any]]] = {}
 
 
@@ -63,7 +67,7 @@ def _load_disk_cache(proj_out: Path, source: str, signature: tuple[Any, ...]) ->
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
-    if data.get("version") != 1 or data.get("signature") != _signature_hash(signature):
+    if data.get("version") != _VIDEOS_DISK_CACHE_VERSION or data.get("signature") != _signature_hash(signature):
         return None
     payload = data.get("payload")
     if not isinstance(payload, dict):
@@ -77,7 +81,11 @@ def _save_disk_cache(proj_out: Path, source: str, signature: tuple[Any, ...], pa
     try:
         cache_dir = _cache_dir(proj_out)
         cache_dir.mkdir(parents=True, exist_ok=True)
-        data = {"version": 1, "signature": _signature_hash(signature), "payload": payload}
+        data = {
+            "version": _VIDEOS_DISK_CACHE_VERSION,
+            "signature": _signature_hash(signature),
+            "payload": payload,
+        }
         write_json_atomic(_disk_cache_path(proj_out, source), cast(JsonValue, data))
     except OSError:
         pass
@@ -437,6 +445,7 @@ def _compressed_video_entry(
     proj_dir: Path,
     text_titles: dict[str, str],
     cover_map: dict[str, str],
+    index: ArtifactIndex,
 ) -> tuple[dict[str, Any], str | None, int | None]:
     meta = VideoMeta.read(p)
     group_key, seg_num = (
@@ -444,12 +453,19 @@ def _compressed_video_entry(
         if meta is not None and meta.split_info is None and not meta.is_split_segment
         else _parse_segment_info(p.stem)
     )
+    original_stem = (
+        Path(meta.source_path).stem if meta is not None and meta.source_path else _extract_original_stem(p.stem)
+    )
+    segment_index = meta.split_info.segment_index if meta is not None and meta.split_info else seg_num
+    analysis_indexes = {idx} if idx else set()
+    analysis_indexes.update(index.analysis_indexes_for_media(original_stem, segment_index))
     text_json = group.texts[0].path.name if group and group.texts else None
     cover_file = group.cover.path.name if group and group.cover else _cover_for_text_json(text_json, cover_map, idx)
     video: dict[str, Any] = {
         "file": p.name,
         "source": "compressed",
         "index": idx,
+        "analysis_indexes": sorted(analysis_indexes),
         "title": group.texts[0].title if group and group.texts else text_titles.get(idx, ""),
         "text_json": text_json,
         "cover_file": cover_file,
@@ -534,7 +550,9 @@ def _build_compressed_payload(
         orig = _find_original_for_compressed(stem, proj_dir, comp_dir, project_dir=proj_dir)
         if selected_set and not _compressed_matches_selection(p, stem, selected_set, orig):
             continue
-        video, group_key, seg_num = _compressed_video_entry(p, idx, group, orig, proj_dir, text_titles, cover_map)
+        video, group_key, seg_num = _compressed_video_entry(
+            p, idx, group, orig, proj_dir, text_titles, cover_map, index
+        )
         if group_key is not None and seg_num is not None:
             group_members.setdefault(group_key, []).append((idx, seg_num, p.name))
         videos.append(video)
@@ -798,7 +816,7 @@ def handle_get_vmeta(handler: HandlerProtocol, qs: dict[str, Any], stem: str) ->
     proj_out = handler._get_project_output(proj_dir)
     comp_dir = proj_out / "compressed"
 
-    for p in sorted(comp_dir.glob(f"{stem}.*")):
+    for p in sorted(comp_dir.glob(f"{glob.escape(stem)}.*")):
         if p.is_file() and p.suffix.lower() in VIDEO_EXTS:
             try:
                 validate_within_root(p, proj_out)
@@ -947,13 +965,14 @@ def handle_get_videos_selected(handler: HandlerProtocol, qs: dict[str, Any]) -> 
 def _video_key(path: Path) -> str:
     """Canonical comparison key for a stored video path.
 
-    Case- and separator-insensitive so the same file added twice (different
-    slash style, letter case, or with ``.``/``..`` segments) is deduplicated.
+    Resolved (``.``/``..`` collapsed) and ``os.path.normcase``-d: case- and
+    separator-insensitive on Windows only. On Linux/macOS-case-sensitive
+    volumes ``A.mp4`` and ``a.mp4`` are different files and must both stay.
     """
     try:
-        return str(path.resolve()).lower()
+        return os.path.normcase(str(path.resolve()))
     except OSError:
-        return str(path).replace("\\", "/").lower()
+        return os.path.normcase(str(path))
 
 
 def _coerce_video_path(item: Any) -> Path | None:
@@ -991,7 +1010,6 @@ def handle_put_videos_selected(handler: HandlerProtocol, qs: dict[str, Any], obj
     raw = obj.get("videos", [])
     if not isinstance(raw, list):
         return handler._send_json({"ok": False, "error": "videos must be a list"}, 400)
-    previous_keys = {_video_key(p) for p in load_selected_videos(proj_dir)}
     paths: list[Path] = []
     rejected: list[str] = []
     for item in raw:
@@ -1008,7 +1026,10 @@ def handle_put_videos_selected(handler: HandlerProtocol, qs: dict[str, Any], obj
         if key not in seen:
             seen.add(key)
             unique.append(p)
-    save_selected_videos(proj_dir, unique)
+    # Serialize with relink and other selection saves (read previous -> write).
+    with path_write_lock(proj_dir / "videos.json"):
+        previous_keys = {_video_key(p) for p in load_selected_videos(proj_dir)}
+        save_selected_videos(proj_dir, unique)
     _invalidate_videos_cache(proj_dir)
     payload: dict[str, Any] = {"ok": True, "count": len(unique)}
     candidates = obj.get("candidates")
@@ -1036,6 +1057,42 @@ def handle_put_videos_selected(handler: HandlerProtocol, qs: dict[str, Any], obj
     handler._send_json(payload)
 
 
+def handle_post_videos_selected_remove(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
+    """Handle POST /api/videos/selected/remove — atomically drop paths from videos.json.
+
+    Body: ``{"paths": [...]}`` with entries as returned by GET /api/videos/selected.
+    Read, filter and write happen under the videos.json lock, so concurrent
+    adds/removes (other tabs, the video manager) are never overwritten.
+    Responds with ``{ok, removed, videos}`` (removed = stored entries dropped).
+    """
+    proj_dir = handler._resolve_project_dir(qs)
+    raw = obj.get("paths")
+    if not isinstance(raw, list):
+        return handler._send_json({"ok": False, "error": "paths must be a list"}, 400)
+    keys: set[str] = set()
+    for item in raw:
+        if not isinstance(item, str) or not item.strip():
+            continue
+        try:
+            keys.add(_video_key(Path(item.strip()).expanduser()))
+        except (RuntimeError, ValueError):
+            continue
+    removed: list[str] = []
+    with path_write_lock(proj_dir / "videos.json"):
+        videos = load_selected_videos(proj_dir)
+        remaining: list[Path] = []
+        for video in videos:
+            if _video_key(video) in keys:
+                removed.append(str(video))
+            else:
+                remaining.append(video)
+        if removed:
+            save_selected_videos(proj_dir, remaining)
+    if removed:
+        _invalidate_videos_cache(proj_dir)
+    handler._send_json({"ok": True, "removed": removed, "videos": [str(p) for p in remaining]})
+
+
 def handle_put_videos_relink(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
     """Handle PUT /api/videos/relink — replace a broken path in videos.json with a new one."""
     proj_dir = handler._resolve_project_dir(qs)
@@ -1054,6 +1111,20 @@ def handle_put_videos_relink(handler: HandlerProtocol, qs: dict[str, Any], obj: 
         return handler._send_json({"ok": False, "error": t("api.relink_unresolvable", {"path": new_path})}, 400)
     if not resolved.is_file() or resolved.suffix.lower() not in VIDEO_EXTS:
         return handler._send_json({"ok": False, "error": t("api.relink_invalid_video", {"path": new_path})}, 400)
+    with path_write_lock(proj_dir / "videos.json"):
+        error = _relink_locked(proj_dir, old_path, resolved)
+    if error is not None:
+        body, status = error
+        return handler._send_json(body, status)
+    _invalidate_videos_cache(proj_dir)
+    handler._send_json({"ok": True, "path": str(resolved)})
+
+
+def _relink_locked(proj_dir: Path, old_path: str, resolved: Path) -> tuple[dict[str, Any], int] | None:
+    """Replace *old_path* with *resolved* in videos.json; caller holds its lock.
+
+    Returns an error (body, status) or None after saving.
+    """
     videos = load_selected_videos(proj_dir)
     try:
         old_str = str(Path(old_path).expanduser().resolve())
@@ -1075,22 +1146,15 @@ def handle_put_videos_relink(handler: HandlerProtocol, qs: dict[str, Any], obj: 
         if len(matches) == 1:
             matched_idx = matches[0][0]
         elif len(matches) > 1:
-            return handler._send_json(
-                {"ok": False, "error": t("api.relink_ambiguous", {"name": old_name})},
-                400,
-            )
+            return {"ok": False, "error": t("api.relink_ambiguous", {"name": old_name})}, 400
         else:
-            return handler._send_json({"ok": False, "error": t("api.video_not_in_project", {"path": old_path})}, 404)
+            return {"ok": False, "error": t("api.video_not_in_project", {"path": old_path})}, 404
     new_key = _video_key(resolved)
     for idx, video in enumerate(videos):
         if idx == matched_idx:
             continue
         if _video_key(video) == new_key:
-            return handler._send_json(
-                {"ok": False, "error": t("api.video_already_in_project", {"path": resolved})},
-                409,
-            )
+            return {"ok": False, "error": t("api.video_already_in_project", {"path": resolved})}, 409
     videos[matched_idx] = resolved
     save_selected_videos(proj_dir, videos)
-    _invalidate_videos_cache(proj_dir)
-    handler._send_json({"ok": True, "path": str(resolved)})
+    return None

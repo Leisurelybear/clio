@@ -33,6 +33,38 @@ export async function saveCredential(id, value, metadata, source, confirmBinding
   return result;
 }
 
+// One shared observer for every mounted credential field (instead of one
+// body-wide subtree observer per field). Only removals can detach a field,
+// so mutation batches without removed nodes (log appends, toasts) are skipped.
+const _fieldDisposers = new Map();
+let _fieldObserver = null;
+
+function _watchFieldRemoval(field, dispose) {
+  const previous = _fieldDisposers.get(field);
+  if (previous) previous();
+  _fieldDisposers.set(field, dispose);
+  if (_fieldObserver || typeof MutationObserver === 'undefined') return;
+  _fieldObserver = new MutationObserver(records => {
+    if (!records.some(record => record.removedNodes.length)) return;
+    for (const [node, disposeNode] of _fieldDisposers) {
+      if (!node.isConnected) {
+        _fieldDisposers.delete(node);
+        disposeNode();
+      }
+    }
+    if (!_fieldDisposers.size && _fieldObserver) {
+      _fieldObserver.disconnect();
+      _fieldObserver = null;
+    }
+  });
+  _fieldObserver.observe(document.body, { childList: true, subtree: true });
+}
+
+/** Test hook: number of credential fields still being watched. */
+export function _watchedCredentialFieldCount() {
+  return _fieldDisposers.size;
+}
+
 export function attachCredentialFields(root, inventory, onChange = () => {}) {
   root.querySelectorAll('.credential-field').forEach(field => {
     const id = field.dataset.credentialId;
@@ -49,14 +81,13 @@ export function attachCredentialFields(root, inventory, onChange = () => {}) {
     let timer;
     let disposed = false;
     const clear = () => { clearTimeout(timer); revealed.textContent = ''; };
-    const observer = new MutationObserver(() => {
-      if (!field.isConnected) { disposed = true; clear(); observer.disconnect(); }
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
     const onVisibility = () => { if (document.hidden) clear(); };
     document.addEventListener('visibilitychange', onVisibility);
-    const originalDisconnect = observer.disconnect.bind(observer);
-    observer.disconnect = () => { document.removeEventListener('visibilitychange', onVisibility); originalDisconnect(); };
+    _watchFieldRemoval(field, () => {
+      disposed = true;
+      clear();
+      document.removeEventListener('visibilitychange', onVisibility);
+    });
     async function run(action) {
       error.textContent = '';
       clear();
@@ -86,6 +117,8 @@ export function attachCredentialFields(root, inventory, onChange = () => {}) {
       select.value = inventory.backends.default_source;
       select.querySelector('[value="keyring"]').disabled = !inventory.backends.keyring.available;
       const close = () => { input.value = ''; dialog.remove(); };
+      // Global Escape (modal-escape.js) must run the same cleanup.
+      dialog._closeModal = close;
       dialog.querySelector('[data-cancel]').onclick = close;
       dialog.querySelector('.modal-backdrop').onclick = close;
       dialog.querySelector('[data-save]').onclick = async () => {

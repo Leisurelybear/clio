@@ -20,6 +20,7 @@ const state = {
   plan: null,
   planPreviewMedia: null,
   dirty: false,
+  editSeq: 0,  // bumped by markDirty(); lets in-flight saves detect newer edits
   artifactVersions: { plan: {}, texts: {}, voiceover: {} },
   projectName: null,
   projects: [],

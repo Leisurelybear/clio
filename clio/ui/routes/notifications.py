@@ -146,7 +146,9 @@ def handle_get_notifications_stream(handler: HandlerProtocol, qs: dict[str, Any]
                 handler.wfile.write(b": heartbeat\n\n")
                 handler.wfile.flush()
                 last_heartbeat = now
-    except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+    except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, TimeoutError):
+        # TimeoutError: the client stopped reading (frozen/background tab) and the
+        # socket write timed out — a normal disconnect, not a server error.
         return
     finally:
         # A stream must not leave a keep-alive worker waiting for a next

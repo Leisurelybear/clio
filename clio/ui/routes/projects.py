@@ -21,6 +21,7 @@ from clio.ui.services.project_service import (
     _remove_from_registry,
     _save_last_project,
 )
+from clio.utils import path_write_lock
 
 if TYPE_CHECKING:
     from clio.ui.handler_protocol import HandlerProtocol
@@ -38,21 +39,6 @@ def handle_get_project(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     proj_out = _project_output_dir(proj_dir)
     merged["steps"] = _detect_steps(proj_out, project_dir=proj_dir)
     handler._send_json(merged)
-
-
-def handle_post_project_select(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
-    """Handle POST /api/project/select. Records the project as last-used."""
-    qs_project = obj.get("project") or qs.get("project", [None])[0]
-    if not isinstance(qs_project, str) or not qs_project.strip():
-        return handler._send_json({"ok": False, "error": "missing project"}, 400)
-    qs_project = qs_project.strip()
-    proj_dir = handler._resolve_project_dir(qs)
-    config_path = handler.config_path
-    try:
-        _save_last_project(qs_project, config_path, project_dir=str(proj_dir))
-    except ValueError as exc:
-        return handler._send_json({"ok": False, "error": str(exc)}, 500)
-    handler._send_json({"ok": True})
 
 
 def handle_get_projects(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
@@ -91,17 +77,23 @@ def handle_get_projects(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     handler._send_json({"projects": projects, "last_project": last_project_payload})
 
 
+# UI session state the client may persist; output_dir/version/createdAt stay server-owned.
+_PROJECT_CLIENT_FIELDS = ("currentDay", "source", "lastEntity", "lastVideo", "name")
+
+
 def handle_put_project(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
     """Handle PUT /api/project."""
     proj_dir = handler._resolve_project_dir(qs)
     proj_file = proj_dir / "project.json"
-    data = _load_project_json(proj_dir)
-    merged = {**handler.DEFAULT_PROJECT, **data, **obj}
-    merged["updatedAt"] = datetime.datetime.now().isoformat(timespec="seconds")
-    if not proj_file.is_file():
-        merged["createdAt"] = merged["updatedAt"]
+    updates = {key: obj[key] for key in _PROJECT_CLIENT_FIELDS if key in obj}
     proj_dir.mkdir(parents=True, exist_ok=True)
-    _save_atomic(proj_file, json.dumps(merged, ensure_ascii=False, indent=2).encode("utf-8"))
+    with path_write_lock(proj_file):
+        data = _load_project_json(proj_dir)
+        merged = {**handler.DEFAULT_PROJECT, **data, **updates}
+        merged["updatedAt"] = datetime.datetime.now().isoformat(timespec="seconds")
+        if not proj_file.is_file():
+            merged["createdAt"] = merged["updatedAt"]
+        _save_atomic(proj_file, json.dumps(merged, ensure_ascii=False, indent=2).encode("utf-8"))
     config_path = handler.config_path
     try:
         _save_last_project(merged.get("name") or proj_dir.name, config_path, project_dir=str(proj_dir))
@@ -143,15 +135,17 @@ def handle_post_project_create(handler: HandlerProtocol, obj: dict) -> None:
         "createdAt": now,
         "updatedAt": now,
     }
-    _save_atomic(proj_file, json.dumps(proj_data, ensure_ascii=False, indent=2).encode("utf-8"))
     # Auto-create project.yaml; a write against an existing global config must not
-    # silently fall through to registry registration (P1-29).
+    # silently fall through to registry registration (P1-29). It goes first:
+    # project.json marks the dir as a project, so writing it before a failed
+    # yaml left a half-created project that every retry rejected with 409.
     yaml_path = _create_project_yaml(input_path, config_path, proj_out)
     if config_path and config_path.is_file() and yaml_path is None:
         return handler._send_json(
             {"ok": False, "error": t("api.project_yaml_create_failed", {"path": project_dir_raw})},
             500,
         )
+    _save_atomic(proj_file, json.dumps(proj_data, ensure_ascii=False, indent=2).encode("utf-8"))
     # New projects start with an empty selection (videos.json)
     from clio.tasks._video_loader import save_selected_videos
 
@@ -196,13 +190,14 @@ def handle_post_project_add(handler: HandlerProtocol, obj: dict) -> None:
             "createdAt": now,
             "updatedAt": now,
         }
-        _save_atomic(proj_file, json.dumps(proj_data, ensure_ascii=False, indent=2).encode("utf-8"))
         # P1-29: don't proceed when a configured global exists but project.yaml can't be written.
+        # Write the yaml before project.json so a failure leaves no half-registered project.
         if _create_project_yaml(input_path, config_path, proj_out) is None and config_path and config_path.is_file():
             return handler._send_json(
                 {"ok": False, "error": t("api.project_yaml_create_failed", {"path": project_dir_raw})},
                 500,
             )
+        _save_atomic(proj_file, json.dumps(proj_data, ensure_ascii=False, indent=2).encode("utf-8"))
         from clio.tasks._video_loader import save_selected_videos
 
         if not (input_path / "videos.json").is_file():

@@ -14,6 +14,7 @@ from clio.i18n import t
 from clio.tasks._helpers import _rewrite_script_md, _rewrite_text_file
 from clio.ui.services.file_service import (
     ArtifactConflictError,
+    _normalized_relative_subdir,
     read_with_version,
     request_version,
     save_with_version,
@@ -140,6 +141,34 @@ def _preserve_analysis_server_fields(existing: dict, candidate: dict) -> dict:
     return saved
 
 
+def _configured_artifact_subdir(handler: HandlerProtocol, proj_dir: Path, kind: str) -> str | None:
+    """Return the project's configured texts/scripts subdir (None = defaults).
+
+    ``/api/videos`` lists artifacts from ``analyze.texts_subdir`` /
+    ``script.scripts_subdir``; the read/write routes must look in the same place.
+    """
+    cfg = handler._get_config(proj_dir)
+    section, field = ("analyze", "texts_subdir") if kind == "texts" else ("script", "scripts_subdir")
+    value = getattr(getattr(cfg, section, None), field, None)
+    if not isinstance(value, str):
+        return None
+    return _normalized_relative_subdir(value)
+
+
+def _resolve_texts_artifact(handler: HandlerProtocol, qs_or_dir: dict[str, Any] | Path, fname: str) -> Path | None:
+    proj_dir = handler._resolve_project_dir(qs_or_dir) if isinstance(qs_or_dir, dict) else qs_or_dir
+    proj_out = handler._get_project_output(proj_dir)
+    subdir = _configured_artifact_subdir(handler, proj_dir, "texts")
+    return handler._resolve_texts(fname, proj_out, preferred_subdir=subdir)
+
+
+def _resolve_scripts_artifact(handler: HandlerProtocol, qs_or_dir: dict[str, Any] | Path, fname: str) -> Path | None:
+    proj_dir = handler._resolve_project_dir(qs_or_dir) if isinstance(qs_or_dir, dict) else qs_or_dir
+    proj_out = handler._get_project_output(proj_dir)
+    subdir = _configured_artifact_subdir(handler, proj_dir, "scripts") or "scripts"
+    return handler._resolve_in(subdir, fname, proj_out)
+
+
 def _send_artifact_conflict(handler: HandlerProtocol, exc: ArtifactConflictError) -> None:
     headers = version_headers(exc.current_version) if exc.current_version else None
     handler._send_json(
@@ -156,9 +185,8 @@ def _send_artifact_conflict(handler: HandlerProtocol, exc: ArtifactConflictError
 
 def handle_get_texts(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     """Handle GET /api/texts."""
-    proj_out = handler._get_project_output(qs)
     fname = qs.get("file", [""])[0]
-    p = handler._resolve_texts(fname, proj_out)
+    p = _resolve_texts_artifact(handler, qs, fname)
     if p is None:
         return handler.send_error(HTTPStatus.NOT_FOUND)
     data, version = read_with_version(p)
@@ -171,9 +199,8 @@ def handle_get_texts(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
 
 def handle_get_voiceover(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     """Handle GET /api/voiceover."""
-    proj_out = handler._get_project_output(qs)
     fname = qs.get("file", [""])[0]
-    p = handler._resolve_in("scripts", fname, proj_out)
+    p = _resolve_scripts_artifact(handler, qs, fname)
     if p is None:
         return handler.send_error(HTTPStatus.NOT_FOUND)
     data, version = read_with_version(p)
@@ -216,9 +243,8 @@ def handle_get_cover(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
 
 def handle_put_texts(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
     """Handle PUT /api/texts."""
-    proj_out = handler._get_project_output(qs)
     fname = qs.get("file", [""])[0]
-    p = handler._resolve_texts(fname, proj_out)
+    p = _resolve_texts_artifact(handler, qs, fname)
     if p is None:
         return handler._send_json({"ok": False, "error": "forbidden or not found"}, 403)
     error = _analysis_payload_error(obj)
@@ -246,9 +272,8 @@ def handle_put_texts(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) ->
 
 def handle_put_voiceover(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
     """Handle PUT /api/voiceover."""
-    proj_out = handler._get_project_output(qs)
     fname = qs.get("file", [""])[0]
-    p = handler._resolve_in("scripts", fname, proj_out)
+    p = _resolve_scripts_artifact(handler, qs, fname)
     if p is None:
         return handler._send_json({"ok": False, "error": "forbidden or not found"}, 403)
     error = _voiceover_payload_error(obj)

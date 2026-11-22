@@ -183,6 +183,8 @@ def _save_atomic_unlocked(path: Path, data: bytes) -> None:
       rotated aside (timestamped) before the current file becomes the new bak —
       so a corrupt primary cannot clobber the last known-good backup.
     - If only ``.bak`` exists (no primary), it is left untouched.
+    - The primary is never moved away: ``.bak`` is a hard link/copy of it and
+      the new content replaces it in a single ``os.replace``.
     - Parent directory is fsynced after replace; prior mode bits are preserved.
     """
     import os
@@ -215,11 +217,13 @@ def _save_atomic_unlocked(path: Path, data: bytes) -> None:
                     bak.replace(rotated)
                 except OSError:
                     shutil.copy2(bak, rotated)
+            # Keep the primary in place while taking the backup (hard link, or a
+            # copy where links are unsupported) so readers never see it missing
+            # and a crash here cannot leave only the .bak behind.
             try:
-                path.replace(bak)
+                os.link(path, bak)
             except OSError:
                 shutil.copy2(path, bak)
-                path.unlink(missing_ok=True)
         os.replace(tmp, path)
         _fsync_dir(path.parent)
     except BaseException:
@@ -230,14 +234,49 @@ def _save_atomic_unlocked(path: Path, data: bytes) -> None:
     _prune_rotated_backups(path)
 
 
+def _restore_atomic_unlocked(path: Path, data: bytes) -> None:
+    """Atomically put *data* back at *path* without rotating ``.bak`` (rollback).
+
+    Callers hold ``path_write_lock(path)``.
+    """
+    import os
+
+    from clio.utils import _exclusive_random_tmp, _fsync_dir
+
+    tmp, fd = _exclusive_random_tmp(path)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+        _fsync_dir(path.parent)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.close(fd)
+        tmp.unlink(missing_ok=True)
+        raise
+
+
 def _prune_rotated_backups(path: Path, keep: int = 3) -> None:
     """Keep at most *keep* timestamped ``.bak.*`` sidecars besides ``.bak``."""
     bak = path.with_suffix(path.suffix + ".bak")
-    rotated = sorted(
-        (p for p in path.parent.glob(path.name + ".bak.*") if p.is_file() and p != bak),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
+    prefix = path.name + ".bak."
+    # No glob: names such as "001_trip[1].json" would be read as a character class.
+    candidates: list[tuple[float, Path]] = []
+    try:
+        entries = list(path.parent.iterdir())
+    except OSError:
+        return
+    for p in entries:
+        if not p.name.startswith(prefix) or p == bak:
+            continue
+        try:
+            if p.is_file():
+                candidates.append((p.stat().st_mtime, p))
+        except OSError:
+            continue
+    rotated = [p for _, p in sorted(candidates, key=lambda item: item[0], reverse=True)]
     for old in rotated[keep:]:
         with contextlib.suppress(OSError):
             old.unlink()
@@ -574,7 +613,9 @@ def send_video_range(handler, path: Path) -> None:
         else:
             start = int(start_s) if start_s else 0
             end = int(end_s) if end_s else size - 1
-        if start >= size or end >= size or start > end:
+        # RFC 7233 §2.1: a last-byte-pos past the end is clamped, not rejected.
+        end = min(end, size - 1)
+        if start >= size or start > end:
             _send_range_not_satisfiable(handler, size)
             return
         length = end - start + 1
@@ -612,11 +653,17 @@ def send_video_range(handler, path: Path) -> None:
             pass
 
 
-def resolve_texts(basename: str, proj_out: Path | None, output_dir: Path) -> Path | None:
+def resolve_texts(
+    basename: str,
+    proj_out: Path | None,
+    output_dir: Path,
+    preferred_subdir: str | None = None,
+) -> Path | None:
+    """Find *basename* in the configured texts dir first, then texts / texts - *."""
     if not _is_safe_basename(basename):
         return None
     base = proj_out or output_dir
-    for d in _find_texts_dirs(base):
+    for d in _find_texts_dirs(base, preferred_subdir=preferred_subdir):
         p = d / basename
         if p.is_file():
             return p

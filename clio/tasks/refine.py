@@ -34,13 +34,25 @@ def _collect_target_files(path: Path | None, default_dir: Path, pattern: str = "
     return sorted(target.glob(pattern))
 
 
+def _changed_since_read(path: Path, original: bytes) -> bool:
+    """True when *path* no longer holds the bytes the refine started from.
+
+    The LLM call takes tens of seconds; an edit saved from the UI meanwhile
+    must not be silently replaced by a refinement of the old content.
+    """
+    try:
+        return path.read_bytes() != original
+    except OSError:
+        return True
+
+
 def _load_analysis_for_script(script_path: Path, texts_dir: Path) -> dict | None:
     """根据口播文件名反查对应的素材分析（001_xxx_voiceover.json → 001_xxx.json）。"""
     stem = script_path.stem
     analysis_stem = stem[: -len("_voiceover")] if stem.endswith("_voiceover") else stem
     candidate = texts_dir / f"{analysis_stem}.json"
     if candidate.is_file():
-        return json.loads(candidate.read_text(encoding="utf-8"))
+        return json.loads(candidate.read_text(encoding="utf-8-sig"))
     return None
 
 
@@ -83,7 +95,8 @@ def run_refine_texts(
             print(_eta_line("refine", i, len(target_files), json_file.name, completed, elapsed_total))
             t0 = time.monotonic()
             try:
-                analysis = json.loads(json_file.read_text(encoding="utf-8"))
+                original = json_file.read_bytes()
+                analysis = json.loads(original.decode("utf-8-sig"))
                 refined = refine_text(
                     analysis,
                     config,
@@ -101,6 +114,10 @@ def run_refine_texts(
                 continue
             finally:
                 elapsed_total += time.monotonic() - t0
+            if _changed_since_read(json_file, original):
+                failed += 1
+                print(t("task.refine.changed_during_refine", {"name": json_file.name}))
+                continue
             completed += 1
             write_json_atomic(json_file, refined)
             txt_path = json_file.with_suffix(".txt")
@@ -152,7 +169,8 @@ def run_refine_scripts(
             print(_eta_line("refine", i, len(target_files), json_file.name, completed, elapsed_total))
             t0 = time.monotonic()
             try:
-                script = json.loads(json_file.read_text(encoding="utf-8"))
+                original = json_file.read_bytes()
+                script = json.loads(original.decode("utf-8-sig"))
                 analysis = _load_analysis_for_script(json_file, config.texts_dir)
                 refined = refine_script(
                     script,
@@ -172,6 +190,10 @@ def run_refine_scripts(
                 continue
             finally:
                 elapsed_total += time.monotonic() - t0
+            if _changed_since_read(json_file, original):
+                failed += 1
+                print(t("task.refine.changed_during_refine", {"name": json_file.name}))
+                continue
             completed += 1
             write_json_atomic(json_file, refined)
             md_path = json_file.with_name(json_file.stem + ".md")

@@ -110,7 +110,7 @@ class TestHandlePostExport:
         plan_path = handler._get_config.return_value.plans_dir / "day1_plan.json"
         plan_path.write_text(json.dumps(_VALID_PLAN), encoding="utf-8")
         handler._get_task_manager = MagicMock()
-        monkeypatch.setattr("clio.ui.routes.export.collect_project_indices", lambda cfg: ({"001"}, set()))
+        monkeypatch.setattr("clio.ui.routes.export.collect_project_indices", lambda cfg, **_kw: ({"001"}, set()))
         failed = {
             "ok": False,
             "required": ["ffprobe"],

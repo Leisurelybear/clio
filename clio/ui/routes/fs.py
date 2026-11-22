@@ -265,12 +265,17 @@ def handle_get_fs_videos(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
         try:
             with os.scandir(resolved) as it:
                 for entry in it:
-                    if entry.is_dir() or entry.name.startswith("."):
+                    try:
+                        if entry.is_dir() or entry.name.startswith("."):
+                            continue
+                        ext = Path(entry.name).suffix.lower()
+                        if ext not in VIDEO_EXTENSIONS:
+                            continue
+                        st = entry.stat()
+                    except OSError:
+                        # Broken symlink, cloud placeholder, no permission: skip
+                        # this entry instead of failing the whole listing.
                         continue
-                    ext = Path(entry.name).suffix.lower()
-                    if ext not in VIDEO_EXTENSIONS:
-                        continue
-                    st = entry.stat()
                     files.append(
                         {
                             "name": entry.name,

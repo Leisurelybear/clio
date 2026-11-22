@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from clio.i18n import t
+from clio.timecode import parse_timestamp_strict
 from clio.utils import write_text_atomic
 
 MANIFEST_SCHEMA_VERSION = 1
@@ -53,7 +54,7 @@ class EvaluationManifest:
 
 def _read_json_object(path: Path, *, label: str) -> dict[str, Any]:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
     except FileNotFoundError as exc:
         raise ValueError(t("evaluation.error.file_missing", {"label": label, "path": path})) from exc
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -166,34 +167,7 @@ def load_evaluation_manifest(
 
 
 def _timestamp_seconds(value: Any) -> float | None:
-    if isinstance(value, bool) or value is None:
-        return None
-    if isinstance(value, (int, float)):
-        number = float(value)
-        return number if math.isfinite(number) and number >= 0 else None
-    text = str(value).strip()
-    if not text:
-        return None
-    parts = text.split(":")
-    if not 1 <= len(parts) <= 3:
-        return None
-    try:
-        values = [float(part) for part in parts]
-    except ValueError:
-        return None
-    if any(not math.isfinite(part) or part < 0 for part in values):
-        return None
-    if len(values) == 3:
-        hours, minutes, seconds = values
-        if minutes >= 60 or seconds >= 60:
-            return None
-        return hours * 3600 + minutes * 60 + seconds
-    if len(values) == 2:
-        minutes, seconds = values
-        if seconds >= 60:
-            return None
-        return minutes * 60 + seconds
-    return values[0]
+    return parse_timestamp_strict(value)
 
 
 def _merge_intervals(intervals: list[tuple[float, float]]) -> list[tuple[float, float]]:
@@ -368,15 +342,33 @@ def _normalize_text(value: Any) -> str:
     return "".join(character for character in normalized if character.isalnum())
 
 
+# Metadata keys whose values are file names / identifiers, not model-written content.
+_NON_CONTENT_KEYS = frozenset({"id", "index", "media_identity", "scope_id"})
+
+
+def _is_content_key(key: Any) -> bool:
+    name = str(key)
+    if name.startswith("_") or name in _NON_CONTENT_KEYS:
+        return False
+    return not name.endswith(("_file", "_path", "_stem"))
+
+
 def _searchable_text(value: Any) -> str:
+    """Join the model-written strings of *value* for fact matching.
+
+    Metadata such as ``source_file``, ``compressed_file``, ``media_identity``
+    and ``_lineage`` is skipped: a fact alias that merely appears in a file
+    name (e.g. "海边" in 海边日落.mp4) must not count as described.
+    """
     parts: list[str] = []
 
     def visit(item: Any) -> None:
         if isinstance(item, str):
             parts.append(item)
         elif isinstance(item, dict):
-            for nested in item.values():
-                visit(nested)
+            for key, nested in item.items():
+                if _is_content_key(key):
+                    visit(nested)
         elif isinstance(item, list):
             for nested in item:
                 visit(nested)

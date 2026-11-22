@@ -1,0 +1,79 @@
+diff --git a/clio/ui/services/project_service.py b/clio/ui/services/project_service.py
+--- a/clio/ui/services/project_service.py
++++ b/clio/ui/services/project_service.py
+@@ -442,7 +442,8 @@
+ 
+     Priority:
+       1. project_dir / input_dir query param (direct path, unambiguous)
+-      2. project name query param (may be ambiguous)
++      2. project name query param, matched against registered projects and the
++         serve root only (may be ambiguous)
+ 
+     P1-28: when the caller passes an *explicit* selector (project_dir/input_dir
+     or project name) that cannot be resolved, this raises ``ProjectResolutionError``
+@@ -501,19 +502,12 @@
+             return candidates[0]
+         raise ProjectResolutionError(409, f"ambiguous project name: {project_name}")
+ 
+-    # 2. Sibling directories (auto-discovery)
+-    projects_root = input_dir.parent
+-    if projects_root.is_dir():
+-        for p in sorted(projects_root.iterdir()):
+-            if not p.is_dir():
+-                continue
+-            resolved = str(p.resolve())
+-            if resolved in seen:
+-                continue
+-            seen.add(resolved)
+-            name = _read_project_name(p)
+-            if name == project_name:
+-                candidates.append(p)
++    # 2. The serve root itself (always allowed). Unregistered sibling dirs are
++    #    *not* matched: they are outside collect_allowed_project_paths(), and
++    #    writes would land in a directory the user never added (/api/projects
++    #    lists registry entries only; add a project via /api/project/add).
++    if str(input_dir.resolve()) not in seen and _read_project_name(input_dir) == project_name:
++        candidates.append(input_dir)
+ 
+     if not candidates:
+         raise ProjectResolutionError(404, f"unknown project name: {project_name}")
+diff --git a/clio/tests/test_fix_project_name_resolution.py b/clio/tests/test_fix_project_name_resolution.py
+new file mode 100644
+--- /dev/null
++++ b/clio/tests/test_fix_project_name_resolution.py
+@@ -0,0 +1,35 @@
++"""Regression tests: ?project=<name> only resolves allow-listed project dirs."""
++
++from __future__ import annotations
++
++import json
++from pathlib import Path
++
++import pytest
++
++from clio.ui.services.project_service import ProjectResolutionError, resolve_project_input
++
++
++def _project(path: Path, name: str) -> Path:
++    path.mkdir(parents=True)
++    (path / "project.json").write_text(json.dumps({"name": name}), encoding="utf-8")
++    return path
++
++
++def test_unregistered_sibling_is_not_resolved_by_name(tmp_path: Path):
++    cfg = tmp_path / "config.yaml"
++    cfg.write_bytes(b"")
++    current = _project(tmp_path / "projects" / "current", "Current")
++    _project(tmp_path / "projects" / "stranger", "Stranger")
++
++    with pytest.raises(ProjectResolutionError) as exc:
++        resolve_project_input({"project": ["Stranger"]}, current, cfg)
++    assert exc.value.status == 404
++
++
++def test_serve_root_is_still_resolved_by_name(tmp_path: Path):
++    cfg = tmp_path / "config.yaml"
++    cfg.write_bytes(b"")
++    current = _project(tmp_path / "projects" / "current", "Current")
++
++    assert resolve_project_input({"project": ["Current"]}, current, cfg) == current

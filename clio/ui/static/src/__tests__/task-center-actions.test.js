@@ -67,12 +67,12 @@ describe('task center actions and stream', () => {
     stop();
   });
 
-  it('opens the SSE stream once with the session token and isolates bad events', () => {
+  it('opens the SSE stream once without the API token in the URL and isolates bad events', () => {
     sessionStorage.setItem('api_token', 'secret token');
     const seen = [];
     const stop = subscribeTaskEvents(payload => seen.push(payload));
 
-    expect(source.url).toBe('/api/tasks/stream?after=0&token=secret%20token');
+    expect(source.url).toBe('/api/tasks/stream?after=0');
     const stop2 = subscribeTaskEvents(() => {});
     expect(source.url).toContain('after=0');
 

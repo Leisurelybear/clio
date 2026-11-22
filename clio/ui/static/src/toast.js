@@ -76,10 +76,20 @@ function addToast(message, type = 'info', duration, options = {}) {
   return notificationPromise;
 }
 
+// Slightly longer than the 200ms toastOut animation. Used as a fallback when
+// `animationend` never fires (prefers-reduced-motion sets `animation: none`).
+const REMOVE_FALLBACK_MS = 250;
+
 function removeToast(toast) {
   if (toast.classList.contains('removing')) return;
   toast.classList.add('removing');
-  toast.addEventListener('animationend', () => {
+  let finalized = false;
+  let fallbackTimer = null;
+  const finalize = () => {
+    if (finalized) return;
+    finalized = true;
+    if (fallbackTimer !== null) clearTimeout(fallbackTimer);
+    toast.removeEventListener('animationend', finalize);
     if (toast.parentNode) toast.parentNode.removeChild(toast);
     if (queue.length > 0) {
       const next = queue.shift();
@@ -91,7 +101,9 @@ function removeToast(toast) {
       const ms = Number.isFinite(nextDur) ? nextDur : DEFAULT_DURATIONS.info;
       if (ms > 0) setTimeout(() => removeToast(next), ms);
     }
-  }, { once: true });
+  };
+  toast.addEventListener('animationend', finalize, { once: true });
+  fallbackTimer = setTimeout(finalize, REMOVE_FALLBACK_MS);
 }
 
 export { addToast, DEFAULT_DURATIONS };

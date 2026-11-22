@@ -27,6 +27,7 @@ from clio.i18n import t
 from clio.identity import SEGMENT_SUFFIX_RE, MediaIdentity, legacy_segment_offset_sec, load_identity
 from clio.log import timed
 from clio.plan_input import build_plan_clips
+from clio.plan_readiness import collect_media_index_aliases, expand_index_keys
 from clio.processing_state import ProcessingState
 from clio.progress import ProgressReporter
 from clio.prompt_overrides import resolve_prompt_template
@@ -52,6 +53,7 @@ from clio.tasks._helpers import (
     _task_lineage_settings,
 )
 from clio.tasks.consistency import load_entity_consistency
+from clio.tasks.cut import _resolve_cut_media
 from clio.utils import format_index, plan_day_stem, resolve_binary, write_json_atomic, write_text_atomic
 from clio.vmeta import VideoMeta
 
@@ -194,7 +196,7 @@ def _capture_time(
 def _read_voiceover(config: AppConfig, analysis_path: Path) -> str:
     path = config.scripts_dir / f"{analysis_path.stem}_voiceover.json"
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeError, json.JSONDecodeError):
         return ""
     value = data.get("voiceover") if isinstance(data, dict) else None
@@ -203,7 +205,7 @@ def _read_voiceover(config: AppConfig, analysis_path: Path) -> str:
 
 def _read_json_object(path: Path) -> tuple[dict[str, Any] | None, str | None]:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
     except (json.JSONDecodeError, OSError, UnicodeError):
         return None, t("task.plan.json_unreadable")
     if not isinstance(data, dict):
@@ -366,6 +368,27 @@ def discover_day_labels(config: AppConfig) -> list[str]:
     return labels
 
 
+def _no_analyzed_media_for_day_message(
+    config: AppConfig,
+    day_label: str,
+    *,
+    available: list[str] | None = None,
+) -> str | None:
+    """Explain an invalid requested day without treating an empty project as invalid."""
+    available_days = discover_day_labels(config) if available is None else available
+    if not available_days or day_label in available_days:
+        return None
+    return t(
+        "task.day_scope.no_analyzed_media",
+        {"day": day_label, "available": ", ".join(available_days)},
+    )
+
+
+def _no_analyzed_media_for_day_error(config: AppConfig, day_label: str) -> RuntimeError | None:
+    message = _no_analyzed_media_for_day_message(config, day_label)
+    return RuntimeError(message) if message is not None else None
+
+
 def _discover_day_labels(config: AppConfig) -> list[str]:
     return discover_day_labels(config)
 
@@ -397,10 +420,16 @@ class _PlanClipEntry:
     index: int
     source_stem: str
     match_stem: str
+    media_index: str
+    compressed_path: Path
     segment_offset_sec: float
     capture_source: str
     compressed_source: str
     identity: MediaIdentity | None
+
+
+def _same_media_index(left: Any, right: Any, *, index_width: int) -> bool:
+    return bool(expand_index_keys(left, index_width=index_width) & expand_index_keys(right, index_width=index_width))
 
 
 def _collect_plan_clips(
@@ -414,6 +443,7 @@ def _collect_plan_clips(
 ) -> tuple[list[dict[str, Any]], list[tuple[str, str]], bool]:
     selected = _selection_from_files(files) if files is not None else None
     project_selection = _project_selection_stems(config)
+    media_aliases = collect_media_index_aliases(config)
     if report and selected is not None:
         print(t("task.plan.filter_selected", {"count": len(selected)}))
 
@@ -448,6 +478,17 @@ def _collect_plan_clips(
                 print(t("task.plan.invalid_index", {"index": raw_idx, "name": json_file.name}))
             skipped_inputs.append((json_file.name, t("task.plan.index_invalid_reason")))
             continue
+        resolved_media = _resolve_cut_media(
+            config,
+            config.compressed_dir,
+            str(idx),
+            "compressed",
+            project_selection,
+            media_aliases,
+        )
+        if resolved_media is None:
+            skipped_inputs.append((json_file.name, t("task.plan.media_missing_reason")))
+            continue
         identity = load_identity(data)
         if identity is not None:
             source_stem = identity.original_stem
@@ -458,7 +499,11 @@ def _collect_plan_clips(
             match_stem = source_stem
             segment_offset = 0.0
         capture_source = str(getattr(identity, "original_path", "") or data.get("source_file", "") or "")
-        compressed_source = str(getattr(identity, "compressed_path", "") or data.get("compressed_file", "") or "")
+        compressed_source = str(
+            getattr(identity, "compressed_path", "")
+            or data.get("compressed_file", "")
+            or resolved_media.compressed_path
+        )
         if capture_source and Path(capture_source).is_file() and not ffprobe_resolved:
             ffprobe_resolved = True
             with contextlib.suppress(OSError):
@@ -470,12 +515,35 @@ def _collect_plan_clips(
                 index=idx,
                 source_stem=source_stem,
                 match_stem=match_stem,
+                media_index=resolved_media.media_index,
+                compressed_path=resolved_media.compressed_path,
                 segment_offset_sec=segment_offset,
                 capture_source=capture_source,
                 compressed_source=compressed_source,
                 identity=identity,
             )
         )
+
+    # When an old analysis row and a current analysis row point at the same
+    # compressed file, keep the row whose index is the current media index.
+    # A legacy row is still useful when it is the only analysis available.
+    current_media = {
+        entry.compressed_path
+        for entry in entries
+        if _same_media_index(entry.index, entry.media_index, index_width=config.naming.index_width)
+    }
+    if current_media:
+        current_entries: list[_PlanClipEntry] = []
+        for entry in entries:
+            if entry.compressed_path in current_media and not _same_media_index(
+                entry.index,
+                entry.media_index,
+                index_width=config.naming.index_width,
+            ):
+                skipped_inputs.append((entry.json_file.name, t("task.plan.media_missing_reason")))
+                continue
+            current_entries.append(entry)
+        entries = current_entries
 
     if cancel_event and cancel_event.is_set():
         return clips, skipped_inputs, True
@@ -716,6 +784,10 @@ def run_plan_vlog(
     if not clips:
         if skipped_inputs:
             raise _unusable_inputs_error(skipped_inputs)
+        if filter_by_day:
+            scope_error = _no_analyzed_media_for_day_error(config, day_label)
+            if scope_error is not None:
+                raise scope_error
         print(t("task.plan.no_usable_media"))
         return None
 
@@ -799,6 +871,27 @@ def run_plan_vlog(
     )
 
 
+# Cannot collide with any "<day>_plan.json" (a day labelled "trip" used to
+# overwrite its own plan), and is not picked up by "*_plan.json" listings.
+TRIP_SUMMARY_FILENAME = "_trip_summary.json"
+
+
+def _check_day_plan_collisions(labels: list[str]) -> None:
+    """Refuse labels whose sanitized plan file names clash (e.g. "day 1" / "day_1")."""
+    owners: dict[str, str] = {}
+    for label in labels:
+        try:
+            stem = plan_day_stem(label)
+        except ValueError:
+            continue  # reported by run_plan_vlog for that day
+        key = stem.casefold()  # Windows / macOS file names are case-insensitive
+        other = owners.setdefault(key, label)
+        if other != label:
+            raise RuntimeError(
+                t("task.plan.day_label_conflict", {"first": other, "second": label, "file": f"{stem}_plan.json"})
+            )
+
+
 def run_plan_all_days(
     config: AppConfig,
     tracker: ProgressReporter | None = None,
@@ -815,6 +908,7 @@ def run_plan_all_days(
             raise _unusable_inputs_error(skipped_inputs)
         print(t("task.plan.no_analysis"))
         return None
+    _check_day_plan_collisions(labels)
 
     summary: dict[str, Any] = {"days": []}
     for day_label in labels:
@@ -850,7 +944,7 @@ def run_plan_all_days(
         return None
     add_schema_version(summary)
     config.plans_dir.mkdir(parents=True, exist_ok=True)
-    out_json = config.plans_dir / "trip_plan.json"
+    out_json = config.plans_dir / TRIP_SUMMARY_FILENAME
     write_json_atomic(out_json, summary)
     print(f"  -> {out_json.name}")
     return summary

@@ -25,6 +25,14 @@ class ProxyConfig:
 
 
 @dataclass
+class ModelPriceConfig:
+    """Token prices for one provider model, in USD per 1M tokens."""
+
+    prompt_price_per_1m_usd: float = 0.0
+    completion_price_per_1m_usd: float = 0.0
+
+
+@dataclass
 class ProviderConfig:
     name: str
     type: str
@@ -39,10 +47,33 @@ class ProviderConfig:
     # 0 = unlimited (do not send max_tokens to the API)
     max_tokens: int = 0
     video_upload_max_mb: int = 200
+    # Exact model-id pricing. The provider-level fields below remain as a
+    # backward-compatible fallback for older config files.
+    model_prices: dict[str, ModelPriceConfig] = field(default_factory=dict)
     prompt_price_per_1m_usd: float = 0.0
     completion_price_per_1m_usd: float = 0.0
     models: list[str] = field(default_factory=list)
     capabilities: list[str] = field(default_factory=list)
+
+
+def resolve_model_prices(provider_cfg: ProviderConfig, model: str) -> tuple[float, float] | None:
+    """Resolve exact model pricing, then the legacy provider-level fallback.
+
+    ``(0.0, 0.0)`` is a known free model. Provider-level zeroes are ambiguous
+    because they predate model-level pricing, so they only count as configured
+    when both prices are positive.
+    """
+    model_price = provider_cfg.model_prices.get(model)
+    if model_price is not None:
+        return (
+            float(model_price.prompt_price_per_1m_usd),
+            float(model_price.completion_price_per_1m_usd),
+        )
+    prompt_price = float(provider_cfg.prompt_price_per_1m_usd or 0.0)
+    completion_price = float(provider_cfg.completion_price_per_1m_usd or 0.0)
+    if prompt_price > 0 and completion_price > 0:
+        return prompt_price, completion_price
+    return None
 
 
 @dataclass

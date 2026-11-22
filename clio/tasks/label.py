@@ -126,7 +126,17 @@ def run_label_videos(
             if cancel_event and cancel_event.is_set():
                 print(t("task.label.cancelled"))
                 break
-            data = json.loads(json_file.read_text(encoding="utf-8"))
+            try:
+                data = json.loads(json_file.read_text(encoding="utf-8-sig"))
+                if not isinstance(data, dict):
+                    raise ValueError("analysis JSON root must be an object")
+            except (OSError, UnicodeDecodeError, ValueError) as exc:
+                # One corrupt or half-written analysis must not stop the batch.
+                print(t("task.label.skip_unreadable", {"name": json_file.name, "detail": exc}))
+                state.mark(json_file.stem, "label", "error")
+                if tracker:
+                    tracker.next(message=t("task.label.skip_unreadable", {"name": json_file.name, "detail": exc}))
+                continue
             idx = _label_index(data, json_file, config.naming.index_width)
             compressed = _find_compressed_video(config.compressed_dir, idx)
             orig_stem = Path(data.get("source_file") or data.get("compressed_file") or json_file.stem).stem

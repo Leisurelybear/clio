@@ -18,12 +18,12 @@ import {
 } from './sidebar-video-filter.js';
 import { toggleSelectionFor, videoSelectionKey } from './video-selection.js';
 import { selectVideosButtonHtml } from './select-btn.js';
-import { bindVideoInfoHover, clearVideoInfoCache } from './video-info.js';
+import { bindVideoInfoHover, clearVideoInfoCache, hideVideoInfoTip } from './video-info.js';
 import { t, onLocaleChange } from './i18n.js';
 import { confirmDialog } from './confirm.js';
 import { renderFilterChips, renderOfflineSummary, renderStageCountBar } from './sidebar-video-overview.js';
 import { bindCoverThumbFallback, videoDisplayName, videoThumbHtml } from './sidebar-video-display.js';
-import { renderVideoItem } from './sidebar-video-row.js';
+import { closeVideoRowMenu, renderVideoItem } from './sidebar-video-row.js';
 
 // ── Video relink helper ───────────────────────────────────────
 
@@ -71,19 +71,32 @@ async function _selectedVideoTargets(files) {
     .map(_removeTarget);
 }
 
-async function _removeVideos(targets) {
+// The server drops entries atomically (POST /api/videos/selected/remove), so
+// concurrent adds/removes elsewhere are never overwritten. Removals in this tab
+// still run one after another so each resolves its targets against a fresh list.
+let _removeChain = Promise.resolve();
+
+function _removeVideos(targets) {
+  const run = _removeChain.then(() => _removeVideosNow(targets));
+  _removeChain = run.catch(() => {});
+  return run;
+}
+
+async function _removeVideosNow(targets) {
   const list = (Array.isArray(targets) ? targets : []).filter(Boolean);
   if (!list.length) return null;
   try {
     const { removeSelectedVideos } = await import('./video-selection.js');
     const r = await api('GET', '/api/videos/selected');
     const videos = (r.videos || []).slice();
-    const { remaining, removed, missing, ambiguous } = removeSelectedVideos(videos, list);
+    // Resolve targets to the exact stored entries; the server removes only those.
+    const { removed, missing, ambiguous } = removeSelectedVideos(videos, list);
     if (!removed.length) {
       setStatus(ambiguous[0] || t('sidebar.video_not_found'), 'err');
       return null;
     }
-    await api('PUT', '/api/videos/selected', { videos: remaining });
+    const res = await api('POST', '/api/videos/selected/remove', { paths: removed });
+    if (res && res.ok === false) throw new Error(res.error || t('common.unknown_error'));
     await loadVideos();
     if (state.selectedFiles.length) {
       const present = new Set((state.videos || []).map(videoSelectionKey));
@@ -389,6 +402,9 @@ function scrollActiveVideoIntoView() {
 export function renderVideoList() {
   const ul = $('video-list');
   if (!ul) return;
+  // Rows are rebuilt below; a card anchored to an old row would never close.
+  hideVideoInfoTip();
+  closeVideoRowMenu();
   hideVideoListLoading();
   ul.innerHTML = '';
   renderOfflineSummary();

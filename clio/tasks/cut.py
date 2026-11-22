@@ -7,6 +7,8 @@ import json
 import subprocess
 import threading
 import time
+from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -14,15 +16,17 @@ from clio._constants import VIDEO_EXTS
 from clio.config import AppConfig
 from clio.cut import cut_one, parse_time_range
 from clio.i18n import t
-from clio.identity import SEGMENT_SUFFIX_RE, legacy_segment_offset_sec, load_identity
+from clio.identity import SEGMENT_SUFFIX_RE, legacy_segment_offset_sec, load_identity, resolve_identity
 from clio.log import format_duration, timed
-from clio.plan_readiness import expand_index_keys
+from clio.plan_readiness import collect_media_index_aliases, expand_index_keys
 from clio.processing_state import ProcessingState
 from clio.tasks._helpers import (
     MediaSelection,
     _eta_line,
+    _matches_selected_artifact,
     _matches_selected_stem,
     _project_selection_stems,
+    normalize_plan_segment,
 )
 from clio.utils import (
     get_duration_sec,
@@ -38,6 +42,13 @@ from clio.vmeta import VideoMeta
 _VIDEO_OUT_EXTS = {".mp4", ".mov", ".mkv", ".m4v", ".webm"}
 _PROBE_FAILURES = (OSError, subprocess.SubprocessError, TypeError, ValueError)
 CUT_BAK_SUFFIX = ".clio_bak"
+
+
+@dataclass(frozen=True)
+class _ResolvedCutMedia:
+    video_path: Path
+    compressed_path: Path
+    media_index: str
 
 
 class CutBackupConflictError(Exception):
@@ -155,18 +166,35 @@ def _move_stale_cut_artifacts(
     return moved
 
 
+def _restore_stale_cut_backups(backups: list[Path]) -> None:
+    """Put stale artifacts back after a failed or cancelled run (best effort).
+
+    A backup whose original name is taken again is left in place so the
+    orphaned-backup restore flow can still offer it.
+    """
+    for backup in backups:
+        target = target_path_for_cut_bak(backup)
+        if target is None or not backup.exists() or target.exists():
+            continue
+        with contextlib.suppress(OSError):
+            backup.replace(target)
+
+
 def replace_file_safely(dest: Path, write_fn) -> None:
     """Write *dest* via rename-backup → write → delete-backup; restore on failure.
 
     Matches product rule for re-cuts: keep old file until the new one succeeds.
+    An existing ``.clio_bak`` is the only good copy left by an interrupted re-cut,
+    so it is never overwritten: resolve it via the orphaned-backup restore flow.
     """
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
     bak: Path | None = None
+    existing_bak = dest.with_name(dest.name + CUT_BAK_SUFFIX)
+    if existing_bak.exists():
+        raise CutBackupConflictError(t("task.cut.backup_conflict", {"path": existing_bak}))
     if dest.exists():
-        bak = dest.with_name(dest.name + ".clio_bak")
-        if bak.exists():
-            bak.unlink()
+        bak = existing_bak
         dest.replace(bak)
     try:
         write_fn(dest)
@@ -347,30 +375,72 @@ def _selected_cut_media(
     return project_selection is None or _matches_selected_stem(path, project_selection, artifact=artifact)
 
 
-def _resolve_cut_video_path(
+def _cut_analysis_data(
+    config: AppConfig,
+    *,
+    media_index: str,
+    plan_index: str,
+    project_selection: MediaSelection | None,
+) -> dict[str, Any]:
+    seen: set[Path] = set()
+    for index in (media_index, plan_index):
+        for path in _indexed_files(
+            config.texts_dir,
+            index,
+            index_width=config.naming.index_width,
+            suffix=".json",
+        ):
+            if path in seen:
+                continue
+            seen.add(path)
+            if project_selection is not None and not _matches_selected_artifact(path, project_selection):
+                continue
+            try:
+                data = json.loads(path.read_text(encoding="utf-8-sig"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                continue
+            if isinstance(data, dict):
+                return data
+    return {}
+
+
+def _cut_compressed_candidates(
     config: AppConfig,
     comp_dir: Path,
     idx: str,
-    source: str,
     project_selection: MediaSelection | None,
-) -> Path | None:
-    if source == "compressed":
-        candidates = [
-            path
-            for path in _indexed_files(comp_dir, idx, index_width=config.naming.index_width)
-            if path.suffix.lower() in VIDEO_EXTS and _selected_cut_media(path, project_selection, artifact=True)
-        ]
-        return candidates[0] if candidates else None
-
-    comp_candidates = [
+) -> list[Path]:
+    return [
         path
         for path in _indexed_files(comp_dir, idx, index_width=config.naming.index_width)
         if path.suffix.lower() in VIDEO_EXTS and _selected_cut_media(path, project_selection, artifact=True)
     ]
-    if not comp_candidates:
-        return None
-    compressed = comp_candidates[0]
 
+
+def _legacy_media_owner(
+    idx: str,
+    aliases: Mapping[str, set[str]],
+    *,
+    index_width: int,
+) -> str | None:
+    """Resolve one legacy plan index to its unique current compressed index."""
+    target_keys = expand_index_keys(idx, index_width=index_width)
+    owners: set[str] = set()
+    for alias, alias_owners in aliases.items():
+        if target_keys.isdisjoint(expand_index_keys(alias, index_width=index_width)):
+            continue
+        owners.update(alias_owners)
+    if len(owners) != 1:
+        return None
+    return next(iter(owners))
+
+
+def _resolve_original_cut_media(
+    config: AppConfig,
+    compressed: Path,
+    media_index: str,
+    project_selection: MediaSelection | None,
+) -> Path | None:
     # Prefer .vmeta: it directly identifies the original path (O(1), any depth).
     meta = VideoMeta.read(compressed)
     if meta is not None:
@@ -378,14 +448,24 @@ def _resolve_cut_video_path(
         if src.is_file():
             return src if _selected_cut_media(src, project_selection) else None
 
+    # Reuse MediaIdentity for vindex/videos.json resolution before filename fallback.
+    try:
+        identity = resolve_identity(compressed, media_index, config.project_dir)
+    except (OSError, ValueError):
+        identity = None
+    if identity is not None and identity.original_path:
+        src = Path(identity.original_path)
+        if src.is_file():
+            return src if _selected_cut_media(src, project_selection) else None
+
     # Fallback: reverse the compressed name and consult videos.json.
-    suffix = compressed.stem.split("_", 1)[1].lower()
+    suffix = compressed.stem.split("_", 1)[1].lower() if "_" in compressed.stem else compressed.stem.lower()
     from clio.tasks._video_loader import source_videos
 
     videos = source_videos(config)
 
     def _unique_stem_hit(needle: str) -> Path | None:
-        hits = [p for p in videos if p.stem.lower() == needle]
+        hits = [p for p in videos if p.stem.lower() == needle and _selected_cut_media(p, project_selection)]
         return hits[0] if len(hits) == 1 else None
 
     hit = _unique_stem_hit(suffix)
@@ -395,6 +475,53 @@ def _resolve_cut_video_path(
     if orig_stem != suffix:
         return _unique_stem_hit(orig_stem)
     return None
+
+
+def _resolve_cut_media(
+    config: AppConfig,
+    comp_dir: Path,
+    idx: str,
+    source: str,
+    project_selection: MediaSelection | None,
+    media_aliases: Mapping[str, set[str]] | None = None,
+) -> _ResolvedCutMedia | None:
+    """Resolve a plan index to current compressed media, then to the cut source.
+
+    Exact current indexes always win. When no current file uses the plan index,
+    only a unique MediaIdentity alias from older analysis artifacts is accepted.
+    """
+    aliases = media_aliases if media_aliases is not None else collect_media_index_aliases(config)
+    media_index = str(idx).strip()
+    candidates = _cut_compressed_candidates(config, comp_dir, media_index, project_selection)
+    if not candidates:
+        owner = _legacy_media_owner(media_index, aliases, index_width=config.naming.index_width)
+        if owner is None:
+            return None
+        media_index = owner
+        candidates = _cut_compressed_candidates(config, comp_dir, media_index, project_selection)
+    if not candidates:
+        return None
+
+    compressed = candidates[0]
+    if source == "compressed":
+        return _ResolvedCutMedia(video_path=compressed, compressed_path=compressed, media_index=media_index)
+
+    original = _resolve_original_cut_media(config, compressed, media_index, project_selection)
+    if original is None:
+        return None
+    return _ResolvedCutMedia(video_path=original, compressed_path=compressed, media_index=media_index)
+
+
+def _resolve_cut_video_path(
+    config: AppConfig,
+    comp_dir: Path,
+    idx: str,
+    source: str,
+    project_selection: MediaSelection | None,
+    media_aliases: Mapping[str, set[str]] | None = None,
+) -> Path | None:
+    resolved = _resolve_cut_media(config, comp_dir, idx, source, project_selection, media_aliases)
+    return resolved.video_path if resolved is not None else None
 
 
 def _record_cut_skip(
@@ -476,8 +603,10 @@ def _apply_cut_offset(
     *,
     config: AppConfig,
     comp_dir: Path,
-    idx: str,
+    plan_index: str,
+    media_index: str,
     video_path: Path,
+    compressed_path: Path,
     ffprobe: str,
     source: str,
     project_selection: MediaSelection | None,
@@ -487,23 +616,15 @@ def _apply_cut_offset(
     if source != "original":
         return start, end
 
-    offset = 0.0
-    text_json_paths = _indexed_files(config.texts_dir, idx, index_width=config.naming.index_width, suffix=".json")
-    if text_json_paths:
-        try:
-            data = json.loads(text_json_paths[0].read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                offset = legacy_segment_offset_sec(load_identity(data))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-            pass
+    data = _cut_analysis_data(
+        config,
+        media_index=media_index,
+        plan_index=plan_index,
+        project_selection=project_selection,
+    )
+    offset = legacy_segment_offset_sec(load_identity(data)) if data else 0.0
     if offset == 0.0:
-        comp_candidates = [
-            path
-            for path in _indexed_files(comp_dir, idx, index_width=config.naming.index_width)
-            if path.suffix.lower() in VIDEO_EXTS and _selected_cut_media(path, project_selection, artifact=True)
-        ]
-        if comp_candidates:
-            offset = _compute_segment_offset(comp_candidates[0].stem, comp_dir, video_path, ffprobe)
+        offset = _compute_segment_offset(compressed_path.stem, comp_dir, video_path, ffprobe)
     if offset:
         return start + offset, end + offset
     return start, end
@@ -513,7 +634,8 @@ def _write_cut_sidecar(
     *,
     config: AppConfig,
     out_root: Path,
-    idx: str,
+    plan_index: str,
+    media_index: str,
     seg_index: int,
     clip_stem: str,
     timeline: str,
@@ -523,12 +645,14 @@ def _write_cut_sidecar(
     end: float,
     project_selection: MediaSelection | None,
 ) -> str:
-    matching_texts = [
-        path
-        for path in _indexed_files(config.texts_dir, idx, index_width=config.naming.index_width, suffix=".json")
-        if _selected_cut_media(path, project_selection, artifact=True)
-    ]
-    data = json.loads(matching_texts[0].read_text(encoding="utf-8")) if matching_texts else {}
+    data = dict(
+        _cut_analysis_data(
+            config,
+            media_index=media_index,
+            plan_index=plan_index,
+            project_selection=project_selection,
+        )
+    )
     data["_cut_info"] = {
         "seg_index": seg_index,
         "timeline": timeline,
@@ -555,6 +679,7 @@ def _process_cut_segment(
     state: ProcessingState,
     tracker: Any | None,
     project_selection: MediaSelection | None,
+    media_aliases: Mapping[str, set[str]],
     seg: dict,
     segment_number: int,
     total: int,
@@ -575,8 +700,8 @@ def _process_cut_segment(
         )
         return None
 
-    video_path = _resolve_cut_video_path(config, comp_dir, idx, source, project_selection)
-    if video_path is None:
+    resolved_media = _resolve_cut_media(config, comp_dir, idx, source, project_selection, media_aliases)
+    if resolved_media is None:
         src = "compressed" if source != "original" else "original"
         _record_cut_skip(
             video_path=None,
@@ -588,6 +713,7 @@ def _process_cut_segment(
         )
         return None
 
+    video_path = resolved_media.video_path
     prepared = _prepare_cut_range(
         video_path=video_path,
         timeline=timeline,
@@ -604,8 +730,10 @@ def _process_cut_segment(
     start, end = _apply_cut_offset(
         config=config,
         comp_dir=comp_dir,
-        idx=idx,
+        plan_index=idx,
+        media_index=resolved_media.media_index,
         video_path=video_path,
+        compressed_path=resolved_media.compressed_path,
         ffprobe=ffprobe,
         source=source,
         project_selection=project_selection,
@@ -647,7 +775,8 @@ def _process_cut_segment(
     text_file = _write_cut_sidecar(
         config=config,
         out_root=out_root,
-        idx=idx,
+        plan_index=idx,
+        media_index=resolved_media.media_index,
         seg_index=segment_number,
         clip_stem=clip_stem,
         timeline=timeline,
@@ -696,8 +825,9 @@ def run_cut_all(
     if not plan_path.is_file():
         raise FileNotFoundError(t("task.cut.plan_missing", {"path": plan_path}))
 
-    plan = json.loads(plan_path.read_text(encoding="utf-8"))
-    seq = plan.get("sequence", [])
+    plan = json.loads(plan_path.read_text(encoding="utf-8-sig"))
+    raw_seq = plan.get("sequence", [])
+    seq = [normalize_plan_segment(seg) for seg in raw_seq] if isinstance(raw_seq, list) else []
     if not seq:
         print(t("task.cut.plan_empty_sequence", {"name": plan_path.name}))
         return []
@@ -715,9 +845,11 @@ def run_cut_all(
     if overwrite:
         expected_names, preserved_positions = _cut_artifact_plan(seq)
         stale_backups = _move_stale_cut_artifacts(out_root, expected_names, preserved_positions)
+    completed_run = False
     try:
         comp_dir = config.compressed_dir
         project_selection = _project_selection_stems(config)
+        media_aliases = collect_media_index_aliases(config)
         source_label = str(comp_dir if source == "compressed" else (config.project_dir or ""))
 
         print(t("task.cut.header_plan", {"name": plan_path.name, "count": len(seq)}))
@@ -747,6 +879,7 @@ def run_cut_all(
                     state=state,
                     tracker=tracker,
                     project_selection=project_selection,
+                    media_aliases=media_aliases,
                     seg=seg,
                     segment_number=i,
                     total=len(seq),
@@ -780,7 +913,11 @@ def run_cut_all(
         write_text_atomic(manifest_path, "\n".join(lines) + "\n")
         print(f"  -> manifest: {manifest_path.name}")
         print(t("task.cut.done", {"count": len(clips), "path": out_root}))
+        completed_run = not (cancel_event and cancel_event.is_set())
         return clips
     finally:
-        for backup in stale_backups:
-            backup.unlink(missing_ok=True)
+        if completed_run:
+            for backup in stale_backups:
+                backup.unlink(missing_ok=True)
+        else:
+            _restore_stale_cut_backups(stale_backups)

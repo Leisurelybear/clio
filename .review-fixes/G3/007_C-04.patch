@@ -1,0 +1,101 @@
+diff --git a/clio/credentials/stores.py b/clio/credentials/stores.py
+--- a/clio/credentials/stores.py
++++ b/clio/credentials/stores.py
+@@ -123,6 +123,7 @@
+ 
+     def __init__(self, backend: Any = None):
+         self.backend = backend
++        self.unavailable_reason = ""
+         if backend is None:
+             try:
+                 import keyring
+@@ -139,8 +140,16 @@
+                     and candidate.priority > 0
+                 ):
+                     self.backend = candidate
+-            except Exception:  # noqa: BLE001 - optional platform backend discovery
+-                pass
++                else:
++                    kind = type(candidate)
++                    self.unavailable_reason = f"unsupported backend {kind.__module__}.{kind.__name__}"
++            except ModuleNotFoundError:
++                self.unavailable_reason = "keyring package is not installed"
++            except Exception as exc:  # noqa: BLE001 - optional platform backend discovery
++                # Only the exception type: platform messages may carry paths or secrets.
++                self.unavailable_reason = f"backend discovery failed ({type(exc).__name__})"
++            if self.backend is None:
++                logger.info("OS keyring unavailable: %s", self.unavailable_reason)
+ 
+     def _call(self, method: str, account: str, *args: str) -> Any:
+         if self.backend is None:
+@@ -174,4 +183,7 @@
+         return bool(self.get(account))
+ 
+     def describe(self, account: str) -> dict:
+-        return {"available": self.backend is not None, "writable": self.backend is not None}
++        info: dict[str, Any] = {"available": self.backend is not None, "writable": self.backend is not None}
++        if self.backend is None:
++            info["reason"] = getattr(self, "unavailable_reason", "") or "unavailable"
++        return info
+diff --git a/clio/tests/test_fix_credentials_keyring_probe.py b/clio/tests/test_fix_credentials_keyring_probe.py
+new file mode 100644
+--- /dev/null
++++ b/clio/tests/test_fix_credentials_keyring_probe.py
+@@ -0,0 +1,57 @@
++"""Regression tests: a missing OS keyring is logged and reported, not silently hidden."""
++
++from __future__ import annotations
++
++import builtins
++import logging
++import sys
++import types
++
++from clio.credentials.stores import KeyringStore
++
++
++def test_missing_keyring_package_is_logged_and_described(monkeypatch, caplog):
++    real_import = builtins.__import__
++
++    def _import(name, *args, **kwargs):
++        if name == "keyring":
++            raise ModuleNotFoundError("No module named 'keyring'")
++        return real_import(name, *args, **kwargs)
++
++    monkeypatch.setattr(builtins, "__import__", _import)
++    with caplog.at_level(logging.INFO, logger="clio.credentials"):
++        store = KeyringStore()
++
++    assert store.backend is None
++    assert store.describe("") == {"available": False, "writable": False, "reason": "keyring package is not installed"}
++    assert "keyring package is not installed" in caplog.text
++
++
++def test_backend_discovery_error_logs_type_only(monkeypatch, caplog):
++    fake = types.ModuleType("keyring")
++
++    def _boom():
++        raise RuntimeError("secret-looking detail")
++
++    fake.get_keyring = _boom
++    monkeypatch.setitem(sys.modules, "keyring", fake)
++    with caplog.at_level(logging.INFO, logger="clio.credentials"):
++        store = KeyringStore()
++
++    assert store.describe("")["reason"] == "backend discovery failed (RuntimeError)"
++    assert "secret-looking detail" not in caplog.text
++
++
++def test_plaintext_backend_is_rejected_with_reason(monkeypatch):
++    fake = types.ModuleType("keyring")
++
++    class PlaintextKeyring:
++        priority = 1
++
++    fake.get_keyring = PlaintextKeyring
++    monkeypatch.setitem(sys.modules, "keyring", fake)
++
++    store = KeyringStore()
++
++    assert store.backend is None
++    assert "unsupported backend" in store.describe("")["reason"]

@@ -11,12 +11,12 @@ import contextlib
 import hashlib
 import json
 import os
-import struct
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+from array import array
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
@@ -35,6 +35,10 @@ _BINARY_ERRORS = (OSError, TypeError, ValueError)
 _PROBE_ERRORS = (OSError, subprocess.SubprocessError, TypeError, ValueError)
 _FFMPEG_ERRORS = (OSError, RuntimeError, subprocess.SubprocessError, TypeError, ValueError)
 _LOCK_READ_ERRORS = (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError)
+# Hung probes / decodes (e.g. a stalled network drive) must not pin the job slots.
+# The decode deadline stays below STALE_SEC so the lock never outlives the job.
+_PROBE_TIMEOUT_SEC = 30
+_DECODE_TIMEOUT_SEC = 600
 
 _jobs_lock = threading.Lock()
 # BoundedSemaphore now owns concurrency accounting: waiting threads block
@@ -42,8 +46,9 @@ _jobs_lock = threading.Lock()
 _job_slots = threading.BoundedSemaphore(MAX_CONCURRENT_JOBS)
 # Keys with a live job thread in *this* process (orphan recovery after restart).
 _active_job_keys: set[str] = set()
-_key_locks: dict[str, threading.Lock] = {}
-_key_locks_guard = threading.Lock()
+# Fixed lock pool: one entry per cache key would grow with every video ever viewed.
+_KEY_LOCK_STRIPES = 64
+_key_locks: tuple[threading.Lock, ...] = tuple(threading.Lock() for _ in range(_KEY_LOCK_STRIPES))
 
 
 def _pid_alive(pid: int) -> bool:
@@ -120,14 +125,20 @@ def peaks_from_pcm_s16le(pcm: bytes, *, bin_count: int) -> list[float]:
     n = len(pcm) // 2
     if n <= 0 or bin_count <= 0:
         return [0.0] * max(bin_count, 0)
+    # Decode once into a C array and reduce each bin with C-level max/min:
+    # a per-sample Python loop held the GIL for tens of seconds on long clips.
+    samples = array("h")
+    samples.frombytes(pcm[: n * 2])
+    if sys.byteorder != "little":
+        samples.byteswap()
     peaks = [0.0] * bin_count
-    fmt = struct.Struct("<h")
-    for i in range(n):
-        s = fmt.unpack_from(pcm, i * 2)[0]
-        b = min(bin_count - 1, int(i * bin_count / n))
-        a = abs(s) / 32768.0
-        if a > peaks[b]:
-            peaks[b] = a
+    for b in range(bin_count):
+        # Sample i belongs to bin floor(i * bin_count / n), as before.
+        start = -(-b * n // bin_count)
+        end = -(-(b + 1) * n // bin_count)
+        if start < end:
+            chunk = samples[start:end]
+            peaks[b] = max(max(chunk), -min(chunk)) / 32768.0
     m = max(peaks) if peaks else 0.0
     if m > 0:
         peaks = [p / m for p in peaks]
@@ -233,10 +244,36 @@ def clear_error(project_output: Path, key: str) -> None:
 
 
 def _key_lock(key: str) -> threading.Lock:
-    with _key_locks_guard:
-        if key not in _key_locks:
-            _key_locks[key] = threading.Lock()
-        return _key_locks[key]
+    return _key_locks[int(hashlib.sha1(key.encode("utf-8")).hexdigest()[:8], 16) % _KEY_LOCK_STRIPES]
+
+
+def _persist_peaks(project_output: Path, key: str, payload: dict[str, Any]) -> None:
+    """Write a ready cache file, or raise when ffmpeg could not decode the media.
+
+    ``read_peaks`` treats ``probe_error`` payloads as "no cache", so writing one as
+    ready would make every poll re-kick ffmpeg. Raising routes the failure through
+    the ``.error`` cool-down path instead.
+    """
+    if payload.get("probe_error"):
+        raise RuntimeError(str(payload.get("probe_error_msg") or "waveform extract failed"))
+    write_peaks_atomic(project_output, key, payload)
+    clear_error(project_output, key)
+
+
+class _DeadlineEvent(threading.Event):
+    """Event that also reads as set after *timeout_sec* or when *parent* is set."""
+
+    def __init__(self, timeout_sec: float, parent: threading.Event | None = None) -> None:
+        super().__init__()
+        self._deadline = time.monotonic() + timeout_sec
+        self._parent = parent
+
+    def is_set(self) -> bool:
+        return (
+            super().is_set()
+            or time.monotonic() >= self._deadline
+            or (self._parent is not None and self._parent.is_set())
+        )
 
 
 def _spawn_job(fn: Callable[[], None]) -> None:
@@ -256,9 +293,9 @@ def _run_managed_waveform_task(context) -> dict[str, Any]:
             duration_sec=input_data.get("duration_sec"),
             audio_source=str(input_data.get("audio_source") or "original"),
             ffprobe=str(input_data.get("ffprobe") or ""),
+            cancel_event=context.cancel_event,
         )
-        write_peaks_atomic(project_output, key, payload)
-        clear_error(project_output, key)
+        _persist_peaks(project_output, key, payload)
         return {"key": key, "bin_count": payload.get("bin_count", 0)}
     except Exception as e:
         with contextlib.suppress(OSError):
@@ -276,7 +313,7 @@ def _ensure_waveform_handler(manager: TaskManager) -> None:
         _run_managed_waveform_task,
         concurrency_key="waveform",
         max_concurrency=MAX_CONCURRENT_JOBS,
-        cancellable=False,
+        cancellable=True,
     )
 
 
@@ -309,6 +346,7 @@ def has_audio_stream(video_path: Path, ffprobe: str) -> bool:
             ],
             capture_output=True,
             text=True,
+            timeout=_PROBE_TIMEOUT_SEC,
         )
     except _PROBE_ERRORS:
         return True
@@ -322,8 +360,13 @@ def extract_peaks_for_video(
     duration_sec: float | None = None,
     audio_source: str = "original",
     ffprobe: str = "",
+    cancel_event: threading.Event | None = None,
 ) -> dict[str, Any]:
-    """Extract mono s16le via temp wav (8kHz is enough for amplitude peaks)."""
+    """Extract mono s16le via temp wav (8kHz is enough for amplitude peaks).
+
+    The decode is stopped after ``_DECODE_TIMEOUT_SEC`` (reported as a probe
+    error) or when *cancel_event* is set (raises ``InterruptedError``).
+    """
     from clio.utils import get_duration_sec, resolve_binary, run_ffmpeg
 
     video_path = Path(video_path)
@@ -371,8 +414,11 @@ def extract_peaks_for_video(
                     str(tmp_path),
                 ],
                 ffmpeg_bin,
+                cancel_event=_DeadlineEvent(_DECODE_TIMEOUT_SEC, cancel_event),
             )
         except _FFMPEG_ERRORS as e:
+            if cancel_event is not None and cancel_event.is_set():
+                raise
             return {
                 "version": WAVEFORM_VERSION,
                 "source_path": str(video_path.resolve()),
@@ -490,8 +536,7 @@ def ensure_waveform(
                     audio_source=audio_source,
                     ffprobe=ffprobe,
                 )
-                write_peaks_atomic(project_output, key, payload)
-                clear_error(project_output, key)
+                _persist_peaks(project_output, key, payload)
             except Exception as e:  # noqa: BLE001 - daemon jobs must persist every failure
                 with contextlib.suppress(OSError):
                     error_path(project_output, key).write_text(str(e)[:500], encoding="utf-8")

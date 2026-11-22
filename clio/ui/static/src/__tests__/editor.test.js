@@ -213,3 +213,38 @@ describe('_renderConfigForm - array', () => {
     expect(html).toContain('name');
   });
 });
+
+describe('_renderConfigForm - untrusted YAML keys', () => {
+  it('escapes keys in labels and data-path attributes', () => {
+    const evil = '<img src=x onerror=alert(1)>';
+    const html = _renderConfigForm({ [evil]: 1, 'a"b': true }, 'custom');
+    const div = document.createElement('div');
+    div.innerHTML = html;
+    expect(div.querySelector('img')).toBeNull();
+    expect(div.textContent).toContain(evil);
+    const paths = [...div.querySelectorAll('[data-path]')].map(el => el.dataset.path);
+    expect(paths).toEqual([`custom.${evil}`, 'custom.a"b']);
+  });
+});
+
+describe('_attachConfigForm - list write-back', () => {
+  it('keeps list[str] fields as arrays and writes object items by index', async () => {
+    const { _attachConfigForm } = await import('../editor-config-form.js');
+    const source = { custom: { tags: ['a', 'b'], items: [{ name: 'x' }, 7] } };
+    const pane = document.createElement('div');
+    pane.innerHTML = _renderConfigForm(source.custom, 'custom');
+    _attachConfigForm(pane, source, null);
+
+    const tags = pane.querySelector('textarea[data-path="custom.tags"]');
+    tags.value = 'a\r\n  c \r\n\r\nd';
+    tags.oninput();
+    expect(source.custom.tags).toEqual(['a', 'c', 'd']);
+
+    const name = pane.querySelector('input[data-path="custom.items.0.name"]');
+    expect(name).not.toBeNull();
+    name.value = 'y';
+    name.oninput();
+    expect(source.custom.items[0]).toEqual({ name: 'y' });
+    expect(Object.keys(source.custom)).toEqual(['tags', 'items']);
+  });
+});

@@ -7,6 +7,7 @@ import { initLanguageSwitcher } from './language-switcher.js';
 import { pickFolder, pickFile, applyPickToInput, initDesktopPickers } from './desktop-pick.js';
 import { addToast } from './toast.js';
 import { confirmDialog } from './confirm.js';
+import { closeTopModal } from './modal-escape.js';
 import { setupPlayer } from './viewer.js';
 import { save, initProjectConfig, renderActiveTab, refineCurrentFile } from './editor.js';
 import {
@@ -177,16 +178,25 @@ async function init() {
         if (!removeBtn) return;
         removeBtn.onclick = async (e) => {
           e.stopPropagation();
+          if (removeBtn.disabled) return;
           if (!(await confirmDialog(t('project.remove_confirm', { name }), { danger: true }))) return;
-          const r2 = await api('POST', '/api/project/remove', { project_dir: projectDir });
-          if (r2.ok) {
-            if (name === state.currentProject?.name && projectDir === state.currentProjectDir) {
-              openModal.style.display = 'none';
-              window.location.search = '';
-            } else {
-              $('btn-open-project').click();
+          removeBtn.disabled = true;
+          try {
+            const r2 = await api('POST', '/api/project/remove', { project_dir: projectDir });
+            if (r2.ok) {
+              if (name === state.currentProject?.name && projectDir === state.currentProjectDir) {
+                openModal.style.display = 'none';
+                window.location.search = '';
+              } else {
+                $('btn-open-project').click();
+              }
+              return;
             }
+            setStatus(t('project.remove_failed', { detail: r2.error || t('common.unknown_error') }), 'err');
+          } catch (err) {
+            setStatus(t('project.remove_failed', { detail: err.message }), 'err');
           }
+          removeBtn.disabled = false;
         };
       }
       function _setupMigrateBtn(card, name, projectDir) {
@@ -424,21 +434,7 @@ async function init() {
     }
     if (e.key === 'Escape') {
       // Close topmost open modal only (preserve stacked dialog state)
-      const openModals = [...$$('.modal')].filter(m => m.style.display !== 'none');
-      if (openModals.length) {
-        const top = openModals[openModals.length - 1];
-        if (top.id === 'modal-relink') {
-          import('./sidebar-relink.js').then(m => m.closeRelinkModal());
-        } else if (top.id === 'modal-video-manage') {
-          import('./sidebar-video-manage.js').then(m => m.closeVideoManager());
-        } else if (top.id === 'modal-batch-relink') {
-          import('./sidebar-batch-relink.js').then(m => m.closeBatchRelinkModal());
-        } else {
-          top.style.display = 'none';
-        }
-      } else {
-        setProjectMenuOpen(false);
-      }
+      if (!closeTopModal()) setProjectMenuOpen(false);
     }
     if (mod && e.key >= '1' && e.key <= '6') {
       e.preventDefault();
@@ -540,7 +536,7 @@ async function init() {
       if (!hasDay) state.currentDay = state.availablePlans[0].day_label;
       updateSidebarDay();
       try {
-        const loaded = await apiWithMeta('GET', `/api/plan?day=${state.currentDay}`);
+        const loaded = await apiWithMeta('GET', `/api/plan?day=${encodeURIComponent(state.currentDay)}`);
         state.plan = loaded.data;
         setArtifactVersion('plan', state.currentDay, loaded.version);
       } catch (e) { /* ignore */ }

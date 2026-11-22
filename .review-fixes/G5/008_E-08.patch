@@ -1,0 +1,138 @@
+diff --git a/clio/ui/static/src/task-center.js b/clio/ui/static/src/task-center.js
+--- a/clio/ui/static/src/task-center.js
++++ b/clio/ui/static/src/task-center.js
+@@ -118,6 +118,8 @@
+ function _render() {
+   const pane = $('tab-tasks');
+   if (!pane) return;
++  const prevListScroll = pane.querySelector('.task-list')?.scrollTop || 0;
++  const prevEventsScroll = pane.querySelector('.task-events')?.scrollTop || 0;
+   const filtered = filterTasks(state.tasks);
+   const projects = [...new Set(state.tasks.map(task => task.project_name || task.project_id || t('task.unnamed')))].sort();
+   const activeCount = state.tasks.filter(task => ACTIVE.has(task.status)).length;
+@@ -137,6 +139,38 @@
+   _updateNavBadge();
+   pane.querySelector('.task-cancel')?.addEventListener('click', () => mutateTask('cancel'));
+   pane.querySelector('.task-retry')?.addEventListener('click', () => mutateTask('retry'));
++  const list = pane.querySelector('.task-list');
++  if (list && prevListScroll) list.scrollTop = prevListScroll;
++  const eventsEl = pane.querySelector('.task-events');
++  if (eventsEl && prevEventsScroll) eventsEl.scrollTop = prevEventsScroll;
++}
++
++let _streamRenderPending = false;
++let _streamRenderWaitsForBlur = false;
++
++/** Coalesce SSE-driven re-renders to one per frame; never rebuild under an open filter. */
++function _scheduleStreamRender() {
++  if (_streamRenderPending) return;
++  _streamRenderPending = true;
++  const raf = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : cb => setTimeout(cb, 16);
++  raf(() => {
++    _streamRenderPending = false;
++    if (state.currentEntity !== 'tasks') return;
++    const pane = $('tab-tasks');
++    const active = document.activeElement;
++    if (pane && active && active.tagName === 'SELECT' && pane.contains(active)) {
++      // Rebuilding the toolbar would close the dropdown the user is using.
++      if (!_streamRenderWaitsForBlur) {
++        _streamRenderWaitsForBlur = true;
++        active.addEventListener('blur', () => {
++          _streamRenderWaitsForBlur = false;
++          _scheduleStreamRender();
++        }, { once: true });
++      }
++      return;
++    }
++    _render();
++  });
+ }
+ 
+ export async function loadTasks() {
+@@ -242,7 +276,7 @@
+           state.taskDetail = { ...state.taskDetail, task: payload.task, events };
+         }
+         _updateNavBadge();
+-        if (state.currentEntity === 'tasks') _render();
++        if (state.currentEntity === 'tasks') _scheduleStreamRender();
+       }
+       _eventListeners.forEach(listener => {
+         try { listener(payload); } catch { /* one consumer must not break the stream */ }
+diff --git a/clio/ui/static/src/__tests__/task-center-render.test.js b/clio/ui/static/src/__tests__/task-center-render.test.js
+new file mode 100644
+--- /dev/null
++++ b/clio/ui/static/src/__tests__/task-center-render.test.js
+@@ -0,0 +1,73 @@
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
++
++vi.mock('../api.js', () => ({ api: vi.fn() }));
++
++import { api } from '../api.js';
++import { state } from '../state.js';
++import { renderTasks, subscribeTaskEvents } from '../task-center.js';
++
++let source;
++let seq = 0;
++
++class FakeEventSource {
++  constructor(url) {
++    this.url = url;
++    source = this;
++  }
++  close() {}
++}
++
++function message(task) {
++  seq += 1;
++  source.onmessage({ data: JSON.stringify({ seq, task, event: { seq } }) });
++}
++
++describe('task center stream rendering', () => {
++  beforeEach(() => {
++    vi.useFakeTimers();
++    vi.stubGlobal('requestAnimationFrame', cb => setTimeout(cb, 16));
++    globalThis.EventSource = FakeEventSource;
++    sessionStorage.clear();
++    api.mockReset();
++    state.tasks = [];
++    state.taskFilters = { status: 'all', kind: 'all', project: 'all' };
++    state.selectedTaskId = null;
++    state.taskDetail = null;
++    state.currentEntity = 'tasks';
++    document.body.innerHTML = '<div id="tab-tasks"></div><span id="status"></span>';
++  });
++
++  afterEach(() => {
++    vi.unstubAllGlobals();
++    vi.useRealTimers();
++  });
++
++  it('coalesces a burst of events into one render per frame', () => {
++    const stop = subscribeTaskEvents(() => {});
++    renderTasks();
++    const pane = document.getElementById('tab-tasks');
++    const toolbar = pane.querySelector('.task-center-toolbar');
++    for (let i = 0; i < 5; i += 1) message({ id: `t${i}`, status: 'running' });
++    expect(pane.querySelector('.task-center-toolbar')).toBe(toolbar);
++    vi.advanceTimersByTime(20);
++    expect(pane.querySelectorAll('.task-row')).toHaveLength(5);
++    stop();
++  });
++
++  it('does not rebuild the toolbar while a filter select has focus', () => {
++    const stop = subscribeTaskEvents(() => {});
++    renderTasks();
++    const pane = document.getElementById('tab-tasks');
++    const select = pane.querySelector('.task-filter-kind');
++    select.focus();
++    message({ id: 'x1', status: 'running' });
++    vi.advanceTimersByTime(20);
++    expect(pane.querySelector('.task-filter-kind')).toBe(select);
++
++    select.blur();
++    vi.advanceTimersByTime(20);
++    expect(pane.querySelector('.task-filter-kind')).not.toBe(select);
++    expect(pane.querySelectorAll('.task-row').length).toBeGreaterThan(0);
++    stop();
++  });
++});

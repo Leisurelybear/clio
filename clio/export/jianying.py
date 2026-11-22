@@ -18,6 +18,7 @@ from clio.cut import parse_time_range
 from clio.i18n import t
 from clio.identity import legacy_segment_offset_sec, load_identity
 from clio.plan_readiness import expand_index_keys
+from clio.tasks._helpers import normalize_plan_segment
 from clio.utils import get_duration_sec, probe_media_details, write_text_atomic
 
 logger = logging.getLogger("clio.export.jianying")
@@ -114,7 +115,7 @@ def _build_index_to_source(texts_dir: Path, *, index_width: int = 3) -> dict[str
         return mapping
     for p in sorted(texts_dir.glob("*.json")):
         try:
-            data = json.loads(p.read_text(encoding="utf-8"))
+            data = json.loads(p.read_text(encoding="utf-8-sig"))
         except (json.JSONDecodeError, OSError) as e:
             logger.debug(t("export.debug_read_failed", {"path": p, "error": e}))
             continue
@@ -159,7 +160,7 @@ def _build_index_to_offset(texts_dir: Path, *, index_width: int = 3) -> dict[str
         return offsets
     for p in sorted(texts_dir.glob("*.json")):
         try:
-            data = json.loads(p.read_text(encoding="utf-8"))
+            data = json.loads(p.read_text(encoding="utf-8-sig"))
         except (json.JSONDecodeError, OSError):
             continue
         identity = load_identity(data)
@@ -218,8 +219,9 @@ def _build_materials(
 
     index_to_source = index_to_source or {}
 
-    for i, seg in enumerate(plan_data.get("sequence", [])):
-        idx = seg.get("index", "")
+    for i, raw_seg in enumerate(plan_data.get("sequence", [])):
+        seg = normalize_plan_segment(raw_seg)
+        idx = seg["index"]
         if not idx:
             continue
 
@@ -329,8 +331,9 @@ def _build_tracks(
     index_to_duration_us = index_to_duration_us or {}
     previous_video: dict | None = None
 
-    for i, seg in enumerate(plan_data.get("sequence", [])):
-        idx = seg.get("index", "")
+    for i, raw_seg in enumerate(plan_data.get("sequence", [])):
+        seg = normalize_plan_segment(raw_seg)
+        idx = seg["index"]
         if idx not in index_to_material_id:
             skipped_count += 1
             continue
@@ -493,7 +496,7 @@ def export_plan_to_jianying(
     if not plan_path.is_file():
         raise FileNotFoundError(t("export.plan_missing", {"path": plan_path}))
 
-    plan_data = json.loads(plan_path.read_text(encoding="utf-8"))
+    plan_data = json.loads(plan_path.read_text(encoding="utf-8-sig"))
     sequence = plan_data.get("sequence", [])
     if not sequence:
         print(t("export.plan_empty_sequence", {"path": plan_path}))

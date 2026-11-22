@@ -1,0 +1,189 @@
+diff --git a/clio/ui/routes/videos.py b/clio/ui/routes/videos.py
+--- a/clio/ui/routes/videos.py
++++ b/clio/ui/routes/videos.py
+@@ -27,6 +27,7 @@
+ from clio.utils import (
+     JsonValue,
+     get_duration_sec,
++    path_write_lock,
+     probe_media_details,
+     resolve_binary,
+     safe_basename,
+@@ -1006,7 +1007,6 @@
+     raw = obj.get("videos", [])
+     if not isinstance(raw, list):
+         return handler._send_json({"ok": False, "error": "videos must be a list"}, 400)
+-    previous_keys = {_video_key(p) for p in load_selected_videos(proj_dir)}
+     paths: list[Path] = []
+     rejected: list[str] = []
+     for item in raw:
+@@ -1023,7 +1023,10 @@
+         if key not in seen:
+             seen.add(key)
+             unique.append(p)
+-    save_selected_videos(proj_dir, unique)
++    # Serialize with relink and other selection saves (read previous -> write).
++    with path_write_lock(proj_dir / "videos.json"):
++        previous_keys = {_video_key(p) for p in load_selected_videos(proj_dir)}
++        save_selected_videos(proj_dir, unique)
+     _invalidate_videos_cache(proj_dir)
+     payload: dict[str, Any] = {"ok": True, "count": len(unique)}
+     candidates = obj.get("candidates")
+@@ -1069,6 +1072,20 @@
+         return handler._send_json({"ok": False, "error": t("api.relink_unresolvable", {"path": new_path})}, 400)
+     if not resolved.is_file() or resolved.suffix.lower() not in VIDEO_EXTS:
+         return handler._send_json({"ok": False, "error": t("api.relink_invalid_video", {"path": new_path})}, 400)
++    with path_write_lock(proj_dir / "videos.json"):
++        error = _relink_locked(proj_dir, old_path, resolved)
++    if error is not None:
++        body, status = error
++        return handler._send_json(body, status)
++    _invalidate_videos_cache(proj_dir)
++    handler._send_json({"ok": True, "path": str(resolved)})
++
++
++def _relink_locked(proj_dir: Path, old_path: str, resolved: Path) -> tuple[dict[str, Any], int] | None:
++    """Replace *old_path* with *resolved* in videos.json; caller holds its lock.
++
++    Returns an error (body, status) or None after saving.
++    """
+     videos = load_selected_videos(proj_dir)
+     try:
+         old_str = str(Path(old_path).expanduser().resolve())
+@@ -1090,22 +1107,15 @@
+         if len(matches) == 1:
+             matched_idx = matches[0][0]
+         elif len(matches) > 1:
+-            return handler._send_json(
+-                {"ok": False, "error": t("api.relink_ambiguous", {"name": old_name})},
+-                400,
+-            )
++            return {"ok": False, "error": t("api.relink_ambiguous", {"name": old_name})}, 400
+         else:
+-            return handler._send_json({"ok": False, "error": t("api.video_not_in_project", {"path": old_path})}, 404)
++            return {"ok": False, "error": t("api.video_not_in_project", {"path": old_path})}, 404
+     new_key = _video_key(resolved)
+     for idx, video in enumerate(videos):
+         if idx == matched_idx:
+             continue
+         if _video_key(video) == new_key:
+-            return handler._send_json(
+-                {"ok": False, "error": t("api.video_already_in_project", {"path": resolved})},
+-                409,
+-            )
++            return {"ok": False, "error": t("api.video_already_in_project", {"path": resolved})}, 409
+     videos[matched_idx] = resolved
+     save_selected_videos(proj_dir, videos)
+-    _invalidate_videos_cache(proj_dir)
+-    handler._send_json({"ok": True, "path": str(resolved)})
++    return None
+diff --git a/clio/ui/routes/projects.py b/clio/ui/routes/projects.py
+--- a/clio/ui/routes/projects.py
++++ b/clio/ui/routes/projects.py
+@@ -9,6 +9,7 @@
+ 
+ from clio.i18n import t
+ from clio.ui.services.file_service import _create_project_yaml, _save_atomic
++from clio.utils import path_write_lock
+ from clio.ui.services.project_service import (
+     _add_to_registry,
+     _detect_steps,
+@@ -91,17 +92,23 @@
+     handler._send_json({"projects": projects, "last_project": last_project_payload})
+ 
+ 
++# UI session state the client may persist; output_dir/version/createdAt stay server-owned.
++_PROJECT_CLIENT_FIELDS = ("currentDay", "source", "lastEntity", "lastVideo", "name")
++
++
+ def handle_put_project(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
+     """Handle PUT /api/project."""
+     proj_dir = handler._resolve_project_dir(qs)
+     proj_file = proj_dir / "project.json"
+-    data = _load_project_json(proj_dir)
+-    merged = {**handler.DEFAULT_PROJECT, **data, **obj}
+-    merged["updatedAt"] = datetime.datetime.now().isoformat(timespec="seconds")
+-    if not proj_file.is_file():
+-        merged["createdAt"] = merged["updatedAt"]
++    updates = {key: obj[key] for key in _PROJECT_CLIENT_FIELDS if key in obj}
+     proj_dir.mkdir(parents=True, exist_ok=True)
+-    _save_atomic(proj_file, json.dumps(merged, ensure_ascii=False, indent=2).encode("utf-8"))
++    with path_write_lock(proj_file):
++        data = _load_project_json(proj_dir)
++        merged = {**handler.DEFAULT_PROJECT, **data, **updates}
++        merged["updatedAt"] = datetime.datetime.now().isoformat(timespec="seconds")
++        if not proj_file.is_file():
++            merged["createdAt"] = merged["updatedAt"]
++        _save_atomic(proj_file, json.dumps(merged, ensure_ascii=False, indent=2).encode("utf-8"))
+     config_path = handler.config_path
+     try:
+         _save_last_project(merged.get("name") or proj_dir.name, config_path, project_dir=str(proj_dir))
+diff --git a/clio/tests/test_fix_project_writes.py b/clio/tests/test_fix_project_writes.py
+new file mode 100644
+--- /dev/null
++++ b/clio/tests/test_fix_project_writes.py
+@@ -0,0 +1,64 @@
++"""Regression tests: PUT /api/project is locked and only accepts UI session fields."""
++
++from __future__ import annotations
++
++import json
++import threading
++import time
++from pathlib import Path
++from unittest.mock import MagicMock, patch
++
++from clio.ui.routes import projects as projects_mod
++from clio.ui.routes.projects import handle_put_project
++
++
++def _handler(proj_dir: Path) -> MagicMock:
++    handler = MagicMock()
++    handler._resolve_project_dir.return_value = proj_dir
++    handler.DEFAULT_PROJECT = {"currentDay": "day1", "source": "compressed", "name": proj_dir.name}
++    handler.config_path = None
++    return handler
++
++
++def test_put_project_ignores_server_owned_fields(tmp_path: Path):
++    proj_file = tmp_path / "project.json"
++    proj_file.write_text(json.dumps({"name": "p", "output_dir": "/safe/out", "version": 2}), encoding="utf-8")
++
++    with patch.object(projects_mod, "_save_last_project"):
++        handle_put_project(
++            _handler(tmp_path),
++            {},
++            {"currentDay": "day3", "output_dir": "/attacker", "version": 99, "createdAt": "x"},
++        )
++
++    data = json.loads(proj_file.read_text(encoding="utf-8"))
++    assert data["currentDay"] == "day3"
++    assert data["output_dir"] == "/safe/out"
++    assert data["version"] == 2
++    assert data.get("createdAt") != "x"
++
++
++def test_concurrent_put_project_keeps_both_updates(tmp_path: Path):
++    (tmp_path / "project.json").write_text(json.dumps({"name": "p"}), encoding="utf-8")
++    real_load = projects_mod._load_project_json
++
++    def slow_load(path):
++        data = real_load(path)
++        time.sleep(0.2)
++        return data
++
++    with patch.object(projects_mod, "_load_project_json", side_effect=slow_load), patch.object(
++        projects_mod, "_save_last_project"
++    ):
++        threads = [
++            threading.Thread(target=handle_put_project, args=(_handler(tmp_path), {}, {"currentDay": "day2"})),
++            threading.Thread(target=handle_put_project, args=(_handler(tmp_path), {}, {"lastVideo": "a.mp4"})),
++        ]
++        for th in threads:
++            th.start()
++        for th in threads:
++            th.join(timeout=10)
++
++    data = json.loads((tmp_path / "project.json").read_text(encoding="utf-8"))
++    assert data["currentDay"] == "day2"
++    assert data["lastVideo"] == "a.mp4"

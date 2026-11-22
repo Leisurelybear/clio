@@ -1,0 +1,92 @@
+diff --git a/clio/analyze.py b/clio/analyze.py
+--- a/clio/analyze.py
++++ b/clio/analyze.py
+@@ -78,6 +78,7 @@
+ from clio.utils import extract_json
+ 
+ _trip_context_cache: dict[str, str] = {}
++_trip_context_lock = threading.Lock()
+ 
+ 
+ def _task_temperature(config: AppConfig, task: TaskName) -> float | None:
+@@ -136,10 +137,16 @@
+ def _store_trip_context(project_dir: str, key: str, text: str) -> None:
+     """Keep at most one cached trip context for each project directory."""
+     prefix = f"{project_dir}@"
+-    for cached_key in list(_trip_context_cache):
+-        if cached_key.startswith(prefix):
+-            del _trip_context_cache[cached_key]
+-    _trip_context_cache[key] = text
++    with _trip_context_lock:
++        for cached_key in list(_trip_context_cache):
++            if cached_key.startswith(prefix):
++                _trip_context_cache.pop(cached_key, None)
++        _trip_context_cache[key] = text
++
++
++def _cached_trip_context(key: str) -> str | None:
++    with _trip_context_lock:
++        return _trip_context_cache.get(key)
+ 
+ 
+ def _refinement_value_compatible(original: Any, candidate: Any) -> bool:
+@@ -180,8 +187,9 @@
+             return ""
+         mtime = project_path.stat().st_mtime
+         key = f"{project_dir}@{mtime}"
+-        if key in _trip_context_cache:
+-            return _trip_context_cache[key]
++        cached = _cached_trip_context(key)
++        if cached is not None:
++            return cached
+         text = project_path.read_text(encoding="utf-8").strip()
+         if text:
+             _store_trip_context(project_dir, key, text)
+@@ -190,8 +198,9 @@
+     if default_path is not None:
+         mtime = default_path.stat().st_mtime
+         key = f"{project_dir}@default@{mtime}"
+-        if key in _trip_context_cache:
+-            return _trip_context_cache[key]
++        cached = _cached_trip_context(key)
++        if cached is not None:
++            return cached
+         text = default_path.read_text(encoding="utf-8").strip()
+         if text:
+             _store_trip_context(project_dir, key, text)
+diff --git a/clio/tests/test_fix_analyze_context.py b/clio/tests/test_fix_analyze_context.py
+new file mode 100644
+--- /dev/null
++++ b/clio/tests/test_fix_analyze_context.py
+@@ -0,0 +1,31 @@
++"""Regression tests for analyze.py trip-context handling (A-09 / A-10)."""
++
++from __future__ import annotations
++
++import threading
++
++import clio.analyze as analyze_mod
++
++
++def test_store_trip_context_is_safe_under_concurrent_eviction():
++    analyze_mod._trip_context_cache.clear()
++    errors: list[BaseException] = []
++    start = threading.Barrier(8)
++
++    def worker(n: int) -> None:
++        try:
++            start.wait()
++            for i in range(500):
++                analyze_mod._store_trip_context("/proj", f"/proj@{n}-{i}", "text")
++        except Exception as exc:  # noqa: BLE001 - surface any worker failure in the assert below
++            errors.append(exc)
++
++    threads = [threading.Thread(target=worker, args=(n,)) for n in range(8)]
++    for thread in threads:
++        thread.start()
++    for thread in threads:
++        thread.join()
++
++    assert errors == []
++    assert len([k for k in analyze_mod._trip_context_cache if k.startswith("/proj@")]) == 1
++    analyze_mod._trip_context_cache.clear()

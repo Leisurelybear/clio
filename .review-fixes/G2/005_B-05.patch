@@ -1,0 +1,102 @@
+diff --git a/clio/tasks/migrate.py b/clio/tasks/migrate.py
+--- a/clio/tasks/migrate.py
++++ b/clio/tasks/migrate.py
+@@ -11,7 +11,7 @@
+ 
+ from clio.i18n import SUPPORTED_LOCALES, t
+ from clio.tasks._video_loader import load_selected_videos, save_selected_videos
+-from clio.utils import JsonValue, find_videos, write_json_atomic
++from clio.utils import JsonValue, find_videos, safe_basename, validate_within_root, write_json_atomic
+ 
+ _REGISTRY_READ_ERRORS = (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError)
+ _YAML_READ_ERRORS = (OSError, UnicodeDecodeError, yaml.YAMLError, TypeError, ValueError)
+@@ -151,7 +151,14 @@
+ ) -> tuple[Path, bool]:
+     if old_input_path.resolve() == old_dir.resolve() or videos_json.is_file() or abs_output.exists():
+         return old_dir, True
+-    return (config_path.parent / "projects" / name).resolve(), False
++    projects_root = config_path.parent / "projects"
++    # ``name`` comes from a possibly third-party project.yaml: keep plain names
++    # as-is, sanitize anything that is not a single path component, and never
++    # let the target escape ``projects/``.
++    folder = name
++    if not folder or folder in {".", ".."} or Path(folder).name != folder or Path(folder).is_absolute():
++        folder = safe_basename(folder, max_len=80)
++    return validate_within_root(projects_root / folder, projects_root), False
+ 
+ 
+ def _write_migrated_yaml(
+@@ -281,10 +288,15 @@
+         return False, str(e)
+ 
+     old_input_path = _resolve_legacy_input_path(old_dir, paths_raw)
+-    name = old_raw.get("name") or old_dir.name
++    name = str(old_raw.get("name") or old_dir.name)
+     old_json = old_dir / "project.json"
+     abs_output = _resolve_output_dir(old_dir, paths_raw, old_json)
+-    new_dir, in_place = _select_migration_target(old_dir, videos_json, abs_output, config_path, name, old_input_path)
++    try:
++        new_dir, in_place = _select_migration_target(
++            old_dir, videos_json, abs_output, config_path, name, old_input_path
++        )
++    except ValueError as e:
++        return False, t("task.migrate.migrate_error", {"dir": old_dir, "detail": e})
+ 
+     print(
+         t("task.migrate.migrating", {"src": old_dir, "dst": new_dir})
+diff --git a/clio/tests/test_fix_migrate.py b/clio/tests/test_fix_migrate.py
+--- a/clio/tests/test_fix_migrate.py
++++ b/clio/tests/test_fix_migrate.py
+@@ -5,6 +5,7 @@
+ import json
+ from pathlib import Path
+ 
++import pytest
+ import yaml
+ 
+ from clio.tasks.migrate import run_migrate
+@@ -70,3 +71,44 @@
+         assert Path(data["projects"][0]["project_dir"]).resolve() == project.resolve()
+         assert data["projects"][1] == {"name": "other", "project_dir": str(other), "color": "red"}
+         assert data["last_project"] == {"name": "other", "project_dir": str(other)}
++
++
++def _external_project(tmp_path: Path, name: object) -> Path:
++    media = tmp_path / "media"
++    media.mkdir()
++    (media / "A.mp4").write_bytes(b"a")
++    project = tmp_path / "legacy"
++    project.mkdir()
++    (project / "project.yaml").write_text(
++        yaml.dump({"name": name, "paths": {"input_dir": str(media), "output_dir": str(tmp_path / "no-output")}}),
++        encoding="utf-8",
++    )
++    return project
++
++
++class TestMigrationTarget:
++    @pytest.mark.parametrize("name", ["../../escaped", "/abs/escaped", "..", "a/../../escaped"])
++    def test_name_cannot_escape_projects_dir(self, tmp_path: Path, name: str) -> None:
++        config_dir = tmp_path / "cfg"
++        config_dir.mkdir()
++        config_path = _config(config_dir)
++        project = _external_project(tmp_path, name)
++
++        run_migrate(config_path, from_path=project)
++
++        projects_root = (config_dir / "projects").resolve()
++        assert not (tmp_path / "escaped").exists()
++        assert not (config_dir / "escaped").exists()
++        for created in tmp_path.rglob("project.json"):
++            assert created.resolve().is_relative_to(projects_root)
++
++    def test_non_string_name_is_accepted(self, tmp_path: Path) -> None:
++        config_dir = tmp_path / "cfg"
++        config_dir.mkdir()
++        config_path = _config(config_dir)
++        project = _external_project(tmp_path, 2024)
++
++        updated, errors = run_migrate(config_path, from_path=project)
++
++        assert updated == 1, errors
++        assert (config_dir / "projects" / "2024" / "project.yaml").is_file()

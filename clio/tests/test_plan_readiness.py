@@ -105,9 +105,12 @@ def test_collect_project_indices_from_compressed(tmp_path):
     (texts / "003_foo.json").write_text('{"index": "003"}', encoding="utf-8")
     cfg = SimpleNamespace(compressed_dir=comp, texts_dir=texts, project_dir=None)
     known, offline = collect_project_indices(cfg)
-    assert "001" in known and "002" in known and "003" in known
-    # Expanded forms so plan "001" matches texts that stored int 1 / "1"
-    assert "1" in known and "2" in known and "3" in known
+    assert "001" in known and "002" in known
+    # Expanded forms so plan "001" matches compressed media that stored int 1 / "1"
+    assert "1" in known and "2" in known
+    # Text-only analyses must not make an unavailable index appear present.
+    assert "003" not in known
+    assert "3" not in known
     assert offline == set()
 
 
@@ -168,9 +171,36 @@ def test_collect_offline_from_videos_json(tmp_path):
         naming=SimpleNamespace(index_width=3),
     )
     known, offline = collect_project_indices(cfg)
-    assert "001" in known or "1" in known
+    assert known == set()
     assert offline  # mapped via original_stem
     assert "001" in offline or "1" in offline
+
+
+def test_text_only_index_is_missing_media_for_readiness(tmp_path):
+    import json
+    from types import SimpleNamespace
+
+    from clio.plan_readiness import check_plan_export_readiness, collect_project_indices
+
+    texts = tmp_path / "texts"
+    texts.mkdir()
+    (texts / "003_missing.json").write_text(json.dumps({"index": 3}), encoding="utf-8")
+    cfg = SimpleNamespace(
+        compressed_dir=tmp_path / "compressed",
+        texts_dir=texts,
+        project_dir=None,
+        naming=SimpleNamespace(index_width=3),
+    )
+
+    known, offline = collect_project_indices(cfg)
+    result = check_plan_export_readiness(
+        _plan([{"index": "003", "use_timeline": "00:00-00:05", "title": "t", "reason": "r"}]),
+        known_indices=known,
+        offline_indices=offline,
+    )
+
+    assert not result.ok
+    assert any(issue.code == "index_missing" for issue in result.errors)
 
 
 def test_collect_project_indices_respects_videos_selection(tmp_path):
@@ -540,3 +570,188 @@ def test_collect_project_analysis_timelines_merges_and_preserves_empty(tmp_path)
         "1": [(0.0, 10.0), (15.0, 30.0)],
         "2": [],
     }
+
+
+def test_collect_project_indices_maps_legacy_analysis_index_to_current_compressed(tmp_path):
+    import json
+    from types import SimpleNamespace
+
+    from clio.plan_readiness import collect_project_indices
+
+    comp = tmp_path / "compressed"
+    comp.mkdir()
+    (comp / "197_GX011275.mp4").write_bytes(b"x")
+    texts = tmp_path / "texts"
+    texts.mkdir()
+    (texts / "016_title.json").write_text(
+        json.dumps(
+            {
+                "index": "016",
+                "media_identity": {
+                    "original_stem": "GX011275",
+                    "compressed_stem": "016_GX011275",
+                    "index": "016",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    cfg = SimpleNamespace(
+        compressed_dir=comp,
+        texts_dir=texts,
+        project_dir=None,
+        naming=SimpleNamespace(index_width=3),
+    )
+
+    known, offline = collect_project_indices(cfg)
+
+    assert "197" in known
+    assert "016" in known
+    assert "16" in known
+    assert offline == set()
+
+
+def test_collect_project_media_durations_maps_legacy_analysis_index_to_current_compressed(tmp_path):
+    import json
+    from types import SimpleNamespace
+
+    from clio.plan_readiness import collect_project_media_durations
+    from clio.vmeta import VideoMeta
+
+    source = tmp_path / "GX011275.mp4"
+    source.write_bytes(b"source")
+    comp = tmp_path / "compressed"
+    comp.mkdir()
+    clip = comp / "197_GX011275.mp4"
+    clip.write_bytes(b"compressed")
+    VideoMeta.build(source, clip, 20.0, 12.0).write(clip)
+    texts = tmp_path / "texts"
+    texts.mkdir()
+    (texts / "016_title.json").write_text(
+        json.dumps(
+            {
+                "index": "016",
+                "media_identity": {
+                    "original_stem": "GX011275",
+                    "compressed_stem": "016_GX011275",
+                    "index": "016",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    cfg = SimpleNamespace(
+        compressed_dir=comp,
+        texts_dir=texts,
+        project_dir=None,
+        naming=SimpleNamespace(index_width=3),
+        paths=SimpleNamespace(ffprobe=""),
+    )
+
+    durations = collect_project_media_durations(cfg)
+
+    assert durations["197"] == 12.0
+    assert durations["016"] == 12.0
+
+
+def test_collect_project_indices_rejects_legacy_alias_with_multiple_owners(tmp_path):
+    import json
+    from types import SimpleNamespace
+
+    from clio.plan_readiness import collect_project_indices
+
+    comp = tmp_path / "compressed"
+    comp.mkdir()
+    (comp / "197_GX011275.mp4").write_bytes(b"a")
+    (comp / "198_GX011275.mp4").write_bytes(b"b")
+    texts = tmp_path / "texts"
+    texts.mkdir()
+    (texts / "016_title.json").write_text(
+        json.dumps(
+            {
+                "index": "016",
+                "media_identity": {
+                    "original_stem": "GX011275",
+                    "compressed_stem": "016_GX011275",
+                    "index": "016",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    cfg = SimpleNamespace(
+        compressed_dir=comp,
+        texts_dir=texts,
+        project_dir=None,
+        naming=SimpleNamespace(index_width=3),
+    )
+
+    known, _ = collect_project_indices(cfg)
+
+    assert "197" in known
+    assert "198" in known
+    assert "016" not in known
+    assert "16" not in known
+
+
+def test_duration_short_warning_uses_target_floor():
+    plan = _plan([{"index": "001", "use_timeline": "00:00-00:20", "title": "t", "reason": "r"}], total_estimated_sec=68)
+
+    plain = check_plan_export_readiness(plan, known_indices={"001"})
+    assert not any(i.code == "duration_short" for i in plain.warnings)
+
+    targeted = check_plan_export_readiness(plan, known_indices={"001"}, target_duration_sec=180)
+    short = [i for i in targeted.warnings if i.code == "duration_short"]
+    assert short and "144.0" in short[0].message
+
+
+def test_duration_short_warning_keeps_floor_without_target():
+    plan = _plan([{"index": "001", "use_timeline": "00:00-00:20", "title": "t", "reason": "r"}], total_estimated_sec=25)
+
+    result = check_plan_export_readiness(plan, known_indices={"001"})
+
+    assert any(i.code == "duration_short" for i in result.warnings)
+
+
+def _paced_segments(count: int, timeline: str) -> list[dict[str, str]]:
+    return [{"index": "001", "use_timeline": timeline, "title": "t", "reason": "r"} for _ in range(count)]
+
+
+def test_readiness_flags_fragmented_narrative_segments():
+    plan = _plan(_paced_segments(12, "00:00-00:05"), total_estimated_sec=60)
+
+    result = check_plan_export_readiness(plan, known_indices={"001"}, target_duration_sec=180)
+
+    codes = [issue.code for issue in result.warnings]
+    assert "duration_short" in codes
+    assert "duration_fragments" in codes
+    fragment = next(issue for issue in result.warnings if issue.code == "duration_fragments")
+    # The opening segment is hook-exempt, so 11 of the 12 segments are fragments.
+    assert "11" in fragment.message
+
+
+def test_readiness_fragment_warning_needs_more_than_quarter_of_segments():
+    within_tolerance = _plan(
+        _paced_segments(7, "00:00-00:30") + _paced_segments(2, "00:00-00:05"),
+        total_estimated_sec=220,
+    )
+    beyond_tolerance = _plan(
+        _paced_segments(6, "00:00-00:30") + _paced_segments(3, "00:00-00:05"),
+        total_estimated_sec=195,
+    )
+
+    within = check_plan_export_readiness(within_tolerance, known_indices={"001"}, target_duration_sec=180)
+    beyond = check_plan_export_readiness(beyond_tolerance, known_indices={"001"}, target_duration_sec=180)
+
+    assert not any(issue.code == "duration_fragments" for issue in within.warnings)
+    assert any(issue.code == "duration_fragments" for issue in beyond.warnings)
+
+
+def test_readiness_allows_short_broll_inserts():
+    sequence = _paced_segments(5, "00:00-00:30") + _paced_segments(4, "00:00-00:02")
+    plan = _plan(sequence, total_estimated_sec=158)
+
+    result = check_plan_export_readiness(plan, known_indices={"001"}, target_duration_sec=180)
+
+    assert not any(issue.code == "duration_fragments" for issue in result.warnings)
+    assert not any(issue.code == "duration_short" for issue in result.warnings)

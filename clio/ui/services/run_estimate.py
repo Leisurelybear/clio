@@ -10,7 +10,7 @@ from typing import Any
 from clio.ai.base import TaskName
 from clio.ai.token_usage import estimate_cost_usd
 from clio.analyze_windows import build_analyze_windows
-from clio.config.models import AppConfig
+from clio.config.models import AppConfig, resolve_model_prices
 
 # Video analysis tokenization is model-specific. These values are deliberately
 # coarse budgets for a preview, not an attempt to mirror provider internals.
@@ -247,11 +247,7 @@ def _task_prices(config: AppConfig, task: TaskName) -> tuple[float, float] | Non
     provider = config.ai.providers.get(task_config.provider)
     if provider is None:
         return None
-    prompt_price = float(provider.prompt_price_per_1m_usd or 0.0)
-    completion_price = float(provider.completion_price_per_1m_usd or 0.0)
-    if prompt_price <= 0 or completion_price <= 0:
-        return None
-    return prompt_price, completion_price
+    return resolve_model_prices(provider, task_config.model)
 
 
 def _non_negative_int(value: Any) -> int:

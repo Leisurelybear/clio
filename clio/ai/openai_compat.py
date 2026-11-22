@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 
 import httpx
 
@@ -17,6 +18,40 @@ def _usage_count(value: object) -> int:
 
 _DEFAULT_BASE_URL = "https://api.openai.com/v1"
 _OLLAMA_BASE_URL = "http://localhost:11434/v1"
+# Transient client statuses worth retrying (timeout, conflict, too early, rate limit).
+_RETRYABLE_STATUSES = frozenset({408, 409, 425, 429})
+# How long a (model, schema) pair skips response_format after the endpoint rejected it.
+_STRUCTURED_OUTPUT_RETRY_SEC = 600.0
+
+
+def _strict_schema_compatible(schema: object) -> bool:
+    """True when OpenAI strict mode accepts *schema*.
+
+    Strict mode requires every object to list all of its properties in
+    ``required`` and to set ``additionalProperties: false``. Pydantic leaves
+    fields with defaults out of ``required``, so such schemas must not be sent
+    with ``strict: true`` (the request would be rejected).
+    """
+    if isinstance(schema, list):
+        return all(_strict_schema_compatible(item) for item in schema)
+    if not isinstance(schema, dict):
+        return True
+    properties = schema.get("properties")
+    if schema.get("type") == "object" or isinstance(properties, dict):
+        props = properties if isinstance(properties, dict) else {}
+        if schema.get("additionalProperties") is not False:
+            return False
+        if set(schema.get("required") or []) != set(props):
+            return False
+    for key in ("properties", "$defs", "definitions", "patternProperties"):
+        mapping = schema.get(key)
+        if isinstance(mapping, dict) and not all(_strict_schema_compatible(sub) for sub in mapping.values()):
+            return False
+    for key in ("items", "not", "anyOf", "oneOf", "allOf", "prefixItems"):
+        if key in schema and not _strict_schema_compatible(schema[key]):
+            return False
+    extra = schema.get("additionalProperties")
+    return not isinstance(extra, dict) or _strict_schema_compatible(extra)
 
 
 class OpenAICompatProvider:
@@ -41,7 +76,9 @@ class OpenAICompatProvider:
         self._rl = make_rate_limiter(cfg.requests_per_minute)
         self._retry_attempts = max(1, cfg.retry_attempts + 1)
         self._max_tokens = cfg.max_tokens
-        self._structured_output_disabled = False
+        # (model, schema name) -> monotonic deadline; a rejection only affects that pair.
+        self._structured_output_disabled_until: dict[tuple[str, str], float] = {}
+        self._structured_output_lock = threading.Lock()
 
     def close(self) -> None:
         self._client.close()
@@ -54,10 +91,25 @@ class OpenAICompatProvider:
             "type": "json_schema",
             "json_schema": {
                 "name": structured_output.name,
-                "strict": True,
+                "strict": _strict_schema_compatible(structured_output.schema),
                 "schema": structured_output.schema,
             },
         }
+
+    def _structured_output_disabled(self, model: str, name: str) -> bool:
+        key = (model, name)
+        with self._structured_output_lock:
+            until = self._structured_output_disabled_until.get(key)
+            if until is None:
+                return False
+            if time.monotonic() >= until:
+                del self._structured_output_disabled_until[key]
+                return False
+            return True
+
+    def _disable_structured_output(self, model: str, name: str) -> None:
+        with self._structured_output_lock:
+            self._structured_output_disabled_until[model, name] = time.monotonic() + _STRUCTURED_OUTPUT_RETRY_SEC
 
     @staticmethod
     def _structured_output_unsupported(response: httpx.Response) -> bool:
@@ -95,7 +147,7 @@ class OpenAICompatProvider:
             if self._max_tokens and self._max_tokens > 0:
                 payload["max_tokens"] = int(self._max_tokens)
             response_format = None
-            if structured_output is not None and not self._structured_output_disabled:
+            if structured_output is not None and not self._structured_output_disabled(model, structured_output.name):
                 response_format = self._response_format(structured_output)
                 payload["response_format"] = response_format
             headers = {"Content-Type": "application/json"}
@@ -106,8 +158,12 @@ class OpenAICompatProvider:
                 headers=headers,
                 json=payload,
             )
-            if response_format is not None and self._structured_output_unsupported(response):
-                self._structured_output_disabled = True
+            if (
+                structured_output is not None
+                and response_format is not None
+                and self._structured_output_unsupported(response)
+            ):
+                self._disable_structured_output(model, structured_output.name)
                 retry_payload = {key: value for key, value in payload.items() if key != "response_format"}
                 response = self._client.post(
                     f"{self._base_url}/chat/completions",
@@ -115,12 +171,22 @@ class OpenAICompatProvider:
                     json=retry_payload,
                 )
             sc = response.status_code
-            if sc == 429 or sc >= 500:
+            if sc in _RETRYABLE_STATUSES or sc >= 500:
                 raise httpx.HTTPStatusError(f"status {sc}", request=response.request, response=response)
             if 400 <= sc < 500:
                 body = response.text[:200]
                 raise ValueError(t("ai.api_error_response", {"url": self._base_url, "status": sc, "body": body}))
-            data = response.json()
+            # A proxy login page or gateway HTML can arrive with 200; report it like an API error.
+            try:
+                data = response.json()
+            except ValueError as exc:
+                body = response.text[:200]
+                raise ValueError(
+                    t("ai.api_error_response", {"url": self._base_url, "status": sc, "body": body})
+                ) from exc
+            if not isinstance(data, dict):
+                body = response.text[:200]
+                raise ValueError(t("ai.api_error_response", {"url": self._base_url, "status": sc, "body": body}))
             usage_raw = data.get("usage")
             usage = None
             if usage_raw:

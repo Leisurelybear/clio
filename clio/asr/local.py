@@ -14,6 +14,7 @@ class LocalWhisperProvider:
     capabilities = ProviderCapabilities(
         id="local",
         display_name=t("asr.local.display_name"),
+        display_name_key="asr.local.display_name",
         supports_local_file=True,
     )
 

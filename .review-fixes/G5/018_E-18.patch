@@ -1,0 +1,67 @@
+diff --git a/clio/ui/static/src/editor-config-form.js b/clio/ui/static/src/editor-config-form.js
+--- a/clio/ui/static/src/editor-config-form.js
++++ b/clio/ui/static/src/editor-config-form.js
+@@ -226,10 +226,11 @@
+   if (Array.isArray(obj)) {
+     const allStr = obj.every(x => typeof x === 'string');
+     if (allStr) {
+-      return `<fieldset class="config-fieldset"><legend>${labelFromPath(path)}</legend><label class="config-field config-str"><textarea data-path="${safePath}" rows="${Math.max(2, obj.length)}">${escapeHtml(obj.join('\n'))}</textarea><span class="hint">${t('settings.one_per_line')}</span></label></fieldset>`;
++      return `<fieldset class="config-fieldset"><legend>${labelFromPath(path)}</legend><label class="config-field config-str"><textarea data-path="${safePath}" data-kind="str-list" rows="${Math.max(2, obj.length)}">${escapeHtml(obj.join('\n'))}</textarea><span class="hint">${t('settings.one_per_line')}</span></label></fieldset>`;
+     }
+     return `<fieldset class="config-fieldset"><legend>${labelFromPath(path)}</legend>${obj.map((item, i) =>
+-      `<div class="config-array-item">${_renderConfigForm(item, path + '[' + i + ']', descriptions)}</div>`
++      // Dot-separated index so setDeep() writes back into the array item.
++      `<div class="config-array-item">${_renderConfigForm(item, `${path}.${i}`, descriptions)}</div>`
+     ).join('')}</fieldset>`;
+   }
+   if (typeof obj === 'object') {
+@@ -361,6 +362,10 @@
+   return Number.isNaN(n) ? raw : n;
+ }
+ 
++function _strListFromFieldValue(raw) {
++  return String(raw).split(/\r?\n/).map(s => s.trim()).filter(Boolean);
++}
++
+ export function _attachConfigForm(pane, sourceObj, descriptions) {
+   const bind = (el) => {
+     const onchange = () => {
+@@ -380,6 +385,9 @@
+         val = el.checked;
+       } else if (el.type === 'number') {
+         val = _numFromFieldValue(el.value);
++      } else if (el.dataset.kind === 'str-list') {
++        // "One per line" textarea for a list[str]: keep the list type.
++        val = _strListFromFieldValue(el.value);
+       } else {
+         val = el.value;
+       }
+diff --git a/clio/ui/static/src/__tests__/editor.test.js b/clio/ui/static/src/__tests__/editor.test.js
+--- a/clio/ui/static/src/__tests__/editor.test.js
++++ b/clio/ui/static/src/__tests__/editor.test.js
+@@ -226,3 +226,25 @@
+     expect(paths).toEqual([`custom.${evil}`, 'custom.a"b']);
+   });
+ });
++
++describe('_attachConfigForm - list write-back', () => {
++  it('keeps list[str] fields as arrays and writes object items by index', async () => {
++    const { _attachConfigForm } = await import('../editor-config-form.js');
++    const source = { custom: { tags: ['a', 'b'], items: [{ name: 'x' }, 7] } };
++    const pane = document.createElement('div');
++    pane.innerHTML = _renderConfigForm(source.custom, 'custom');
++    _attachConfigForm(pane, source, null);
++
++    const tags = pane.querySelector('textarea[data-path="custom.tags"]');
++    tags.value = 'a\r\n  c \r\n\r\nd';
++    tags.oninput();
++    expect(source.custom.tags).toEqual(['a', 'c', 'd']);
++
++    const name = pane.querySelector('input[data-path="custom.items.0.name"]');
++    expect(name).not.toBeNull();
++    name.value = 'y';
++    name.oninput();
++    expect(source.custom.items[0]).toEqual({ name: 'y' });
++    expect(Object.keys(source.custom)).toEqual(['tags', 'items']);
++  });
++});

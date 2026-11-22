@@ -1,0 +1,129 @@
+diff --git a/clio/main.py b/clio/main.py
+--- a/clio/main.py
++++ b/clio/main.py
+@@ -18,6 +18,7 @@
+ from clio.utils import discover_ffmpeg_bin, plan_day_stem, resolve_binary
+ 
+ PLACEHOLDER_KEYS = {"your_api_key_here", "YOUR_API_KEY", ""}
++SERVE_TOKEN_ENV = "CLIO_API_TOKEN"
+ 
+ 
+ def _add_io_args(
+@@ -316,6 +317,12 @@
+     p_serve.add_argument("--port", type=int, default=8765, help=t("cli.help.serve.port"))
+     p_serve.add_argument("--no-browser", action="store_true", help=t("cli.help.serve.no_browser"))
+     p_serve.add_argument("--token", type=str, default=None, help=t("cli.help.serve.token"))
++    p_serve.add_argument(
++        "--token-file",
++        type=Path,
++        default=None,
++        help=f"Read the API token from this file (or set {SERVE_TOKEN_ENV}); --token is visible in the process list",
++    )
+ 
+     sub.add_parser(
+         "desktop",
+@@ -692,8 +699,39 @@
+     return None
+ 
+ 
++def _resolve_serve_token(args: argparse.Namespace, config) -> str | None:
++    """Pick the API token: --token, --token-file, $CLIO_API_TOKEN, then config.
++
++    A token passed on the command line is visible to other local users via the
++    process list and shell history, so it still works but prints a warning.
++    """
++    cli_token = getattr(args, "token", None)
++    if cli_token:
++        print(
++            f"warning: --token exposes the API token in the process list; use --token-file or {SERVE_TOKEN_ENV}",
++            file=sys.stderr,
++        )
++        return cli_token
++    token_file = getattr(args, "token_file", None)
++    if token_file is not None:
++        token = Path(token_file).read_text(encoding="utf-8-sig").strip()
++        if not token:
++            raise ValueError(f"token file is empty: {token_file}")
++        return token
++    env_token = os.environ.get(SERVE_TOKEN_ENV, "").strip()
++    if env_token:
++        return env_token
++    return config.server.api_token or None
++
++
+ def _run_serve_command(args: argparse.Namespace, config, config_path: Path) -> int:
+     import time as _time
++
++    try:
++        api_token = _resolve_serve_token(args, config)
++    except (OSError, UnicodeDecodeError, ValueError) as e:
++        print(t("cli.error", {"detail": e}), file=sys.stderr)
++        return 1
+ 
+     t_ui = _time.perf_counter()
+     print("[startup] importing UI modules…")
+@@ -706,7 +744,7 @@
+         host=args.host,
+         port=args.port,
+         open_browser=not args.no_browser,
+-        api_token=args.token or config.server.api_token or None,
++        api_token=api_token,
+     )
+ 
+ 
+diff --git a/clio/tests/test_fix_main_serve_token.py b/clio/tests/test_fix_main_serve_token.py
+new file mode 100644
+--- /dev/null
++++ b/clio/tests/test_fix_main_serve_token.py
+@@ -0,0 +1,51 @@
++"""Regression tests for serve API-token sources (A-14)."""
++
++from __future__ import annotations
++
++from types import SimpleNamespace
++
++import pytest
++
++from clio.main import SERVE_TOKEN_ENV, _resolve_serve_token
++
++
++def _config(token: str = ""):
++    return SimpleNamespace(server=SimpleNamespace(api_token=token))
++
++
++def test_token_file_is_preferred_over_env_and_config(tmp_path, monkeypatch):
++    token_file = tmp_path / "token.txt"
++    token_file.write_text("from-file\n", encoding="utf-8")
++    monkeypatch.setenv(SERVE_TOKEN_ENV, "from-env")
++
++    args = SimpleNamespace(token=None, token_file=token_file)
++
++    assert _resolve_serve_token(args, _config("from-config")) == "from-file"
++
++
++def test_env_token_is_used_without_cli_flags(monkeypatch):
++    monkeypatch.setenv(SERVE_TOKEN_ENV, "from-env")
++
++    assert _resolve_serve_token(SimpleNamespace(token=None, token_file=None), _config("cfg")) == "from-env"
++
++
++def test_config_token_is_the_fallback(monkeypatch):
++    monkeypatch.delenv(SERVE_TOKEN_ENV, raising=False)
++
++    assert _resolve_serve_token(SimpleNamespace(token=None, token_file=None), _config("cfg")) == "cfg"
++    assert _resolve_serve_token(SimpleNamespace(token=None, token_file=None), _config("")) is None
++
++
++def test_cli_token_still_works_but_warns(monkeypatch, capsys):
++    monkeypatch.delenv(SERVE_TOKEN_ENV, raising=False)
++
++    assert _resolve_serve_token(SimpleNamespace(token="cli", token_file=None), _config()) == "cli"
++    assert "--token" in capsys.readouterr().err
++
++
++def test_empty_token_file_is_rejected(tmp_path):
++    token_file = tmp_path / "token.txt"
++    token_file.write_text("  \n", encoding="utf-8")
++
++    with pytest.raises(ValueError):
++        _resolve_serve_token(SimpleNamespace(token=None, token_file=token_file), _config())

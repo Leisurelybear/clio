@@ -279,7 +279,7 @@ class TestRunReindex:
         assert [s.segment_number for s in index.segments] == [1, 1]
 
     def test_stale_split_meta_not_trusted(self, config: AppConfig, compressed_dir: Path, input_dir: Path) -> None:
-        """A stale .vmeta declaring split offsets must be rebuilt, not trusted."""
+        """A stale .vmeta must neither be trusted nor refreshed into a "fresh" one."""
         (compressed_dir / "001_GL010683.mp4").write_text("fake0")
         src = input_dir / "GL010683.mp4"
         src.write_text("fake")
@@ -301,13 +301,46 @@ class TestRunReindex:
             mock_meta.split_info = None
             mock_build.return_value = mock_meta
 
+            result = run_reindex(config)
+
+        # Stale meta is left alone (compress re-encodes it later) and no index is written.
+        assert result == 0
+        assert mock_build.call_count == 0
+        assert VideoIndex.read("GL010683", compressed_dir) is None
+
+    def test_same_stem_other_source_vmeta_not_overwritten(
+        self, config: AppConfig, compressed_dir: Path, input_dir: Path
+    ) -> None:
+        """Two originals sharing a stem: each .vmeta keeps pointing at its own source."""
+        from clio.vmeta import VideoMeta
+
+        dir_a = input_dir / "a"
+        dir_b = input_dir / "b"
+        dir_a.mkdir()
+        dir_b.mkdir()
+        src_a = dir_a / "GL010683.mp4"
+        src_b = dir_b / "GL010683.mp4"
+        src_a.write_text("source a")
+        src_b.write_text("source b")
+        comp_a = compressed_dir / "001_GL010683.mp4"
+        comp_b = compressed_dir / "002_GL010683.mp4"
+        comp_a.write_text("comp a")
+        comp_b.write_text("comp b")
+        VideoMeta.build(source=src_a, target=comp_a, source_duration=10.0, target_duration=10.0).write(comp_a)
+        VideoMeta.build(source=src_b, target=comp_b, source_duration=20.0, target_duration=20.0).write(comp_b)
+
+        with (
+            patch("clio.tasks.reindex.get_duration_sec", return_value=10.0),
+            patch("clio.tasks.reindex.resolve_binary", return_value="ffprobe"),
+        ):
             run_reindex(config)
 
-        # Stale meta was replaced (build called) and its offsets were NOT reused.
-        assert mock_build.call_count == 1
+        meta_b = VideoMeta.read(comp_b)
+        assert meta_b is not None
+        assert meta_b.source_path_obj().resolve() == src_b.resolve()
         index = VideoIndex.read("GL010683", compressed_dir)
         assert index is not None
-        assert index.segments[0].offset_sec == 0.0
+        assert [s.filename for s in index.segments] == [comp_a.name]
 
     def test_fresh_split_meta_offsets_kept(self, config: AppConfig, compressed_dir: Path, input_dir: Path) -> None:
         """A fresh .vmeta with split offsets is kept verbatim (no averaging)."""
@@ -442,3 +475,18 @@ class TestOfflineCache:
         with patch("clio.tasks.reindex.run_reindex", return_value=0) as mock_reindex:
             assert self._run_auto(config) is True
         mock_reindex.assert_called_once()
+
+
+class TestSelectedVideosCache:
+    def test_videos_json_parsed_once_per_version(self, input_dir: Path) -> None:
+        from clio.tasks import reindex
+
+        (input_dir / "videos.json").write_text(json.dumps([str(input_dir / "A.mp4")]), encoding="utf-8")
+        with patch("clio.tasks._video_loader.load_selected_videos", wraps=None) as load:
+            load.return_value = [input_dir / "A.mp4"]
+            for _ in range(5):
+                reindex._find_original_for_stem("A", input_dir)
+        assert load.call_count <= 1
+
+        (input_dir / "videos.json").write_text(json.dumps([str(input_dir / "B.mp4"), "x"]), encoding="utf-8")
+        assert reindex._selected_videos(input_dir) == [input_dir / "B.mp4", Path("x")]

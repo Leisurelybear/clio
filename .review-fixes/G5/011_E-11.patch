@@ -1,0 +1,165 @@
+diff --git a/clio/ui/static/src/video-url.js b/clio/ui/static/src/video-url.js
+--- a/clio/ui/static/src/video-url.js
++++ b/clio/ui/static/src/video-url.js
+@@ -13,8 +13,9 @@
+  */
+ export function videoUrlFor(v, source, projectName) {
+   const projParam = projectName ? ('&project=' + encodeURIComponent(projectName)) : '';
+-  const tokenParam = sessionStorage.getItem('api_token');
+-  const extraParam = tokenParam ? ('&token=' + encodeURIComponent(tokenParam)) : '';
++  // Auth rides on the HttpOnly clio_session cookie; never put the API token
++  // into media URLs (they leak via DOM, logs and "copy address").
++  const extraParam = '';
+   if (source === 'cut') {
+     const dayParam = v?.cut_day ? ('&day=' + encodeURIComponent(v.cut_day)) : '';
+     const revParam = v?.rev ? ('&rev=' + encodeURIComponent(v.rev)) : '';
+diff --git a/clio/ui/static/src/sidebar-video-display.js b/clio/ui/static/src/sidebar-video-display.js
+--- a/clio/ui/static/src/sidebar-video-display.js
++++ b/clio/ui/static/src/sidebar-video-display.js
+@@ -15,8 +15,7 @@
+   params.set('file', name);
+   if (state.currentProjectName) params.set('project', state.currentProjectName);
+   if (state.currentProjectDir) params.set('project_dir', state.currentProjectDir);
+-  const tok = sessionStorage.getItem('api_token');
+-  if (tok) params.set('token', tok);
++  // No ?token=: the session cookie authenticates same-origin <img> requests.
+   const src = `/api/cover?${params.toString()}`;
+   // Fallback icon under img; onerror on the img swaps to icon via .cover-error.
+   return `<div class="video-thumb has-cover" title="${t('sidebar.ai_cover')}">
+diff --git a/clio/ui/static/src/editor-texts.js b/clio/ui/static/src/editor-texts.js
+--- a/clio/ui/static/src/editor-texts.js
++++ b/clio/ui/static/src/editor-texts.js
+@@ -125,8 +125,7 @@
+       params.set('file', coverName);
+       if (state.currentProjectName) params.set('project', state.currentProjectName);
+       if (state.currentProjectDir) params.set('project_dir', state.currentProjectDir);
+-      const tok = sessionStorage.getItem('api_token');
+-      if (tok) params.set('token', tok);
++      // No ?token=: the session cookie authenticates same-origin <img> requests.
+       coverUrl = `/api/cover?${params.toString()}`;
+     }
+     const img = coverUrl
+diff --git a/clio/ui/static/src/plan-range-picker.js b/clio/ui/static/src/plan-range-picker.js
+--- a/clio/ui/static/src/plan-range-picker.js
++++ b/clio/ui/static/src/plan-range-picker.js
+@@ -23,11 +23,10 @@
+ function videoUrlFor(v) {
+   const projParam = state.currentProjectName
+     ? `&project=${encodeURIComponent(state.currentProjectName)}` : '';
+-  const tokenParam = sessionStorage.getItem('api_token');
+-  const extraParam = tokenParam ? `&token=${encodeURIComponent(tokenParam)}` : '';
++  // No ?token=: the session cookie authenticates same-origin media requests.
+   const absParam = v?.abs_path ? `&abspath=${encodeURIComponent(v.abs_path)}` : '';
+   const source = state.source || 'compressed';
+-  return `/api/video?file=${encodeURIComponent(v.file)}&source=${source}${absParam}${projParam}${extraParam}`;
++  return `/api/video?file=${encodeURIComponent(v.file)}&source=${source}${absParam}${projParam}`;
+ }
+ 
+ function minSpanForDuration(duration) {
+diff --git a/clio/ui/static/src/sidebar.js b/clio/ui/static/src/sidebar.js
+--- a/clio/ui/static/src/sidebar.js
++++ b/clio/ui/static/src/sidebar.js
+@@ -41,10 +41,9 @@
+ 
+   const player = $('player');
+   const projParam = state.currentProjectName ? `&project=${encodeURIComponent(state.currentProjectName)}` : '';
+-  const tokenParam = sessionStorage.getItem('api_token');
+-  const extraParam = tokenParam ? `&token=${encodeURIComponent(tokenParam)}` : '';
++  // No ?token=: the session cookie authenticates same-origin media requests.
+   const absParam = v.abs_path ? `&abspath=${encodeURIComponent(v.abs_path)}` : '';
+-  player.src = `/api/video?file=${encodeURIComponent(file)}&source=${state.source}${absParam}${projParam}${extraParam}`;
++  player.src = `/api/video?file=${encodeURIComponent(file)}&source=${state.source}${absParam}${projParam}`;
+   $('player-name').textContent = file;
+ 
+   player.onloadedmetadata = () => {
+diff --git a/clio/ui/static/src/task-center.js b/clio/ui/static/src/task-center.js
+--- a/clio/ui/static/src/task-center.js
++++ b/clio/ui/static/src/task-center.js
+@@ -240,9 +240,8 @@
+ 
+ export function startTaskStream() {
+   if (_stream) return;
+-  let url = `/api/tasks/stream?after=${encodeURIComponent(_streamCursor)}`;
+-  const token = sessionStorage.getItem('api_token');
+-  if (token) url += `&token=${encodeURIComponent(token)}`;
++  // EventSource cannot send headers; the HttpOnly session cookie authenticates it.
++  const url = `/api/tasks/stream?after=${encodeURIComponent(_streamCursor)}`;
+   try { _stream = new EventSource(url); } catch { return; }
+   const stream = _stream;
+   stream.onopen = () => { _streamRetryDelay = STREAM_RETRY_MIN_MS; };
+diff --git a/clio/ui/static/src/notification-center.js b/clio/ui/static/src/notification-center.js
+--- a/clio/ui/static/src/notification-center.js
++++ b/clio/ui/static/src/notification-center.js
+@@ -258,9 +258,8 @@
+ 
+ function _startStream() {
+   if (_stream) return;
+-  let url = `/api/notifications/stream?after=${encodeURIComponent(_streamCursor)}`;
+-  const token = sessionStorage.getItem('api_token');
+-  if (token) url += `&token=${encodeURIComponent(token)}`;
++  // EventSource cannot send headers; the HttpOnly session cookie authenticates it.
++  const url = `/api/notifications/stream?after=${encodeURIComponent(_streamCursor)}`;
+   try { _stream = new EventSource(url); } catch { return; }
+   _stream.onmessage = event => {
+     try {
+diff --git a/clio/ui/static/src/__tests__/video-url.test.js b/clio/ui/static/src/__tests__/video-url.test.js
+--- a/clio/ui/static/src/__tests__/video-url.test.js
++++ b/clio/ui/static/src/__tests__/video-url.test.js
+@@ -5,11 +5,11 @@
+ describe('videoUrlFor', () => {
+   beforeEach(() => sessionStorage.clear());
+ 
+-  it('builds a source URL with abs path, project, and token', () => {
++  it('builds a source URL with abs path and project but never the API token', () => {
+     sessionStorage.setItem('api_token', 'tok en');
+     const url = videoUrlFor({ file: 'a b.mp4', abs_path: '/x/y.mp4' }, 'original', 'Paris');
+     expect(url).toBe(
+-      '/api/video?file=a%20b.mp4&source=original&abspath=%2Fx%2Fy.mp4&project=Paris&token=tok%20en',
++      '/api/video?file=a%20b.mp4&source=original&abspath=%2Fx%2Fy.mp4&project=Paris',
+     );
+   });
+ 
+diff --git a/clio/ui/static/src/__tests__/notification-center.test.js b/clio/ui/static/src/__tests__/notification-center.test.js
+--- a/clio/ui/static/src/__tests__/notification-center.test.js
++++ b/clio/ui/static/src/__tests__/notification-center.test.js
+@@ -530,7 +530,8 @@
+     const { initNotificationCenter } = await import('../notification-center.js');
+     initNotificationCenter();
+     await vi.waitFor(() => expect(eventSource).toBeTruthy());
+-    expect(eventSource.url).toContain('token=sekret');
++    expect(eventSource.url).not.toContain('token=');
++    expect(eventSource.url).not.toContain('sekret');
+ 
+     eventSource.onmessage({ data: JSON.stringify({ seq: 2, notification: { id: 'old', seq: 2, message: 'm' } }) });
+     expect(state.notifications).toHaveLength(0);
+diff --git a/clio/ui/static/src/__tests__/sidebar-data.test.js b/clio/ui/static/src/__tests__/sidebar-data.test.js
+--- a/clio/ui/static/src/__tests__/sidebar-data.test.js
++++ b/clio/ui/static/src/__tests__/sidebar-data.test.js
+@@ -246,7 +246,8 @@
+     expect(html).toContain('/api/cover?');
+     expect(html).toContain('file=001_title.jpg');
+     expect(html).toContain('project=France');
+-    expect(html).toContain('token=tok123');
++    expect(html).not.toContain('token=');
++    expect(html).not.toContain('tok123');
+     expect(html).toContain('video-thumb-fallback');
+   });
+ });
+diff --git a/clio/ui/static/src/__tests__/task-center-actions.test.js b/clio/ui/static/src/__tests__/task-center-actions.test.js
+--- a/clio/ui/static/src/__tests__/task-center-actions.test.js
++++ b/clio/ui/static/src/__tests__/task-center-actions.test.js
+@@ -67,12 +67,12 @@
+     stop();
+   });
+ 
+-  it('opens the SSE stream once with the session token and isolates bad events', () => {
++  it('opens the SSE stream once without the API token in the URL and isolates bad events', () => {
+     sessionStorage.setItem('api_token', 'secret token');
+     const seen = [];
+     const stop = subscribeTaskEvents(payload => seen.push(payload));
+ 
+-    expect(source.url).toBe('/api/tasks/stream?after=0&token=secret%20token');
++    expect(source.url).toBe('/api/tasks/stream?after=0');
+     const stop2 = subscribeTaskEvents(() => {});
+     expect(source.url).toContain('after=0');
+ 

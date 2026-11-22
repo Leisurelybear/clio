@@ -1,6 +1,7 @@
 /** Pure cut-clip-first preview media resolution for the plan timeline. */
 
 import { api } from './api.js';
+import { findPlanVideo } from './plan-video.js';
 import { videoUrlFor } from './video-url.js';
 
 const TIME_TOLERANCE = 0.05;
@@ -79,7 +80,7 @@ export function resolvePlanMedia(timeline, segIndex, options = {}) {
     };
   }
 
-  const video = (options.videos || []).find((candidate) => String(candidate.index) === String(seg.videoIndex));
+  const video = findPlanVideo(options.videos, seg.videoIndex);
   if (!video) return null;
   const offsetSec = options.source === 'original' ? (Number(video.offset_sec) || 0) : 0;
   const plannedDuration = Number(seg.duration) > 0 ? Number(seg.duration) : 0;

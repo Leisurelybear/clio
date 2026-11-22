@@ -13,6 +13,13 @@ const REFRESH_DEBOUNCE_MS = 150;
 const _seenNotificationIds = new Set();
 let _stream = null;
 let _streamRetry = null;
+const STREAM_RETRY_MIN_MS = 3_000;
+const STREAM_RETRY_MAX_MS = 60_000;
+const STREAM_PROBE_AFTER_FAILURES = 3;
+let _streamRetryDelay = STREAM_RETRY_MIN_MS;
+let _streamFailures = 0;
+let _streamStopped = false;
+let _streamWaitingVisible = false;
 let _streamCursor = 0;
 let _initialized = false;
 let _filter = 'all';
@@ -258,13 +265,14 @@ export async function loadNotifications({ append = false, refresh = false, emitN
 
 function _startStream() {
   if (_stream) return;
-  let url = `/api/notifications/stream?after=${encodeURIComponent(_streamCursor)}`;
-  const token = sessionStorage.getItem('api_token');
-  if (token) url += `&token=${encodeURIComponent(token)}`;
+  // EventSource cannot send headers; the HttpOnly session cookie authenticates it.
+  const url = `/api/notifications/stream?after=${encodeURIComponent(_streamCursor)}`;
   try { _stream = new EventSource(url); } catch { return; }
+  _stream.onopen = _resetStreamBackoff;
   _stream.onmessage = event => {
     try {
       const payload = JSON.parse(event.data);
+      _resetStreamBackoff();
       const revision = Number(payload.seq) || 0;
       if (revision <= _streamCursor) return;
       _recordRevision(revision);
@@ -283,8 +291,55 @@ function _startStream() {
   _stream.onerror = () => {
     _stream?.close();
     _stream = null;
-    if (!_streamRetry) _streamRetry = setTimeout(() => { _streamRetry = null; _startStream(); }, 3_000);
+    _streamFailures += 1;
+    _scheduleStreamRetry();
   };
+}
+
+function _resetStreamBackoff() {
+  _streamRetryDelay = STREAM_RETRY_MIN_MS;
+  _streamFailures = 0;
+}
+
+function _isAuthError(error) {
+  return error?.status === 401 || error?.message === t('errors.http_auth');
+}
+
+/** Reconnect with exponential backoff; pause while hidden, stop on 401. */
+function _scheduleStreamRetry() {
+  if (_streamRetry || _streamStopped) return;
+  const delay = _streamRetryDelay;
+  _streamRetryDelay = Math.min(delay * 2, STREAM_RETRY_MAX_MS);
+  _streamRetry = setTimeout(async () => {
+    if (document.hidden) {
+      _streamRetry = null;
+      if (!_streamWaitingVisible) {
+        _streamWaitingVisible = true;
+        const onVisible = () => {
+          if (document.hidden) return;
+          document.removeEventListener('visibilitychange', onVisible);
+          _streamWaitingVisible = false;
+          _scheduleStreamRetry();
+        };
+        document.addEventListener('visibilitychange', onVisible);
+      }
+      return;
+    }
+    if (_streamFailures >= STREAM_PROBE_AFTER_FAILURES) {
+      try {
+        await api('GET', _query(0, 1));
+      } catch (error) {
+        if (_isAuthError(error)) {
+          // api() already opened the re-auth prompt; submitting it reloads the page.
+          _streamStopped = true;
+          _streamRetry = null;
+          return;
+        }
+      }
+    }
+    _streamRetry = null;
+    _startStream();
+  }, delay);
 }
 
 function _contextLink(overrides = {}) {

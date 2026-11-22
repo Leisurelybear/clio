@@ -17,7 +17,7 @@ def register_provider(cls: Any) -> Any:
 
 
 def list_providers() -> list[ProviderCapabilities]:
-    return [cls.capabilities for cls in _PROVIDERS.values()]
+    return [cls.capabilities.localized() for cls in _PROVIDERS.values()]
 
 
 def build_provider(engine_id: str, config) -> TranscriptionProvider:

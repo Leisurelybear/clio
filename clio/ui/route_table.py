@@ -39,6 +39,7 @@ ROUTES: tuple[Route, ...] = (
     Route("GET", "/api/vmeta/{stem}", "handle_get_vmeta"),
     Route("GET", "/api/videos/selected", "handle_get_videos_selected"),
     Route("PUT", "/api/videos/selected", "handle_put_videos_selected"),
+    Route("POST", "/api/videos/selected/remove", "handle_post_videos_selected_remove"),
     Route("PUT", "/api/videos/relink", "handle_put_videos_relink"),
     Route("GET", "/api/texts", "handle_get_texts"),
     Route("GET", "/api/voiceover", "handle_get_voiceover"),

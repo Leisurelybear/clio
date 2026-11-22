@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -88,6 +89,8 @@ class Plan:
     sequence: list[PlanSegment] = field(default_factory=list)
     confidence: float | None = None
     extras: dict[str, Any] = field(default_factory=dict)
+    # Persisted artifact version (``_schema_version``); kept so load/save round-trips keep it.
+    schema_version: int | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> Plan:
@@ -102,12 +105,19 @@ class Plan:
             confidence = float(conf) if conf is not None else None
         except (TypeError, ValueError):
             confidence = None
+        if confidence is not None and not math.isfinite(confidence):
+            confidence = None
         extras = {k: v for k, v in data.items() if k not in _PLAN_KNOWN}
         tes = data.get("total_estimated_sec", 180)
         try:
             total_estimated_sec: int | float = float(tes) if tes is not None else 180
         except (TypeError, ValueError):
             total_estimated_sec = 180
+        if not math.isfinite(total_estimated_sec):
+            # NaN/inf would be serialized as bare NaN/Infinity, which JSON.parse rejects.
+            total_estimated_sec = 180
+        raw_version = data.get("_schema_version")
+        schema_version = raw_version if isinstance(raw_version, int) and not isinstance(raw_version, bool) else None
         return cls(
             day_title=str(data.get("day_title") or ""),
             theme=str(data.get("theme") or ""),
@@ -117,6 +127,7 @@ class Plan:
             sequence=sequence,
             confidence=confidence,
             extras=extras,
+            schema_version=schema_version,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -130,6 +141,8 @@ class Plan:
         }
         if self.confidence is not None:
             d["_confidence"] = self.confidence
+        if self.schema_version is not None:
+            d["_schema_version"] = self.schema_version
         d.update(self.extras)
         return d
 
