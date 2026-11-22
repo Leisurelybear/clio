@@ -71,9 +71,9 @@ async function _selectedVideoTargets(files) {
     .map(_removeTarget);
 }
 
-// videos.json is updated with a read-modify-write (GET then PUT of the whole
-// list), so overlapping removals in this tab would overwrite each other.
-// Run them strictly one after another.
+// The server drops entries atomically (POST /api/videos/selected/remove), so
+// concurrent adds/removes elsewhere are never overwritten. Removals in this tab
+// still run one after another so each resolves its targets against a fresh list.
 let _removeChain = Promise.resolve();
 
 function _removeVideos(targets) {
@@ -89,12 +89,14 @@ async function _removeVideosNow(targets) {
     const { removeSelectedVideos } = await import('./video-selection.js');
     const r = await api('GET', '/api/videos/selected');
     const videos = (r.videos || []).slice();
-    const { remaining, removed, missing, ambiguous } = removeSelectedVideos(videos, list);
+    // Resolve targets to the exact stored entries; the server removes only those.
+    const { removed, missing, ambiguous } = removeSelectedVideos(videos, list);
     if (!removed.length) {
       setStatus(ambiguous[0] || t('sidebar.video_not_found'), 'err');
       return null;
     }
-    await api('PUT', '/api/videos/selected', { videos: remaining });
+    const res = await api('POST', '/api/videos/selected/remove', { paths: removed });
+    if (res && res.ok === false) throw new Error(res.error || t('common.unknown_error'));
     await loadVideos();
     if (state.selectedFiles.length) {
       const present = new Set((state.videos || []).map(videoSelectionKey));
