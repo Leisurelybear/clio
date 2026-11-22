@@ -37,6 +37,9 @@ _BLOCKING_FINISH_REASONS = {
 }
 
 
+_LOCAL_IO_ERRORS = (FileNotFoundError, PermissionError, IsADirectoryError, NotADirectoryError)
+
+
 _MEDIA_RESOLUTION_MAP = {
     "low": types.MediaResolution.MEDIA_RESOLUTION_LOW,
     "medium": types.MediaResolution.MEDIA_RESOLUTION_MEDIUM,
@@ -183,6 +186,9 @@ class GeminiProvider:
 
     def _is_retryable(self, exc: BaseException) -> bool:
         """判断异常是否应该重试。"""
+        # Local file problems never heal on retry; only network-level OSErrors do.
+        if isinstance(exc, _LOCAL_IO_ERRORS):
+            return False
         if isinstance(exc, (OSError, httpx.TransportError)):
             return True
         if _HAS_GENAI_ERRORS:
@@ -397,11 +403,12 @@ class GeminiProvider:
         system: str | None = None,
         structured_output: StructuredOutput | None = None,
     ) -> AIResponse:
+        # Read local images once, outside the retry loop: a missing file fails immediately.
+        image_bytes = [Path(path).read_bytes() for path in image_paths]
+
         def _do() -> AIResponse:
             wait_for_rate_limit(self._rl, cancel_event, what=self.provider_id)
-            contents: list[Any] = [
-                types.Part.from_bytes(data=Path(path).read_bytes(), mime_type="image/png") for path in image_paths
-            ]
+            contents: list[Any] = [types.Part.from_bytes(data=data, mime_type="image/png") for data in image_bytes]
             contents.append(prompt)
             config = self._config_for(temperature, system, structured_output)
             if config is None:
