@@ -58,3 +58,25 @@ class TestBackgroundNotifications:
         _move(store, running, TaskStatus.SUCCEEDED)
 
         assert [n.task_id for n in store.list_notifications()] == ["fg-ok"]
+
+
+class TestConnectionSetup:
+    def test_wal_is_set_once_per_database_identity(self, tmp_path, monkeypatch):
+        import sqlite3
+
+        store = TaskStore(tmp_path / "tasks.sqlite3")
+        statements: list[str] = []
+        real_connect = sqlite3.connect
+
+        def tracing_connect(*args, **kwargs):
+            connection = real_connect(*args, **kwargs)
+            connection.set_trace_callback(statements.append)
+            return connection
+
+        monkeypatch.setattr("clio.task_center.store.sqlite3.connect", tracing_connect)
+        store.create(create_task(TaskKind.PIPELINE, "pipe", task_id="t1"))
+        store.require("t1")
+
+        assert not [s for s in statements if "journal_mode" in s]
+        with sqlite3.connect(tmp_path / "tasks.sqlite3") as connection:
+            assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"

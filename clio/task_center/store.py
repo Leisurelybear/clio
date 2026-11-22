@@ -112,7 +112,6 @@ class TaskStore:
         try:
             connection.execute("PRAGMA foreign_keys = ON")
             connection.execute(f"PRAGMA busy_timeout = {self._busy_timeout_ms}")
-            connection.execute("PRAGMA journal_mode = WAL")
             connection.execute("PRAGMA synchronous = NORMAL")
             self._ensure_schema(connection)
             yield connection
@@ -126,6 +125,9 @@ class TaskStore:
             identity = (stat.st_dev, stat.st_ino, schema_version)
             if identity == self._schema_identity:
                 return
+            # journal_mode is persistent in the database file: set it once per
+            # database identity instead of on every short-lived connection.
+            connection.execute("PRAGMA journal_mode = WAL")
             initialize_schema(connection)
             stat = self.path.stat()
             schema_version = int(connection.execute("PRAGMA schema_version").fetchone()[0])
