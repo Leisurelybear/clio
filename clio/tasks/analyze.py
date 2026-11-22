@@ -75,6 +75,7 @@ from clio.tasks._helpers import (
     _path_key,
     _project_selection_stems,
     _selection_from_files,
+    _stem_variants,
     _task_lineage_settings,
     _write_csv,
     _write_text_file,
@@ -1334,6 +1335,24 @@ def _list_compressed_videos(directory: Path) -> list[Path]:
     return prefer_canonical_compressed(paths)
 
 
+def _compressed_belongs_to(compressed: Path, single_file: Path) -> bool:
+    """True when *compressed* was produced from *single_file*.
+
+    The ``.vmeta`` source path decides when it still points at an existing file;
+    otherwise the compressed stem must equal the original stem (index prefix and
+    legacy split suffix stripped), never merely contain it.
+    """
+    meta = VideoMeta.read(compressed)
+    if meta is not None:
+        source = meta.source_path_obj()
+        try:
+            if source.is_file():
+                return source.resolve() == single_file.resolve()
+        except OSError:
+            pass
+    return single_file.stem.lower() in _stem_variants(compressed.stem, include_segment_base=True)
+
+
 def _collect_single_file_items(
     single_file: Path,
     config: AppConfig,
@@ -1350,7 +1369,7 @@ def _collect_single_file_items(
     else:
         # Fall back to original-stem matching so every matching segment is analyzed.
         comp_paths = [
-            p for p in _list_compressed_videos(config.compressed_dir) if single_file.stem.lower() in p.stem.lower()
+            p for p in _list_compressed_videos(config.compressed_dir) if _compressed_belongs_to(p, single_file)
         ]
         if not comp_paths:
             print(t("task.analyze.compressed_missing", {"name": single_file.name}))
