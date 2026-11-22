@@ -212,7 +212,9 @@ class GeminiProvider:
                 return fn()
             except InterruptedError:
                 raise
-            except BaseException as e:
+            # Exception, not BaseException: Ctrl+C / SystemExit must stop the run, not be
+            # wrapped as a per-clip "non-retryable" failure and skipped.
+            except Exception as e:
                 if self._is_retryable(e):
                     raise
                 raise RuntimeError(t("ai.gemini_non_retryable", {"error": e})) from e
