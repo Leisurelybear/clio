@@ -683,6 +683,7 @@
   "task.project_busy": "该项目已有任务正在运行",
   "task.refine.changes": "  改动 ({count}): {detail}",
   "task.refine.failed": "  失败: {detail}",
+  "task.refine.changed_during_refine": "  [跳过] {name} 在精修期间被修改，已保留你的版本；如需精修请重新运行",
   "task.refine.fix_note": "  修改意见: {fix}",
   "task.refine.fix_requires_file": "--fix 必须配合 -i 指定单个 json 文件，不能用于目录",
   "task.refine.json_only": "仅支持 .json 文件: {path}",

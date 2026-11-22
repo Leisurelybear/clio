@@ -683,6 +683,7 @@
   "task.project_busy": "A task is already running for this project",
   "task.refine.changes": "  Changes ({count}): {detail}",
   "task.refine.failed": "  Failed: {detail}",
+  "task.refine.changed_during_refine": "  [skip] {name} was modified while refining; kept your version, run refine again to include it",
   "task.refine.fix_note": "  Fix request: {fix}",
   "task.refine.fix_requires_file": "--fix requires -i to point at a single json file; directories are not supported",
   "task.refine.json_only": "Only .json files are supported: {path}",

@@ -135,6 +135,23 @@ class TestRunRefineTexts:
         assert output["title"] == "fixed"
 
     @patch("clio.tasks.refine.refine_text")
+    def test_edit_saved_during_refine_is_not_overwritten(self, mock_refine, cfg):
+        target = cfg.texts_dir / "001.json"
+        target.write_text(json.dumps({"title": "original"}), encoding="utf-8")
+
+        def user_edits_meanwhile(*_args, **_kwargs):
+            target.write_text(json.dumps({"title": "user edit"}), encoding="utf-8")
+            return {"title": "refined", "_changelog": ["x"]}
+
+        mock_refine.side_effect = user_edits_meanwhile
+
+        from clio.tasks.refine import run_refine_texts
+
+        assert run_refine_texts(cfg) == -1
+        assert json.loads(target.read_text(encoding="utf-8")) == {"title": "user edit"}
+        assert not target.with_suffix(".txt").exists()
+
+    @patch("clio.tasks.refine.refine_text")
     def test_skip_existing_not_applied(self, mock_refine, cfg):
         data = {"title": "t"}
         (cfg.texts_dir / "001.json").write_text(json.dumps(data))
