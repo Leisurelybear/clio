@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 import time
 from typing import Any
@@ -18,6 +19,17 @@ from clio.i18n import t
 from clio.utils import mask_if_looks_like_key
 
 _TEST_PROMPT = "Reply with exactly: ok"
+# Upper bound for a timeout submitted with an unsaved provider draft (the
+# saved-config default); the test runs on a request thread.
+_MAX_DRAFT_TIMEOUT_SEC = 120.0
+
+
+def _draft_timeout(value: Any) -> float:
+    """Clamp a draft timeout to [1, 120]; unparsable values still raise ValueError."""
+    timeout = float(value or _MAX_DRAFT_TIMEOUT_SEC)
+    if not math.isfinite(timeout) or timeout <= 0:
+        timeout = _MAX_DRAFT_TIMEOUT_SEC
+    return max(1.0, min(timeout, _MAX_DRAFT_TIMEOUT_SEC))
 _TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_\-]{11,}")
 
 
@@ -84,7 +96,7 @@ def test_provider_connection(
                 poll_interval_sec=int(raw.get("poll_interval_sec", 5) or 5),
                 retry_attempts=int(raw.get("retry_attempts", 2) or 2),
                 requests_per_minute=int(raw.get("requests_per_minute", 0) or 0),
-                timeout_sec=float(raw.get("timeout_sec", 120) or 120),
+                timeout_sec=_draft_timeout(raw.get("timeout_sec", 120)),
                 max_tokens=int(raw.get("max_tokens", 0) or 0),
                 video_upload_max_mb=int(raw.get("video_upload_max_mb", 200) or 200),
                 models=[str(v) for v in (raw.get("models") or [])],

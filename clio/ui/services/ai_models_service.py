@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import contextlib
 import json
+import math
 import re
+from dataclasses import replace
 from typing import Any
 
 import httpx
@@ -25,6 +27,19 @@ _MAX_MODEL_RESPONSE_BYTES = 2 * 1024 * 1024
 _MAX_MODEL_COUNT = 1000
 _MAX_MODEL_NAME_CHARS = 256
 _MAX_GEMINI_MODEL_SCAN = 10_000
+# A model list is one small GET; never hold a request thread longer than this.
+_MAX_MODEL_LIST_TIMEOUT_SEC = 30.0
+
+
+def _bounded_timeout(value: Any, default: float, maximum: float) -> float:
+    """Clamp a provider timeout to [1, maximum]; bad or non-finite values use *default*."""
+    try:
+        timeout = float(value)
+    except (TypeError, ValueError):
+        timeout = default
+    if not math.isfinite(timeout) or timeout <= 0:
+        timeout = default
+    return max(1.0, min(timeout, maximum))
 
 
 def _sanitize_error(message: str, secrets: list[str]) -> str:
@@ -196,6 +211,11 @@ def list_provider_models(
         return {"ok": False, "provider": display_name, "error": "provider connection URL is unsafe"}
     if provider.type == "gemini" and not provider.api_key:
         return {"ok": False, "provider": display_name, "error": "API key is required"}
+    # Runs on a request thread: cap the (possibly user-submitted) timeout.
+    provider = replace(
+        provider,
+        timeout_sec=_bounded_timeout(provider.timeout_sec, _MAX_MODEL_LIST_TIMEOUT_SEC, _MAX_MODEL_LIST_TIMEOUT_SEC),
+    )
     try:
         models = (
             _list_gemini_models(provider, config)
