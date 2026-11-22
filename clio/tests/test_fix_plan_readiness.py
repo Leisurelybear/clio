@@ -86,3 +86,32 @@ def test_collect_project_media_durations_keeps_vmeta_when_ffprobe_missing(tmp_pa
     )
 
     assert collect_project_media_durations(_durations_cfg(compressed)) == {"002": 10.0}
+
+
+def test_collectors_reuse_precomputed_media_aliases(tmp_path, monkeypatch):
+    compressed = tmp_path / "compressed"
+    compressed.mkdir()
+    (compressed / "002_new.mp4").write_bytes(b"x")
+    texts = tmp_path / "texts"
+    texts.mkdir()
+
+    def rescan(_cfg):
+        raise AssertionError("aliases must not be recomputed when passed in")
+
+    monkeypatch.setattr("clio.plan_readiness.collect_media_index_aliases", rescan)
+    monkeypatch.setattr("clio.plan_readiness.resolve_binary", lambda *_args: "ffprobe")
+    monkeypatch.setattr("clio.plan_readiness.get_duration_sec", lambda *_args: 6.0)
+    cfg = SimpleNamespace(
+        compressed_dir=compressed,
+        texts_dir=texts,
+        project_dir=None,
+        naming=SimpleNamespace(index_width=3),
+        paths=SimpleNamespace(ffprobe=""),
+    )
+    aliases = {"001": {"002"}}
+
+    known, _offline = collect_project_indices(cfg, media_aliases=aliases)
+    durations = collect_project_media_durations(cfg, media_aliases=aliases)
+
+    assert "001" in known and "002" in known
+    assert durations == {"002": 6.0, "001": 6.0}

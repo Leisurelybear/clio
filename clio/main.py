@@ -583,6 +583,7 @@ def _run_cut_command(args: argparse.Namespace, config) -> int:
     from clio.plan_model import Plan
     from clio.plan_readiness import (
         check_plan_export_readiness,
+        collect_media_index_aliases,
         collect_project_analysis_timelines,
         collect_project_indices,
         collect_project_media_durations,
@@ -596,12 +597,13 @@ def _run_cut_command(args: argparse.Namespace, config) -> int:
         print(t("cli.error", {"detail": t("cli.plan.not_found", {"path": plan_path})}), file=sys.stderr)
         return 1
     plan = Plan.from_dict(json.loads(plan_path.read_text(encoding="utf-8-sig")))
-    known, offline = collect_project_indices(config)
+    media_aliases = collect_media_index_aliases(config)
+    known, offline = collect_project_indices(config, media_aliases=media_aliases)
     ready = check_plan_export_readiness(
         plan,
         known_indices=known,
         offline_indices=offline,
-        media_durations=collect_project_media_durations(config),
+        media_durations=collect_project_media_durations(config, media_aliases=media_aliases),
         analysis_timelines=collect_project_analysis_timelines(config),
         source=args.source,
         target_duration_sec=float(getattr(config.plan, "target_duration_sec", 0) or 0),
@@ -627,6 +629,7 @@ def _run_export_command(args: argparse.Namespace, config) -> int:
     from clio.plan_model import Plan
     from clio.plan_readiness import (
         check_plan_export_readiness,
+        collect_media_index_aliases,
         collect_project_analysis_timelines,
         collect_project_indices,
         collect_project_media_durations,
@@ -638,12 +641,13 @@ def _run_export_command(args: argparse.Namespace, config) -> int:
         print(t("cli.error", {"detail": t("cli.plan.not_found", {"path": plan_path})}), file=sys.stderr)
         return 1
     plan = Plan.from_dict(json.loads(plan_path.read_text(encoding="utf-8-sig")))
-    known, offline = collect_project_indices(config)
+    media_aliases = collect_media_index_aliases(config)
+    known, offline = collect_project_indices(config, media_aliases=media_aliases)
     ready = check_plan_export_readiness(
         plan,
         known_indices=known,
         offline_indices=offline,
-        media_durations=collect_project_media_durations(config),
+        media_durations=collect_project_media_durations(config, media_aliases=media_aliases),
         analysis_timelines=collect_project_analysis_timelines(config),
         source="original",
         target_duration_sec=float(getattr(config.plan, "target_duration_sec", 0) or 0),

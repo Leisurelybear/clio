@@ -809,7 +809,11 @@ def _unique_media_index_aliases(aliases: Mapping[str, set[str]]) -> dict[str, st
     return {alias: next(iter(owners)) for alias, owners in aliases.items() if len(owners) == 1}
 
 
-def collect_project_indices(cfg: Any) -> tuple[set[str], set[str]]:
+def collect_project_indices(
+    cfg: Any,
+    *,
+    media_aliases: Mapping[str, set[str]] | None = None,
+) -> tuple[set[str], set[str]]:
     """Build (known_indices, offline_indices) from compressed media + videos.json.
 
     known/offline sets include expanded index key forms ("1", "001", …).
@@ -818,6 +822,10 @@ def collect_project_indices(cfg: Any) -> tuple[set[str], set[str]]:
     indexes whose original media is listed in videos.json but currently missing
     on disk (mapped via texts media_identity / source_file or compressed filename
     stems).
+
+    *media_aliases* is a precomputed :func:`collect_media_index_aliases` result;
+    pass it when calling several collectors so texts/ and compressed/ are not
+    rescanned for every one of them.
     """
     width = _index_width_from_cfg(cfg)
     selection = _project_selection_stems(cfg)
@@ -839,19 +847,26 @@ def collect_project_indices(cfg: Any) -> tuple[set[str], set[str]]:
         stem_to_indices=stem_to_indices,
     )
     _collect_offline_indices(getattr(cfg, "project_dir", None), stem_to_indices, offline)
-    for alias in _unique_media_index_aliases(collect_media_index_aliases(cfg)):
+    if media_aliases is None:
+        media_aliases = collect_media_index_aliases(cfg)
+    for alias in _unique_media_index_aliases(media_aliases):
         known.update(expand_index_keys(alias, index_width=width))
 
     return known, offline
 
 
-def collect_project_media_durations(cfg: Any) -> dict[str, float]:
+def collect_project_media_durations(
+    cfg: Any,
+    *,
+    media_aliases: Mapping[str, set[str]] | None = None,
+) -> dict[str, float]:
     """Return compressed clip durations keyed by plan index.
 
     Plan timelines are expressed in compressed-clip time for both cut sources;
     ``source=original`` only changes how an offline original is reported and
     how cutting resolves the file. Prefer .vmeta because it is cheap, then
     probe only when older artifacts have no trustworthy target duration.
+    *media_aliases*: see :func:`collect_project_indices`.
     """
     compressed_dir = getattr(cfg, "compressed_dir", None)
     if not isinstance(compressed_dir, Path) or not compressed_dir.is_dir():
@@ -892,7 +907,9 @@ def collect_project_media_durations(cfg: Any) -> dict[str, float]:
                 durations[index] = max(duration, durations.get(index, 0.0))
     except OSError:
         pass
-    for alias, owner in _unique_media_index_aliases(collect_media_index_aliases(cfg)).items():
+    if media_aliases is None:
+        media_aliases = collect_media_index_aliases(cfg)
+    for alias, owner in _unique_media_index_aliases(media_aliases).items():
         duration = durations.get(owner)
         if duration is not None:
             durations.setdefault(alias, duration)
