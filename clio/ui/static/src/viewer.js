@@ -39,6 +39,14 @@ import { t, onLocaleChange } from './i18n.js';
 import { planIndexesKey, renderPlanSubtitleSettings, syncPlanExpandFromPreview } from './viewer-preview-support.js';
 
 let _fadeCancel = null;
+/** Pending one-shot `loadedmetadata` handler of the last source switch. */
+let _pendingMetadata = null;
+
+function _clearPendingMetadata() {
+  if (!_pendingMetadata) return;
+  _pendingMetadata.player.removeEventListener('loadedmetadata', _pendingMetadata.handler);
+  _pendingMetadata = null;
+}
 
 function isGlobalTimelineUi() {
   return state.currentEntity === 'plan'
@@ -130,6 +138,9 @@ function _loadAndSeekSource(v, seekSec, wantPlay, media = null) {
       ? { day: v.cut_day, rev: v.rev, project: state.currentProjectName }
       : { abspath: v.abs_path, project: state.currentProjectName })
     && player.readyState >= 1;
+  // A previous switch whose metadata never arrived must not seek/play the
+  // new source with stale arguments.
+  _clearPendingMetadata();
   if (same) {
     doSeek();
   } else {
@@ -144,12 +155,15 @@ function _loadAndSeekSource(v, seekSec, wantPlay, media = null) {
     } else {
       player.src = url;
     }
-    player.addEventListener('loadedmetadata', () => {
+    const onMetadata = () => {
+      if (_pendingMetadata?.handler === onMetadata) _pendingMetadata = null;
       if (!isGlobalTimelineUi()) {
         $('player-time').textContent = `${fmtTime(0)} / ${fmtTime(player.duration)}`;
       }
       doSeek();
-    }, { once: true });
+    };
+    _pendingMetadata = { player, handler: onMetadata };
+    player.addEventListener('loadedmetadata', onMetadata, { once: true });
   }
   if (!isGlobalTimelineUi()) {
     loadWaveformForCurrentVideo();
