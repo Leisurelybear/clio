@@ -10,6 +10,7 @@ import { transcriptionModelManagementNotice } from './transcription-status.js';
 import { $, escapeHtml, setStatus } from './utils.js';
 
 let _installPollTimer = null;
+let _installPollGeneration = 0;
 let _installTaskId = null;
 let _installTaskUnsubscribe = null;
 
@@ -51,7 +52,7 @@ function _applyWhisperTask(task, event = null) {
     dlBtn.textContent = task.status === 'cancelling' ? t('whisper_mgmt.cancelling') : t('whisper_mgmt.downloading');
   }
   if (!['succeeded', 'failed', 'cancelled', 'interrupted'].includes(task.status)) return;
-  if (_installPollTimer) { clearInterval(_installPollTimer); _installPollTimer = null; }
+  _stopModelDlPoll();
   _clearWhisperTaskSubscription();
   if (dlBtn) { dlBtn.disabled = false; dlBtn.innerHTML = `${icon('download', 14)} ${t('whisper_mgmt.btn.download')}`; }
   if (task.status === 'succeeded') {
@@ -224,12 +225,11 @@ export async function loadModelManagement() {
           if (!r.ok) throw new Error(r.error || t('whisper_mgmt.start_failed_bare'));
           dlBtn.textContent = t('whisper_mgmt.downloading');
           if (r.task_id || r.task?.id) {
-            if (_installPollTimer) { clearInterval(_installPollTimer); _installPollTimer = null; }
+            _stopModelDlPoll();
             _subscribeWhisperTask(r.task_id || r.task.id);
             _applyWhisperTask(r.task || { id: r.task_id, kind: 'whisper_install', status: 'queued' });
           } else {
-            _installPollTimer = setInterval(_pollModelDl, 1000);
-            _pollModelDl();
+            _startModelDlPoll();
           }
         } catch (e) {
           dlBtn.disabled = false;
@@ -255,7 +255,7 @@ export async function loadModelManagement() {
           cancelBtn.textContent = t('whisper_mgmt.cancelling');
           return;
         }
-        if (_installPollTimer) { clearInterval(_installPollTimer); _installPollTimer = null; }
+        _stopModelDlPoll();
         const prog = $('model-dl-progress');
         if (prog) prog.style.display = 'none';
         cancelBtn.style.display = 'none';
@@ -293,7 +293,7 @@ export async function loadModelManagement() {
         if (cancelBtn) cancelBtn.style.display = '';
         const dlBtn = $('btn-model-download');
         if (dlBtn) { dlBtn.disabled = true; dlBtn.textContent = t('whisper_mgmt.downloading'); }
-        if (_installPollTimer) { clearInterval(_installPollTimer); _installPollTimer = null; }
+        _stopModelDlPoll();
         _subscribeWhisperTask(managed.id);
         _applyWhisperTask(managed);
       }
@@ -301,9 +301,7 @@ export async function loadModelManagement() {
       try {
         const st = await api('GET', '/api/whisper/install/status');
         if (st.running || st.status === 'downloading') {
-          if (_installPollTimer) clearInterval(_installPollTimer);
-          _installPollTimer = setInterval(_pollModelDl, 1000);
-          _pollModelDl();
+          _startModelDlPoll();
         }
       } catch { /* compatibility resume is not critical */ }
     }
@@ -316,6 +314,31 @@ export async function loadModelManagement() {
 }
 
 
+function _stopModelDlPoll() {
+  _installPollGeneration += 1;
+  if (_installPollTimer) clearTimeout(_installPollTimer);
+  _installPollTimer = null;
+}
+
+/**
+ * Legacy (non-task) download progress polling. Serialized: the next request
+ * is scheduled only after the previous one settled, so slow responses never
+ * overlap or arrive out of order. Stops once the settings panel is gone.
+ */
+export function _startModelDlPoll() {
+  _stopModelDlPoll();
+  const generation = _installPollGeneration;
+  const tick = async () => {
+    _installPollTimer = null;
+    if (generation !== _installPollGeneration) return;
+    if (!$('whisper-model-mgmt')) { _stopModelDlPoll(); return; }
+    await _pollModelDl();
+    if (generation !== _installPollGeneration) return;
+    _installPollTimer = setTimeout(tick, 1000);
+  };
+  tick();
+}
+
 async function _pollModelDl() {
   try {
     const s = await api('GET', '/api/whisper/install/status');
@@ -326,7 +349,7 @@ async function _pollModelDl() {
     const dlBtn = $('btn-model-download');
     const cancelBtn = $('btn-cancel-dl');
     if (!s.running && s.status === 'idle') {
-      if (_installPollTimer) { clearInterval(_installPollTimer); _installPollTimer = null; }
+      _stopModelDlPoll();
       if (cancelBtn) cancelBtn.style.display = 'none';
       return;
     }
@@ -343,7 +366,7 @@ async function _pollModelDl() {
         } else { eta.textContent = ''; }
       }
     } else if (s.status === 'done') {
-      if (_installPollTimer) { clearInterval(_installPollTimer); _installPollTimer = null; }
+      _stopModelDlPoll();
       if (cancelBtn) cancelBtn.style.display = 'none';
       if (bar) bar.style.width = '100%';
       if (msg) msg.textContent = t('whisper_mgmt.done_msg');
@@ -352,7 +375,7 @@ async function _pollModelDl() {
       if (dlBtn) { dlBtn.disabled = false; dlBtn.innerHTML = `${icon('download', 14)} ${t('whisper_mgmt.btn.download')}`; }
       loadModelManagement();
     } else if (s.status === 'error') {
-      if (_installPollTimer) { clearInterval(_installPollTimer); _installPollTimer = null; }
+      _stopModelDlPoll();
       if (cancelBtn) cancelBtn.style.display = 'none';
       if (dlBtn) { dlBtn.disabled = false; dlBtn.innerHTML = `${icon('download', 14)} ${t('whisper_mgmt.retry_download')}`; }
       const message = s.message || t('whisper_mgmt.failed_bare');
