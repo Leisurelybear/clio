@@ -342,15 +342,33 @@ def _normalize_text(value: Any) -> str:
     return "".join(character for character in normalized if character.isalnum())
 
 
+# Metadata keys whose values are file names / identifiers, not model-written content.
+_NON_CONTENT_KEYS = frozenset({"id", "index", "media_identity", "scope_id"})
+
+
+def _is_content_key(key: Any) -> bool:
+    name = str(key)
+    if name.startswith("_") or name in _NON_CONTENT_KEYS:
+        return False
+    return not name.endswith(("_file", "_path", "_stem"))
+
+
 def _searchable_text(value: Any) -> str:
+    """Join the model-written strings of *value* for fact matching.
+
+    Metadata such as ``source_file``, ``compressed_file``, ``media_identity``
+    and ``_lineage`` is skipped: a fact alias that merely appears in a file
+    name (e.g. "海边" in 海边日落.mp4) must not count as described.
+    """
     parts: list[str] = []
 
     def visit(item: Any) -> None:
         if isinstance(item, str):
             parts.append(item)
         elif isinstance(item, dict):
-            for nested in item.values():
-                visit(nested)
+            for key, nested in item.items():
+                if _is_content_key(key):
+                    visit(nested)
         elif isinstance(item, list):
             for nested in item:
                 visit(nested)

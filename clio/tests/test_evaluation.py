@@ -331,3 +331,25 @@ def test_markdown_renderer_handles_case_errors(monkeypatch):
     assert "broken" in markdown
     assert "bad json" in markdown
     assert "gate failed" in markdown.lower()
+
+
+def test_fact_matching_ignores_file_names_and_metadata():
+    reference = _reference()
+    reference["required_facts"] = [
+        {"id": "lanterns", "description": "saw red lanterns", "aliases": ["lanterns"]},
+    ]
+    prediction = _prediction()
+    prediction["summary"] = "A quiet walk."
+    prediction["timeline"] = [{"start": "00:00", "end": "01:00", "description": "Walking"}]
+    prediction["highlights"] = []
+    prediction["title"] = "Morning"
+    prediction["source_file"] = "lanterns_night.mp4"
+    prediction["compressed_file"] = "001_lanterns_night.mp4"
+    prediction["media_identity"] = {"original_stem": "lanterns_night", "original_path": "D:/lanterns.mp4"}
+    prediction["_lineage"] = {"note": "lanterns"}
+    for key in ("location", "mood", "suggested_use"):
+        prediction[key] = ""
+
+    result = _score(prediction, reference)
+
+    assert result["metrics"]["facts"]["missing"] == ["lanterns"]
