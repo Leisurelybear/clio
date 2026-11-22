@@ -78,7 +78,9 @@ class CredentialService:
             self.provider_refs[name] = ref
             self.consumers.setdefault(ref, []).append(f"ai.providers.{name}")
             inline = provider.get("api_key") or ""
-            if inline not in {"***", "********", "••••••••••"}:
+            # An empty inline value carries nothing to compare; skipping it keeps the
+            # result independent of the order the sharing providers are listed in.
+            if inline and inline not in {"***", "********", "••••••••••"}:
                 previous_inline = self.legacy.get(ref)
                 if previous_inline and previous_inline != inline:
                     raise ValueError("shared credential reference has conflicting inline values")
