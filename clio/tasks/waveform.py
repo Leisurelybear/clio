@@ -46,8 +46,9 @@ _jobs_lock = threading.Lock()
 _job_slots = threading.BoundedSemaphore(MAX_CONCURRENT_JOBS)
 # Keys with a live job thread in *this* process (orphan recovery after restart).
 _active_job_keys: set[str] = set()
-_key_locks: dict[str, threading.Lock] = {}
-_key_locks_guard = threading.Lock()
+# Fixed lock pool: one entry per cache key would grow with every video ever viewed.
+_KEY_LOCK_STRIPES = 64
+_key_locks: tuple[threading.Lock, ...] = tuple(threading.Lock() for _ in range(_KEY_LOCK_STRIPES))
 
 
 def _pid_alive(pid: int) -> bool:
@@ -243,10 +244,7 @@ def clear_error(project_output: Path, key: str) -> None:
 
 
 def _key_lock(key: str) -> threading.Lock:
-    with _key_locks_guard:
-        if key not in _key_locks:
-            _key_locks[key] = threading.Lock()
-        return _key_locks[key]
+    return _key_locks[int(hashlib.sha1(key.encode("utf-8")).hexdigest()[:8], 16) % _KEY_LOCK_STRIPES]
 
 
 def _persist_peaks(project_output: Path, key: str, payload: dict[str, Any]) -> None:

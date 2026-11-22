@@ -249,3 +249,19 @@ class TestManagerResilience:
 
         assert manager.wait(task.id, timeout=5).status is TaskStatus.FAILED
         assert calls["n"] == 2
+
+
+class TestTaskLockTable:
+    def test_unknown_task_ids_do_not_grow_the_lock_table(self, tmp_path):
+        import pytest
+
+        from clio.task_center.manager import TaskManager
+        from clio.task_center.store import TaskNotFoundError
+
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+        before = len(manager._task_locks)
+        for i in range(200):
+            with pytest.raises(TaskNotFoundError):
+                manager.request_cancel(f"missing-{i}")
+
+        assert len(manager._task_locks) == before

@@ -136,3 +136,9 @@ class TestPeaksMatchReference:
     def test_min_sample_maps_to_full_scale(self):
         pcm = struct.pack("<h", -32768) + b"\x00\x00" * 9
         assert wf.peaks_from_pcm_s16le(pcm, bin_count=2) == [1.0, 0.0]
+
+
+def test_key_locks_are_a_fixed_pool():
+    locks = {id(wf._key_lock(f"key-{i}")) for i in range(1000)}
+    assert len(locks) <= wf._KEY_LOCK_STRIPES
+    assert wf._key_lock("same") is wf._key_lock("same")

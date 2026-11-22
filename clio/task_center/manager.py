@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+import zlib
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -36,6 +37,9 @@ logger = logging.getLogger("clio.task_center")
 # Finishing a task writes to SQLite; a busy database must not leave it RUNNING.
 _FINISH_ATTEMPTS = 3
 _FINISH_RETRY_DELAY_SEC = 0.2
+# Tasks not run by this process (recovered rows, foreign IDs from the API)
+# share a fixed pool of locks instead of adding a dict entry per ID forever.
+_LOCK_STRIPES = 64
 
 
 class TaskNotCancellableError(ValueError):
@@ -78,6 +82,7 @@ class TaskManager:
         self._condition = threading.Condition(self._lock)
         self._runtime: dict[str, _RuntimeTask] = {}
         self._task_locks: dict[str, threading.Lock] = {}
+        self._stripe_locks = tuple(threading.Lock() for _ in range(_LOCK_STRIPES))
         self._semaphores: dict[str, threading.BoundedSemaphore] = {}
         self._semaphore_limits: dict[str, int] = {}
         self._closed = False
@@ -607,7 +612,12 @@ class TaskManager:
 
     def _task_lock(self, task_id: str) -> threading.Lock:
         with self._lock:
-            return self._task_locks.setdefault(task_id, threading.Lock())
+            lock = self._task_locks.get(task_id)
+            if lock is not None:
+                return lock
+            if task_id in self._runtime:
+                return self._task_locks.setdefault(task_id, threading.Lock())
+            return self._stripe_locks[zlib.crc32(task_id.encode("utf-8")) % _LOCK_STRIPES]
 
     def _release_task_lock_if_terminal(self, task_id: str) -> None:
         try:
