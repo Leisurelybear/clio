@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import json
 import subprocess
+import threading
 import time as _time
 from collections import defaultdict
 from pathlib import Path
@@ -81,11 +82,34 @@ def _offline_cache_hit(entry: dict, files: list[Path], project_dir: Path | None)
     return entry.get("fingerprint") == _file_set_fingerprint(files, project_dir)
 
 
-def _find_original_for_stem(stem: str, project_dir: Path | None = None) -> Path | None:
-    """Try to find original video by stem via videos.json (or project_dir scan)."""
+_selected_cache: dict[str, tuple[tuple[str, int, int], list[Path]]] = {}
+_selected_cache_lock = threading.Lock()
+
+
+def _selected_videos(project_dir: Path | None) -> list[Path]:
+    """videos.json entries, parsed once per file version instead of per compressed file."""
     from clio.tasks._video_loader import load_selected_videos
 
+    if project_dir is None:
+        return []
+    try:
+        st = (Path(project_dir) / "videos.json").stat()
+    except OSError:
+        return load_selected_videos(project_dir)
+    key = (str(project_dir), st.st_mtime_ns, st.st_size)
+    with _selected_cache_lock:
+        cached = _selected_cache.get("videos")
+        if cached is not None and cached[0] == key:
+            return list(cached[1])
     selected = load_selected_videos(project_dir)
+    with _selected_cache_lock:
+        _selected_cache["videos"] = (key, list(selected))
+    return selected
+
+
+def _find_original_for_stem(stem: str, project_dir: Path | None = None) -> Path | None:
+    """Try to find original video by stem via videos.json (or project_dir scan)."""
+    selected = _selected_videos(project_dir)
     for p in selected:
         if p.stem.lower() == stem.lower() and p.suffix.lower() in VIDEO_EXTS:
             return p

@@ -475,3 +475,18 @@ class TestOfflineCache:
         with patch("clio.tasks.reindex.run_reindex", return_value=0) as mock_reindex:
             assert self._run_auto(config) is True
         mock_reindex.assert_called_once()
+
+
+class TestSelectedVideosCache:
+    def test_videos_json_parsed_once_per_version(self, input_dir: Path) -> None:
+        from clio.tasks import reindex
+
+        (input_dir / "videos.json").write_text(json.dumps([str(input_dir / "A.mp4")]), encoding="utf-8")
+        with patch("clio.tasks._video_loader.load_selected_videos", wraps=None) as load:
+            load.return_value = [input_dir / "A.mp4"]
+            for _ in range(5):
+                reindex._find_original_for_stem("A", input_dir)
+        assert load.call_count <= 1
+
+        (input_dir / "videos.json").write_text(json.dumps([str(input_dir / "B.mp4"), "x"]), encoding="utf-8")
+        assert reindex._selected_videos(input_dir) == [input_dir / "B.mp4", Path("x")]
