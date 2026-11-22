@@ -468,8 +468,8 @@ class TestHandlePostPlanReadiness:
                 }
             ],
         }
-        monkeypatch.setattr("clio.ui.routes.plan.collect_project_indices", lambda _cfg: ({"001"}, set()))
-        monkeypatch.setattr("clio.ui.routes.plan.collect_project_media_durations", lambda _cfg: {"001": 120.0})
+        monkeypatch.setattr("clio.ui.routes.plan.collect_project_indices", lambda _cfg, **_kw: ({"001"}, set()))
+        monkeypatch.setattr("clio.ui.routes.plan.collect_project_media_durations", lambda _cfg, **_kw: {"001": 120.0})
 
         handle_post_plan_readiness(handler, {}, {"day": "day1", "plan": plan})
 
@@ -497,8 +497,8 @@ class TestHandlePostPlanReadiness:
                 }
             ],
         }
-        monkeypatch.setattr("clio.ui.routes.plan.collect_project_indices", lambda _cfg: ({"001"}, set()))
-        monkeypatch.setattr("clio.ui.routes.plan.collect_project_media_durations", lambda _cfg: {"001": 20.0})
+        monkeypatch.setattr("clio.ui.routes.plan.collect_project_indices", lambda _cfg, **_kw: ({"001"}, set()))
+        monkeypatch.setattr("clio.ui.routes.plan.collect_project_media_durations", lambda _cfg, **_kw: {"001": 20.0})
         monkeypatch.setattr(
             "clio.ui.routes.plan.collect_project_analysis_timelines",
             lambda _cfg: {"1": []},
@@ -540,7 +540,7 @@ class TestHandlePostCut:
 
         # Plan validation is bypassed so this test isolates the dependency gate.
         monkeypatch.setattr("clio.ui.routes.plan.readiness_block_payload", lambda *a, **k: None)
-        monkeypatch.setattr("clio.ui.routes.plan.collect_project_indices", lambda cfg: (set(), set()))
+        monkeypatch.setattr("clio.ui.routes.plan.collect_project_indices", lambda cfg, **_kw: (set(), set()))
         monkeypatch.setattr("clio.ui.routes.plan.resolve_cut_output_dir", lambda *a: tmp_path / "cuts")
         monkeypatch.setattr("clio.ui.routes.plan.list_existing_cut_videos", lambda *a: [])
 
@@ -682,7 +682,7 @@ class TestHandlePostCut:
             return {"clip_count": 1}
 
         monkeypatch.setattr("clio.ui.routes.plan._run_cut_task", worker)
-        monkeypatch.setattr("clio.ui.routes.plan.collect_project_indices", lambda cfg: ({"001"}, set()))
+        monkeypatch.setattr("clio.ui.routes.plan.collect_project_indices", lambda cfg, **_kw: ({"001"}, set()))
         monkeypatch.setattr("clio.ui.routes.plan.readiness_block_payload", lambda result, force: None)
         monkeypatch.setattr("clio.ui.routes.plan.resolve_cut_output_dir", lambda *args: output_dir)
         monkeypatch.setattr("clio.ui.routes.plan.list_existing_cut_videos", lambda path: [])
@@ -898,7 +898,7 @@ def _prepare_cut_project(tmp_path: Path, monkeypatch) -> tuple[MagicMock, Any, P
     handler._get_config.return_value = cfg
     handler._get_task_manager = lambda: manager
     handler._send_json = MagicMock()
-    monkeypatch.setattr("clio.ui.routes.plan.collect_project_indices", lambda cfg: ({"001"}, set()))
+    monkeypatch.setattr("clio.ui.routes.plan.collect_project_indices", lambda cfg, **_kw: ({"001"}, set()))
     monkeypatch.setattr("clio.ui.routes.plan.readiness_block_payload", lambda result, force: None)
     monkeypatch.setattr("clio.ui.routes.plan.resolve_cut_output_dir", lambda *args: output_dir)
     monkeypatch.setattr("clio.ui.routes.plan.list_existing_cut_videos", lambda path: [])
@@ -998,7 +998,7 @@ class TestHandlePostCutValidation:
         handler._get_config.return_value = cfg
         handler._send_json = MagicMock()
         monkeypatch.setattr("clio.ui.routes.plan.resolve_cut_output_dir", lambda *a: tmp_path / "cuts")
-        monkeypatch.setattr("clio.ui.routes.plan.collect_project_indices", lambda cfg: (set(), set()))
+        monkeypatch.setattr("clio.ui.routes.plan.collect_project_indices", lambda cfg, **_kw: (set(), set()))
         monkeypatch.setattr(
             "clio.ui.routes.plan.readiness_block_payload", lambda result, force: {"ok": False, "error": "blocked"}
         )
@@ -1067,7 +1067,7 @@ class _LegacyCutHandler:
 class TestLegacyCutThread:
     def _prepare(self, tmp_path: Path, monkeypatch, run_cut) -> _LegacyCutHandler:
         monkeypatch.setattr("clio.ui.routes.plan.preflight_config_media_deps", lambda *a, **k: {"ok": True})
-        monkeypatch.setattr("clio.ui.routes.plan.collect_project_indices", lambda cfg: ({"001"}, set()))
+        monkeypatch.setattr("clio.ui.routes.plan.collect_project_indices", lambda cfg, **_kw: ({"001"}, set()))
         monkeypatch.setattr("clio.ui.routes.plan.readiness_block_payload", lambda result, force: None)
         monkeypatch.setattr("clio.ui.routes.plan.resolve_cut_output_dir", lambda *a: tmp_path / "cuts" / "day1")
         monkeypatch.setattr("clio.ui.routes.plan.list_existing_cut_videos", lambda path: [])
