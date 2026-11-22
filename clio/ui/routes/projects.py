@@ -143,15 +143,17 @@ def handle_post_project_create(handler: HandlerProtocol, obj: dict) -> None:
         "createdAt": now,
         "updatedAt": now,
     }
-    _save_atomic(proj_file, json.dumps(proj_data, ensure_ascii=False, indent=2).encode("utf-8"))
     # Auto-create project.yaml; a write against an existing global config must not
-    # silently fall through to registry registration (P1-29).
+    # silently fall through to registry registration (P1-29). It goes first:
+    # project.json marks the dir as a project, so writing it before a failed
+    # yaml left a half-created project that every retry rejected with 409.
     yaml_path = _create_project_yaml(input_path, config_path, proj_out)
     if config_path and config_path.is_file() and yaml_path is None:
         return handler._send_json(
             {"ok": False, "error": t("api.project_yaml_create_failed", {"path": project_dir_raw})},
             500,
         )
+    _save_atomic(proj_file, json.dumps(proj_data, ensure_ascii=False, indent=2).encode("utf-8"))
     # New projects start with an empty selection (videos.json)
     from clio.tasks._video_loader import save_selected_videos
 
@@ -196,13 +198,14 @@ def handle_post_project_add(handler: HandlerProtocol, obj: dict) -> None:
             "createdAt": now,
             "updatedAt": now,
         }
-        _save_atomic(proj_file, json.dumps(proj_data, ensure_ascii=False, indent=2).encode("utf-8"))
         # P1-29: don't proceed when a configured global exists but project.yaml can't be written.
+        # Write the yaml before project.json so a failure leaves no half-registered project.
         if _create_project_yaml(input_path, config_path, proj_out) is None and config_path and config_path.is_file():
             return handler._send_json(
                 {"ok": False, "error": t("api.project_yaml_create_failed", {"path": project_dir_raw})},
                 500,
             )
+        _save_atomic(proj_file, json.dumps(proj_data, ensure_ascii=False, indent=2).encode("utf-8"))
         from clio.tasks._video_loader import save_selected_videos
 
         if not (input_path / "videos.json").is_file():
