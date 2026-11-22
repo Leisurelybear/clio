@@ -118,6 +118,8 @@ function _detailHtml(detail) {
 function _render() {
   const pane = $('tab-tasks');
   if (!pane) return;
+  const prevListScroll = pane.querySelector('.task-list')?.scrollTop || 0;
+  const prevEventsScroll = pane.querySelector('.task-events')?.scrollTop || 0;
   const filtered = filterTasks(state.tasks);
   const projects = [...new Set(state.tasks.map(task => task.project_name || task.project_id || t('task.unnamed')))].sort();
   const activeCount = state.tasks.filter(task => ACTIVE.has(task.status)).length;
@@ -137,6 +139,38 @@ function _render() {
   _updateNavBadge();
   pane.querySelector('.task-cancel')?.addEventListener('click', () => mutateTask('cancel'));
   pane.querySelector('.task-retry')?.addEventListener('click', () => mutateTask('retry'));
+  const list = pane.querySelector('.task-list');
+  if (list && prevListScroll) list.scrollTop = prevListScroll;
+  const eventsEl = pane.querySelector('.task-events');
+  if (eventsEl && prevEventsScroll) eventsEl.scrollTop = prevEventsScroll;
+}
+
+let _streamRenderPending = false;
+let _streamRenderWaitsForBlur = false;
+
+/** Coalesce SSE-driven re-renders to one per frame; never rebuild under an open filter. */
+function _scheduleStreamRender() {
+  if (_streamRenderPending) return;
+  _streamRenderPending = true;
+  const raf = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : cb => setTimeout(cb, 16);
+  raf(() => {
+    _streamRenderPending = false;
+    if (state.currentEntity !== 'tasks') return;
+    const pane = $('tab-tasks');
+    const active = document.activeElement;
+    if (pane && active && active.tagName === 'SELECT' && pane.contains(active)) {
+      // Rebuilding the toolbar would close the dropdown the user is using.
+      if (!_streamRenderWaitsForBlur) {
+        _streamRenderWaitsForBlur = true;
+        active.addEventListener('blur', () => {
+          _streamRenderWaitsForBlur = false;
+          _scheduleStreamRender();
+        }, { once: true });
+      }
+      return;
+    }
+    _render();
+  });
 }
 
 export async function loadTasks() {
@@ -242,7 +276,7 @@ export function startTaskStream() {
           state.taskDetail = { ...state.taskDetail, task: payload.task, events };
         }
         _updateNavBadge();
-        if (state.currentEntity === 'tasks') _render();
+        if (state.currentEntity === 'tasks') _scheduleStreamRender();
       }
       _eventListeners.forEach(listener => {
         try { listener(payload); } catch { /* one consumer must not break the stream */ }
