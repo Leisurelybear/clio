@@ -111,6 +111,15 @@ def _duration_for_index(
     return None
 
 
+def _load_json_dict(path: Path) -> dict[str, Any] | None:
+    """Read a JSON object from *path*; None for unreadable, undecodable or non-object files."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
 def _normalized_media_key(index: str) -> str:
     value = index.strip().lower()
     return str(int(value)) if value.isdigit() else value
@@ -196,11 +205,8 @@ def collect_project_analysis_timelines(cfg: Any) -> dict[str, list[tuple[float, 
     for path in candidates:
         if selection is not None and not _matches_selected_artifact(path, selection):
             continue
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError, UnicodeDecodeError):
-            continue
-        if not isinstance(data, dict):
+        data = _load_json_dict(path)
+        if data is None:
             continue
         raw_index = data.get("index")
         if raw_index is None:
@@ -697,9 +703,8 @@ def _collect_text_indices(
         for jf in texts.glob("*.json"):
             if selection is not None and not _matches_selected_artifact(jf, selection):
                 continue
-            try:
-                data = json.loads(jf.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
+            data = _load_json_dict(jf)
+            if data is None:
                 continue
             raw_idx = data.get("index")
             if raw_idx is None:
@@ -775,11 +780,8 @@ def collect_media_index_aliases(cfg: Any) -> dict[str, set[str]]:
         for jf in sorted(texts.glob("*.json")):
             if selection is not None and not _matches_selected_artifact(jf, selection):
                 continue
-            try:
-                data = json.loads(jf.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError, UnicodeDecodeError):
-                continue
-            if not isinstance(data, dict):
+            data = _load_json_dict(jf)
+            if data is None:
                 continue
             identity = load_identity(data)
             raw_index = data.get("index")
