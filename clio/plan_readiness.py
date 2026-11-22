@@ -885,7 +885,7 @@ def collect_project_media_durations(cfg: Any) -> dict[str, float]:
 
     selection = _project_selection_stems(cfg)
     durations: dict[str, float] = {}
-    ffprobe = ""
+    ffprobe: str | None = ""  # "" = not resolved yet, None = unavailable
     try:
         for path in compressed_dir.iterdir():
             if not path.is_file() or path.suffix.lower() not in VIDEO_EXTS:
@@ -899,11 +899,15 @@ def collect_project_media_durations(cfg: Any) -> dict[str, float]:
             meta = VideoMeta.read(path)
             duration = _positive_duration(meta.target_duration_sec) if meta is not None else None
             if duration is None:
-                if not ffprobe:
+                if ffprobe == "":
                     try:
                         ffprobe = resolve_binary(getattr(getattr(cfg, "paths", None), "ffprobe", ""), "ffprobe")
                     except (FileNotFoundError, OSError):
-                        break
+                        ffprobe = None
+                if not ffprobe:
+                    # Without ffprobe only this clip lacks a duration; later clips
+                    # may still carry one in their .vmeta.
+                    continue
                 try:
                     duration = _positive_duration(get_duration_sec(path, ffprobe))
                 except (FileNotFoundError, OSError, RuntimeError, ValueError, subprocess.SubprocessError):

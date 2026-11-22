@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from types import SimpleNamespace
 
@@ -48,3 +49,40 @@ def test_collect_project_media_durations_survives_ffprobe_failure(tmp_path, monk
     monkeypatch.setattr("clio.plan_readiness.get_duration_sec", fake_duration)
 
     assert collect_project_media_durations(_durations_cfg(compressed)) == {"002": 8.0}
+
+
+def test_collect_project_media_durations_keeps_vmeta_when_ffprobe_missing(tmp_path, monkeypatch):
+    compressed = tmp_path / "compressed"
+    compressed.mkdir()
+    (compressed / "001_old.mp4").write_bytes(b"x")  # no .vmeta -> needs ffprobe
+    clip = compressed / "002_new.mp4"
+    clip.write_bytes(b"x")
+    clip.with_suffix(".vmeta").write_text(
+        json.dumps(
+            {
+                "source_path": str(tmp_path / "new.mp4"),
+                "target_path": clip.name,
+                "source_modifyTime": 0,
+                "source_size": 1,
+                "target_modifyTime": 0,
+                "target_size": 1,
+                "source_duration_sec": 12.0,
+                "target_duration_sec": 10.0,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def missing_ffprobe(*_args):
+        raise FileNotFoundError("ffprobe")
+
+    monkeypatch.setattr("clio.plan_readiness.resolve_binary", missing_ffprobe)
+    # Make iteration order deterministic: the clip needing ffprobe comes first.
+    real_iterdir = type(compressed).iterdir
+    monkeypatch.setattr(
+        type(compressed),
+        "iterdir",
+        lambda self: iter(sorted(real_iterdir(self))),
+    )
+
+    assert collect_project_media_durations(_durations_cfg(compressed)) == {"002": 10.0}
