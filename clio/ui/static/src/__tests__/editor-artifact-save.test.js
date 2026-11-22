@@ -123,6 +123,23 @@ describe('artifact saves', () => {
     expect(artifactVersion('texts', 'a.json')).toBe('new-version');
   });
 
+  it('keeps dirty when the user edits while the save is in flight', async () => {
+    state.texts = { title: 'first' };
+    state.artifactVersions.texts['a.json'] = 'old-version';
+    apiWithMeta.mockImplementation(async () => {
+      // Simulate markDirty() from an edit made before the response arrives.
+      state.editSeq = (state.editSeq || 0) + 1;
+      state.dirty = true;
+      return { data: { ok: true }, version: 'new-version' };
+    });
+
+    await save();
+
+    expect(state.dirty).toBe(true);
+    expect(artifactVersion('texts', 'a.json')).toBe('new-version');
+    apiWithMeta.mockReset();
+  });
+
   it.each([
     {
       label: 'plan',

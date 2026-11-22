@@ -198,4 +198,13 @@ describe('markDirty / clearDirty', () => {
     expect(btn.textContent).toBe('保存');
     expect(btn.classList.contains('dirty')).toBe(false);
   });
+
+  it('markDirty bumps editSeq so in-flight saves can detect newer edits', () => {
+    const before = state.editSeq;
+    markDirty();
+    markDirty();
+    expect(state.editSeq).toBe(before + 2);
+    clearDirty();
+    expect(state.editSeq).toBe(before + 2);
+  });
 });

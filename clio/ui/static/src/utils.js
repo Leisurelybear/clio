@@ -97,7 +97,11 @@ function setDeep(obj, path, value) {
   cur[keys[keys.length - 1]] = value;
 }
 
-function markDirty() { state.dirty = true; updateSaveBtn(); }
+function markDirty() {
+  state.editSeq = (state.editSeq || 0) + 1;
+  state.dirty = true;
+  updateSaveBtn();
+}
 
 /** Clear unsaved flag and sync the Save button label (discard / after save). */
 function clearDirty() { state.dirty = false; updateSaveBtn(); }

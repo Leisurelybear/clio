@@ -85,6 +85,12 @@ export async function saveEditorPlan(options = {}) {
     return;
   }
   const generation = ++_saveGeneration;
+  // Edits made while the request is in flight are not in the request body;
+  // only clear dirty when nothing changed since the snapshot was taken.
+  const editSeq = state.editSeq;
+  const clearDirtyIfUnchanged = () => {
+    if (state.editSeq === editSeq) clearDirty();
+  };
   const entity = state.currentEntity;
   const day = state.currentDay;
   const tab = state.currentTab;
@@ -112,7 +118,7 @@ export async function saveEditorPlan(options = {}) {
       }
       if (r.error) throw new Error(r.error);
       if (generation !== _saveGeneration) return;
-      clearDirty();
+      clearDirtyIfUnchanged();
       if (ct === 'global') applySavedConfigLanguage();
       const status = configSaveStatusForTab(ct);
       setStatus(status.message, status.level);
@@ -161,7 +167,7 @@ export async function saveEditorPlan(options = {}) {
     });
     if (generation !== _saveGeneration) return;
     setArtifactVersion(versionKind, versionKey, result.version || result.data?.version);
-    clearDirty();
+    clearDirtyIfUnchanged();
     setStatus(t('plan.saved'), 'ok');
     addToast(t('plan.saved'), 'success', undefined, { persist: false });
     if (target.action === 'plan') options.onPlanSaved?.();
