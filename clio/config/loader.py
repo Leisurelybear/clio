@@ -89,7 +89,8 @@ _DOTENV_KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$")
 def parse_dotenv(content: str) -> dict[str, str]:
     """Parse simple KEY=value dotenv entries shared by config loading and UI saves."""
     values: dict[str, str] = {}
-    for raw_line in content.splitlines():
+    # Notepad saves a UTF-8 BOM; str.strip() keeps U+FEFF and would hide the first key.
+    for raw_line in content.lstrip("\ufeff").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
@@ -113,7 +114,7 @@ def _load_dotenv(base: Path, override: bool = False) -> None:
     env_file = base / ".env"
     if not env_file.is_file():
         return
-    values = parse_dotenv(env_file.read_text(encoding="utf-8"))
+    values = parse_dotenv(env_file.read_text(encoding="utf-8-sig"))
     from clio.credentials.environment import sync_dotenv
 
     sync_dotenv(values, override=override)

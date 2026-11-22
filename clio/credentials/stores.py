@@ -67,7 +67,7 @@ class DotenvStore:
         from clio.config.loader import parse_dotenv
 
         path = self._path()
-        content = path.read_text(encoding="utf-8") if path.is_file() else ""
+        content = path.read_text(encoding="utf-8-sig") if path.is_file() else ""
         return parse_dotenv(content).get(account) or None
 
     def _update(self, account: str, value: str | None) -> None:
@@ -83,7 +83,8 @@ class DotenvStore:
             validate_value(value)
         with STORE_LOCK:
             path = self._path()
-            content = path.read_text(encoding="utf-8") if path.is_file() else ""
+            # utf-8-sig drops a Notepad BOM so the first key matches and is not rewritten with it.
+            content = path.read_text(encoding="utf-8-sig") if path.is_file() else ""
             lines = []
             for line in content.splitlines(keepends=True):
                 match = assignment.match(line.rstrip("\r\n"))
