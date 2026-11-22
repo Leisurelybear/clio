@@ -681,7 +681,7 @@ export async function executeCut() {
   try {
     const dayLabel = state.currentDay;
     try {
-      const loaded = await apiWithMeta('GET', `/api/plan?day=${dayLabel}`);
+      const loaded = await apiWithMeta('GET', `/api/plan?day=${encodeURIComponent(dayLabel)}`);
       setArtifactVersion('plan', dayLabel, loaded.version);
     } catch (e) {
       result.innerHTML = `<p class="err">${t('plan.cut_no_plan', { day: escapeHtml(dayLabel) })}</p>`;

@@ -113,7 +113,7 @@ async function selectPlan(dayOverride) {
   // Keep run SSE alive across entity switches so done/cancel handlers still fire.
   try {
     const [planResult, previewMedia] = await Promise.all([
-      apiWithMeta('GET', `/api/plan?day=${day}`),
+      apiWithMeta('GET', `/api/plan?day=${encodeURIComponent(day)}`),
       loadPlanPreviewMedia(day),
     ]);
     state.plan = planResult.data;

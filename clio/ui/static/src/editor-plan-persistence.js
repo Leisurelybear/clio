@@ -141,7 +141,7 @@ export async function saveEditorPlan(options = {}) {
     if (target.action === 'plan') {
       versionKind = 'plan';
       versionKey = day;
-      requestUrl = `/api/plan?day=${day}`;
+      requestUrl = `/api/plan?day=${encodeURIComponent(day)}`;
       requestBody = planData;
     } else if (target.action === 'texts') {
       const v = state.videos.find(x => x.file === videoFile);

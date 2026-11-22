@@ -527,7 +527,7 @@ async function init() {
       if (!hasDay) state.currentDay = state.availablePlans[0].day_label;
       updateSidebarDay();
       try {
-        const loaded = await apiWithMeta('GET', `/api/plan?day=${state.currentDay}`);
+        const loaded = await apiWithMeta('GET', `/api/plan?day=${encodeURIComponent(state.currentDay)}`);
         state.plan = loaded.data;
         setArtifactVersion('plan', state.currentDay, loaded.version);
       } catch (e) { /* ignore */ }

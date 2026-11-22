@@ -287,6 +287,17 @@ describe('save routing', () => {
     expect(artifactVersion('plan', 'day1')).toBe('new-plan');
   });
 
+  it('encodes the day label in the plan save URL', async () => {
+    state.currentEntity = 'plan';
+    state.currentDay = 'a&b #1';
+    state.plan = { day_title: 'draft', sequence: [] };
+    apiWithMeta.mockResolvedValue({ data: { ok: true }, version: 'v2' });
+
+    await saveEditorPlan();
+
+    expect(apiWithMeta.mock.calls[0][1]).toBe('/api/plan?day=a%26b%20%231');
+  });
+
   it('does not call the save API when the editor is clean', async () => {
     state.dirty = false;
 
