@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import threading
 import time
 from pathlib import Path
@@ -10,6 +9,7 @@ from typing import Protocol, TypedDict
 from clio import session_log as _session_log
 from clio.i18n import t
 from clio.schema import ARTIFACT_SCHEMA_VERSION
+from clio.utils import write_text_atomic
 
 
 class ProgressData(TypedDict):
@@ -85,16 +85,10 @@ class ProgressTracker:
         self._flush()
 
     def _flush(self) -> None:
-        tmp: Path | None = None
         try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            suffix = os.urandom(4).hex()
-            tmp = self._path.parent / f"{self._path.name}.{suffix}.tmp"
-            tmp.write_text(json.dumps(self._data, ensure_ascii=False), encoding="utf-8")
-            tmp.replace(self._path)
+            # Shared atomic writer: exclusive temp, fsync, path lock, temp cleanup on failure.
+            write_text_atomic(self._path, json.dumps(self._data, ensure_ascii=False))
         except OSError as e:
-            if tmp is not None:
-                tmp.unlink(missing_ok=True)
             if not self._write_failed:
                 print(t("progress.write_failed", {"path": self._path, "detail": e}))
                 self._write_failed = True

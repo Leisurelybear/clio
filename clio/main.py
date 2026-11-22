@@ -578,8 +578,12 @@ def _run_refine_command(args: argparse.Namespace, config, context_override: str 
     return 0
 
 
-def _run_cut_command(args: argparse.Namespace, config) -> int:
-    from clio.pipeline import run_cut_all
+def _load_checked_plan(args: argparse.Namespace, config, *, source: str) -> Path | None:
+    """Load the day's plan and run the cut/export readiness checks.
+
+    Returns the plan path when the command may proceed; otherwise prints the
+    error (and every blocking issue) to stderr and returns None.
+    """
     from clio.plan_model import Plan
     from clio.plan_readiness import (
         check_plan_export_readiness,
@@ -589,13 +593,11 @@ def _run_cut_command(args: argparse.Namespace, config) -> int:
         collect_project_media_durations,
         readiness_block_payload,
     )
-    from clio.tasks.reindex import auto_reindex_if_needed
 
-    auto_reindex_if_needed(config)
     plan_path = config.plans_dir / f"{plan_day_stem(args.day)}_plan.json"
     if not plan_path.is_file():
         print(t("cli.error", {"detail": t("cli.plan.not_found", {"path": plan_path})}), file=sys.stderr)
-        return 1
+        return None
     plan = Plan.from_dict(json.loads(plan_path.read_text(encoding="utf-8-sig")))
     media_aliases = collect_media_index_aliases(config)
     known, offline = collect_project_indices(config, media_aliases=media_aliases)
@@ -605,14 +607,25 @@ def _run_cut_command(args: argparse.Namespace, config) -> int:
         offline_indices=offline,
         media_durations=collect_project_media_durations(config, media_aliases=media_aliases),
         analysis_timelines=collect_project_analysis_timelines(config),
-        source=args.source,
+        source=source,
         target_duration_sec=float(getattr(config.plan, "target_duration_sec", 0) or 0),
     )
-    blocked = readiness_block_payload(ready, force=bool(getattr(args, "force", False)))
+    force = bool(getattr(args, "force", False))
+    blocked = readiness_block_payload(ready, force=force)
     if blocked is not None:
         print(t("cli.error", {"detail": blocked["error"]}), file=sys.stderr)
-        for issue in ready.errors + (ready.warnings if not getattr(args, "force", False) else []):
+        for issue in ready.errors + (ready.warnings if not force else []):
             print(f"  [{issue.level}] {issue.message}", file=sys.stderr)
+        return None
+    return plan_path
+
+
+def _run_cut_command(args: argparse.Namespace, config) -> int:
+    from clio.pipeline import run_cut_all
+    from clio.tasks.reindex import auto_reindex_if_needed
+
+    auto_reindex_if_needed(config)
+    if _load_checked_plan(args, config, source=args.source) is None:
         return 1
     run_cut_all(
         config,
@@ -626,37 +639,9 @@ def _run_cut_command(args: argparse.Namespace, config) -> int:
 
 def _run_export_command(args: argparse.Namespace, config) -> int:
     from clio.export import export_plan
-    from clio.plan_model import Plan
-    from clio.plan_readiness import (
-        check_plan_export_readiness,
-        collect_media_index_aliases,
-        collect_project_analysis_timelines,
-        collect_project_indices,
-        collect_project_media_durations,
-        readiness_block_payload,
-    )
 
-    plan_path = config.plans_dir / f"{plan_day_stem(args.day)}_plan.json"
-    if not plan_path.is_file():
-        print(t("cli.error", {"detail": t("cli.plan.not_found", {"path": plan_path})}), file=sys.stderr)
-        return 1
-    plan = Plan.from_dict(json.loads(plan_path.read_text(encoding="utf-8-sig")))
-    media_aliases = collect_media_index_aliases(config)
-    known, offline = collect_project_indices(config, media_aliases=media_aliases)
-    ready = check_plan_export_readiness(
-        plan,
-        known_indices=known,
-        offline_indices=offline,
-        media_durations=collect_project_media_durations(config, media_aliases=media_aliases),
-        analysis_timelines=collect_project_analysis_timelines(config),
-        source="original",
-        target_duration_sec=float(getattr(config.plan, "target_duration_sec", 0) or 0),
-    )
-    blocked = readiness_block_payload(ready, force=bool(getattr(args, "force", False)))
-    if blocked is not None:
-        print(t("cli.error", {"detail": blocked["error"]}), file=sys.stderr)
-        for issue in ready.errors + (ready.warnings if not getattr(args, "force", False) else []):
-            print(f"  [{issue.level}] {issue.message}", file=sys.stderr)
+    plan_path = _load_checked_plan(args, config, source="original")
+    if plan_path is None:
         return 1
     out_dir = (
         getattr(args, "export_out_dir", None)

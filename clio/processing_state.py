@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from clio.schema import ARTIFACT_SCHEMA_VERSION
+from clio.utils import write_text_atomic
 
 _STEPS = ["compress", "transcribe", "analyze", "voiceover", "plan", "label"]
 _DEFAULT_FLUSH_INTERVAL_SEC = 0.5
@@ -100,11 +101,8 @@ class ProcessingState:
         return default
 
     def _flush_locked(self) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        suffix = os.urandom(4).hex()
-        tmp = self._path.parent / f"{self._path.name}.{suffix}.tmp"
-        tmp.write_text(json.dumps(self._data, ensure_ascii=False), encoding="utf-8")
-        tmp.replace(self._path)
+        # Shared atomic writer: exclusive temp, fsync, path lock, no stray .tmp on failure.
+        write_text_atomic(self._path, json.dumps(self._data, ensure_ascii=False))
         self._dirty = False
         self._pending_flushes = 0
         self._last_flush_at = time.monotonic()
