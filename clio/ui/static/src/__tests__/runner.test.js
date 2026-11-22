@@ -640,3 +640,37 @@ describe('skipped diagnostics', () => {
     expect(html).toContain('当前没有 skipped 记录');
   });
 });
+
+describe('updateRunFilesBadge preview refresh', () => {
+  it('coalesces bursts of badge updates into a leading and a trailing preview', async () => {
+    vi.useFakeTimers();
+    try {
+      const { api } = await import('../api.js');
+      const { updateRunFilesBadge } = await import('../runner.js');
+      vi.mocked(api).mockReset();
+      vi.mocked(api).mockResolvedValue({ preview: null });
+      document.body.innerHTML = `
+        <input class="run-step-cb" data-step="compress" type="checkbox" checked>
+        <button id="btn-run-start"></button>
+        <div id="run-preview"></div>
+      `;
+      state.selectionMode = true;
+      state.selectedFiles = [];
+      const previewCalls = () => vi.mocked(api).mock.calls.filter(([, url]) => url === '/api/run/preview').length;
+
+      for (let i = 0; i < 5; i += 1) {
+        state.selectedFiles = Array.from({ length: i + 1 }, (_, n) => `v${n}.mp4`);
+        updateRunFilesBadge();
+      }
+      expect(previewCalls()).toBe(1);
+      vi.advanceTimersByTime(300);
+      expect(previewCalls()).toBe(2);
+      vi.advanceTimersByTime(1000);
+      expect(previewCalls()).toBe(2);
+    } finally {
+      vi.useRealTimers();
+      state.selectionMode = false;
+      state.selectedFiles = [];
+    }
+  });
+});
