@@ -4,13 +4,21 @@ from __future__ import annotations
 
 import json
 import threading
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from clio.ai.token_usage import FileTokenUsageStore
 from clio.analyze import refine_script, refine_text
 from clio.i18n import t
+from clio.tasks._helpers import _rewrite_script_md, _rewrite_text_file
 from clio.tasks.refine import _load_analysis_for_script
-from clio.ui.services.file_service import save_with_version, version_headers
+from clio.ui.routes.texts import _preserve_analysis_server_fields
+from clio.ui.services.file_service import (
+    ArtifactConflictError,
+    content_version,
+    save_with_version,
+    version_headers,
+)
 
 if TYPE_CHECKING:
     from clio.ui.handler_protocol import HandlerProtocol
@@ -22,6 +30,15 @@ _refining_lock = threading.Lock()
 def _is_file_busy(path: str) -> bool:
     with _refining_lock:
         return path in _refining
+
+
+def _try_mark_busy(path: str) -> bool:
+    """Atomically claim *path* for a refine; False when one is already running."""
+    with _refining_lock:
+        if path in _refining:
+            return False
+        _refining.add(path)
+        return True
 
 
 def _mark_busy(path: str, busy: bool) -> None:
@@ -56,22 +73,38 @@ def handle_post_refine(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) 
         return handler._send_json({"ok": False, "error": "forbidden or not found"}, 404)
 
     abs_path = str(p.resolve())
-    if _is_file_busy(abs_path):
+    # Check-and-claim in one lock step so two requests cannot refine (and bill)
+    # the same file concurrently.
+    if not _try_mark_busy(abs_path):
         return handler._send_json(
             {"ok": False, "error": t("api.refine_busy"), "code": "refine_busy"},
             409,
         )
-
     try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as e:
+        _refine_and_save(handler, p, ftype, proj_dir, proj_out, context_override)
+    finally:
+        _mark_busy(abs_path, False)
+
+
+def _refine_and_save(
+    handler: HandlerProtocol,
+    p: Path,
+    ftype: str,
+    proj_dir: Path,
+    proj_out: Path,
+    context_override: str | None,
+) -> None:
+    try:
+        raw_before = p.read_bytes()
+        base_version = content_version(raw_before)
+        data = json.loads(raw_before.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeError, OSError) as e:
         return handler._send_json({"ok": False, "error": f"failed to read file: {e}"}, 500)
 
     config = handler._get_config(proj_dir)
 
     token_store = FileTokenUsageStore(str(proj_out))
 
-    _mark_busy(abs_path, True)
     try:
         if ftype == "texts":
             refined = refine_text(data, config, context_override=context_override, token_store=token_store)
@@ -80,11 +113,31 @@ def handle_post_refine(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) 
             refined = refine_script(data, analysis, config, context_override=context_override, token_store=token_store)
     except Exception as e:  # noqa: BLE001 - AI provider failures are heterogeneous
         return handler._send_json({"ok": False, "error": f"refine failed: {e}"}, 500)
-    finally:
-        _mark_busy(abs_path, False)
 
+    if ftype == "texts" and isinstance(data, dict) and isinstance(refined, dict):
+        refined = _preserve_analysis_server_fields(data, refined)
     raw = json.dumps(refined, ensure_ascii=False, indent=2).encode("utf-8")
-    version = save_with_version(p, raw)
+    try:
+        # The AI call can take tens of seconds; never overwrite an edit the user
+        # saved meanwhile. Return the refined data so the client can merge.
+        version = save_with_version(p, raw, base_version)
+    except ArtifactConflictError as exc:
+        return handler._send_json(
+            {
+                "ok": False,
+                "code": "artifact_conflict",
+                "error": t("api.artifact_conflict"),
+                "current_version": exc.current_version,
+                "data": refined,
+            },
+            409,
+            extra_headers=version_headers(exc.current_version) if exc.current_version else None,
+        )
+    if isinstance(refined, dict):
+        if ftype == "texts":
+            _rewrite_text_file(p.with_suffix(".txt"), refined)
+        else:
+            _rewrite_script_md(p.with_suffix(".md"), refined)
 
     handler._send_json(
         {"ok": True, "data": refined, "version": version},
