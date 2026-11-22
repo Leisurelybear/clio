@@ -48,6 +48,19 @@ async function openVideoMenu(v = { file: 'clip.mp4', match: { abs_path: 'D:/vide
 }
 
 describe('renderVideoItem', () => {
+  it('closeVideoRowMenu removes an open portal menu', async () => {
+    const { renderVideoItem, closeVideoRowMenu } = await import('../sidebar-video-row.js');
+    const li = renderVideoItem(
+      { file: 'clip.mp4', match: { abs_path: 'D:/videos/clip.mp4' } },
+      { relinkVideo: vi.fn(), removeVideoFromProject: vi.fn(), rerenderVideoList: vi.fn() },
+    );
+    document.body.appendChild(li);
+    li.querySelector('.menu-btn').click();
+    expect(document.body.querySelectorAll('.menu-dropdown.open')).toHaveLength(1);
+    closeVideoRowMenu();
+    expect(document.body.querySelectorAll('.menu-dropdown.open')).toHaveLength(0);
+  });
+
   it('escapes the video index in the row label', async () => {
     const { renderVideoItem } = await import('../sidebar-video-row.js');
     const li = renderVideoItem(

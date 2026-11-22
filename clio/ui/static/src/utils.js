@@ -124,6 +124,8 @@ function updateSaveBtn() {
   label.textContent = t(key);
 }
 
+let _statusClearTimer = null;
+
 function setStatus(msg, kind = '', options = {}) {
   const el = $('status');
   if (el) {
@@ -134,7 +136,15 @@ function setStatus(msg, kind = '', options = {}) {
     const captured = msg;
     // Errors stick longer so users can read them; info/ok clear quickly
     const ttl = kind === 'err' || kind === 'error' ? 8000 : 4000;
-    if (el) setTimeout(() => { if (el.textContent === captured) el.textContent = ''; }, ttl);
+    // Keep only the latest clear timer: an older one must not wipe a newer
+    // (possibly identical) message early.
+    if (el) {
+      clearTimeout(_statusClearTimer);
+      _statusClearTimer = setTimeout(() => {
+        _statusClearTimer = null;
+        if (el.textContent === captured) el.textContent = '';
+      }, ttl);
+    }
     const severity = kind === 'err' || kind === 'error'
       ? 'error'
       : kind === 'warn' || kind === 'warning'

@@ -12,6 +12,12 @@ import { bindCoverThumbFallback, videoDisplayName, videoThumbHtml } from './side
 let _portalDropdown = null;
 let _portalCloseHandler = null;
 
+/** Close the portal row menu; its closure targets a row that is being replaced. */
+export function closeVideoRowMenu() {
+  if (_portalDropdown) { _portalDropdown.remove(); _portalDropdown = null; }
+  if (_portalCloseHandler) { document.removeEventListener('click', _portalCloseHandler); _portalCloseHandler = null; }
+}
+
 async function requestRerun(payload) {
   try {
     return await api('POST', '/api/rerun', payload);

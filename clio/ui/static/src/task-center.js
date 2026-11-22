@@ -206,7 +206,10 @@ export async function selectTask(taskId) {
     if (request !== _detailRequest) return;
     state.taskDetail = result;
     _render();
-  } catch (error) { setStatus(t('task.detail_load_failed', { detail: error.message }), 'err'); }
+  } catch (error) {
+    if (request !== _detailRequest) return;
+    setStatus(t('task.detail_load_failed', { detail: error.message }), 'err');
+  }
 }
 
 /** Fetch one task snapshot for consumers that may subscribe after a fast task finished. */

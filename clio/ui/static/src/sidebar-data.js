@@ -23,7 +23,7 @@ import { t, onLocaleChange } from './i18n.js';
 import { confirmDialog } from './confirm.js';
 import { renderFilterChips, renderOfflineSummary, renderStageCountBar } from './sidebar-video-overview.js';
 import { bindCoverThumbFallback, videoDisplayName, videoThumbHtml } from './sidebar-video-display.js';
-import { renderVideoItem } from './sidebar-video-row.js';
+import { closeVideoRowMenu, renderVideoItem } from './sidebar-video-row.js';
 
 // ── Video relink helper ───────────────────────────────────────
 
@@ -402,6 +402,7 @@ export function renderVideoList() {
   if (!ul) return;
   // Rows are rebuilt below; a card anchored to an old row would never close.
   hideVideoInfoTip();
+  closeVideoRowMenu();
   hideVideoListLoading();
   ul.innerHTML = '';
   renderOfflineSummary();

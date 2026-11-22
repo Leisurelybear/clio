@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { state } from '../state.js';
 import {
   escapeHtml,
@@ -10,6 +10,7 @@ import {
   setDeep,
   markDirty,
   clearDirty,
+  setStatus,
 } from '../utils.js';
 
 describe('escapeHtml', () => {
@@ -215,5 +216,25 @@ describe('markDirty / clearDirty', () => {
     expect(state.editSeq).toBe(before + 2);
     clearDirty();
     expect(state.editSeq).toBe(before + 2);
+  });
+});
+
+describe('setStatus clear timer', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    document.body.innerHTML = '';
+  });
+
+  it('does not clear a repeated message early with the previous timer', () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = '<span id="status"></span>';
+    const el = document.getElementById('status');
+    setStatus('same');
+    vi.advanceTimersByTime(3000);
+    setStatus('same');
+    vi.advanceTimersByTime(1500);
+    expect(el.textContent).toBe('same');
+    vi.advanceTimersByTime(3000);
+    expect(el.textContent).toBe('');
   });
 });

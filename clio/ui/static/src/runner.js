@@ -725,6 +725,7 @@ async function startRun(stageSteps) {
 }
 
 async function cancelRun() {
+  if (!_managedTaskId) return;
   const btn = $('btn-run-cancel');
   if (btn) { btn.disabled = true; btn.innerHTML = t('run.cancelling'); }
   try {
