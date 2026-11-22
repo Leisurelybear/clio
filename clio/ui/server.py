@@ -162,6 +162,7 @@ from clio.ui.routes.videos import (
     handle_get_videos,
     handle_get_videos_selected,
     handle_get_vmeta,
+    handle_post_videos_selected_remove,
     handle_put_videos_relink,
     handle_put_videos_selected,
 )

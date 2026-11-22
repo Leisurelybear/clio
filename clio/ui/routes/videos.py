@@ -1057,6 +1057,42 @@ def handle_put_videos_selected(handler: HandlerProtocol, qs: dict[str, Any], obj
     handler._send_json(payload)
 
 
+def handle_post_videos_selected_remove(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
+    """Handle POST /api/videos/selected/remove — atomically drop paths from videos.json.
+
+    Body: ``{"paths": [...]}`` with entries as returned by GET /api/videos/selected.
+    Read, filter and write happen under the videos.json lock, so concurrent
+    adds/removes (other tabs, the video manager) are never overwritten.
+    Responds with ``{ok, removed, videos}`` (removed = stored entries dropped).
+    """
+    proj_dir = handler._resolve_project_dir(qs)
+    raw = obj.get("paths")
+    if not isinstance(raw, list):
+        return handler._send_json({"ok": False, "error": "paths must be a list"}, 400)
+    keys: set[str] = set()
+    for item in raw:
+        if not isinstance(item, str) or not item.strip():
+            continue
+        try:
+            keys.add(_video_key(Path(item.strip()).expanduser()))
+        except (RuntimeError, ValueError):
+            continue
+    removed: list[str] = []
+    with path_write_lock(proj_dir / "videos.json"):
+        videos = load_selected_videos(proj_dir)
+        remaining: list[Path] = []
+        for video in videos:
+            if _video_key(video) in keys:
+                removed.append(str(video))
+            else:
+                remaining.append(video)
+        if removed:
+            save_selected_videos(proj_dir, remaining)
+    if removed:
+        _invalidate_videos_cache(proj_dir)
+    handler._send_json({"ok": True, "removed": removed, "videos": [str(p) for p in remaining]})
+
+
 def handle_put_videos_relink(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
     """Handle PUT /api/videos/relink — replace a broken path in videos.json with a new one."""
     proj_dir = handler._resolve_project_dir(qs)
