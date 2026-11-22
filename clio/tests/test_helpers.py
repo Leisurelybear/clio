@@ -122,6 +122,18 @@ class TestWriteTextFile:
         assert "0:00 - 1:30" in text
         assert "great shot" in text
 
+    def test_keeps_refine_changelog(self, tmp_path: Path):
+        out = tmp_path / "001_test.txt"
+        analysis = {"title": "T", "_changelog": ["fixed the location"]}
+        _write_text_file(out, analysis, tmp_path / "source.mp4", tmp_path / "compressed.mp4")
+        rewritten = tmp_path / "002_test.txt"
+        _rewrite_text_file(rewritten, {**analysis, "source_file": "source.mp4"})
+
+        text = out.read_text(encoding="utf-8")
+        assert "fixed the location" in text
+        assert "compressed.mp4" in text
+        assert text.replace("\n" + text.splitlines()[3], "", 1) == rewritten.read_text(encoding="utf-8")
+
     def test_empty_analysis(self, tmp_path: Path):
         out = tmp_path / "001_test.txt"
         _write_text_file(out, {}, tmp_path / "source.mp4", tmp_path / "compressed.mp4")

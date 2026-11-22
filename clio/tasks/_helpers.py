@@ -519,50 +519,28 @@ def _format_highlight(highlight: object) -> str:
     return str(highlight)
 
 
-def _write_text_file(path: Path, analysis: dict, source: Path, compressed: Path) -> None:
-    lines = [
-        t("md.title", {"title": analysis.get("title") or t("md.untitled")}),
-        "",
-        t("md.source_file", {"name": source.name}),
-        t("md.compressed_file", {"name": compressed.name}),
-        "",
-        t("md.summary_section"),
-        analysis.get("summary") or "",
-        "",
-        t("md.location", {"value": analysis.get("location") or t("md.unknown")}),
-        t("md.mood", {"value": analysis.get("mood") or ""}),
-        t("md.suggested_use", {"value": analysis.get("suggested_use") or ""}),
-        "",
-        t("md.timeline_section"),
-    ]
-    for item in analysis.get("timeline", []):
-        lines.append(f"- [{item.get('start', '?')} - {item.get('end', '?')}] {item.get('description', '')}")
-        if item.get("transcript"):
-            lines.append(t("md.transcript_line", {"text": item.get("transcript")}))
-    lines.extend(["", t("md.highlights_section")])
-    for h in analysis.get("highlights", []):
-        lines.append(f"- {_format_highlight(h)}")
-
-    write_text_atomic(path, "\n".join(lines))
-
-
-def _rewrite_text_file(path: Path, analysis: dict) -> None:
-    """根据已存在的 analysis 重写 .txt（不需要源文件/压缩文件路径）。"""
-    source_name = analysis.get("source_file") or analysis.get("compressed_file") or "?"
+def _analysis_md_lines(analysis: dict, source_name: str, compressed_name: str | None = None) -> list[str]:
+    """Render an analysis as the human-readable .txt body (shared by all writers)."""
     lines = [
         t("md.title", {"title": analysis.get("title") or t("md.untitled")}),
         "",
         t("md.source_file", {"name": source_name}),
-        "",
-        t("md.summary_section"),
-        analysis.get("summary") or "",
-        "",
-        t("md.location", {"value": analysis.get("location") or t("md.unknown")}),
-        t("md.mood", {"value": analysis.get("mood") or ""}),
-        t("md.suggested_use", {"value": analysis.get("suggested_use") or ""}),
-        "",
-        t("md.timeline_section"),
     ]
+    if compressed_name is not None:
+        lines.append(t("md.compressed_file", {"name": compressed_name}))
+    lines.extend(
+        [
+            "",
+            t("md.summary_section"),
+            analysis.get("summary") or "",
+            "",
+            t("md.location", {"value": analysis.get("location") or t("md.unknown")}),
+            t("md.mood", {"value": analysis.get("mood") or ""}),
+            t("md.suggested_use", {"value": analysis.get("suggested_use") or ""}),
+            "",
+            t("md.timeline_section"),
+        ]
+    )
     for item in analysis.get("timeline", []):
         lines.append(f"- [{item.get('start', '?')} - {item.get('end', '?')}] {item.get('description', '')}")
         if item.get("transcript"):
@@ -572,9 +550,19 @@ def _rewrite_text_file(path: Path, analysis: dict) -> None:
         lines.append(f"- {_format_highlight(h)}")
     if analysis.get("_changelog"):
         lines.extend(["", t("md.changelog_section")])
-        for item in analysis["_changelog"]:
-            lines.append(f"- {item}")
-    write_text_atomic(path, "\n".join(lines))
+        for entry in analysis["_changelog"]:
+            lines.append(f"- {entry}")
+    return lines
+
+
+def _write_text_file(path: Path, analysis: dict, source: Path, compressed: Path) -> None:
+    write_text_atomic(path, "\n".join(_analysis_md_lines(analysis, source.name, compressed.name)))
+
+
+def _rewrite_text_file(path: Path, analysis: dict) -> None:
+    """根据已存在的 analysis 重写 .txt（不需要源文件/压缩文件路径）。"""
+    source_name = analysis.get("source_file") or analysis.get("compressed_file") or "?"
+    write_text_atomic(path, "\n".join(_analysis_md_lines(analysis, source_name)))
 
 
 def _rewrite_script_md(path: Path, script: dict) -> None:
