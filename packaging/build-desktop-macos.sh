@@ -35,8 +35,16 @@ fi
 
 # universal2 requires a universal2 interpreter; fall back to host arch with a
 # warning so the script still works on single-arch Pythons.
-if "$PYTHON_BIN" -c 'import platform; exit(0 if "universal2" in platform.machine() else 1)'; then
+# platform.machine() reports the running arch (arm64/x86_64), never
+# "universal2"; the build platform tag is what names a universal2 interpreter.
+if "$PYTHON_BIN" -c 'import sys, sysconfig; sys.exit(0 if sysconfig.get_platform().endswith("universal2") else 1)'; then
     "$PYTHON_BIN" -m PyInstaller "${ARGS[@]}" --target-architecture universal2
+    # lipo lists the real archs; fail loudly instead of shipping a single-arch app.
+    ARCHS="$(lipo -archs "$ROOT/dist/clio.app/Contents/MacOS/clio")"
+    case "$ARCHS" in
+        *x86_64*arm64*|*arm64*x86_64*) echo "universal2 OK ($ARCHS)" ;;
+        *) echo "ERROR: dist/clio.app is not universal2 (archs: $ARCHS)" >&2; exit 1 ;;
+    esac
 else
     echo "WARNING: python is not a universal2 build; building host arch only" >&2
     "$PYTHON_BIN" -m PyInstaller "${ARGS[@]}"
