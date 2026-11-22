@@ -171,3 +171,27 @@ class TestRunWhisperInstall:
             assert result == 1
             printed = [c[0][0] for c in mock_print.call_args_list]
             assert any("安装失败" in p for p in printed)
+
+
+@patch("clio.whisper_cli.load_config")
+@patch("clio.whisper_cli.run_subprocess")
+@patch("builtins.print")
+def test_install_pip_has_timeout_and_reports_hang(mock_print, mock_subproc, mock_load_config, config_file):
+    import subprocess
+
+    mock_subproc.side_effect = subprocess.TimeoutExpired("pip", 3600)
+    mock_load_config.return_value.whisper.hf_endpoint = ""
+    mock_load_config.return_value.whisper.model_size = "small"
+    mock_load_config.return_value.whisper.cache_dir = None
+
+    with patch("clio.whisper_cli.PROJECT_ROOT", config_file.parent):
+        (config_file.parent / "requirements-whisper.txt").write_text("faster-whisper==1.0.0")
+        result = run_whisper_install(str(config_file))
+
+    assert result == 1
+    args, kwargs = mock_subproc.call_args
+    assert kwargs.get("timeout")
+    assert "--timeout" in args[0] and "--retries" in args[0]
+    assert "capture_output" not in kwargs
+    printed = [c[0][0] for c in mock_print.call_args_list]
+    assert any("安装失败" in p for p in printed)
