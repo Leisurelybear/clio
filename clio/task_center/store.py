@@ -749,9 +749,15 @@ class TaskStore:
         else:
             return None
         row = connection.execute(
-            "SELECT title, project_id, project_name FROM tasks WHERE id = ?", (event.task_id,)
+            "SELECT title, project_id, project_name, visibility FROM tasks WHERE id = ?", (event.task_id,)
         ).fetchone()
         if row is None:
+            return None
+        # Background tasks (e.g. waveform peaks) run on every page view; only a
+        # failure is worth an inbox entry.
+        if row[3] == TaskVisibility.BACKGROUND.value and not (
+            event.type is TaskEventType.STATUS and target_status == TaskStatus.FAILED.value
+        ):
             return None
         fallback_title = t("taskcenter.notify.fallback_title")
         label_text = t("taskcenter.notify.separator") + label
