@@ -144,6 +144,26 @@ def _get_video_duration(video_path: Path, ffprobe: str) -> float:
     return 0.0
 
 
+def _stop_process(proc: subprocess.Popen) -> None:
+    """Terminate *proc*, escalating to kill if it ignores SIGTERM for 5 s."""
+    if proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+
+
+def _kill_on_cancel(proc: subprocess.Popen, cancel_event: threading.Event) -> None:
+    """Stop *proc* on cancel even while ffmpeg prints nothing (stalled input)."""
+    while proc.poll() is None:
+        if cancel_event.wait(0.5):
+            _stop_process(proc)
+            return
+
+
 def _extract_audio(
     video_path: Path,
     ffmpeg: str,
@@ -188,16 +208,14 @@ def _extract_audio(
     ]
     proc = popen_subprocess(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, bufsize=1)
     register_process(proc)
+    if cancel_event is not None:
+        threading.Thread(target=_kill_on_cancel, args=(proc, cancel_event), daemon=True).start()
     time_pat = re.compile(r"time=(\d+):(\d+):(\d+\.\d+)")
     last_log_pct = -1
     try:
         for line in proc.stderr or []:
             if cancel_event and cancel_event.is_set():
-                proc.terminate()
-                proc.wait()
-                print(t("task.transcribe.extract_cancelled"))
-                tmp_path.unlink(missing_ok=True)
-                return None
+                break
             m = time_pat.search(line)
             if m:
                 sec = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
@@ -209,6 +227,11 @@ def _extract_audio(
                     total_s = f"{total_duration:.0f}"
                     print(t("task.transcribe.extract_progress_line", {"sec": sec_s, "total": total_s, "pct": pct}))
                     last_log_pct = pct
+        if cancel_event and cancel_event.is_set():
+            _stop_process(proc)
+            print(t("task.transcribe.extract_cancelled"))
+            tmp_path.unlink(missing_ok=True)
+            return None
         proc.wait()
         if proc.returncode != 0:
             print(t("task.transcribe.extract_failed", {"code": proc.returncode}))
@@ -218,13 +241,7 @@ def _extract_audio(
             progress_callback(100)
         return tmp_path
     except BaseException:
-        if proc.poll() is None:
-            proc.terminate()
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
+        _stop_process(proc)
         tmp_path.unlink(missing_ok=True)
         raise
     finally:

@@ -35,6 +35,10 @@ _BINARY_ERRORS = (OSError, TypeError, ValueError)
 _PROBE_ERRORS = (OSError, subprocess.SubprocessError, TypeError, ValueError)
 _FFMPEG_ERRORS = (OSError, RuntimeError, subprocess.SubprocessError, TypeError, ValueError)
 _LOCK_READ_ERRORS = (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError)
+# Hung probes / decodes (e.g. a stalled network drive) must not pin the job slots.
+# The decode deadline stays below STALE_SEC so the lock never outlives the job.
+_PROBE_TIMEOUT_SEC = 30
+_DECODE_TIMEOUT_SEC = 600
 
 _jobs_lock = threading.Lock()
 # BoundedSemaphore now owns concurrency accounting: waiting threads block
@@ -252,6 +256,22 @@ def _persist_peaks(project_output: Path, key: str, payload: dict[str, Any]) -> N
     clear_error(project_output, key)
 
 
+class _DeadlineEvent(threading.Event):
+    """Event that also reads as set after *timeout_sec* or when *parent* is set."""
+
+    def __init__(self, timeout_sec: float, parent: threading.Event | None = None) -> None:
+        super().__init__()
+        self._deadline = time.monotonic() + timeout_sec
+        self._parent = parent
+
+    def is_set(self) -> bool:
+        return (
+            super().is_set()
+            or time.monotonic() >= self._deadline
+            or (self._parent is not None and self._parent.is_set())
+        )
+
+
 def _spawn_job(fn: Callable[[], None]) -> None:
     t = threading.Thread(target=fn, daemon=True)
     t.start()
@@ -269,6 +289,7 @@ def _run_managed_waveform_task(context) -> dict[str, Any]:
             duration_sec=input_data.get("duration_sec"),
             audio_source=str(input_data.get("audio_source") or "original"),
             ffprobe=str(input_data.get("ffprobe") or ""),
+            cancel_event=context.cancel_event,
         )
         _persist_peaks(project_output, key, payload)
         return {"key": key, "bin_count": payload.get("bin_count", 0)}
@@ -288,7 +309,7 @@ def _ensure_waveform_handler(manager: TaskManager) -> None:
         _run_managed_waveform_task,
         concurrency_key="waveform",
         max_concurrency=MAX_CONCURRENT_JOBS,
-        cancellable=False,
+        cancellable=True,
     )
 
 
@@ -321,6 +342,7 @@ def has_audio_stream(video_path: Path, ffprobe: str) -> bool:
             ],
             capture_output=True,
             text=True,
+            timeout=_PROBE_TIMEOUT_SEC,
         )
     except _PROBE_ERRORS:
         return True
@@ -334,8 +356,13 @@ def extract_peaks_for_video(
     duration_sec: float | None = None,
     audio_source: str = "original",
     ffprobe: str = "",
+    cancel_event: threading.Event | None = None,
 ) -> dict[str, Any]:
-    """Extract mono s16le via temp wav (8kHz is enough for amplitude peaks)."""
+    """Extract mono s16le via temp wav (8kHz is enough for amplitude peaks).
+
+    The decode is stopped after ``_DECODE_TIMEOUT_SEC`` (reported as a probe
+    error) or when *cancel_event* is set (raises ``InterruptedError``).
+    """
     from clio.utils import get_duration_sec, resolve_binary, run_ffmpeg
 
     video_path = Path(video_path)
@@ -383,8 +410,11 @@ def extract_peaks_for_video(
                     str(tmp_path),
                 ],
                 ffmpeg_bin,
+                cancel_event=_DeadlineEvent(_DECODE_TIMEOUT_SEC, cancel_event),
             )
         except _FFMPEG_ERRORS as e:
+            if cancel_event is not None and cancel_event.is_set():
+                raise
             return {
                 "version": WAVEFORM_VERSION,
                 "source_path": str(video_path.resolve()),
