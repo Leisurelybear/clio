@@ -7,6 +7,9 @@ from typing import Literal, Protocol, overload
 from urllib.parse import parse_qs, urlparse
 
 LocalSessionError = Literal["api.invalid_host", "api.invalid_origin"]
+TokenSource = Literal["disabled", "cookie", "bearer", "query"]
+
+SESSION_COOKIE_NAME = "clio_session"
 
 # Fetch Metadata values a browser sends for the app's own requests ("same-origin")
 # or for user-initiated navigations / non-browser clients ("none"). Anything else
@@ -24,17 +27,55 @@ class HeaderLookup(Protocol):
     def get(self, key: str, default: str | None = None) -> str | None: ...
 
 
+def _token_matches(provided: object, token: str) -> bool:
+    """Constant-time compare that also tolerates non-ASCII input."""
+    if not isinstance(provided, str):
+        return False
+    provided_bytes = provided.encode("utf-8")
+    token_bytes = token.encode("utf-8")
+    return len(provided_bytes) == len(token_bytes) and hmac.compare_digest(provided_bytes, token_bytes)
+
+
+def session_cookie_value(headers: HeaderLookup) -> str | None:
+    """Return the ``clio_session`` cookie value from the Cookie header, if any."""
+    raw = headers.get("Cookie", "")
+    if not isinstance(raw, str) or not raw:
+        return None
+    for part in raw.split(";"):
+        name, sep, value = part.strip().partition("=")
+        if sep and name.strip() == SESSION_COOKIE_NAME:
+            return value.strip().strip('"')
+    return None
+
+
+def session_cookie_header(token: str) -> str:
+    """Set-Cookie value that hands the session token to the SPA without JS access."""
+    return f"{SESSION_COOKIE_NAME}={token}; HttpOnly; SameSite=Strict; Path=/"
+
+
+def api_token_source(headers: HeaderLookup, path: str, token: str | None) -> TokenSource | None:
+    """Return how a request authenticated, or None when it did not.
+
+    Accepted: the ``clio_session`` cookie, ``Authorization: Bearer``, or the
+    legacy ``?token=`` query parameter. An empty *token* means auth is disabled
+    (only used by embedders/tests; ``run()`` and the desktop always set one).
+    """
+    if not token:
+        return "disabled"
+    if _token_matches(session_cookie_value(headers), token):
+        return "cookie"
+    auth = headers.get("Authorization", "")
+    if isinstance(auth, str) and auth.startswith("Bearer ") and _token_matches(auth[7:], token):
+        return "bearer"
+    query_token = parse_qs(urlparse(path).query).get("token", [None])[0]
+    if _token_matches(query_token, token):
+        return "query"
+    return None
+
+
 def has_valid_api_token(headers: HeaderLookup, path: str, token: str | None) -> bool:
     """Return whether a request carries the configured API token."""
-    if not token:
-        return True
-    auth = headers.get("Authorization", "")
-    if isinstance(auth, str) and auth.startswith("Bearer "):
-        provided = auth[7:]
-        if isinstance(provided, str) and len(provided) == len(token) and hmac.compare_digest(provided, token):
-            return True
-    query_token = parse_qs(urlparse(path).query).get("token", [None])[0]
-    return isinstance(query_token, str) and len(query_token) == len(token) and hmac.compare_digest(query_token, token)
+    return api_token_source(headers, path, token) is not None
 
 
 def validate_request_origin(

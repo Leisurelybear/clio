@@ -404,8 +404,13 @@ def run(
     host = host or "127.0.0.1"
     _is_local = host in ("127.0.0.1", "localhost", "::1")
     if TOKEN is None:
-        TOKEN = "" if _is_local else secrets.token_urlsafe(32)
-    if TOKEN:
+        # Always run with a session token, also on loopback: the SPA index hands
+        # it to the browser as an HttpOnly SameSite=Strict cookie, so other sites
+        # and token-less local clients cannot drive the API.
+        TOKEN = secrets.token_urlsafe(32)
+    if not _is_local:
+        # LAN clients need the token to get the cookie; loopback users do not,
+        # so keep it out of local console logs.
         print(f"  API Token: {TOKEN}")
         print(f"  Token URL: http://{host}:{port}/?token={TOKEN}")
 

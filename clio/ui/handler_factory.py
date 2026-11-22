@@ -35,7 +35,9 @@ from clio.task_center.manager import TaskManager
 from clio.task_center.store import TaskStore
 from clio.ui.handler_protocol import HandlerProtocol
 from clio.ui.handler_security import (
+    api_token_source,
     has_valid_api_token,
+    session_cookie_header,
     validate_fetch_site,
     validate_local_session,
     validate_request_origin,
@@ -129,6 +131,8 @@ class _RequestHandler(BaseHTTPRequestHandler, HandlerProtocol):
     _http_response_started: bool = False
     _http_streaming: bool = False
     _http_stream_status: int | None = None
+    # Set-Cookie value to attach to the next response (session token hand-off).
+    _pending_session_cookie: str | None = None
 
     # Injected by BoundedThreadingHTTPServer; None disables the split budget.
     request_budget: ClassVar[RequestBudget | None] = None
@@ -144,6 +148,7 @@ class _RequestHandler(BaseHTTPRequestHandler, HandlerProtocol):
         self._http_response_started = False
         self._http_streaming = False
         self._http_stream_status = None
+        self._pending_session_cookie = None
         try:
             super().handle_one_request()
         finally:
@@ -221,6 +226,10 @@ class _RequestHandler(BaseHTTPRequestHandler, HandlerProtocol):
         super().send_header(keyword, value)
 
     def end_headers(self) -> None:
+        cookie = self._pending_session_cookie
+        if cookie:
+            self._pending_session_cookie = None
+            self.send_header("Set-Cookie", cookie)
         for key, value in self.__class__._security_headers:
             if key.lower() not in self._sent_header_names:
                 self.send_header(key, value)
@@ -308,11 +317,30 @@ class _RequestHandler(BaseHTTPRequestHandler, HandlerProtocol):
         print(f"  {line} STREAM")
 
     def _require_auth(self) -> bool:
-        """Reject requests without the configured bearer or query token."""
-        if has_valid_api_token(self.headers, self.path, self.__class__._api_token):
+        """Reject requests without the session cookie, bearer or query token."""
+        token = self.__class__._api_token
+        source = api_token_source(self.headers, self.path, token)
+        if source is not None:
+            if token and source in ("bearer", "query"):
+                # Swap header/URL tokens for the HttpOnly cookie so <img>/<video>/
+                # EventSource requests no longer need ?token= in their URLs.
+                self._pending_session_cookie = session_cookie_header(token)
             return True
         self._send_json({"error": t("api.unauthorized")}, 401)
         return False
+
+    def _offer_session_cookie(self) -> None:
+        """Attach the session cookie to the SPA index response.
+
+        On a loopback bind the index hands the cookie to any same-machine
+        browser (SameSite=Strict keeps other sites from using it). On a LAN
+        bind it is only issued to a request that already proved the token.
+        """
+        token = self.__class__._api_token
+        if not token:
+            return
+        if self.__class__._enforce_local_session or has_valid_api_token(self.headers, self.path, token):
+            self._pending_session_cookie = session_cookie_header(token)
 
     def _require_local_session(self) -> bool:
         """Reject cross-origin requests and, on loopback, foreign Host values."""
@@ -479,6 +507,7 @@ class _RequestHandler(BaseHTTPRequestHandler, HandlerProtocol):
         path = url.path
 
         if path in ("/", "/index.html"):
+            self._offer_session_cookie()
             return self._call_special_handler("handle_index")
         if path == "/favicon.ico":
             return self._call_special_handler("handle_favicon")
