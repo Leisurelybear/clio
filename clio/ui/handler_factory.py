@@ -34,7 +34,12 @@ from clio.i18n import t
 from clio.task_center.manager import TaskManager
 from clio.task_center.store import TaskStore
 from clio.ui.handler_protocol import HandlerProtocol
-from clio.ui.handler_security import has_valid_api_token, validate_local_session, validate_request_origin
+from clio.ui.handler_security import (
+    has_valid_api_token,
+    validate_fetch_site,
+    validate_local_session,
+    validate_request_origin,
+)
 from clio.ui.http_server import (
     BUSY_ERROR,
     REQUEST_TIMEOUT_SEC,
@@ -317,6 +322,13 @@ class _RequestHandler(BaseHTTPRequestHandler, HandlerProtocol):
             error = validate_request_origin(self.headers)
         else:
             error = None
+        if error is None and (self.__class__._enforce_local_session or self.__class__._enforce_request_origin):
+            # A cross-site <img>/<video> GET carries no Origin and can drop the
+            # Referer, so the Origin check above lets it through; Fetch Metadata
+            # still tells us it came from another site.
+            request_path = urlparse(getattr(self, "path", "") or "").path
+            if request_path == "/api" or request_path.startswith("/api/"):
+                error = validate_fetch_site(self.headers)
         if error is None:
             return True
         self._send_json({"error": t(error)}, 403)

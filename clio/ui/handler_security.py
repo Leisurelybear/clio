@@ -8,6 +8,11 @@ from urllib.parse import parse_qs, urlparse
 
 LocalSessionError = Literal["api.invalid_host", "api.invalid_origin"]
 
+# Fetch Metadata values a browser sends for the app's own requests ("same-origin")
+# or for user-initiated navigations / non-browser clients ("none"). Anything else
+# ("cross-site", "same-site") is a page on another origin driving the API.
+_ALLOWED_FETCH_SITES = frozenset({"same-origin", "none"})
+
 
 class HeaderLookup(Protocol):
     @overload
@@ -67,6 +72,20 @@ def validate_local_session(headers: HeaderLookup, allowed_hosts: tuple[str, ...]
     if hostname and hostname not in allowed_hosts and hostname != "localhost":
         return "api.invalid_host"
     return validate_request_origin(headers, allowed_hosts)
+
+
+def validate_fetch_site(headers: HeaderLookup) -> LocalSessionError | None:
+    """Reject API requests that the browser marks as coming from another site.
+
+    Requests without ``Sec-Fetch-Site`` (old browsers, CLI clients) are left to
+    the Origin/Referer and token checks.
+    """
+    site = headers.get("Sec-Fetch-Site")
+    if site is None:
+        return None
+    if not isinstance(site, str) or site.strip().lower() not in _ALLOWED_FETCH_SITES:
+        return "api.invalid_origin"
+    return None
 
 
 def _host_and_port(value: str) -> tuple[str, int | None]:
