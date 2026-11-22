@@ -648,7 +648,7 @@ def test_install_cancellation_and_manual_platform(tmp_path):
 
 
 def test_install_system_mode_does_not_fall_back_to_download(tmp_path, monkeypatch):
-    monkeypatch.setattr(installer.shutil, "which", lambda name: None)
+    monkeypatch.setattr(installer.shutil, "which", lambda name, path=None: None)
     result = installer.install_ffmpeg(
         mode="system",
         allow_system=True,
@@ -731,3 +731,78 @@ def test_install_refetches_checksums_once_when_latest_was_republished(tmp_path):
 
     assert result.ok is True
     assert len(checksum_requests) == 2
+
+
+def test_package_manager_install_is_found_outside_process_path(tmp_path, monkeypatch):
+    """winget updates the registry PATH only; look in its Links dir right after install."""
+    local_app = tmp_path / "LocalAppData"
+    links = local_app / "Microsoft" / "WinGet" / "Links"
+    monkeypatch.setenv("LOCALAPPDATA", str(local_app))
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    searched = []
+
+    def fake_which(name, path=None):
+        searched.append(path)
+        if name == "winget":
+            return "winget"
+        if path and str(links) in path.split(os.pathsep):
+            return str(links / f"{name}.exe")
+        return None
+
+    monkeypatch.setattr(installer.shutil, "which", fake_which)
+    runner = MagicMock(return_value=subprocess.CompletedProcess([], 0, "", ""))
+    monkeypatch.setattr(installer, "verify_binaries", lambda ffmpeg, ffprobe, **_k: "WinGet" in str(ffmpeg))
+
+    result = installer.install_ffmpeg(
+        mode="system",
+        allow_system=True,
+        system="win32",
+        machine="amd64",
+        root=tmp_path / "managed",
+        runner=runner,
+    )
+
+    assert result.ok is True
+    assert result.method == "system"
+    assert result.ffmpeg == str(links / "ffmpeg.exe")
+
+
+def test_package_manager_failures_are_logged(monkeypatch, caplog):
+    monkeypatch.setattr(installer.shutil, "which", lambda name, path=None: name if name == "winget" else None)
+
+    def boom(*_args, **_kwargs):
+        raise subprocess.TimeoutExpired("winget", 900)
+
+    with caplog.at_level("WARNING", logger="clio.ffmpeg_install"):
+        installer._try_package_manager("win32", None, boom)
+
+    assert "winget" in caplog.text
+    assert "TimeoutExpired" in caplog.text
+
+
+def test_package_manager_wait_observes_cancellation(monkeypatch):
+    cancel = threading.Event()
+
+    class _Proc:
+        returncode = None
+        terminated = False
+
+        def communicate(self, timeout=None):
+            if self.terminated:
+                return "", ""
+            cancel.set()
+            raise subprocess.TimeoutExpired("winget", timeout)
+
+        def terminate(self):
+            self.terminated = True
+
+        def kill(self):
+            self.terminated = True
+
+    proc = _Proc()
+    monkeypatch.setattr(installer, "popen_subprocess", lambda *_a, **_k: proc)
+
+    with pytest.raises(InterruptedError):
+        installer._run_cancellable(["winget", "install"], timeout=900, cancel_event=cancel)
+
+    assert proc.terminated
