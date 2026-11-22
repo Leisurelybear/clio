@@ -369,9 +369,11 @@ def verify_binaries(ffmpeg: Path, ffprobe: Path, *, runner: Callable[..., object
                 timeout=15,
                 check=False,
             )
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - any failure means "not usable"
+            logger.debug("%s -version failed: %s: %s", binary, type(exc).__name__, exc)
             return False
         if getattr(result, "returncode", 1) != 0:
+            logger.debug("%s -version exited with code %s", binary, getattr(result, "returncode", None))
             return False
     return True
 

@@ -857,3 +857,18 @@ def test_install_downloads_renamed_release_asset(tmp_path):
 
     assert result.ok is True
     assert urls[-1].endswith("/" + renamed)
+
+
+def test_verify_binaries_logs_why_a_binary_is_rejected(tmp_path, caplog):
+    ffmpeg = tmp_path / "ffmpeg"
+    ffprobe = tmp_path / "ffprobe"
+    ffmpeg.write_bytes(b"x")
+    ffprobe.write_bytes(b"x")
+
+    def broken(*_args, **_kwargs):
+        raise PermissionError("access denied")
+
+    with caplog.at_level("DEBUG", logger="clio.ffmpeg_install"):
+        assert installer.verify_binaries(ffmpeg, ffprobe, runner=broken) is False
+
+    assert "PermissionError" in caplog.text

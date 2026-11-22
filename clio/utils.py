@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import random
 import re
@@ -20,6 +21,8 @@ from typing import Any, TypeVar
 from clio._constants import VIDEO_EXTENSIONS
 from clio.i18n import t
 from clio.shutdown import register_process, unregister_process
+
+logger = logging.getLogger("clio.utils")
 
 T = TypeVar("T")
 R = TypeVar("R")
@@ -413,8 +416,8 @@ def discover_ffmpeg_bin(name: str) -> str | None:
         managed = managed_binary(name)
         if managed.is_file():
             return str(managed)
-    except Exception:  # noqa: BLE001 - managed lookup must not break legacy discovery
-        pass
+    except Exception as exc:  # noqa: BLE001 - managed lookup must not break legacy discovery
+        logger.debug("managed %s lookup failed: %s: %s", name, type(exc).__name__, exc)
 
     for search_root in _ffmpeg_search_roots():
         if not search_root.is_dir():
