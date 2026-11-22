@@ -82,3 +82,13 @@ class TestSendVideoRange:
         h = _handler()
         send_video_range(h, video)
         assert h._http_response_bytes == video.stat().st_size
+
+    def test_end_past_eof_is_clamped_to_206(self, video: Path):
+        h = _handler(range_hdr="bytes=0-100")
+        send_video_range(h, video)
+        assert h.send_response.call_args[0][0] == 206
+        headers = {c.args[0]: c.args[1] for c in h.send_header.call_args_list}
+        assert headers.get("Content-Range") == "bytes 0-15/16"
+        assert headers.get("Content-Length") == "16"
+        written = b"".join(c.args[0] for c in h.wfile.write.call_args_list)
+        assert written == b"0123456789ABCDEF"

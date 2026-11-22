@@ -589,7 +589,9 @@ def send_video_range(handler, path: Path) -> None:
         else:
             start = int(start_s) if start_s else 0
             end = int(end_s) if end_s else size - 1
-        if start >= size or end >= size or start > end:
+        # RFC 7233 §2.1: a last-byte-pos past the end is clamped, not rejected.
+        end = min(end, size - 1)
+        if start >= size or start > end:
             _send_range_not_satisfiable(handler, size)
             return
         length = end - start + 1
