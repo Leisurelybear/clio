@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import subprocess
 import threading
@@ -963,13 +964,14 @@ def handle_get_videos_selected(handler: HandlerProtocol, qs: dict[str, Any]) -> 
 def _video_key(path: Path) -> str:
     """Canonical comparison key for a stored video path.
 
-    Case- and separator-insensitive so the same file added twice (different
-    slash style, letter case, or with ``.``/``..`` segments) is deduplicated.
+    Resolved (``.``/``..`` collapsed) and ``os.path.normcase``-d: case- and
+    separator-insensitive on Windows only. On Linux/macOS-case-sensitive
+    volumes ``A.mp4`` and ``a.mp4`` are different files and must both stay.
     """
     try:
-        return str(path.resolve()).lower()
+        return os.path.normcase(str(path.resolve()))
     except OSError:
-        return str(path).replace("\\", "/").lower()
+        return os.path.normcase(str(path))
 
 
 def _coerce_video_path(item: Any) -> Path | None:
