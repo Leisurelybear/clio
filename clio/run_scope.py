@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -380,8 +381,16 @@ def _valid_date(value: Any) -> str | None:
         return None
 
 
-def _resolve_capture(artifact: _Artifact, config: AppConfig) -> _CaptureResolution:
-    """Resolve capture identity in the order persisted metadata -> media -> label."""
+def _resolve_capture(
+    artifact: _Artifact,
+    config: AppConfig,
+    all_compressed: Callable[[], dict[str, Path]] | None = None,
+) -> _CaptureResolution:
+    """Resolve capture identity in the order persisted metadata -> media -> label.
+
+    *all_compressed* returns the unfiltered compressed-file map; callers that
+    resolve many artifacts pass a memoized lookup so the directory is listed once.
+    """
     data = artifact.data
     raw_scope = data.get("scope_id")
     if isinstance(raw_scope, str):
@@ -448,10 +457,8 @@ def _resolve_capture(artifact: _Artifact, config: AppConfig) -> _CaptureResoluti
         if compressed_path.is_file():
             probe_path = compressed_path
     if probe_path is None:
-        for stem, path in _compressed_files(config, None).items():
-            if stem == artifact.compressed_stem.casefold():
-                probe_path = path
-                break
+        compressed_files = all_compressed() if all_compressed is not None else _compressed_files(config, None)
+        probe_path = compressed_files.get(artifact.compressed_stem.casefold())
     if probe_path is not None:
         try:
             ffprobe = resolve_binary(config.paths.ffprobe, "ffprobe")
@@ -478,10 +485,11 @@ def _scope_for_group(
     group: _IdentityGroup,
     config: AppConfig,
     project_mode: str,
+    all_compressed: Callable[[], dict[str, Path]] | None = None,
 ) -> tuple[str, str, str, str, str | None, list[str]]:
     """Return ``(scope_id, kind, source, basis, legacy_alias, warnings)``."""
     assert group.selected is not None
-    resolution = _resolve_capture(group.selected, config)
+    resolution = _resolve_capture(group.selected, config, all_compressed)
     aliases = sorted(group.legacy_labels)
     alias = aliases[0] if len(aliases) == 1 else None
     warnings: list[str] = []
@@ -691,13 +699,17 @@ def resolve_run_scope(
         orphaned,
     ) = _build_groups(config, files=files, compressed=compressed)
     project_mode = _project_mode(config, all_artifacts)
+    # List compressed/ at most once for all artifacts that fall back to it (was once per artifact).
+    all_compressed = functools.cache(lambda: _compressed_files(config, None))
 
     scoped: list[ResolvedScope] = []
     options_by_id: dict[str, ScopeOption] = {}
     for group in groups:
         assert group.selected is not None
         artifact = group.selected
-        scope_id_value, kind, source, basis, alias, warnings = _scope_for_group(group, config, project_mode)
+        scope_id_value, kind, source, basis, alias, warnings = _scope_for_group(
+            group, config, project_mode, all_compressed
+        )
         option = options_by_id.get(scope_id_value)
         if option is None:
             option = ScopeOption(
