@@ -414,10 +414,14 @@ describe('removeSelectedVideosFromProject', () => {
     state.selectedFiles = [];
     state.source = 'original';
     let server = ['D:/clips/001_a.mp4', 'D:/clips/002_b.mp4'];
+    let addedElsewhere = false;
     api.mockImplementation(async (method, url, body) => {
       if (method === 'GET' && url === '/api/videos/selected') {
         const snapshot = server.slice();
-        server = [...server, 'D:/clips/004_new.mp4']; // another tab adds a clip
+        if (!addedElsewhere) {
+          server = [...server, 'D:/clips/004_new.mp4']; // another tab adds a clip once
+          addedElsewhere = true;
+        }
         return { videos: snapshot };
       }
       if (method === 'POST' && url === '/api/videos/selected/remove') {
