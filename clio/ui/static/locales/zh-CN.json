@@ -441,6 +441,7 @@
   "project.opening": "打开中...",
   "project.output_dir_label": "输出目录: {path}",
   "project.remove_confirm": "从项目列表移除「{name}」？",
+  "project.remove_failed": "移除失败: {detail}",
   "project.remove_title": "从项目列表移除",
   "project.reveal_failed": "打开目录失败: {detail}",
   "project.step_done_title": "{label} 完成",

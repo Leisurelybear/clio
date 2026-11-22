@@ -178,16 +178,25 @@ async function init() {
         if (!removeBtn) return;
         removeBtn.onclick = async (e) => {
           e.stopPropagation();
+          if (removeBtn.disabled) return;
           if (!(await confirmDialog(t('project.remove_confirm', { name }), { danger: true }))) return;
-          const r2 = await api('POST', '/api/project/remove', { project_dir: projectDir });
-          if (r2.ok) {
-            if (name === state.currentProject?.name && projectDir === state.currentProjectDir) {
-              openModal.style.display = 'none';
-              window.location.search = '';
-            } else {
-              $('btn-open-project').click();
+          removeBtn.disabled = true;
+          try {
+            const r2 = await api('POST', '/api/project/remove', { project_dir: projectDir });
+            if (r2.ok) {
+              if (name === state.currentProject?.name && projectDir === state.currentProjectDir) {
+                openModal.style.display = 'none';
+                window.location.search = '';
+              } else {
+                $('btn-open-project').click();
+              }
+              return;
             }
+            setStatus(t('project.remove_failed', { detail: r2.error || t('common.unknown_error') }), 'err');
+          } catch (err) {
+            setStatus(t('project.remove_failed', { detail: err.message }), 'err');
           }
+          removeBtn.disabled = false;
         };
       }
       function _setupMigrateBtn(card, name, projectDir) {

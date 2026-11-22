@@ -441,6 +441,7 @@
   "project.opening": "Opening...",
   "project.output_dir_label": "Output folder: {path}",
   "project.remove_confirm": "Remove \"{name}\" from the project list?",
+  "project.remove_failed": "Remove failed: {detail}",
   "project.remove_title": "Remove from the project list",
   "project.reveal_failed": "Failed to open the folder: {detail}",
   "project.step_done_title": "{label} done",
