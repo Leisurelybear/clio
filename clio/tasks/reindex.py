@@ -222,17 +222,32 @@ def _find_group_source(
 
 
 def _build_segment_entries(
-    comp_files: list[Path], source_path: Path, source_dur: float, ffprobe: str
+    comp_files: list[Path],
+    source_path: Path,
+    source_dur: float,
+    ffprobe: str,
+    stale: list[Path] | None = None,
 ) -> list[SegmentEntry]:
+    """Build index entries for *comp_files* that belong to *source_path*.
+
+    Existing ``.vmeta`` sidecars are never overwritten: a sidecar that points at
+    another original (same stem, different folder) is left for that source, and a
+    stale one (source or target changed) is reported via *stale* so the caller does
+    not stamp outdated compressed output as fresh.
+    """
     comp_files.sort(key=lambda p: int(p.stem.split("_", 1)[0]))
     seg_entries: list[SegmentEntry] = []
     for cp in comp_files:
         idx_str = cp.stem.split("_", 1)[0]
         meta = VideoMeta.read(cp)
-        if meta is not None and not (
-            source_path.resolve() == meta.source_path_obj().resolve() and not meta.is_stale(source_path, cp)
-        ):
-            meta = None
+        if meta is not None and source_path.resolve() != meta.source_path_obj().resolve():
+            print(t("task.reindex.skip_foreign_meta", {"name": cp.name, "source": meta.source_path}))
+            continue
+        if meta is not None and meta.is_stale(source_path, cp):
+            print(t("task.reindex.skip_stale_meta", {"name": cp.name}))
+            if stale is not None:
+                stale.append(cp)
+            continue
         if meta is not None and meta.split_info:
             si = meta.split_info
             seg_entries.append(
@@ -277,11 +292,17 @@ def _write_group_index(
     source_dur: float,
     comp_files: list[Path],
     ffprobe: str,
-) -> None:
-    seg_entries = _build_segment_entries(comp_files, source_path, source_dur, ffprobe)
+) -> bool:
+    stale: list[Path] = []
+    seg_entries = _build_segment_entries(comp_files, source_path, source_dur, ffprobe, stale)
+    if stale or not seg_entries:
+        # Stale output must be re-compressed first; never index it as fresh.
+        print(t("task.reindex.skip_group", {"name": orig_stem}))
+        return False
     vindex = VideoIndex.build(source=source_path, source_duration=source_dur, segments=seg_entries)
     vindex.write(compressed_dir)
-    print(t("task.reindex.ok", {"name": orig_stem, "count": len(comp_files)}))
+    print(t("task.reindex.ok", {"name": orig_stem, "count": len(seg_entries)}))
+    return True
 
 
 def run_reindex(config: AppConfig, ffprobe: str | None = None, stems: set[str] | None = None) -> int:
@@ -321,8 +342,8 @@ def run_reindex(config: AppConfig, ffprobe: str | None = None, stems: set[str] |
         with contextlib.suppress(*_PROBE_ERRORS):
             source_dur = get_duration_sec(source_path, ffprobe)
 
-        _write_group_index(orig_stem, compressed_dir, source_path, source_dur, comp_files, ffprobe)
-        written_index += 1
+        if _write_group_index(orig_stem, compressed_dir, source_path, source_dur, comp_files, ffprobe):
+            written_index += 1
 
     _save_offline_cache(compressed_dir, offline_cache)
     print(t("task.reindex.done", {"count": written_index}))
