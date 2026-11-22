@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import subprocess
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -905,7 +906,9 @@ def collect_project_media_durations(cfg: Any) -> dict[str, float]:
                         break
                 try:
                     duration = _positive_duration(get_duration_sec(path, ffprobe))
-                except (FileNotFoundError, OSError, RuntimeError, ValueError):
+                except (FileNotFoundError, OSError, RuntimeError, ValueError, subprocess.SubprocessError):
+                    # CalledProcessError (non-zero ffprobe exit on a broken/partial clip)
+                    # is a SubprocessError, not an OSError.
                     duration = None
             if duration is not None:
                 durations[index] = max(duration, durations.get(index, 0.0))
