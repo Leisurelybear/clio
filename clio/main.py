@@ -18,6 +18,7 @@ from clio.shutdown import before_stop, install_hooks
 from clio.utils import discover_ffmpeg_bin, plan_day_stem, resolve_binary
 
 PLACEHOLDER_KEYS = {"your_api_key_here", "YOUR_API_KEY", ""}
+SERVE_TOKEN_ENV = "CLIO_API_TOKEN"
 
 
 def _add_io_args(
@@ -316,6 +317,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     p_serve.add_argument("--port", type=int, default=8765, help=t("cli.help.serve.port"))
     p_serve.add_argument("--no-browser", action="store_true", help=t("cli.help.serve.no_browser"))
     p_serve.add_argument("--token", type=str, default=None, help=t("cli.help.serve.token"))
+    p_serve.add_argument(
+        "--token-file",
+        type=Path,
+        default=None,
+        help=f"Read the API token from this file (or set {SERVE_TOKEN_ENV}); --token is visible in the process list",
+    )
 
     sub.add_parser(
         "desktop",
@@ -692,8 +699,39 @@ def _run_maintenance_command(args: argparse.Namespace, config, config_path: Path
     return None
 
 
+def _resolve_serve_token(args: argparse.Namespace, config) -> str | None:
+    """Pick the API token: --token, --token-file, $CLIO_API_TOKEN, then config.
+
+    A token passed on the command line is visible to other local users via the
+    process list and shell history, so it still works but prints a warning.
+    """
+    cli_token = getattr(args, "token", None)
+    if cli_token:
+        print(
+            f"warning: --token exposes the API token in the process list; use --token-file or {SERVE_TOKEN_ENV}",
+            file=sys.stderr,
+        )
+        return cli_token
+    token_file = getattr(args, "token_file", None)
+    if token_file is not None:
+        token = Path(token_file).read_text(encoding="utf-8-sig").strip()
+        if not token:
+            raise ValueError(f"token file is empty: {token_file}")
+        return token
+    env_token = os.environ.get(SERVE_TOKEN_ENV, "").strip()
+    if env_token:
+        return env_token
+    return config.server.api_token or None
+
+
 def _run_serve_command(args: argparse.Namespace, config, config_path: Path) -> int:
     import time as _time
+
+    try:
+        api_token = _resolve_serve_token(args, config)
+    except (OSError, UnicodeDecodeError, ValueError) as e:
+        print(t("cli.error", {"detail": e}), file=sys.stderr)
+        return 1
 
     t_ui = _time.perf_counter()
     print("[startup] importing UI modules…")
@@ -706,7 +744,7 @@ def _run_serve_command(args: argparse.Namespace, config, config_path: Path) -> i
         host=args.host,
         port=args.port,
         open_browser=not args.no_browser,
-        api_token=args.token or config.server.api_token or None,
+        api_token=api_token,
     )
 
 
