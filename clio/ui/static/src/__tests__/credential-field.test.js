@@ -91,6 +91,18 @@ describe('credential fields', () => {
     expect(input.value).toBe('');
   });
 
+  it('clears and removes the replace dialog when closed with Escape', async () => {
+    const { closeTopModal } = await import('../modal-escape.js');
+    const root = mount();
+    root.querySelector('[data-credential-replace]').click();
+    const dialog = document.querySelector('.modal');
+    const input = dialog.querySelector('[data-new-value]');
+    input.value = 'typed-secret';
+    expect(closeTopModal()).toBe(true);
+    expect(dialog.isConnected).toBe(false);
+    expect(input.value).toBe('');
+  });
+
   it('confirms migration and deletes the effective writable backend', async () => {
     api.mockResolvedValue({ ok: true });
     const root = mount();

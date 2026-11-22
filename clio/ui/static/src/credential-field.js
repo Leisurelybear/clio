@@ -86,6 +86,8 @@ export function attachCredentialFields(root, inventory, onChange = () => {}) {
       select.value = inventory.backends.default_source;
       select.querySelector('[value="keyring"]').disabled = !inventory.backends.keyring.available;
       const close = () => { input.value = ''; dialog.remove(); };
+      // Global Escape (modal-escape.js) must run the same cleanup.
+      dialog._closeModal = close;
       dialog.querySelector('[data-cancel]').onclick = close;
       dialog.querySelector('.modal-backdrop').onclick = close;
       dialog.querySelector('[data-save]').onclick = async () => {

@@ -7,6 +7,7 @@ import { initLanguageSwitcher } from './language-switcher.js';
 import { pickFolder, pickFile, applyPickToInput, initDesktopPickers } from './desktop-pick.js';
 import { addToast } from './toast.js';
 import { confirmDialog } from './confirm.js';
+import { closeTopModal } from './modal-escape.js';
 import { setupPlayer } from './viewer.js';
 import { save, initProjectConfig, renderActiveTab, refineCurrentFile } from './editor.js';
 import {
@@ -424,21 +425,7 @@ async function init() {
     }
     if (e.key === 'Escape') {
       // Close topmost open modal only (preserve stacked dialog state)
-      const openModals = [...$$('.modal')].filter(m => m.style.display !== 'none');
-      if (openModals.length) {
-        const top = openModals[openModals.length - 1];
-        if (top.id === 'modal-relink') {
-          import('./sidebar-relink.js').then(m => m.closeRelinkModal());
-        } else if (top.id === 'modal-video-manage') {
-          import('./sidebar-video-manage.js').then(m => m.closeVideoManager());
-        } else if (top.id === 'modal-batch-relink') {
-          import('./sidebar-batch-relink.js').then(m => m.closeBatchRelinkModal());
-        } else {
-          top.style.display = 'none';
-        }
-      } else {
-        setProjectMenuOpen(false);
-      }
+      if (!closeTopModal()) setProjectMenuOpen(false);
     }
     if (mod && e.key >= '1' && e.key <= '6') {
       e.preventDefault();

@@ -837,8 +837,14 @@ function _showProviderModal(providersObj, name, onSave) {
     }
   };
 
-  backdrop.querySelector('#modal-cancel').onclick = () => backdrop.remove();
-  backdrop.querySelector('.modal-backdrop').onclick = () => backdrop.remove();
+  const closeModal = () => {
+    keyInput.value = '';
+    backdrop.remove();
+  };
+  // Global Escape (modal-escape.js) must remove the node and drop the key too.
+  backdrop._closeModal = closeModal;
+  backdrop.querySelector('#modal-cancel').onclick = closeModal;
+  backdrop.querySelector('.modal-backdrop').onclick = closeModal;
 }
 
 function _chooseProviderTestModel(provider) {
