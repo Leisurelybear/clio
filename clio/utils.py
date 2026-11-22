@@ -726,8 +726,10 @@ def _write_bytes_atomic_unlocked(path: Path, data: bytes) -> None:
         except OSError:
             existing_mode = None
     tmp, fd = _exclusive_random_tmp(path)
+    fd_owned = True  # True until os.fdopen takes over (and later closes) the fd
     try:
         with os.fdopen(fd, "wb") as f:
+            fd_owned = False
             f.write(data)
             f.flush()
             os.fsync(f.fileno())
@@ -737,8 +739,9 @@ def _write_bytes_atomic_unlocked(path: Path, data: bytes) -> None:
         os.replace(tmp, path)
         _fsync_dir(path.parent)
     except BaseException:
-        with suppress(OSError):
-            os.close(fd)
+        if fd_owned:
+            with suppress(OSError):
+                os.close(fd)
         tmp.unlink(missing_ok=True)
         raise
 
@@ -828,15 +831,18 @@ def write_secret_atomic(path: Path, text: str) -> None:
     if _secret_has_insecure_perms(path):
         raise PermissionError(t("utils.secret.insecure", {"path": path}))
     tmp, fd = _exclusive_random_tmp(path)
+    fd_owned = True  # True until os.fdopen takes over (and later closes) the fd
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
+            fd_owned = False
             f.write(text)
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp, path)
     except BaseException:
-        with suppress(OSError):
-            os.close(fd)
+        if fd_owned:
+            with suppress(OSError):
+                os.close(fd)
         tmp.unlink(missing_ok=True)
         raise
     _restrict_secret_to_owner(path)
