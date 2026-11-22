@@ -78,6 +78,7 @@ from clio.transition_review import review_plan_transitions
 from clio.utils import extract_json
 
 _trip_context_cache: dict[str, str] = {}
+_trip_context_lock = threading.Lock()
 
 
 def _task_temperature(config: AppConfig, task: TaskName) -> float | None:
@@ -136,10 +137,16 @@ _REFINEMENT_IMMUTABLE_FIELDS = {
 def _store_trip_context(project_dir: str, key: str, text: str) -> None:
     """Keep at most one cached trip context for each project directory."""
     prefix = f"{project_dir}@"
-    for cached_key in list(_trip_context_cache):
-        if cached_key.startswith(prefix):
-            del _trip_context_cache[cached_key]
-    _trip_context_cache[key] = text
+    with _trip_context_lock:
+        for cached_key in list(_trip_context_cache):
+            if cached_key.startswith(prefix):
+                _trip_context_cache.pop(cached_key, None)
+        _trip_context_cache[key] = text
+
+
+def _cached_trip_context(key: str) -> str | None:
+    with _trip_context_lock:
+        return _trip_context_cache.get(key)
 
 
 def _refinement_value_compatible(original: Any, candidate: Any) -> bool:
@@ -180,8 +187,9 @@ def _read_trip_context(project_dir: str) -> str:
             return ""
         mtime = project_path.stat().st_mtime
         key = f"{project_dir}@{mtime}"
-        if key in _trip_context_cache:
-            return _trip_context_cache[key]
+        cached = _cached_trip_context(key)
+        if cached is not None:
+            return cached
         text = project_path.read_text(encoding="utf-8").strip()
         if text:
             _store_trip_context(project_dir, key, text)
@@ -190,8 +198,9 @@ def _read_trip_context(project_dir: str) -> str:
     if default_path is not None:
         mtime = default_path.stat().st_mtime
         key = f"{project_dir}@default@{mtime}"
-        if key in _trip_context_cache:
-            return _trip_context_cache[key]
+        cached = _cached_trip_context(key)
+        if cached is not None:
+            return cached
         text = default_path.read_text(encoding="utf-8").strip()
         if text:
             _store_trip_context(project_dir, key, text)
