@@ -513,6 +513,21 @@ def install_ffmpeg(
             _check_cancel(cancel_event)
             actual = _sha256(archive_file, cancel_event)
             if actual != expected:
+                # The mutable `latest` release can be republished between the two requests;
+                # re-read the checksum list once before treating this as corruption/tampering.
+                download(
+                    CHECKSUMS_URL,
+                    checksum_file,
+                    max_bytes=MAX_CHECKSUM_BYTES,
+                    reporter=None,
+                    cancel_event=cancel_event,
+                )
+                _check_cancel(cancel_event)
+                try:
+                    expected = parse_checksum(checksum_file.read_text(encoding="utf-8"), asset.archive)
+                except ValueError:
+                    expected = ""
+            if actual != expected:
                 return InstallResult(False, "download", message="FFmpeg archive checksum mismatch")
             _emit(reporter, 82, "Extracting binaries")
             staged_dir = temp / "staged"

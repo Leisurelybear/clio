@@ -699,3 +699,35 @@ def test_cli_reports_install_result(monkeypatch, capsys):
     )
     assert installer.main(["--mode", "download"]) == 0
     assert "installed" in capsys.readouterr().out
+
+
+def test_install_refetches_checksums_once_when_latest_was_republished(tmp_path):
+    root = tmp_path / "managed"
+    archive_bytes = io.BytesIO()
+    with zipfile.ZipFile(archive_bytes, "w") as archive:
+        archive.writestr("build/bin/ffmpeg.exe", b"ffmpeg")
+        archive.writestr("build/bin/ffprobe.exe", b"ffprobe")
+    payload = archive_bytes.getvalue()
+    new_digest = hashlib.sha256(payload).hexdigest()
+    asset = _selected_asset("win32", "amd64").archive
+    checksum_requests = []
+
+    def download(url, dest, **kwargs):
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if url.endswith("checksums.sha256"):
+            checksum_requests.append(url)
+            digest = "0" * 64 if len(checksum_requests) == 1 else new_digest  # stale list first
+            dest.write_text(f"{digest}  {asset}\n", encoding="utf-8")
+        else:
+            dest.write_bytes(payload)
+
+    result = installer.install_ffmpeg(
+        system="win32",
+        machine="amd64",
+        root=root,
+        runner=_fake_runner,
+        downloader=download,
+    )
+
+    assert result.ok is True
+    assert len(checksum_requests) == 2
