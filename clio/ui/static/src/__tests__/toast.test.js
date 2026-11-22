@@ -60,4 +60,21 @@ describe('addToast a11y and duration', () => {
       t.textContent?.includes('sticky'),
     )).toBe(true);
   });
+
+  it('removes toasts even when animationend never fires (reduced motion)', async () => {
+    const { addToast } = await import('../toast.js');
+    const container = document.getElementById('toast-container');
+    addToast('a', 'info', 100);
+    addToast('b', 'info', 100);
+    addToast('c', 'info', 100);
+    addToast('queued', 'info', 100);
+    expect(container.children.length).toBe(3);
+    // No animationend dispatched: simulate `animation: none`.
+    vi.advanceTimersByTime(100 + 300);
+    const texts = [...container.querySelectorAll('.toast')].map((el) => el.textContent);
+    expect(texts).toHaveLength(1);
+    expect(texts[0]).toContain('queued');
+    vi.advanceTimersByTime(1000);
+    expect(container.children.length).toBe(0);
+  });
 });
