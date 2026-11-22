@@ -80,3 +80,31 @@ class TestConnectionSetup:
         assert not [s for s in statements if "journal_mode" in s]
         with sqlite3.connect(tmp_path / "tasks.sqlite3") as connection:
             assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+
+
+class TestProgressDedupe:
+    def test_identical_progress_updates_write_one_event(self, tmp_path):
+        import threading
+
+        from clio.task_center.manager import TaskManager
+
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+        entered = threading.Event()
+        release = threading.Event()
+
+        def handler(context):
+            entered.set()
+            release.wait(timeout=2)
+
+        manager.register(TaskKind.PIPELINE, handler)
+        task = manager.submit(TaskKind.PIPELINE, "pipe")
+        assert entered.wait(timeout=2)
+
+        for _ in range(20):
+            manager.update_progress(task.id, phase="compress", current=1, total=3, message="a.mp4 42%")
+        manager.update_progress(task.id, phase="compress", current=1, total=3, message="a.mp4 43%")
+        release.set()
+        manager.wait(task.id)
+
+        progress = [e for e in manager.store.events(task_id=task.id) if e.type is TaskEventType.PROGRESS]
+        assert [e.message for e in progress] == ["a.mp4 42%", "a.mp4 43%"]

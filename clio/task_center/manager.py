@@ -273,14 +273,26 @@ class TaskManager:
                 raise InvalidTaskTransition(f"cannot update progress for {task.status.value} task")
             next_current = task.current if current is None else current
             next_total = task.total if total is None else total
+            next_pct = normalized_progress(next_current, next_total)
+            next_phase = task.phase if phase is None else phase
+            next_message = task.message if message is None else message
+            if (next_phase, next_current, next_total, next_message) == (
+                task.phase,
+                task.current,
+                task.total,
+                task.message,
+            ):
+                # ffmpeg reports progress several times a second with the same
+                # percentage; skip the write transaction and duplicate event.
+                return task
             changed_at = utc_now_iso()
             updated = replace(
                 task,
-                phase=task.phase if phase is None else phase,
+                phase=next_phase,
                 current=next_current,
                 total=next_total,
-                progress_pct=normalized_progress(next_current, next_total),
-                message=task.message if message is None else message,
+                progress_pct=next_pct,
+                message=next_message,
                 heartbeat_at=changed_at,
                 updated_at=changed_at,
             )
