@@ -608,6 +608,24 @@ def _get_video_info(rec: ClipRecord, ffprobe: str) -> dict:
     return probe_video_info(rec.source_path, ffprobe) if rec.source_path.exists() else {}
 
 
+# Spreadsheet apps evaluate cells starting with these characters as formulas.
+_CSV_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_safe(value: object) -> object:
+    """Neutralise LLM-written text that Excel would run as a formula."""
+    if isinstance(value, str) and value.startswith(_CSV_FORMULA_PREFIXES):
+        return "'" + value
+    return value
+
+
+def _csv_unescape(value: str) -> str:
+    """Undo ``_csv_safe`` when summary.csv is read back for merging."""
+    if value.startswith("'") and value[1:].startswith(_CSV_FORMULA_PREFIXES):
+        return value[1:]
+    return value
+
+
 def _clip_records_from_csv(path: Path) -> list[ClipRecord]:
     """Load summary.csv rows back into ClipRecords (for selection re-analyze merge)."""
     if not path.is_file():
@@ -620,7 +638,7 @@ def _clip_records_from_csv(path: Path) -> list[ClipRecord]:
                 idx = int(raw_idx)
             except ValueError:
                 continue
-            stem = (row.get("stem") or "").strip()
+            stem = _csv_unescape((row.get("stem") or "").strip())
             if not stem:
                 continue
             try:
@@ -638,11 +656,8 @@ def _clip_records_from_csv(path: Path) -> list[ClipRecord]:
                     compressed_path=Path(compressed_raw) if compressed_raw else None,
                     text_path=Path(text_raw) if text_raw else None,
                     analysis={
-                        "title": row.get("title", ""),
-                        "summary": row.get("summary", ""),
-                        "location": row.get("location", ""),
-                        "mood": row.get("mood", ""),
-                        "suggested_use": row.get("suggested_use", ""),
+                        key: _csv_unescape(row.get(key) or "")
+                        for key in ("title", "summary", "location", "mood", "suggested_use")
                     },
                     duration_sec=duration_sec,
                 )
@@ -690,12 +705,12 @@ def _write_csv(path: Path, records: list[ClipRecord], config: AppConfig) -> None
         writer.writerow(
             {
                 "index": format_index(rec.index, config.naming.index_width),
-                "stem": rec.stem,
-                "title": a.get("title", ""),
-                "summary": a.get("summary", ""),
-                "location": a.get("location", ""),
-                "mood": a.get("mood", ""),
-                "suggested_use": a.get("suggested_use", ""),
+                "stem": _csv_safe(rec.stem),
+                "title": _csv_safe(a.get("title", "")),
+                "summary": _csv_safe(a.get("summary", "")),
+                "location": _csv_safe(a.get("location", "")),
+                "mood": _csv_safe(a.get("mood", "")),
+                "suggested_use": _csv_safe(a.get("suggested_use", "")),
                 "source_file": str(rec.source_path),
                 "compressed_file": str(rec.compressed_path) if rec.compressed_path else "",
                 "text_file": str(rec.text_path) if rec.text_path else "",
