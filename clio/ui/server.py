@@ -359,7 +359,9 @@ def make_handler(
         project_resolver=lambda qs, project_dir, config_path: resolve_project_dir(qs, project_dir, config_path),
         project_output_resolver=lambda project_dir: _project_output_dir(project_dir),
         video_range_sender=lambda handler, path: send_video_range(handler, path),
-        texts_resolver=lambda basename, proj_out, output_dir: resolve_texts(basename, proj_out, output_dir),
+        texts_resolver=lambda basename, proj_out, output_dir, preferred_subdir=None: resolve_texts(
+            basename, proj_out, output_dir, preferred_subdir
+        ),
         file_resolver=lambda subdir, basename, proj_out, output_dir: resolve_in(subdir, basename, proj_out, output_dir),
     )
 

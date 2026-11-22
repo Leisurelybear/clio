@@ -12,7 +12,11 @@ from clio.analyze import refine_script, refine_text
 from clio.i18n import t
 from clio.tasks._helpers import _rewrite_script_md, _rewrite_text_file
 from clio.tasks.refine import _load_analysis_for_script
-from clio.ui.routes.texts import _preserve_analysis_server_fields
+from clio.ui.routes.texts import (
+    _preserve_analysis_server_fields,
+    _resolve_scripts_artifact,
+    _resolve_texts_artifact,
+)
 from clio.ui.services.file_service import (
     ArtifactConflictError,
     content_version,
@@ -67,7 +71,10 @@ def handle_post_refine(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) 
 
     proj_dir = handler._resolve_project_dir(qs)
     proj_out = handler._get_project_output(proj_dir)
-    p = handler._resolve_texts(fname, proj_out) if ftype == "texts" else handler._resolve_in("scripts", fname, proj_out)
+    if ftype == "texts":
+        p = _resolve_texts_artifact(handler, proj_dir, fname)
+    else:
+        p = _resolve_scripts_artifact(handler, proj_dir, fname)
 
     if p is None:
         return handler._send_json({"ok": False, "error": "forbidden or not found"}, 404)

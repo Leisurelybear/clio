@@ -612,11 +612,17 @@ def send_video_range(handler, path: Path) -> None:
             pass
 
 
-def resolve_texts(basename: str, proj_out: Path | None, output_dir: Path) -> Path | None:
+def resolve_texts(
+    basename: str,
+    proj_out: Path | None,
+    output_dir: Path,
+    preferred_subdir: str | None = None,
+) -> Path | None:
+    """Find *basename* in the configured texts dir first, then texts / texts - *."""
     if not _is_safe_basename(basename):
         return None
     base = proj_out or output_dir
-    for d in _find_texts_dirs(base):
+    for d in _find_texts_dirs(base, preferred_subdir=preferred_subdir):
         p = d / basename
         if p.is_file():
             return p

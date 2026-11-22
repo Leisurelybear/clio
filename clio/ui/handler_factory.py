@@ -458,8 +458,13 @@ class _RequestHandler(BaseHTTPRequestHandler, HandlerProtocol):
     def _send_video_range(self, path: Path) -> None:
         self.__class__._video_range_sender(self, path)
 
-    def _resolve_texts(self, basename: str, proj_out: Path | None = None) -> Path | None:
-        return self.__class__._texts_resolver(basename, proj_out, self.__class__.output_dir)
+    def _resolve_texts(
+        self,
+        basename: str,
+        proj_out: Path | None = None,
+        preferred_subdir: str | None = None,
+    ) -> Path | None:
+        return self.__class__._texts_resolver(basename, proj_out, self.__class__.output_dir, preferred_subdir)
 
     def _resolve_in(self, subdir: str, basename: str, proj_out: Path | None = None) -> Path | None:
         return self.__class__._file_resolver(subdir, basename, proj_out, self.__class__.output_dir)

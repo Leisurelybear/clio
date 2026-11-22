@@ -46,7 +46,7 @@ class TestHandleGetTexts:
         from clio.ui.routes.texts import handle_get_texts
 
         handle_get_texts(handler, {"file": ["001.json"], "project": ["proj1"]})
-        handler._resolve_texts.assert_called_once_with("001.json", "/output")
+        handler._resolve_texts.assert_called_once_with("001.json", "/output", preferred_subdir=None)
 
 
 class TestHandleGetVoiceover:
