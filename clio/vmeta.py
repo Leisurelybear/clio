@@ -83,7 +83,7 @@ class VideoMeta:
         if not meta_path.is_file():
             return None
         try:
-            raw = json.loads(meta_path.read_text(encoding="utf-8"))
+            raw = json.loads(meta_path.read_text(encoding="utf-8-sig"))
             data = raw.get("data", raw)
             si = data.get("split_info")
             return VideoMeta(
@@ -239,7 +239,7 @@ class VideoIndex:
         if not index_path.is_file():
             return None
         try:
-            raw = json.loads(index_path.read_text(encoding="utf-8"))
+            raw = json.loads(index_path.read_text(encoding="utf-8-sig"))
             segs = [SegmentEntry(**s) for s in raw.get("segments", [])]
             return VideoIndex(
                 source_stem=raw["source_stem"],
