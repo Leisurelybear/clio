@@ -35,6 +35,7 @@ class AliyunASRProvider:
     capabilities = ProviderCapabilities(
         id="aliyun",
         display_name=t("asr.aliyun.display_name"),
+        display_name_key="asr.aliyun.display_name",
         supports_local_file=True,
         requires_public_url=False,
         max_audio_mb=1024,

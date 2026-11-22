@@ -32,7 +32,7 @@ def check_asr_ready(
     error = provider.readiness_error(environ)
     return ASRReadiness(
         engine=engine_id,
-        display_name=provider.capabilities.display_name,
+        display_name=provider.capabilities.localized().display_name,
         ready=error is None,
         error=error,
     )
