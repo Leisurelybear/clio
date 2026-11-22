@@ -2260,3 +2260,37 @@ def test_plan_daily_vlog_forwards_cancel_event_to_every_stage(monkeypatch):
 
     assert seen
     assert all(event is cancel for event in seen)
+
+
+def test_plan_daily_vlog_retries_draft_once_on_invalid_json(monkeypatch):
+    from clio.i18n import t
+    from clio.prompts import PARSE_RETRY_PROMPT
+
+    cfg = _fake_config()
+    draft_label = t("analyze.label.vlog_plan")
+    draft_prompts: list[str] = []
+    plan_json = json.dumps(
+        {
+            "day_title": "day1",
+            "theme": "",
+            "total_estimated_sec": 10,
+            "sequence": [{"index": "001", "use_timeline": "00:00-00:10"}],
+        }
+    )
+
+    def fake_call_ai(label: str, _provider: str, _model: str, prompt: str, *_a: Any, **_kw: Any) -> str:
+        if label == draft_label:
+            draft_prompts.append(prompt)
+            if len(draft_prompts) == 1:
+                return "sorry, here is the plan: not json"
+        return plan_json
+
+    monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (MagicMock(), "model"))
+    monkeypatch.setattr("clio.analyze._call_ai", fake_call_ai)
+    clips = [{"index": "001", "title": "A", "timeline": [{"start": "00:00", "end": "00:10", "description": "x"}]}]
+
+    result = plan_daily_vlog(clips, cfg, "day1", use_transcripts=False)
+
+    assert result["sequence"][0]["index"] == "001"
+    assert len(draft_prompts) == 2
+    assert PARSE_RETRY_PROMPT in draft_prompts[1]

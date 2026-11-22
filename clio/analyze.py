@@ -1947,19 +1947,27 @@ def plan_daily_vlog(
         if outline is None:
             print(t("analyze.plan_outline_fallback"))
 
-        draft_text = call_stage(
-            t("analyze.label.vlog_plan"),
-            _make_shot_selection_prompt(
-                outline,
-                base=base,
-                context_suffix=context_suffix,
-                day_label=day_label,
-                config=config,
-                context_override=context_override,
-            ),
-            VLOG_PLAN_OUTPUT,
+        draft_prompt = _make_shot_selection_prompt(
+            outline,
+            base=base,
+            context_suffix=context_suffix,
+            day_label=day_label,
+            config=config,
+            context_override=context_override,
         )
-        draft = _validate_plan(extract_json(draft_text), day_label)
+        draft_text = call_stage(t("analyze.label.vlog_plan"), draft_prompt, VLOG_PLAN_OUTPUT)
+        try:
+            draft_payload = extract_json(draft_text)
+        except ValueError as exc:
+            # One parse retry, like analyze/voiceover: don't waste the shortlist/outline tokens.
+            print(t("analyze.parse_retry", {"errors": str(exc)}))
+            draft_text = call_stage(
+                t("analyze.label.vlog_plan"),
+                draft_prompt + "\n\n" + PARSE_RETRY_PROMPT,
+                VLOG_PLAN_OUTPUT,
+            )
+            draft_payload = extract_json(draft_text)
+        draft = _validate_plan(draft_payload, day_label)
         raw_sequence_count = len(draft.get("sequence", []))
         draft, draft_issues = _validate_plan_candidate(
             draft,
