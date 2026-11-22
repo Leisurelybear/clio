@@ -230,6 +230,17 @@ class TaskStore:
         with self._connect() as connection:
             return int(connection.execute(sql, params).fetchone()[0])
 
+    def active_task_ids(self) -> builtins.list[str]:
+        """IDs of queued/running/cancelling tasks without decoding their rows."""
+        statuses = (TaskStatus.QUEUED, TaskStatus.RUNNING, TaskStatus.CANCELLING)
+        placeholders = ", ".join("?" for _ in statuses)
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"SELECT id FROM tasks WHERE status IN ({placeholders}) ORDER BY updated_at DESC, id DESC",  # noqa: S608
+                [status.value for status in statuses],
+            ).fetchall()
+        return [str(row[0]) for row in rows]
+
     def active_tasks(self) -> builtins.list[TaskRecord]:
         statuses = (TaskStatus.QUEUED, TaskStatus.RUNNING, TaskStatus.CANCELLING)
         placeholders = ", ".join("?" for _ in statuses)

@@ -202,3 +202,50 @@ class TestWaitForEventsLocking:
         events = store.wait_for_events(after_seq=cursor, timeout=5)
 
         assert [event.message for event in events] == ["x"]
+
+
+class TestManagerResilience:
+    def test_recovery_skips_corrupt_rows(self, tmp_path):
+        import sqlite3
+
+        from clio.task_center.manager import TaskManager
+
+        path = tmp_path / "tasks.sqlite3"
+        store = TaskStore(path)
+        for task_id in ("good", "bad"):
+            task = store.create(create_task(TaskKind.PIPELINE, task_id, task_id=task_id))
+            _move(store, task, TaskStatus.RUNNING)
+        with sqlite3.connect(path) as connection:
+            connection.execute("UPDATE tasks SET input_data_json = 'not json' WHERE id = 'bad'")
+
+        manager = TaskManager(TaskStore(path))
+
+        assert manager.store.require("good").status is TaskStatus.INTERRUPTED
+
+    def test_failed_finish_is_retried_instead_of_leaving_task_running(self, tmp_path, monkeypatch):
+        import sqlite3
+
+        from clio.task_center import manager as manager_module
+        from clio.task_center.manager import TaskManager
+
+        monkeypatch.setattr(manager_module, "_FINISH_RETRY_DELAY_SEC", 0.0)
+        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
+        real_finish_failed = manager._finish_failed
+        calls = {"n": 0}
+
+        def flaky_finish_failed(task_id, error):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise sqlite3.OperationalError("database is locked")
+            return real_finish_failed(task_id, error)
+
+        monkeypatch.setattr(manager, "_finish_failed", flaky_finish_failed)
+
+        def handler(context):
+            raise RuntimeError("boom")
+
+        manager.register(TaskKind.PIPELINE, handler)
+        task = manager.submit(TaskKind.PIPELINE, "pipe")
+
+        assert manager.wait(task.id, timeout=5).status is TaskStatus.FAILED
+        assert calls["n"] == 2
