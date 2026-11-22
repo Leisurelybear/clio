@@ -1340,7 +1340,8 @@ def _collect_single_file_items(
 ) -> list[tuple[Path, Path, str]] | None:
     items: list[tuple[Path, Path, str]] = []
     # Prefer the .vindex sidecar: O(1) split discovery for multi-segment originals.
-    vindex = VideoIndex.read(single_file.stem, config.compressed_dir)
+    # source_path picks the right index when two originals share a stem.
+    vindex = VideoIndex.read(single_file.stem, config.compressed_dir, source_path=single_file)
     if vindex is not None:
         comp_paths = vindex.compressed_paths(config.compressed_dir)
         if not comp_paths:

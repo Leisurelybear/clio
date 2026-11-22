@@ -343,7 +343,7 @@ def _artifact_source_path(path: Path) -> Path | None:
         if stem in seen:
             continue
         seen.add(stem)
-        vindex = VideoIndex.read(stem, path.parent)
+        vindex = VideoIndex.read(stem, path.parent, segment_filename=path.name)
         if vindex is not None and any(segment.filename == path.name for segment in vindex.segments):
             return Path(vindex.source_path)
     return None

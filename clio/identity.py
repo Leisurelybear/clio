@@ -32,13 +32,13 @@ def is_legacy_split_path(compressed_path: Path) -> bool:
         return meta.split_info is not None or meta.is_split_segment
 
     indexed_stem = _indexed_source_stem(compressed_path.stem)
-    exact_vindex = VideoIndex.read(indexed_stem, compressed_path.parent)
+    exact_vindex = VideoIndex.read(indexed_stem, compressed_path.parent, segment_filename=compressed_path.name)
     if _vindex_contains(exact_vindex, compressed_path):
         assert exact_vindex is not None
         return exact_vindex.is_split and len(exact_vindex.segments) > 1
 
     original_stem = SEGMENT_SUFFIX_RE.sub("", indexed_stem)
-    legacy_vindex = VideoIndex.read(original_stem, compressed_path.parent)
+    legacy_vindex = VideoIndex.read(original_stem, compressed_path.parent, segment_filename=compressed_path.name)
     if _vindex_contains(legacy_vindex, compressed_path):
         assert legacy_vindex is not None
         return legacy_vindex.is_split and len(legacy_vindex.segments) > 1
@@ -161,10 +161,10 @@ def resolve_identity(
     # Priority 2: Try the exact source stem before legacy suffix stripping.
     indexed_stem = _indexed_source_stem(compressed_stem)
     original_stem = indexed_stem
-    vindex = VideoIndex.read(original_stem, compressed_path.parent)
+    vindex = VideoIndex.read(original_stem, compressed_path.parent, segment_filename=compressed_path.name)
     if not _vindex_contains(vindex, compressed_path):
         original_stem = SEGMENT_SUFFIX_RE.sub("", indexed_stem)
-        vindex = VideoIndex.read(original_stem, compressed_path.parent)
+        vindex = VideoIndex.read(original_stem, compressed_path.parent, segment_filename=compressed_path.name)
     # A candidate index is only usable when it actually lists this file.
     if not _vindex_contains(vindex, compressed_path):
         vindex = None
@@ -225,7 +225,7 @@ def _identity_source_stem(compressed_path: Path) -> str:
     if meta is not None:
         return Path(meta.source_path).stem
     indexed_stem = _indexed_source_stem(compressed_path.stem)
-    exact_vindex = VideoIndex.read(indexed_stem, compressed_path.parent)
+    exact_vindex = VideoIndex.read(indexed_stem, compressed_path.parent, segment_filename=compressed_path.name)
     if _vindex_contains(exact_vindex, compressed_path):
         assert exact_vindex is not None
         return exact_vindex.source_stem
@@ -239,7 +239,7 @@ def _canonical_source_stem(compressed_path: Path) -> str | None:
             return Path(meta.source_path).stem
         return None
     indexed_stem = _indexed_source_stem(compressed_path.stem)
-    vindex = VideoIndex.read(indexed_stem, compressed_path.parent)
+    vindex = VideoIndex.read(indexed_stem, compressed_path.parent, segment_filename=compressed_path.name)
     if _vindex_contains(vindex, compressed_path) and vindex is not None and not vindex.is_split:
         return vindex.source_stem
     return None
