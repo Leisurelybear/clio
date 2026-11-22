@@ -551,12 +551,16 @@ def resolve_last_project_config(config: AppConfig, config_path: Path | None) -> 
         last_name = last_project.get("name") if isinstance(last_project, dict) else last_project
         if not last_name:
             return config
-        for p_str in reg.get("projects", []):
+        # Registry entries may be strings or {"project_dir": ...} dicts.
+        for p_str in _registry_project_paths(reg):
             p = Path(p_str)
             proj_file = p / "project.json"
             if not proj_file.is_file():
                 continue
             data = json.loads(proj_file.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                logger.warning("resolve_last_project_config: skipping %s (project.json is not an object)", proj_file)
+                continue
             if data.get("name") == last_name:
                 return load_config(config_path, project_dir=p)
         return config
