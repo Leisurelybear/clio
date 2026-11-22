@@ -210,6 +210,7 @@
   "asr.aliyun.label_download": "Download ASR transcript",
   "asr.aliyun.label_poll": "Poll cloud ASR status",
   "asr.aliyun.label_submit": "Submit cloud ASR task",
+  "asr.aliyun.malformed_response": "Alibaba Cloud ASR returned an unexpected response (missing {field})",
   "asr.aliyun.missing_transcription_url": "Alibaba Cloud ASR result is missing transcription_url",
   "asr.aliyun.poll_timeout": "Cloud ASR transcription timed out ({minutes} minutes)",
   "asr.aliyun.task_cancelled": "Cloud ASR task was cancelled",

@@ -210,6 +210,7 @@
   "asr.aliyun.label_download": "下载 ASR 转录结果",
   "asr.aliyun.label_poll": "查询云端 ASR 状态",
   "asr.aliyun.label_submit": "提交云端 ASR 任务",
+  "asr.aliyun.malformed_response": "阿里云 ASR 返回了无法识别的响应（缺少 {field}）",
   "asr.aliyun.missing_transcription_url": "阿里云 ASR 结果缺少 transcription_url",
   "asr.aliyun.poll_timeout": "云端 ASR 转录超时（{minutes} 分钟）",
   "asr.aliyun.task_cancelled": "云端 ASR 任务已取消",

@@ -121,6 +121,39 @@ def test_task_failed_raises():
             provider.transcribe(Path("fake.wav"), "zh")
 
 
+@pytest.mark.parametrize("status", ["UNKNOWN", "CANCELED"])
+def test_other_terminal_statuses_stop_polling(status):
+    provider = AliyunASRProvider(MagicMock())
+    response = MagicMock()
+    response.json.return_value = {"output": {"task_status": status}}
+
+    with patch("httpx.get", return_value=response) as get:
+        with pytest.raises(RuntimeError, match=f"阿里云 ASR 转录失败: {status}"):
+            provider._poll_task("task-123", "test-key", None, None)
+
+    assert get.call_count == 1
+
+
+def test_malformed_poll_response_is_readable():
+    provider = AliyunASRProvider(MagicMock())
+    response = MagicMock()
+    response.json.return_value = {"code": "InvalidApiKey"}
+
+    with patch("httpx.get", return_value=response):
+        with pytest.raises(RuntimeError, match="output.task_status"):
+            provider._poll_task("task-123", "test-key", None, None)
+
+
+def test_malformed_submit_response_is_readable():
+    provider = AliyunASRProvider(MagicMock())
+    response = MagicMock()
+    response.json.return_value = {"request_id": "r"}
+
+    with patch("httpx.post", return_value=response):
+        with pytest.raises(RuntimeError, match="output.task_id"):
+            provider._submit_task("oss://test/file.wav", "zh", "test-key")
+
+
 def test_subtask_failure_surfaces_provider_message():
     provider = AliyunASRProvider(MagicMock())
 
