@@ -23,6 +23,7 @@ def test_merge_stats_accumulates_by_model():
         "total_tokens": 30,
         "calls": 1,
         "cost_usd": 0.0,
+        "unknown_price_calls": 0,
     }
 
 
@@ -35,6 +36,7 @@ def test_merge_stats_accumulates_by_task():
         "total_tokens": 20,
         "calls": 1,
         "cost_usd": 0.0,
+        "unknown_price_calls": 0,
     }
 
 
@@ -48,6 +50,7 @@ def test_merge_stats_multiple_calls_same_model():
         "total_tokens": 40,
         "calls": 2,
         "cost_usd": 0.0,
+        "unknown_price_calls": 0,
     }
 
 
@@ -60,6 +63,7 @@ def test_merge_stats_updates_total():
         "completion_tokens": 220,
         "total_tokens": 330,
         "cost_usd": 0.0,
+        "unknown_price_calls": 0,
     }
 
 

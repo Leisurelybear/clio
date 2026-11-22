@@ -214,8 +214,6 @@ export function renderRunPreviewHtml(preview) {
       <p class="muted">${t('run.preview.input', { path: escapeHtml(input.path || ''), count: Number(input.count || 0) })}</p>
       <div class="run-preview-totals">
         <span>${t('run.preview.steps', { count: Number(totals.selected_steps || 0) })}</span>
-        ${renderCountSpan('run.preview.will_run_range', 'run.preview.will_run', totals.will_run, totals.will_run_max)}
-        ${renderCountSpan('run.preview.will_skip_range', 'run.preview.will_skip', totals.will_skip_min, totals.will_skip)}
         ${renderUsageMetrics(totals)}
       </div>
       ${Number(totals.planned_calls || 0) > 0 || minimumEstimate

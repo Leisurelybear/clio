@@ -3,7 +3,7 @@ from functools import cache
 from types import UnionType
 from typing import Any, get_args, get_type_hints
 
-from clio.config.models import CANVAS_PRESETS, AppConfig, GlobalConfig
+from clio.config.models import CANVAS_PRESETS, AppConfig, GlobalConfig, ModelPriceConfig, ProviderConfig
 from clio.i18n import t
 
 logger = logging.getLogger("clio.config")
@@ -128,6 +128,49 @@ def _require_range(field_name: str, value: int | float, minimum: int | float, ma
     _require_finite(field_name, value)
     if value < minimum or value > maximum:
         raise ValueError(f"{field_name} must be in [{minimum}, {maximum}], got: {value}")
+
+
+def _model_price_values(field_name: str, price: object) -> tuple[Any, Any]:
+    if isinstance(price, ModelPriceConfig):
+        return price.prompt_price_per_1m_usd, price.completion_price_per_1m_usd
+    if isinstance(price, dict):
+        return (
+            price.get("prompt_price_per_1m_usd", 0.0),
+            price.get("completion_price_per_1m_usd", 0.0),
+        )
+    raise ValueError(f"{field_name} must be a mapping")
+
+
+def _validate_model_prices(provider_name: str, prices: object) -> None:
+    field_name = f"ai.providers.{provider_name}.model_prices"
+    if not isinstance(prices, dict):
+        raise ValueError(f"{field_name} must be a mapping")
+    for model, price in prices.items():
+        if not isinstance(model, str) or not model.strip():
+            raise ValueError(f"{field_name} model ids must be non-empty strings")
+        price_field = f"{field_name}.{model}"
+        prompt_price, completion_price = _model_price_values(price_field, price)
+        _require_min(f"{price_field}.prompt_price_per_1m_usd", prompt_price, 0)
+        _require_min(f"{price_field}.completion_price_per_1m_usd", completion_price, 0)
+
+
+def _validate_provider_config(provider_name: str, provider_cfg: ProviderConfig) -> None:
+    _require_supported_provider_type(provider_name, provider_cfg.type)
+    _require_min(f"ai.providers.{provider_name}.requests_per_minute", provider_cfg.requests_per_minute, 0)
+    _require_min(f"ai.providers.{provider_name}.retry_attempts", provider_cfg.retry_attempts, 0)
+    # 0 means unlimited; only reject negative values.
+    _require_min(f"ai.providers.{provider_name}.max_tokens", provider_cfg.max_tokens, 0)
+    _validate_model_prices(provider_name, provider_cfg.model_prices)
+    _require_min(f"ai.providers.{provider_name}.prompt_price_per_1m_usd", provider_cfg.prompt_price_per_1m_usd, 0)
+    _require_min(
+        f"ai.providers.{provider_name}.completion_price_per_1m_usd",
+        provider_cfg.completion_price_per_1m_usd,
+        0,
+    )
+    _require_positive(f"ai.providers.{provider_name}.timeout_sec", provider_cfg.timeout_sec)
+    if provider_cfg.type == "gemini":
+        _require_positive(f"ai.providers.{provider_name}.poll_interval_sec", provider_cfg.poll_interval_sec)
+        _require_positive(f"ai.providers.{provider_name}.video_upload_max_mb", provider_cfg.video_upload_max_mb)
 
 
 def _require_supported_provider_type(provider_name: str, provider_type: str) -> None:
@@ -257,19 +300,7 @@ def _validate_config(config: AppConfig) -> None:
 
     provider_names = set(config.ai.providers)
     for provider_name, provider_cfg in config.ai.providers.items():
-        _require_supported_provider_type(provider_name, provider_cfg.type)
-        _require_min(f"ai.providers.{provider_name}.requests_per_minute", provider_cfg.requests_per_minute, 0)
-        _require_min(f"ai.providers.{provider_name}.retry_attempts", provider_cfg.retry_attempts, 0)
-        # 0 means unlimited; only reject negative values
-        _require_min(f"ai.providers.{provider_name}.max_tokens", provider_cfg.max_tokens, 0)
-        _require_min(f"ai.providers.{provider_name}.prompt_price_per_1m_usd", provider_cfg.prompt_price_per_1m_usd, 0)
-        _require_min(
-            f"ai.providers.{provider_name}.completion_price_per_1m_usd", provider_cfg.completion_price_per_1m_usd, 0
-        )
-        _require_positive(f"ai.providers.{provider_name}.timeout_sec", provider_cfg.timeout_sec)
-        if provider_cfg.type == "gemini":
-            _require_positive(f"ai.providers.{provider_name}.poll_interval_sec", provider_cfg.poll_interval_sec)
-            _require_positive(f"ai.providers.{provider_name}.video_upload_max_mb", provider_cfg.video_upload_max_mb)
+        _validate_provider_config(provider_name, provider_cfg)
 
     for task_name, task_cfg in config.ai.tasks.items():
         if task_cfg.provider not in provider_names:
@@ -302,18 +333,7 @@ def validate_global_config(config: GlobalConfig) -> None:
     _require_min("compress.crf", config.compress.crf, 0)
     _require_max("compress.crf", config.compress.crf, 51)
     for provider_name, provider_cfg in config.ai.providers.items():
-        _require_supported_provider_type(provider_name, provider_cfg.type)
-        _require_min(f"ai.providers.{provider_name}.requests_per_minute", provider_cfg.requests_per_minute, 0)
-        _require_min(f"ai.providers.{provider_name}.retry_attempts", provider_cfg.retry_attempts, 0)
-        _require_min(f"ai.providers.{provider_name}.max_tokens", provider_cfg.max_tokens, 0)
-        _require_min(f"ai.providers.{provider_name}.prompt_price_per_1m_usd", provider_cfg.prompt_price_per_1m_usd, 0)
-        _require_min(
-            f"ai.providers.{provider_name}.completion_price_per_1m_usd", provider_cfg.completion_price_per_1m_usd, 0
-        )
-        _require_positive(f"ai.providers.{provider_name}.timeout_sec", provider_cfg.timeout_sec)
-        if provider_cfg.type == "gemini":
-            _require_positive(f"ai.providers.{provider_name}.poll_interval_sec", provider_cfg.poll_interval_sec)
-            _require_positive(f"ai.providers.{provider_name}.video_upload_max_mb", provider_cfg.video_upload_max_mb)
+        _validate_provider_config(provider_name, provider_cfg)
     provider_names = set(config.ai.providers)
     for task_name, task_cfg in config.ai.default_tasks.items():
         if task_cfg.provider not in provider_names:

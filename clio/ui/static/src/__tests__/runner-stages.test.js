@@ -140,11 +140,22 @@ describe('guided run stages', () => {
     p.stages[0].will_skip = 3;
     p.stages[0].will_skip_min = 1;
     p.stages[0].estimate_is_minimum = true;
+    p.stages[0].step_counts = [
+      {
+        name: 'compress', total: 2, will_run: 1, will_run_max: 3,
+        will_skip: 3, will_skip_min: 1,
+      },
+      {
+        name: 'transcribe', total: 2, will_run: 1, will_run_max: 3,
+        will_skip: 3, will_skip_min: 1,
+      },
+    ];
     const board = document.createElement('div');
     renderStageBoard(board, buildRunStageModel({ selectedSteps: allSteps, preview: p }));
     const card = board.querySelector('[data-stage="source_prep"]');
-    expect(card.textContent).toContain('待执行 1–3');
-    expect(card.textContent).toContain('跳过 1–3');
+    expect(card.querySelectorAll('.run-stage-step-count')).toHaveLength(2);
+    expect(card.textContent).toContain('压缩原视频待执行 1–3，跳过 1–3');
+    expect(card.textContent).toContain('语音转录待执行 1–3，跳过 1–3');
     expect(card.textContent).toContain('估算为下限');
   });
 

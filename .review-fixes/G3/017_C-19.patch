@@ -1,0 +1,70 @@
+diff --git a/clio/desktop/notifications.py b/clio/desktop/notifications.py
+--- a/clio/desktop/notifications.py
++++ b/clio/desktop/notifications.py
+@@ -36,7 +36,10 @@
+ $nodes.Item(0).AppendChild($template.CreateTextNode($env:CLIO_NOTIFY_TITLE)) > $null
+ $nodes.Item(1).AppendChild($template.CreateTextNode($env:CLIO_NOTIFY_MESSAGE)) > $null
+ $toast = [Windows.UI.Notifications.ToastNotification]::new($template)
+-[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Clio').Show($toast)
++# An unregistered AppUserModelID such as 'Clio' is dropped silently by Windows 10/11;
++# Windows PowerShell's AUMID is registered by its Start menu shortcut.
++$appId = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe'
++[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appId).Show($toast)
+ """.strip()
+ 
+ 
+@@ -93,7 +96,8 @@
+             if not notify_send:
+                 return False
+             result = runner(
+-                [notify_send, "-a", "Clio", clean_title, clean_message],
++                # "--" ends option parsing so a title starting with "-" is not read as a flag.
++                [notify_send, "-a", "Clio", "--", clean_title, clean_message],
+                 capture_output=True,
+                 text=True,
+                 timeout=timeout,
+diff --git a/clio/tests/test_desktop_notifications.py b/clio/tests/test_desktop_notifications.py
+--- a/clio/tests/test_desktop_notifications.py
++++ b/clio/tests/test_desktop_notifications.py
+@@ -67,7 +67,7 @@
+ 
+     assert result is True
+     cmd, _ = runner.calls[0]
+-    assert cmd == ["/usr/bin/notify-send", "-a", "Clio", "Clio", "done"]
++    assert cmd == ["/usr/bin/notify-send", "-a", "Clio", "--", "Clio", "done"]
+ 
+ 
+ def test_missing_binary_is_false_without_running():
+diff --git a/clio/tests/test_fix_desktop_notifications.py b/clio/tests/test_fix_desktop_notifications.py
+new file mode 100644
+--- /dev/null
++++ b/clio/tests/test_fix_desktop_notifications.py
+@@ -0,0 +1,28 @@
++"""Regression tests: notifications use a registered AUMID and safe notify-send args."""
++
++from __future__ import annotations
++
++import subprocess
++
++from clio.desktop import notifications
++
++
++def test_windows_toast_uses_registered_app_id():
++    script = notifications._windows_script()
++
++    assert "CreateToastNotifier('Clio')" not in script
++    assert "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe" in script
++
++
++def test_linux_title_starting_with_dash_is_not_an_option():
++    calls = []
++
++    def _run(cmd, **kwargs):
++        calls.append(cmd)
++        return subprocess.CompletedProcess(cmd, 0)
++
++    notifications.send_desktop_notification(
++        "-u critical", "body", platform="linux", run=_run, which=lambda name: "/usr/bin/notify-send"
++    )
++
++    assert calls[0] == ["/usr/bin/notify-send", "-a", "Clio", "--", "-u critical", "body"]

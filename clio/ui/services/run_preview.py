@@ -333,6 +333,10 @@ def _build_stage_summary(selected_steps: list[str], preview_steps: list[dict[str
     The detailed step rows remain in the response for custom execution and
     compatibility. This compact projection gives the guided UI one authoritative
     status/next-action contract without making it repeat cache rules locally.
+
+    Stage-level count fields remain additive for status decisions and older
+    clients. They are not comparable across day-scoped and media-scoped steps,
+    so the UI uses ``step_counts`` for presentation.
     """
     rows_by_name = {str(row.get("name")): row for row in preview_steps}
     selected = set(selected_steps)
@@ -402,6 +406,26 @@ def _build_stage_summary(selected_steps: list[str], preview_steps: list[dict[str
                 "will_run_max": will_run_max,
                 "will_skip": will_skip,
                 "will_skip_min": will_skip_min,
+                "step_counts": [
+                    {
+                        "name": str(row.get("name") or ""),
+                        "label": str(row.get("label") or ""),
+                        "total": int(row.get("total") or 0),
+                        "will_run": int(row.get("will_run") or 0),
+                        "will_run_max": int(row.get("will_run_max", row.get("will_run") or 0)),
+                        "will_skip": int(row.get("will_skip") or 0),
+                        "will_skip_min": int(row.get("will_skip_min", row.get("will_skip") or 0)),
+                        "deferred": bool(row.get("deferred")),
+                        "disabled": bool(row.get("disabled")),
+                        "waiting_on": [str(item) for item in (row.get("waiting_on") or [])],
+                        "warnings": [str(item) for item in (row.get("warnings") or [])],
+                        "blocking": bool(row.get("blocking")),
+                        "cascade_from": [str(item) for item in (row.get("cascade_from") or [])],
+                        "cascade_assumed": int(row.get("cascade_assumed") or 0),
+                        "estimate_is_minimum": bool(row.get("estimate_is_minimum")),
+                    }
+                    for row in rows
+                ],
                 "warnings": warnings,
                 "blockers": missing if status in {"unknown", "blocked"} else [],
                 "estimate": usage,

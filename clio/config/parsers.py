@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from typing import Any
+
 from clio.config.models import (
+    ModelPriceConfig,
     ProjectWhisperConfig,
     ProviderConfig,
     TaskConfig,
@@ -11,6 +14,24 @@ from clio.credentials import CredentialService
 
 def _resolve_api_key(provider_raw: dict, service: CredentialService | None = None, name: str = "") -> str:
     return (service or CredentialService()).resolve_provider(provider_raw, name)
+
+
+def _parse_model_prices(raw: object) -> Any:
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        return raw
+    parsed: dict[object, object] = {}
+    for model, prices in raw.items():
+        if isinstance(prices, dict):
+            typed = _filter_dc(prices, ModelPriceConfig)
+            parsed[model] = ModelPriceConfig(
+                prompt_price_per_1m_usd=typed.get("prompt_price_per_1m_usd", 0.0),
+                completion_price_per_1m_usd=typed.get("completion_price_per_1m_usd", 0.0),
+            )
+        else:
+            parsed[model] = prices
+    return parsed
 
 
 def _infer_provider_capabilities(provider_type: str) -> list[str]:
@@ -37,6 +58,7 @@ def _parse_providers(raw: dict, service: CredentialService | None = None) -> dic
             timeout_sec=typed.get("timeout_sec", 120.0),
             max_tokens=typed.get("max_tokens", 0),
             video_upload_max_mb=typed.get("video_upload_max_mb", 200),
+            model_prices=_parse_model_prices(cfg.get("model_prices", {})),
             prompt_price_per_1m_usd=typed.get("prompt_price_per_1m_usd", 0.0),
             completion_price_per_1m_usd=typed.get("completion_price_per_1m_usd", 0.0),
             models=typed.get("models", []),

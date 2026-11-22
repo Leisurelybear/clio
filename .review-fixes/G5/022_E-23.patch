@@ -1,0 +1,92 @@
+diff --git a/clio/ui/static/src/credential-field.js b/clio/ui/static/src/credential-field.js
+--- a/clio/ui/static/src/credential-field.js
++++ b/clio/ui/static/src/credential-field.js
+@@ -33,6 +33,38 @@
+   return result;
+ }
+ 
++// One shared observer for every mounted credential field (instead of one
++// body-wide subtree observer per field). Only removals can detach a field,
++// so mutation batches without removed nodes (log appends, toasts) are skipped.
++const _fieldDisposers = new Map();
++let _fieldObserver = null;
++
++function _watchFieldRemoval(field, dispose) {
++  const previous = _fieldDisposers.get(field);
++  if (previous) previous();
++  _fieldDisposers.set(field, dispose);
++  if (_fieldObserver || typeof MutationObserver === 'undefined') return;
++  _fieldObserver = new MutationObserver(records => {
++    if (!records.some(record => record.removedNodes.length)) return;
++    for (const [node, disposeNode] of _fieldDisposers) {
++      if (!node.isConnected) {
++        _fieldDisposers.delete(node);
++        disposeNode();
++      }
++    }
++    if (!_fieldDisposers.size && _fieldObserver) {
++      _fieldObserver.disconnect();
++      _fieldObserver = null;
++    }
++  });
++  _fieldObserver.observe(document.body, { childList: true, subtree: true });
++}
++
++/** Test hook: number of credential fields still being watched. */
++export function _watchedCredentialFieldCount() {
++  return _fieldDisposers.size;
++}
++
+ export function attachCredentialFields(root, inventory, onChange = () => {}) {
+   root.querySelectorAll('.credential-field').forEach(field => {
+     const id = field.dataset.credentialId;
+@@ -49,14 +81,13 @@
+     let timer;
+     let disposed = false;
+     const clear = () => { clearTimeout(timer); revealed.textContent = ''; };
+-    const observer = new MutationObserver(() => {
+-      if (!field.isConnected) { disposed = true; clear(); observer.disconnect(); }
+-    });
+-    observer.observe(document.body, { childList: true, subtree: true });
+     const onVisibility = () => { if (document.hidden) clear(); };
+     document.addEventListener('visibilitychange', onVisibility);
+-    const originalDisconnect = observer.disconnect.bind(observer);
+-    observer.disconnect = () => { document.removeEventListener('visibilitychange', onVisibility); originalDisconnect(); };
++    _watchFieldRemoval(field, () => {
++      disposed = true;
++      clear();
++      document.removeEventListener('visibilitychange', onVisibility);
++    });
+     async function run(action) {
+       error.textContent = '';
+       clear();
+diff --git a/clio/ui/static/src/__tests__/credential-field.test.js b/clio/ui/static/src/__tests__/credential-field.test.js
+--- a/clio/ui/static/src/__tests__/credential-field.test.js
++++ b/clio/ui/static/src/__tests__/credential-field.test.js
+@@ -1,7 +1,7 @@
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+ import { api } from '../api.js';
+ import { confirmDialog } from '../confirm.js';
+-import { attachCredentialFields, renderCredentialField, saveCredential } from '../credential-field.js';
++import { _watchedCredentialFieldCount, attachCredentialFields, renderCredentialField, saveCredential } from '../credential-field.js';
+ import { loadCredentials } from '../editor-credentials.js';
+ 
+ vi.mock('../api.js', () => ({ api: vi.fn() }));
+@@ -91,6 +91,17 @@
+     expect(input.value).toBe('');
+   });
+ 
++  it('stops watching a field once it is removed from the DOM', async () => {
++    const before = _watchedCredentialFieldCount();
++    const root = mount();
++    expect(_watchedCredentialFieldCount()).toBe(before + 1);
++    document.body.appendChild(document.createElement('p'));
++    await Promise.resolve();
++    expect(_watchedCredentialFieldCount()).toBe(before + 1);
++    root.remove();
++    await vi.waitFor(() => expect(_watchedCredentialFieldCount()).toBe(before));
++  });
++
+   it('clears and removes the replace dialog when closed with Escape', async () => {
+     const { closeTopModal } = await import('../modal-escape.js');
+     const root = mount();

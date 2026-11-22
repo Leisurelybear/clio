@@ -1,0 +1,124 @@
+diff --git a/clio/tasks/compress.py b/clio/tasks/compress.py
+--- a/clio/tasks/compress.py
++++ b/clio/tasks/compress.py
+@@ -239,6 +239,14 @@
+             segments=sorted(seg_entries, key=lambda s: s.segment_number),
+         )
+         vindex.write(compressed_dir)
++
++
++def _write_vindex_best_effort(records: list[ClipRecord], config: AppConfig, ffprobe: str) -> None:
++    """Index already-finished outputs while another error is propagating."""
++    try:
++        _write_vindex(records, config, ffprobe)
++    except (OSError, ValueError) as e:
++        print(t("task.compress.vindex_partial_failed", {"detail": e}))
+ 
+ 
+ def _select_compress_videos(
+@@ -475,25 +483,31 @@
+ 
+             # Leftover *_segNN files do NOT satisfy whole-file compress; continue to create
+             # a new non-segment compressed file so the project can migrate forward.
+-            record, elapsed = _compress_and_record(
+-                original,
+-                source,
+-                config=config,
+-                ffprobe=ffprobe,
+-                existing_map=existing_map,
+-                unverifiable=unverifiable,
+-                tracker=tracker,
+-                state=state,
+-                cancel_event=cancel_event,
+-                force_compress=force_compress,
+-                reject_reason=reject_reason,
+-                next_idx=next_idx,
+-                completed=completed,
+-                index=i,
+-                total=len(items),
+-                label_name=label_name,
+-                elapsed_total=elapsed_total,
+-            )
++            try:
++                record, elapsed = _compress_and_record(
++                    original,
++                    source,
++                    config=config,
++                    ffprobe=ffprobe,
++                    existing_map=existing_map,
++                    unverifiable=unverifiable,
++                    tracker=tracker,
++                    state=state,
++                    cancel_event=cancel_event,
++                    force_compress=force_compress,
++                    reject_reason=reject_reason,
++                    next_idx=next_idx,
++                    completed=completed,
++                    index=i,
++                    total=len(items),
++                    label_name=label_name,
++                    elapsed_total=elapsed_total,
++                )
++            except BaseException:
++                # Files finished before a failure or cancel must still get their
++                # .vindex; otherwise only the startup reindex would add it later.
++                _write_vindex_best_effort(records, config, ffprobe)
++                raise
+             records.append(record)
+             elapsed_total += elapsed
+             completed += 1
+diff --git a/clio/tests/test_tasks_compress.py b/clio/tests/test_tasks_compress.py
+--- a/clio/tests/test_tasks_compress.py
++++ b/clio/tests/test_tasks_compress.py
+@@ -157,6 +157,29 @@
+         assert len(records) == 1
+         assert records[0].stem == "001_gopro_clip"
+ 
++    def test_failure_still_indexes_files_compressed_before_it(self, monkeypatch, tmp_path: Path):
++        from clio.vmeta import VideoIndex
++
++        cfg = _cfg(tmp_path)
++        _add_video(cfg, "first.mp4")
++        _add_video(cfg, "second.mp4")
++        monkeypatch.setattr("clio.tasks.compress.resolve_binary", lambda *a: "ffmpeg")
++        monkeypatch.setattr("clio.tasks.compress._sort_items_by_capture_time", lambda items, _ffprobe: items)
++
++        def _mock_compress(inp, outp, c, **kw):
++            if inp.stem == "second":
++                raise RuntimeError("encoder crashed")
++            outp.write_bytes(b"\x00" * 100)
++            return outp
++
++        monkeypatch.setattr("clio.tasks.compress.compress_video", _mock_compress)
++
++        with pytest.raises(RuntimeError, match="encoder crashed"):
++            run_compress_all(cfg)
++
++        assert VideoIndex.read("first", cfg.compressed_dir) is not None
++        assert VideoIndex.read("second", cfg.compressed_dir) is None
++
+     def test_compress_single_file(self, monkeypatch, tmp_path: Path):
+         cfg = _cfg(tmp_path)
+         _add_video(cfg, "test.mp4")
+diff --git a/clio/locales/en.json b/clio/locales/en.json
+--- a/clio/locales/en.json
++++ b/clio/locales/en.json
+@@ -581,6 +581,7 @@
+   "task.compress.reject_settings_changed": "Compress settings changed; ignoring the stale compress {name}",
+   "task.compress.reject_source_changed": "Source file changed; ignoring the stale compress {name}",
+   "task.compress.skip_exists": "[skip compress] {label} (already exists: {name})",
++  "task.compress.vindex_partial_failed": "  [warning] could not write .vindex for the files compressed so far: {detail}",
+   "task.compress.skip_log": "⏭️ Skipping {label} (already exists: {name})",
+   "task.compress.skip_offline": "[skip] {count} offline/missing videos (kept in videos.json; use relink to fix)",
+   "task.compress.start_log": "▶ Compress {label}",
+diff --git a/clio/locales/zh-CN.json b/clio/locales/zh-CN.json
+--- a/clio/locales/zh-CN.json
++++ b/clio/locales/zh-CN.json
+@@ -581,6 +581,7 @@
+   "task.compress.reject_settings_changed": "压缩参数已变更，忽略旧压缩 {name}",
+   "task.compress.reject_source_changed": "源文件已变更，忽略旧压缩 {name}",
+   "task.compress.skip_exists": "[跳过压缩] {label} (已存在: {name})",
++  "task.compress.vindex_partial_failed": "  [警告] 无法为已完成的压缩文件写入 .vindex: {detail}",
+   "task.compress.skip_log": "⏭️ 跳过 {label}（已存在 {name}）",
+   "task.compress.skip_offline": "[跳过] {count} 个离线/缺失视频（仍保留在 videos.json，可用 relink 修复）",
+   "task.compress.start_log": "▶ 压缩 {label}",

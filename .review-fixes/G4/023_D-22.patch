@@ -1,0 +1,50 @@
+diff --git a/clio/ui/server.py b/clio/ui/server.py
+--- a/clio/ui/server.py
++++ b/clio/ui/server.py
+@@ -214,8 +214,6 @@
+ )
+ 
+ _desktop_focus_callback: Callable[[], None] | None = None
+-_STATE_CREATE_LOCK = threading.Lock()
+-_TASK_MANAGER_CREATE_LOCK = threading.Lock()
+ 
+ 
+ def register_builtin_task_handlers(manager: TaskManager) -> None:
+@@ -256,12 +254,6 @@
+     except Exception as e:  # noqa: BLE001 — surface any focus failure to the caller
+         return handler._send_json({"ok": False, "error": str(e)}, 500)
+     return handler._send_json({"ok": True})
+-
+-
+-def _setting_int(value: Any, default: int) -> int:
+-    if isinstance(value, bool) or not isinstance(value, int):
+-        return default
+-    return max(0, value)
+ 
+ 
+ def _parse_int_param(qs: dict, key: str, default: int, min_val: int = 0, max_val: int = 10_000_000) -> int:
+diff --git a/clio/ui/routes/projects.py b/clio/ui/routes/projects.py
+--- a/clio/ui/routes/projects.py
++++ b/clio/ui/routes/projects.py
+@@ -39,21 +39,6 @@
+     proj_out = _project_output_dir(proj_dir)
+     merged["steps"] = _detect_steps(proj_out, project_dir=proj_dir)
+     handler._send_json(merged)
+-
+-
+-def handle_post_project_select(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
+-    """Handle POST /api/project/select. Records the project as last-used."""
+-    qs_project = obj.get("project") or qs.get("project", [None])[0]
+-    if not isinstance(qs_project, str) or not qs_project.strip():
+-        return handler._send_json({"ok": False, "error": "missing project"}, 400)
+-    qs_project = qs_project.strip()
+-    proj_dir = handler._resolve_project_dir(qs)
+-    config_path = handler.config_path
+-    try:
+-        _save_last_project(qs_project, config_path, project_dir=str(proj_dir))
+-    except ValueError as exc:
+-        return handler._send_json({"ok": False, "error": str(exc)}, 500)
+-    handler._send_json({"ok": True})
+ 
+ 
+ def handle_get_projects(handler: HandlerProtocol, qs: dict[str, Any]) -> None:

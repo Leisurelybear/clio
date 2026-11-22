@@ -1,0 +1,44 @@
+diff --git a/.gitignore b/.gitignore
+--- a/.gitignore
++++ b/.gitignore
+@@ -2,6 +2,8 @@
+ output/
+ logs/
+ .env
++.env.*
++!.env.example
+ config.yaml
+ __pycache__/
+ *.pyc
+@@ -27,7 +29,13 @@
+ 
+ .progress.json
+ task-center.sqlite3
++*.sqlite3-wal
++*.sqlite3-shm
+ node_modules/
++
++# Desktop shell runtime files written to the config dir (repo root in dev)
++clio.lock
++desktop-state.json
+ 
+ # Superpowers temp artifacts (brainstorm mockups, etc.)
+ .superpowers/
+@@ -38,6 +46,7 @@
+ 
+ # Coverage artifacts
+ .coverage
++.coverage.*
+ coverage.xml
+ htmlcov/
+ coverage/
+@@ -56,6 +65,9 @@
+ *.swp
+ *.swo
+ *~
++/.tmp_*
++*.patch
++*.corrupt.*
+ project.yaml
+ project.json
+ videos.json

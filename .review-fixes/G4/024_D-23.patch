@@ -1,0 +1,165 @@
+diff --git a/clio/ui/request_body.py b/clio/ui/request_body.py
+--- a/clio/ui/request_body.py
++++ b/clio/ui/request_body.py
+@@ -62,8 +62,14 @@
+     *,
+     require_json_content_type: bool,
+     max_bytes: int = MAX_JSON_BODY_BYTES,
++    allow_empty: bool = False,
+ ) -> JsonBodyResult:
+-    """Read a bounded JSON object and report protocol or payload errors."""
++    """Read a bounded JSON object and report protocol or payload errors.
++
++    ``allow_empty`` treats a zero-length body as ``{}`` (POST endpoints such as
++    ``/api/webhook/trigger`` called with ``curl -X POST``); the Content-Type
++    check still applies first.
++    """
+     if require_json_content_type:
+         content_type = (headers.get("Content-Type", "") or "").split(";", 1)[0].strip().lower()
+         if content_type != "application/json":
+@@ -76,6 +82,8 @@
+         error: JsonBodyError = "invalid_content_length" if error_status == 400 else "too_large"
+         return JsonBodyResult(status=error_status, error=error)
+     assert length is not None
++    if length == 0 and allow_empty:
++        return JsonBodyResult(obj={}, raw=b"")
+     raw = reader.read(length) if length else b""
+     try:
+         obj = json.loads(raw.decode("utf-8"))
+diff --git a/clio/ui/handler_factory.py b/clio/ui/handler_factory.py
+--- a/clio/ui/handler_factory.py
++++ b/clio/ui/handler_factory.py
+@@ -67,6 +67,15 @@
+     job_lock: threading.Lock = field(default_factory=threading.Lock)
+     job_thread: threading.Thread | None = None
+     job_cancel_event: threading.Event = field(default_factory=threading.Event)
++
++
++# _read_json_body status meaning "error response already sent" (invalid JSON).
++_BODY_ERROR_SENT = -400
++_BODY_ERROR_MESSAGES: dict[int, str] = {
++    413: "request body too large",
++    400: "invalid Content-Length",
++    415: "unsupported media type, expected application/json",
++}
+ 
+ 
+ def _setting_int(value: Any, default: int) -> int:
+@@ -362,20 +371,31 @@
+         self._send_json({"error": t(error)}, 403)
+         return False
+ 
+-    def _read_json_body(self) -> tuple[dict | None, int | None]:
+-        """Parse JSON object body and send payload errors before dispatch."""
++    def _read_json_body(self, *, allow_empty: bool = False) -> tuple[dict | None, int | None]:
++        """Parse JSON object body; invalid JSON is answered here (status _BODY_ERROR_SENT)."""
+         result = read_json_body(
+             self.headers,
+             self.rfile,
+             require_json_content_type=self.__class__._enforce_json_ct,
++            allow_empty=allow_empty,
+         )
+         self._log_request_body(result)
+         if result.error == "invalid_json":
+             self._send_json({"ok": False, "error": f"invalid JSON: {result.detail}"}, 400)
+-            return None, -400
++            return None, _BODY_ERROR_SENT
+         if result.status is not None:
+             return None, result.status
+         return result.obj, None
++
++    def _read_json_body_or_reply(self, *, allow_empty: bool = False) -> dict | None:
++        """Return the JSON body, or send the matching error response and return None."""
++        obj, err_status = self._read_json_body(allow_empty=allow_empty)
++        if err_status is None:
++            return obj
++        message = _BODY_ERROR_MESSAGES.get(err_status)
++        if message is not None:
++            self._send_json({"ok": False, "error": message}, err_status)
++        return None
+ 
+     def _log_request_body(self, result: JsonBodyResult) -> None:
+         self._http_request_body_log = prepare_body(
+@@ -555,16 +575,8 @@
+         path = url.path
+         if self.__class__._router.get_policy("PUT", path).auth_required and not self._require_auth():
+             return
+-        obj, err_status = self._read_json_body()
+-        if err_status == -400:
+-            return  # invalid JSON already sent
+-        if err_status == 413:
+-            return self._send_json({"ok": False, "error": "request body too large"}, 413)
+-        if err_status == 400:
+-            return self._send_json({"ok": False, "error": "invalid Content-Length"}, 400)
+-        if err_status == 415:
+-            return self._send_json({"ok": False, "error": "unsupported media type, expected application/json"}, 415)
+-        if err_status is not None:
++        obj = self._read_json_body_or_reply()
++        if obj is None:
+             return
+ 
+         handler_fn, path_kwargs, route = self.__class__._router.dispatch("PUT", path)
+@@ -583,16 +595,9 @@
+         path = url.path
+         if self.__class__._router.get_policy("POST", path).auth_required and not self._require_auth():
+             return
+-        obj, err_status = self._read_json_body()
+-        if err_status == -400:
+-            return  # invalid JSON already sent
+-        if err_status == 413:
+-            return self._send_json({"ok": False, "error": "request body too large"}, 413)
+-        if err_status == 400:
+-            return self._send_json({"ok": False, "error": "invalid Content-Length"}, 400)
+-        if err_status == 415:
+-            return self._send_json({"ok": False, "error": "unsupported media type, expected application/json"}, 415)
+-        if err_status is not None:
++        # A bodyless POST (e.g. `curl -X POST .../api/webhook/trigger`) means {}.
++        obj = self._read_json_body_or_reply(allow_empty=True)
++        if obj is None:
+             return
+ 
+         handler_fn, path_kwargs, route = self.__class__._router.dispatch("POST", path)
+diff --git a/clio/tests/test_fix_request_body.py b/clio/tests/test_fix_request_body.py
+new file mode 100644
+--- /dev/null
++++ b/clio/tests/test_fix_request_body.py
+@@ -0,0 +1,39 @@
++"""Regression tests: bodyless POST is {} while PUT and content-type rules stay strict."""
++
++from __future__ import annotations
++
++import io
++
++from clio.ui.request_body import read_json_body
++
++
++def test_empty_body_is_empty_object_when_allowed():
++    result = read_json_body(
++        {"Content-Type": "application/json", "Content-Length": "0"},
++        io.BytesIO(b""),
++        require_json_content_type=True,
++        allow_empty=True,
++    )
++    assert result.obj == {}
++    assert result.status is None
++
++
++def test_missing_content_length_is_empty_object_when_allowed():
++    result = read_json_body({}, io.BytesIO(b""), require_json_content_type=False, allow_empty=True)
++    assert result.obj == {}
++
++
++def test_empty_body_still_invalid_by_default():
++    result = read_json_body({"Content-Length": "0"}, io.BytesIO(b""), require_json_content_type=False)
++    assert result.status == 400
++    assert result.error == "invalid_json"
++
++
++def test_allow_empty_does_not_bypass_content_type_check():
++    result = read_json_body(
++        {"Content-Type": "text/plain", "Content-Length": "0"},
++        io.BytesIO(b""),
++        require_json_content_type=True,
++        allow_empty=True,
++    )
++    assert result.status == 415

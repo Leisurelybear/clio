@@ -1,0 +1,148 @@
+diff --git a/clio/config/loader.py b/clio/config/loader.py
+--- a/clio/config/loader.py
++++ b/clio/config/loader.py
+@@ -1,8 +1,8 @@
+ from __future__ import annotations
+ 
+-import contextlib
+ import json
+ import re
++import time
+ from copy import deepcopy
+ from pathlib import Path
+ from typing import Any
+@@ -324,15 +324,38 @@
+     return result
+ 
+ 
++def _write_migration_backup(path: Path) -> Path:
++    """Copy *path* byte-for-byte to a fresh backup before migration rewrites it.
++
++    An existing ``<name>.bak`` from an earlier run is never reused, because it
++    would not match the content being migrated now; the new snapshot gets a
++    timestamped name instead. Raises OSError when the backup cannot be written,
++    so callers abort rather than overwrite or delete the only copy.
++    """
++    bak = path.with_suffix(path.suffix + ".bak")
++    if bak.exists():
++        stamp = time.strftime("%Y%m%d-%H%M%S")
++        bak = path.with_name(f"{path.name}.bak.{stamp}")
++        counter = 1
++        while bak.exists():
++            bak = path.with_name(f"{path.name}.bak.{stamp}-{counter}")
++            counter += 1
++    data = path.read_bytes()
++    with bak.open("xb") as fh:
++        fh.write(data)
++    return bak
++
++
+ def _migrate_v1_to_v2(config_path: Path) -> None:
+     """Migrate merged V1 config.yaml to split V2 structure."""
+     raw = _load_yaml_mapping(config_path)
+ 
+-    # Backup original
+-    bak = config_path.with_suffix(config_path.suffix + ".bak")
+-    if not bak.exists():
+-        with contextlib.suppress(OSError):
+-            bak.write_text(config_path.read_text(encoding="utf-8"), encoding="utf-8")
++    # Backup original; without a backup the migration must not touch the file.
++    try:
++        bak = _write_migration_backup(config_path)
++    except OSError as exc:
++        print(f"[config] V1->V2 migration skipped: cannot back up {config_path.name} ({type(exc).__name__})")
++        return
+ 
+     # Write V2 global config.yaml
+     global_raw = _filter_global_only(raw)
+@@ -386,11 +409,12 @@
+             except (OSError, UnicodeError, ValueError):
+                 continue
+ 
+-            # Back up project.yaml first
+-            proj_bak = proj_yaml.with_suffix(proj_yaml.suffix + ".bak")
+-            if not proj_bak.exists():
+-                with contextlib.suppress(OSError):
+-                    proj_bak.write_text(proj_yaml.read_text(encoding="utf-8"), encoding="utf-8")
++            # Back up project.yaml first; skip this project when the backup fails.
++            try:
++                _write_migration_backup(proj_yaml)
++            except OSError as exc:
++                print(f"[config] {proj_dir.name}/project.yaml: migration skipped, backup failed ({type(exc).__name__})")
++                continue
+ 
+             project_out = _filter_project_only(proj_raw)
+             if not project_out:
+diff --git a/clio/tests/test_fix_config_migration_backup.py b/clio/tests/test_fix_config_migration_backup.py
+new file mode 100644
+--- /dev/null
++++ b/clio/tests/test_fix_config_migration_backup.py
+@@ -0,0 +1,68 @@
++"""Regression tests: V1->V2 migration never rewrites a file without a fresh backup."""
++
++from __future__ import annotations
++
++import json
++from pathlib import Path
++
++import yaml
++
++from clio.config import loader
++from clio.config.loader import _migrate_v1_to_v2
++
++V1_CONFIG = "proxy:\n  enabled: false\ncompress:\n  fps: 30\n  target_size_mb: 10\n"
++
++
++def test_existing_bak_is_not_reused(tmp_path: Path):
++    cfg_path = tmp_path / "config.yaml"
++    cfg_path.write_text(V1_CONFIG, encoding="utf-8")
++    stale = tmp_path / "config.yaml.bak"
++    stale.write_text("stale: snapshot\n", encoding="utf-8")
++
++    _migrate_v1_to_v2(cfg_path)
++
++    assert stale.read_text(encoding="utf-8") == "stale: snapshot\n"
++    fresh = [p for p in tmp_path.iterdir() if p.name.startswith("config.yaml.bak.")]
++    assert len(fresh) == 1
++    assert fresh[0].read_text(encoding="utf-8") == V1_CONFIG
++    assert yaml.safe_load(cfg_path.read_text(encoding="utf-8"))["config_version"] == "V2"
++
++
++def test_failed_config_backup_aborts_migration(tmp_path: Path, monkeypatch):
++    cfg_path = tmp_path / "config.yaml"
++    cfg_path.write_text(V1_CONFIG, encoding="utf-8")
++
++    def _fail(path):
++        raise OSError("disk full")
++
++    monkeypatch.setattr(loader, "_write_migration_backup", _fail)
++
++    _migrate_v1_to_v2(cfg_path)
++
++    assert cfg_path.read_text(encoding="utf-8") == V1_CONFIG
++    assert not (tmp_path / "project.yaml").exists()
++
++
++def test_failed_project_backup_keeps_project_yaml(tmp_path: Path, monkeypatch):
++    cfg_path = tmp_path / "config.yaml"
++    cfg_path.write_text("proxy:\n  enabled: false\n", encoding="utf-8")
++    project_dir = tmp_path / "trip"
++    project_dir.mkdir()
++    project_yaml = project_dir / "project.yaml"
++    # Only global keys: a successful migration would remove this file.
++    project_yaml.write_text("proxy:\n  enabled: true\n", encoding="utf-8")
++    (tmp_path / "projects.json").write_text(
++        json.dumps({"projects": [{"project_dir": str(project_dir)}]}), encoding="utf-8"
++    )
++    real_backup = loader._write_migration_backup
++
++    def _flaky(path):
++        if path.name == "project.yaml":
++            raise OSError("read-only")
++        return real_backup(path)
++
++    monkeypatch.setattr(loader, "_write_migration_backup", _flaky)
++
++    _migrate_v1_to_v2(cfg_path)
++
++    assert project_yaml.read_text(encoding="utf-8") == "proxy:\n  enabled: true\n"

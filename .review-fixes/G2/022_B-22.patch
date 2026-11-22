@@ -1,0 +1,113 @@
+diff --git a/clio/tasks/refine.py b/clio/tasks/refine.py
+--- a/clio/tasks/refine.py
++++ b/clio/tasks/refine.py
+@@ -32,6 +32,18 @@
+             raise ValueError(t("task.refine.json_only", {"path": target}))
+         return [target]
+     return sorted(target.glob(pattern))
++
++
++def _changed_since_read(path: Path, original: bytes) -> bool:
++    """True when *path* no longer holds the bytes the refine started from.
++
++    The LLM call takes tens of seconds; an edit saved from the UI meanwhile
++    must not be silently replaced by a refinement of the old content.
++    """
++    try:
++        return path.read_bytes() != original
++    except OSError:
++        return True
+ 
+ 
+ def _load_analysis_for_script(script_path: Path, texts_dir: Path) -> dict | None:
+@@ -83,7 +95,8 @@
+             print(_eta_line("refine", i, len(target_files), json_file.name, completed, elapsed_total))
+             t0 = time.monotonic()
+             try:
+-                analysis = json.loads(json_file.read_text(encoding="utf-8"))
++                original = json_file.read_bytes()
++                analysis = json.loads(original.decode("utf-8"))
+                 refined = refine_text(
+                     analysis,
+                     config,
+@@ -101,6 +114,10 @@
+                 continue
+             finally:
+                 elapsed_total += time.monotonic() - t0
++            if _changed_since_read(json_file, original):
++                failed += 1
++                print(t("task.refine.changed_during_refine", {"name": json_file.name}))
++                continue
+             completed += 1
+             write_json_atomic(json_file, refined)
+             txt_path = json_file.with_suffix(".txt")
+@@ -152,7 +169,8 @@
+             print(_eta_line("refine", i, len(target_files), json_file.name, completed, elapsed_total))
+             t0 = time.monotonic()
+             try:
+-                script = json.loads(json_file.read_text(encoding="utf-8"))
++                original = json_file.read_bytes()
++                script = json.loads(original.decode("utf-8"))
+                 analysis = _load_analysis_for_script(json_file, config.texts_dir)
+                 refined = refine_script(
+                     script,
+@@ -172,6 +190,10 @@
+                 continue
+             finally:
+                 elapsed_total += time.monotonic() - t0
++            if _changed_since_read(json_file, original):
++                failed += 1
++                print(t("task.refine.changed_during_refine", {"name": json_file.name}))
++                continue
+             completed += 1
+             write_json_atomic(json_file, refined)
+             md_path = json_file.with_name(json_file.stem + ".md")
+diff --git a/clio/tests/test_tasks_refine.py b/clio/tests/test_tasks_refine.py
+--- a/clio/tests/test_tasks_refine.py
++++ b/clio/tests/test_tasks_refine.py
+@@ -135,6 +135,23 @@
+         assert output["title"] == "fixed"
+ 
+     @patch("clio.tasks.refine.refine_text")
++    def test_edit_saved_during_refine_is_not_overwritten(self, mock_refine, cfg):
++        target = cfg.texts_dir / "001.json"
++        target.write_text(json.dumps({"title": "original"}), encoding="utf-8")
++
++        def user_edits_meanwhile(*_args, **_kwargs):
++            target.write_text(json.dumps({"title": "user edit"}), encoding="utf-8")
++            return {"title": "refined", "_changelog": ["x"]}
++
++        mock_refine.side_effect = user_edits_meanwhile
++
++        from clio.tasks.refine import run_refine_texts
++
++        assert run_refine_texts(cfg) == -1
++        assert json.loads(target.read_text(encoding="utf-8")) == {"title": "user edit"}
++        assert not target.with_suffix(".txt").exists()
++
++    @patch("clio.tasks.refine.refine_text")
+     def test_skip_existing_not_applied(self, mock_refine, cfg):
+         data = {"title": "t"}
+         (cfg.texts_dir / "001.json").write_text(json.dumps(data))
+diff --git a/clio/locales/en.json b/clio/locales/en.json
+--- a/clio/locales/en.json
++++ b/clio/locales/en.json
+@@ -681,6 +681,7 @@
+   "task.project_busy": "A task is already running for this project",
+   "task.refine.changes": "  Changes ({count}): {detail}",
+   "task.refine.failed": "  Failed: {detail}",
++  "task.refine.changed_during_refine": "  [skip] {name} was modified while refining; kept your version, run refine again to include it",
+   "task.refine.fix_note": "  Fix request: {fix}",
+   "task.refine.fix_requires_file": "--fix requires -i to point at a single json file; directories are not supported",
+   "task.refine.json_only": "Only .json files are supported: {path}",
+diff --git a/clio/locales/zh-CN.json b/clio/locales/zh-CN.json
+--- a/clio/locales/zh-CN.json
++++ b/clio/locales/zh-CN.json
+@@ -681,6 +681,7 @@
+   "task.project_busy": "该项目已有任务正在运行",
+   "task.refine.changes": "  改动 ({count}): {detail}",
+   "task.refine.failed": "  失败: {detail}",
++  "task.refine.changed_during_refine": "  [跳过] {name} 在精修期间被修改，已保留你的版本；如需精修请重新运行",
+   "task.refine.fix_note": "  修改意见: {fix}",
+   "task.refine.fix_requires_file": "--fix 必须配合 -i 指定单个 json 文件，不能用于目录",
+   "task.refine.json_only": "仅支持 .json 文件: {path}",

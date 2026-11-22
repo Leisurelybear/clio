@@ -1,0 +1,74 @@
+diff --git a/clio/ui/routes/tasks.py b/clio/ui/routes/tasks.py
+--- a/clio/ui/routes/tasks.py
++++ b/clio/ui/routes/tasks.py
+@@ -166,7 +166,9 @@
+                 handler.wfile.write(b": heartbeat\n\n")
+                 handler.wfile.flush()
+                 last_heartbeat = now
+-    except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
++    except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, TimeoutError):
++        # TimeoutError: the client stopped reading (frozen/background tab) and the
++        # socket write timed out — a normal disconnect, not a server error.
+         return
+     finally:
+         # A stream must not leave a keep-alive worker waiting for a next
+diff --git a/clio/ui/routes/notifications.py b/clio/ui/routes/notifications.py
+--- a/clio/ui/routes/notifications.py
++++ b/clio/ui/routes/notifications.py
+@@ -146,7 +146,9 @@
+                 handler.wfile.write(b": heartbeat\n\n")
+                 handler.wfile.flush()
+                 last_heartbeat = now
+-    except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
++    except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, TimeoutError):
++        # TimeoutError: the client stopped reading (frozen/background tab) and the
++        # socket write timed out — a normal disconnect, not a server error.
+         return
+     finally:
+         # A stream must not leave a keep-alive worker waiting for a next
+diff --git a/clio/tests/test_fix_sse_timeouts.py b/clio/tests/test_fix_sse_timeouts.py
+new file mode 100644
+--- /dev/null
++++ b/clio/tests/test_fix_sse_timeouts.py
+@@ -0,0 +1,41 @@
++"""Regression tests: an SSE write timeout ends the stream quietly."""
++
++from __future__ import annotations
++
++from unittest.mock import MagicMock
++
++from clio.ui.routes.notifications import handle_get_notifications_stream
++from clio.ui.routes.tasks import handle_get_tasks_stream
++
++
++def _handler(store: MagicMock) -> MagicMock:
++    handler = MagicMock()
++    handler.headers = {}
++    handler._get_task_manager.return_value.store = store
++    handler.wfile.write.side_effect = TimeoutError("timed out")
++    return handler
++
++
++def test_task_stream_returns_on_write_timeout():
++    store = MagicMock()
++    store.waiters_stopped = False
++    event = MagicMock(seq=1, task_id="t1")
++    event.to_dict.return_value = {}
++    store.wait_for_events.return_value = [event]
++    store.get_many.return_value = {}
++    handler = _handler(store)
++
++    handle_get_tasks_stream(handler, {})  # must not raise
++
++    assert handler.close_connection is True
++
++
++def test_notification_stream_returns_on_write_timeout():
++    store = MagicMock()
++    store.waiters_stopped = False
++    store.wait_for_notification_revision.return_value = 5
++    handler = _handler(store)
++
++    handle_get_notifications_stream(handler, {})  # must not raise
++
++    assert handler.close_connection is True

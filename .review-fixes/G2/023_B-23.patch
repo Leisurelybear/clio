@@ -1,0 +1,72 @@
+diff --git a/clio/tasks/label.py b/clio/tasks/label.py
+--- a/clio/tasks/label.py
++++ b/clio/tasks/label.py
+@@ -126,7 +126,17 @@
+             if cancel_event and cancel_event.is_set():
+                 print(t("task.label.cancelled"))
+                 break
+-            data = json.loads(json_file.read_text(encoding="utf-8"))
++            try:
++                data = json.loads(json_file.read_text(encoding="utf-8"))
++                if not isinstance(data, dict):
++                    raise ValueError("analysis JSON root must be an object")
++            except (OSError, UnicodeDecodeError, ValueError) as exc:
++                # One corrupt or half-written analysis must not stop the batch.
++                print(t("task.label.skip_unreadable", {"name": json_file.name, "detail": exc}))
++                state.mark(json_file.stem, "label", "error")
++                if tracker:
++                    tracker.next(message=t("task.label.skip_unreadable", {"name": json_file.name, "detail": exc}))
++                continue
+             idx = _label_index(data, json_file, config.naming.index_width)
+             compressed = _find_compressed_video(config.compressed_dir, idx)
+             orig_stem = Path(data.get("source_file") or data.get("compressed_file") or json_file.stem).stem
+diff --git a/clio/tests/test_tasks_label.py b/clio/tests/test_tasks_label.py
+--- a/clio/tests/test_tasks_label.py
++++ b/clio/tests/test_tasks_label.py
+@@ -92,6 +92,24 @@
+     @patch("clio.tasks.label.resolve_drawtext_font")
+     @patch("clio.tasks.label.run_ffmpeg")
+     @patch("clio.tasks.label.resolve_binary")
++    def test_corrupt_json_is_skipped_and_batch_continues(self, mock_resolve, mock_ffmpeg, mock_font, cfg, tmp_path):
++        font = tmp_path / "arial.ttf"
++        font.write_bytes(b"\x00")
++        mock_font.return_value = font
++        (cfg.texts_dir / "001_bad.json").write_text("{half-written", encoding="utf-8")
++        (cfg.texts_dir / "002_list.json").write_text("[]", encoding="utf-8")
++        (cfg.texts_dir / "003_good.json").write_text('{"index": 3}', encoding="utf-8")
++        (cfg.compressed_dir / "003_good.mp4").write_bytes(b"\x00")
++        mock_resolve.return_value = "ffmpeg"
++
++        from clio.tasks.label import run_label_videos
++
++        run_label_videos(cfg)
++        mock_ffmpeg.assert_called_once()
++
++    @patch("clio.tasks.label.resolve_drawtext_font")
++    @patch("clio.tasks.label.run_ffmpeg")
++    @patch("clio.tasks.label.resolve_binary")
+     def test_labels_video(self, mock_resolve, mock_ffmpeg, mock_font, cfg, tmp_path):
+         font = tmp_path / "arial.ttf"
+         font.write_bytes(b"\x00")
+diff --git a/clio/locales/en.json b/clio/locales/en.json
+--- a/clio/locales/en.json
++++ b/clio/locales/en.json
+@@ -625,6 +625,7 @@
+   "task.label.skip_exists": "[skip label] {name} (already exists)",
+   "task.label.skip_font": "[skip label] {name} (no usable font)",
+   "task.label.skip_font_tracker": "Skipping {name} (no usable font)",
++  "task.label.skip_unreadable": "  [skip] cannot read {name}: {detail}",
+   "task.label.skip_exists_tracker": "Skipping {name}",
+   "task.label.skip_no_compressed": "[skip] no compressed file found: {index}",
+   "task.label.skip_no_compressed_tracker": "Skipping {index} (no compressed file)",
+diff --git a/clio/locales/zh-CN.json b/clio/locales/zh-CN.json
+--- a/clio/locales/zh-CN.json
++++ b/clio/locales/zh-CN.json
+@@ -625,6 +625,7 @@
+   "task.label.skip_exists": "[跳过标注] {name} (已存在)",
+   "task.label.skip_font": "[跳过标注] {name}（无可用字体）",
+   "task.label.skip_font_tracker": "跳过 {name}（无可用字体）",
++  "task.label.skip_unreadable": "  [跳过] 无法读取 {name}: {detail}",
+   "task.label.skip_exists_tracker": "跳过 {name}",
+   "task.label.skip_no_compressed": "[跳过] 找不到压缩文件: {index}",
+   "task.label.skip_no_compressed_tracker": "跳过 {index}（无压缩文件）",

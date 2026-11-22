@@ -1,0 +1,140 @@
+diff --git a/clio/ui/services/ai_models_service.py b/clio/ui/services/ai_models_service.py
+--- a/clio/ui/services/ai_models_service.py
++++ b/clio/ui/services/ai_models_service.py
+@@ -4,7 +4,9 @@
+ 
+ import contextlib
+ import json
++import math
+ import re
++from dataclasses import replace
+ from typing import Any
+ 
+ import httpx
+@@ -25,6 +27,19 @@
+ _MAX_MODEL_COUNT = 1000
+ _MAX_MODEL_NAME_CHARS = 256
+ _MAX_GEMINI_MODEL_SCAN = 10_000
++# A model list is one small GET; never hold a request thread longer than this.
++_MAX_MODEL_LIST_TIMEOUT_SEC = 30.0
++
++
++def _bounded_timeout(value: Any, default: float, maximum: float) -> float:
++    """Clamp a provider timeout to [1, maximum]; bad or non-finite values use *default*."""
++    try:
++        timeout = float(value)
++    except (TypeError, ValueError):
++        timeout = default
++    if not math.isfinite(timeout) or timeout <= 0:
++        timeout = default
++    return max(1.0, min(timeout, maximum))
+ 
+ 
+ def _sanitize_error(message: str, secrets: list[str]) -> str:
+@@ -196,6 +211,11 @@
+         return {"ok": False, "provider": display_name, "error": "provider connection URL is unsafe"}
+     if provider.type == "gemini" and not provider.api_key:
+         return {"ok": False, "provider": display_name, "error": "API key is required"}
++    # Runs on a request thread: cap the (possibly user-submitted) timeout.
++    provider = replace(
++        provider,
++        timeout_sec=_bounded_timeout(provider.timeout_sec, _MAX_MODEL_LIST_TIMEOUT_SEC, _MAX_MODEL_LIST_TIMEOUT_SEC),
++    )
+     try:
+         models = (
+             _list_gemini_models(provider, config)
+diff --git a/clio/ui/services/ai_test_service.py b/clio/ui/services/ai_test_service.py
+--- a/clio/ui/services/ai_test_service.py
++++ b/clio/ui/services/ai_test_service.py
+@@ -1,5 +1,6 @@
+ from __future__ import annotations
+ 
++import math
+ import re
+ import time
+ from typing import Any
+@@ -18,6 +19,17 @@
+ from clio.utils import mask_if_looks_like_key
+ 
+ _TEST_PROMPT = "Reply with exactly: ok"
++# Upper bound for a timeout submitted with an unsaved provider draft (the
++# saved-config default); the test runs on a request thread.
++_MAX_DRAFT_TIMEOUT_SEC = 120.0
++
++
++def _draft_timeout(value: Any) -> float:
++    """Clamp a draft timeout to [1, 120]; unparsable values still raise ValueError."""
++    timeout = float(value or _MAX_DRAFT_TIMEOUT_SEC)
++    if not math.isfinite(timeout) or timeout <= 0:
++        timeout = _MAX_DRAFT_TIMEOUT_SEC
++    return max(1.0, min(timeout, _MAX_DRAFT_TIMEOUT_SEC))
+ _TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_\-]{11,}")
+ 
+ 
+@@ -84,7 +96,7 @@
+                 poll_interval_sec=int(raw.get("poll_interval_sec", 5) or 5),
+                 retry_attempts=int(raw.get("retry_attempts", 2) or 2),
+                 requests_per_minute=int(raw.get("requests_per_minute", 0) or 0),
+-                timeout_sec=float(raw.get("timeout_sec", 120) or 120),
++                timeout_sec=_draft_timeout(raw.get("timeout_sec", 120)),
+                 max_tokens=int(raw.get("max_tokens", 0) or 0),
+                 video_upload_max_mb=int(raw.get("video_upload_max_mb", 200) or 200),
+                 models=[str(v) for v in (raw.get("models") or [])],
+diff --git a/clio/tests/test_fix_ai_timeouts.py b/clio/tests/test_fix_ai_timeouts.py
+new file mode 100644
+--- /dev/null
++++ b/clio/tests/test_fix_ai_timeouts.py
+@@ -0,0 +1,53 @@
++"""Regression tests: interactive AI requests cannot hold a request thread for long."""
++
++from __future__ import annotations
++
++from types import SimpleNamespace
++from unittest.mock import MagicMock
++
++import pytest
++
++from clio.config import ProviderConfig
++from clio.ui.services.ai_models_service import _bounded_timeout, list_provider_models
++from clio.ui.services.ai_test_service import _draft_timeout
++
++
++@pytest.mark.parametrize(
++    ("value", "expected"),
++    [(5, 5.0), (3600, 30.0), (float("inf"), 30.0), (float("nan"), 30.0), (-1, 30.0), ("x", 30.0), (0.1, 1.0)],
++)
++def test_bounded_timeout(value, expected):
++    assert _bounded_timeout(value, 30.0, 30.0) == expected
++
++
++@pytest.mark.parametrize(("value", "expected"), [(None, 120.0), (10, 10.0), (1e9, 120.0), (float("inf"), 120.0)])
++def test_draft_timeout(value, expected):
++    assert _draft_timeout(value) == expected
++
++
++def test_draft_timeout_rejects_garbage():
++    with pytest.raises(ValueError):
++        _draft_timeout("not-a-number")
++
++
++def test_model_listing_uses_capped_timeout(monkeypatch):
++    provider = ProviderConfig(
++        name="custom", type="openai", api_key="k", base_url="https://example.com/v1", timeout_sec=900.0
++    )
++    config = SimpleNamespace(
++        ai=SimpleNamespace(providers={"custom": provider}),
++        global_cfg=SimpleNamespace(proxy=SimpleNamespace(enabled=False, url=""), credential_service=None),
++    )
++    response = MagicMock()
++    response.iter_bytes.return_value = iter([b'{"data": []}'])
++    client = MagicMock()
++    client.__enter__.return_value = client
++    client.stream.return_value.__enter__.return_value = response
++    factory = MagicMock(return_value=client)
++    monkeypatch.setattr("httpx.Client", factory)
++
++    result = list_provider_models(config, provider_name="custom")
++
++    assert result["ok"] is True
++    assert factory.call_args.kwargs["timeout"] == 30.0
++    assert provider.timeout_sec == 900.0  # saved config object is not mutated

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -12,8 +12,15 @@ from typing import Any
 from clio._constants import VIDEO_EXTS
 from clio.cut import parse_time_range
 from clio.i18n import t
-from clio.identity import load_identity
+from clio.identity import load_identity, resolve_identity
 from clio.plan_model import Plan, PlanIssue
+from clio.plan_pacing import (
+    MAX_REPORTED_SHORT_SEGMENTS,
+    MIN_SEGMENT_SEC,
+    duration_floor,
+    notable_fragments,
+    segment_durations,
+)
 from clio.tasks._helpers import (
     MediaSelection,
     _matches_selected_artifact,
@@ -228,17 +235,46 @@ def _expand_index_set(values: Iterable[Any] | None, index_width: int) -> set[str
     return expanded
 
 
-def _append_duration_window_warnings(result: ReadinessResult, tes: float) -> None:
-    if tes < 30:
+def _append_duration_window_warnings(
+    result: ReadinessResult,
+    tes: float,
+    sequence: Sequence[Any] | None = None,
+    target_duration_sec: float | None = None,
+) -> None:
+    floor = duration_floor(target_duration_sec)
+    if tes < floor:
         result.warnings.append(
             PlanIssue(
-                level="warning", code="duration_short", message=t("plan.readiness.duration_short", {"seconds": tes})
+                level="warning",
+                code="duration_short",
+                message=t(
+                    "plan.readiness.duration_short",
+                    {"seconds": f"{tes:.1f}", "minimum": f"{floor:.1f}"},
+                ),
             )
         )
     if tes > 1800:
         result.warnings.append(
             PlanIssue(
                 level="warning", code="duration_long", message=t("plan.readiness.duration_long", {"seconds": tes})
+            )
+        )
+    durations = segment_durations(sequence or ())
+    fragments = notable_fragments(durations)
+    if fragments:
+        shown = fragments[:MAX_REPORTED_SHORT_SEGMENTS]
+        result.warnings.append(
+            PlanIssue(
+                level="warning",
+                code="duration_fragments",
+                message=t(
+                    "plan.readiness.duration_fragments",
+                    {
+                        "positions": ", ".join(str(position) for position in shown),
+                        "count": len(fragments),
+                        "min": f"{MIN_SEGMENT_SEC:.0f}",
+                    },
+                ),
             )
         )
 
@@ -480,6 +516,7 @@ def check_plan_export_readiness(
     analysis_timelines: Mapping[str, list[tuple[float, float]]] | None = None,
     source: str = "compressed",
     index_width: int = 3,
+    target_duration_sec: float | None = None,
 ) -> ReadinessResult:
     source = str(source or "compressed").strip().lower()
     result = ReadinessResult()
@@ -493,7 +530,7 @@ def check_plan_export_readiness(
         tes = float(plan.total_estimated_sec)
     except (TypeError, ValueError):
         tes = 180
-    _append_duration_window_warnings(result, tes)
+    _append_duration_window_warnings(result, tes, plan.sequence, target_duration_sec)
 
     # None means discovery has not run; an empty set means it ran and found nothing.
     known = None if known_indices is None else _expand_index_set(known_indices, index_width)
@@ -697,6 +734,104 @@ def _collect_offline_indices(project_dir: Any, stem_to_indices: dict[str, set[st
         pass
 
 
+def _normalize_segment_index(value: Any) -> int | None:
+    """Normalize a media split segment number without accepting booleans."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if text.isdigit():
+            return int(text)
+    return None
+
+
+def _media_identity_key(original_stem: str, segment_index: Any) -> tuple[str, int | None] | None:
+    stem = str(original_stem or "").strip().casefold()
+    if not stem:
+        return None
+    return (stem, _normalize_segment_index(segment_index))
+
+
+def collect_media_index_aliases(cfg: Any) -> dict[str, set[str]]:
+    """Map legacy analysis indexes to the compressed rows that currently own them.
+
+    Re-indexing (compress/reindex) can renumber compressed files while older plans
+    and texts keep the previous analysis index. Both sides are joined through the
+    same ``MediaIdentity`` used elsewhere so the plan stays readable after media
+    gets renumbered.
+    """
+    comp = getattr(cfg, "compressed_dir", None)
+    texts = getattr(cfg, "texts_dir", None)
+    if not isinstance(comp, Path) or not comp.is_dir():
+        return {}
+    if not isinstance(texts, Path) or not texts.is_dir():
+        return {}
+
+    selection = _project_selection_stems(cfg)
+    analysis_by_identity: dict[tuple[str, int | None], set[str]] = {}
+    try:
+        for jf in sorted(texts.glob("*.json")):
+            if selection is not None and not _matches_selected_artifact(jf, selection):
+                continue
+            try:
+                data = json.loads(jf.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+                continue
+            if not isinstance(data, dict):
+                continue
+            identity = load_identity(data)
+            raw_index = data.get("index")
+            if raw_index is None and identity is not None:
+                raw_index = identity.index
+            if raw_index is None or not str(raw_index).strip():
+                continue
+            if identity is not None:
+                stem = identity.original_stem
+                segment_index = identity.segment_index
+            else:
+                source = data.get("source_file") or data.get("compressed_file")
+                if not source:
+                    continue
+                stem = Path(str(source)).stem
+                segment_index = None
+            key = _media_identity_key(stem, segment_index)
+            if key is None:
+                continue
+            analysis_by_identity.setdefault(key, set()).add(str(raw_index).strip())
+    except OSError:
+        return {}
+
+    aliases: dict[str, set[str]] = {}
+    try:
+        candidates = sorted(p for p in comp.iterdir() if p.is_file() and p.suffix.lower() in VIDEO_EXTS)
+    except OSError:
+        return aliases
+    project_dir = getattr(cfg, "project_dir", None)
+    for path in candidates:
+        if selection is not None and not _matches_selected_stem(path, selection, artifact=True):
+            continue
+        index = path.stem.split("_", 1)[0].strip()
+        if not index:
+            continue
+        try:
+            identity = resolve_identity(path, index, project_dir)
+        except (OSError, ValueError):
+            continue
+        key = _media_identity_key(identity.original_stem, identity.segment_index)
+        if key is None:
+            continue
+        for analysis_index in analysis_by_identity.get(key, set()):
+            aliases.setdefault(analysis_index, set()).add(index)
+    return aliases
+
+
+def _unique_media_index_aliases(aliases: Mapping[str, set[str]]) -> dict[str, str]:
+    """Keep only aliases claimed by exactly one current compressed index."""
+    return {alias: next(iter(owners)) for alias, owners in aliases.items() if len(owners) == 1}
+
+
 def collect_project_indices(cfg: Any) -> tuple[set[str], set[str]]:
     """Build (known_indices, offline_indices) from compressed media + videos.json.
 
@@ -727,6 +862,8 @@ def collect_project_indices(cfg: Any) -> tuple[set[str], set[str]]:
         stem_to_indices=stem_to_indices,
     )
     _collect_offline_indices(getattr(cfg, "project_dir", None), stem_to_indices, offline)
+    for alias in _unique_media_index_aliases(collect_media_index_aliases(cfg)):
+        known.update(expand_index_keys(alias, index_width=width))
 
     return known, offline
 
@@ -772,6 +909,10 @@ def collect_project_media_durations(cfg: Any) -> dict[str, float]:
                 durations[index] = max(duration, durations.get(index, 0.0))
     except OSError:
         pass
+    for alias, owner in _unique_media_index_aliases(collect_media_index_aliases(cfg)).items():
+        duration = durations.get(owner)
+        if duration is not None:
+            durations.setdefault(alias, duration)
     return durations
 
 

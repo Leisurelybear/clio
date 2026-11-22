@@ -1,0 +1,83 @@
+diff --git a/clio/desktop/app.py b/clio/desktop/app.py
+--- a/clio/desktop/app.py
++++ b/clio/desktop/app.py
+@@ -45,8 +45,12 @@
+     )
+ 
+ 
+-def _ask_yes_no(title: str, message: str) -> bool:
+-    """Show a native confirmation dialog, failing open for headless launches."""
++def _ask_yes_no(title: str, message: str, *, default: bool = True) -> bool:
++    """Show a native confirmation dialog; return *default* when none can be shown.
++
++    Launch prompts fail open so headless launches keep working; the quit prompt
++    passes ``default=False`` so a missing dialog never cancels running tasks.
++    """
+     try:
+         from tkinter import Tk, messagebox
+ 
+@@ -58,7 +62,7 @@
+         finally:
+             root.destroy()
+     except Exception:  # noqa: BLE001 - native dialog backends raise platform-specific failures
+-        return True
++        return default
+ 
+ 
+ def _confirm_web_continue() -> bool:
+@@ -67,8 +71,12 @@
+ 
+ 
+ def _confirm_quit() -> bool:
+-    """Native confirm dialog. Returns True (quit) when the user confirms or dialog fails."""
+-    return _ask_yes_no(t("desktop.quit_title"), t("desktop.quit_confirm"))
++    """Native confirm dialog. Returns True (quit) only when the user confirms.
++
++    If no dialog can be shown, the window stays open instead of cancelling the
++    active runs without asking.
++    """
++    return _ask_yes_no(t("desktop.quit_title"), t("desktop.quit_confirm"), default=False)
+ 
+ 
+ def _show_window_start_error(error: Exception) -> None:
+diff --git a/clio/tests/test_fix_desktop_quit.py b/clio/tests/test_fix_desktop_quit.py
+new file mode 100644
+--- /dev/null
++++ b/clio/tests/test_fix_desktop_quit.py
+@@ -0,0 +1,36 @@
++"""Regression tests: a failing quit dialog never cancels running tasks unasked."""
++
++from __future__ import annotations
++
++import sys
++import types
++from unittest.mock import MagicMock
++
++from clio.desktop import app as app_mod
++
++
++def _broken_tk(monkeypatch) -> None:
++    fake_tk = types.ModuleType("tkinter")
++    fake_tk.Tk = MagicMock(side_effect=RuntimeError("no display"))
++    fake_tk.messagebox = MagicMock()
++    monkeypatch.setitem(sys.modules, "tkinter", fake_tk)
++
++
++def test_confirm_quit_defaults_to_stay_open_when_dialog_fails(monkeypatch):
++    _broken_tk(monkeypatch)
++    assert app_mod._confirm_quit() is False
++
++
++def test_launch_prompt_still_fails_open(monkeypatch):
++    _broken_tk(monkeypatch)
++    assert app_mod._confirm_web_continue() is True
++
++
++def test_closing_with_active_task_and_broken_dialog_keeps_tasks(monkeypatch):
++    _broken_tk(monkeypatch)
++    monkeypatch.setattr(app_mod, "fetch_active_tasks", lambda host, port, token="": [{"id": "t1"}])
++    cancelled = []
++    monkeypatch.setattr(app_mod, "request_run_cancel", lambda host, port, token="": cancelled.append(port))
++
++    assert app_mod._handle_closing("127.0.0.1", 1234) is False
++    assert cancelled == []

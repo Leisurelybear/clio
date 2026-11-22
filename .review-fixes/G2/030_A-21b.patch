@@ -1,0 +1,26 @@
+diff --git a/clio/locales/en.json b/clio/locales/en.json
+--- a/clio/locales/en.json
++++ b/clio/locales/en.json
+@@ -88,9 +88,6 @@
+   "analyze.warn_refine_unknown_fields": "  [warning] refine: ignoring undeclared fields {fields}",
+   "analyze.warn_sequence_invalid": "  [warning] {source}: field sequence has an invalid type; reset to an empty list",
+   "analyze.warn_total_estimated_invalid": "  [warning] {source}: field total_estimated_sec has an invalid type; reset to 180",
+-  "analyze.window_slice_duration": "Analyze-window slice duration is inaccurate: {name}",
+-  "analyze.window_slice_empty": "Analyze-window slice failed or is empty: {name}",
+-  "analyze.window_slice_too_large": "Analyze-window slice still exceeds 200MB ({size} MB); lower the compress size or shorten window_max_min",
+   "api.config_builtin_provider_undeletable": "Built-in provider cannot be deleted: {name}",
+   "api.artifact_conflict": "The file was updated by a background task; reload it before saving again",
+   "api.config_deprecated_key": "'{key}' is deprecated and cannot be written to the config",
+diff --git a/clio/locales/zh-CN.json b/clio/locales/zh-CN.json
+--- a/clio/locales/zh-CN.json
++++ b/clio/locales/zh-CN.json
+@@ -88,9 +88,6 @@
+   "analyze.warn_refine_unknown_fields": "  [警告] refine: 忽略未声明字段 {fields}",
+   "analyze.warn_sequence_invalid": "  [警告] {source}: 字段 sequence 类型非法，重置为空列表",
+   "analyze.warn_total_estimated_invalid": "  [警告] {source}: 字段 total_estimated_sec 类型非法，重置为 180",
+-  "analyze.window_slice_duration": "分析窗切片时长不准确: {name}",
+-  "analyze.window_slice_empty": "分析窗切片失败或为空: {name}",
+-  "analyze.window_slice_too_large": "分析窗切片仍超过 200MB（{size} MB），请降低 compress 体积或缩短 window_max_min",
+   "api.config_builtin_provider_undeletable": "内置 provider 不能删除: {name}",
+   "api.artifact_conflict": "文件已被后台任务更新，请重新加载后再保存",
+   "api.config_deprecated_key": "'{key}' 已废弃，不能写入配置",

@@ -243,7 +243,7 @@ def test_export_resolves_ffprobe(mock_export, _mock_timelines, _mock_indices, cl
     )
 
     with patch("clio.main.resolve_binary", return_value="C:/tools/ffprobe.exe"):
-        result = cli_runner(["--config", str(config_path), "export", "-p", str(project)])
+        result = cli_runner(["--config", str(config_path), "export", "-p", str(project), "--force"])
 
     assert result == 0
     assert mock_export.call_args.kwargs["ffprobe"] == "C:/tools/ffprobe.exe"

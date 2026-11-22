@@ -3,6 +3,7 @@ import { $, escapeHtml } from './utils.js';
 import { addToast } from './toast.js';
 import { t } from './i18n.js';
 import { insertSegment, nextExpandedAfterInsert } from './plan-edit.js';
+import { findPlanVideo } from './plan-video.js';
 
 let _insertAfterIndex = -1;
 let _insertSelectedIndex = null;
@@ -118,7 +119,7 @@ function confirmInsertSegment() {
     addToast(t('plan.pick_video_first'), 'warning');
     return;
   }
-  const v = (state.videos || []).find((x) => String(x.index) === index);
+  const v = findPlanVideo(state.videos, index);
   if (!v) {
     addToast(t('plan.video_not_found', { index }), 'warning');
     return;

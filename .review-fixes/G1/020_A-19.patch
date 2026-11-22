@@ -1,0 +1,69 @@
+diff --git a/clio/utils.py b/clio/utils.py
+--- a/clio/utils.py
++++ b/clio/utils.py
+@@ -1,6 +1,7 @@
+ from __future__ import annotations
+ 
+ import json
++import logging
+ import os
+ import random
+ import re
+@@ -20,6 +21,8 @@
+ from clio._constants import VIDEO_EXTENSIONS
+ from clio.i18n import t
+ from clio.shutdown import register_process, unregister_process
++
++logger = logging.getLogger("clio.utils")
+ 
+ T = TypeVar("T")
+ R = TypeVar("R")
+@@ -413,8 +416,8 @@
+         managed = managed_binary(name)
+         if managed.is_file():
+             return str(managed)
+-    except Exception:  # noqa: BLE001 - managed lookup must not break legacy discovery
+-        pass
++    except Exception as exc:  # noqa: BLE001 - managed lookup must not break legacy discovery
++        logger.debug("managed %s lookup failed: %s: %s", name, type(exc).__name__, exc)
+ 
+     for search_root in _ffmpeg_search_roots():
+         if not search_root.is_dir():
+diff --git a/clio/ffmpeg_install.py b/clio/ffmpeg_install.py
+--- a/clio/ffmpeg_install.py
++++ b/clio/ffmpeg_install.py
+@@ -369,9 +369,11 @@
+                 timeout=15,
+                 check=False,
+             )
+-        except Exception:  # noqa: BLE001
++        except Exception as exc:  # noqa: BLE001 - any failure means "not usable"
++            logger.debug("%s -version failed: %s: %s", binary, type(exc).__name__, exc)
+             return False
+         if getattr(result, "returncode", 1) != 0:
++            logger.debug("%s -version exited with code %s", binary, getattr(result, "returncode", None))
+             return False
+     return True
+ 
+diff --git a/clio/tests/test_ffmpeg_install.py b/clio/tests/test_ffmpeg_install.py
+--- a/clio/tests/test_ffmpeg_install.py
++++ b/clio/tests/test_ffmpeg_install.py
+@@ -857,3 +857,18 @@
+ 
+     assert result.ok is True
+     assert urls[-1].endswith("/" + renamed)
++
++
++def test_verify_binaries_logs_why_a_binary_is_rejected(tmp_path, caplog):
++    ffmpeg = tmp_path / "ffmpeg"
++    ffprobe = tmp_path / "ffprobe"
++    ffmpeg.write_bytes(b"x")
++    ffprobe.write_bytes(b"x")
++
++    def broken(*_args, **_kwargs):
++        raise PermissionError("access denied")
++
++    with caplog.at_level("DEBUG", logger="clio.ffmpeg_install"):
++        assert installer.verify_binaries(ffmpeg, ffprobe, runner=broken) is False
++
++    assert "PermissionError" in caplog.text

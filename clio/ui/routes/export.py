@@ -174,6 +174,7 @@ def handle_post_export(
         media_durations=collect_project_media_durations(cfg),
         analysis_timelines=collect_project_analysis_timelines(cfg),
         source="original",
+        target_duration_sec=float(getattr(cfg.plan, "target_duration_sec", 0) or 0),
     )
     blocked = readiness_block_payload(result, force=force)
     if blocked is not None:

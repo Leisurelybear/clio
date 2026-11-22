@@ -24,6 +24,7 @@ from clio.config.models import (
     GlobalConfig,
     GlobalPathsConfig,
     GlobalWhisperConfig,
+    ModelPriceConfig,
     NamingConfig,
     PlanConfig,
     ProjectAIConfig,
@@ -37,6 +38,7 @@ from clio.config.models import (
     ServerConfig,
     TaskConfig,
     UiConfig,
+    resolve_model_prices,
 )
 from clio.config.parsers import (
     _parse_providers,
@@ -60,6 +62,7 @@ __all__ = [
     "GlobalConfig",
     "GlobalPathsConfig",
     "GlobalWhisperConfig",
+    "ModelPriceConfig",
     "NamingConfig",
     "PlanConfig",
     "ProjectAIConfig",
@@ -74,6 +77,7 @@ __all__ = [
     "TaskConfig",
     "UiConfig",
     "WhisperDevice",
+    "resolve_model_prices",
     "WhisperLang",
     "WhisperModelSize",
     "_load_dotenv",

@@ -1,0 +1,61 @@
+diff --git a/clio/ai/token_usage.py b/clio/ai/token_usage.py
+--- a/clio/ai/token_usage.py
++++ b/clio/ai/token_usage.py
+@@ -4,13 +4,12 @@
+ 
+ import copy
+ import json
+-import threading
+ import time
+ from abc import ABC, abstractmethod
+ from pathlib import Path
+ from typing import TYPE_CHECKING, Any
+ 
+-from clio.utils import write_json_atomic
++from clio.utils import path_write_lock, write_json_atomic
+ 
+ if TYPE_CHECKING:
+     from clio.ai.base import TokenUsage
+@@ -128,7 +127,9 @@
+ class FileTokenUsageStore(TokenUsageStore):
+     def __init__(self, output_dir: str):
+         self._path = Path(output_dir) / ".token_usage.json"
+-        self._lock = threading.Lock()
++        # Tasks each create their own store; a per-path lock shared by all instances in
++        # this process keeps concurrent read-merge-write cycles from losing records.
++        self._lock = path_write_lock(self._path)
+ 
+     def record(
+         self,
+diff --git a/clio/tests/test_fix_token_usage_lock.py b/clio/tests/test_fix_token_usage_lock.py
+new file mode 100644
+--- /dev/null
++++ b/clio/tests/test_fix_token_usage_lock.py
+@@ -0,0 +1,27 @@
++"""Regression tests: concurrent token stores on one project never lose records."""
++
++from __future__ import annotations
++
++from concurrent.futures import ThreadPoolExecutor
++
++from clio.ai.base import TokenUsage
++from clio.ai.token_usage import FileTokenUsageStore
++
++
++def test_stores_for_same_dir_share_one_lock(tmp_path):
++    assert FileTokenUsageStore(str(tmp_path))._lock is FileTokenUsageStore(str(tmp_path))._lock
++
++
++def test_parallel_records_from_separate_instances_are_all_kept(tmp_path):
++    usage = TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2)
++
++    def _record(index: int) -> None:
++        FileTokenUsageStore(str(tmp_path)).record("analyze" if index % 2 else "refine", "m", usage)
++
++    with ThreadPoolExecutor(max_workers=8) as pool:
++        list(pool.map(_record, range(40)))
++
++    stats = FileTokenUsageStore(str(tmp_path)).get_stats()
++    assert len(stats["history"]) == 40
++    assert stats["total"]["total_tokens"] == 80
++    assert stats["by_model"]["m"]["calls"] == 40

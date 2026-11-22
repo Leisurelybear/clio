@@ -27,6 +27,7 @@ class TokenUsageStore(ABC):
         provider: str = "",
         prompt_version: str = "",
         cost_usd: float = 0.0,
+        price_known: bool = True,
     ) -> None: ...
     @abstractmethod
     def get_stats(self) -> dict[str, Any]: ...
@@ -35,7 +36,13 @@ class TokenUsageStore(ABC):
 
 
 _EMPTY_STATS: dict[str, Any] = {
-    "total": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "cost_usd": 0.0},
+    "total": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "cost_usd": 0.0,
+        "unknown_price_calls": 0,
+    },
     "by_model": {},
     "by_task": {},
     "history": [],
@@ -66,30 +73,53 @@ def _merge_stats(
     ct: int,
     tt: int,
     cost_usd: float = 0.0,
+    price_known: bool = True,
 ) -> None:
     total = stats["total"]
     total["prompt_tokens"] += pt
     total["completion_tokens"] += ct
     total["total_tokens"] += tt
     _add_cost(total, cost_usd)
+    if not price_known:
+        total["unknown_price_calls"] = int(total.get("unknown_price_calls", 0)) + 1
 
     model_key = stats["by_model"].setdefault(
-        model, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0, "cost_usd": 0.0}
+        model,
+        {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "calls": 0,
+            "cost_usd": 0.0,
+            "unknown_price_calls": 0,
+        },
     )
     model_key["prompt_tokens"] += pt
     model_key["completion_tokens"] += ct
     model_key["total_tokens"] += tt
     model_key["calls"] += 1
     _add_cost(model_key, cost_usd)
+    if not price_known:
+        model_key["unknown_price_calls"] = int(model_key.get("unknown_price_calls", 0)) + 1
 
     task_key = stats["by_task"].setdefault(
-        task, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0, "cost_usd": 0.0}
+        task,
+        {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "calls": 0,
+            "cost_usd": 0.0,
+            "unknown_price_calls": 0,
+        },
     )
     task_key["prompt_tokens"] += pt
     task_key["completion_tokens"] += ct
     task_key["total_tokens"] += tt
     task_key["calls"] += 1
     _add_cost(task_key, cost_usd)
+    if not price_known:
+        task_key["unknown_price_calls"] = int(task_key.get("unknown_price_calls", 0)) + 1
 
 
 _MAX_TOKEN_HISTORY = 500
@@ -109,6 +139,7 @@ class FileTokenUsageStore(TokenUsageStore):
         provider: str = "",
         prompt_version: str = "",
         cost_usd: float = 0.0,
+        price_known: bool = True,
     ) -> None:
         with self._lock:
             raw = self._read_raw()
@@ -122,6 +153,7 @@ class FileTokenUsageStore(TokenUsageStore):
                 "completion_tokens": usage.completion_tokens,
                 "total_tokens": usage.total_tokens,
                 "cost_usd": round(cost_usd, 8),
+                "price_known": bool(price_known),
             }
             raw["history"].append(entry)
             if len(raw["history"]) > _MAX_TOKEN_HISTORY:
@@ -134,6 +166,7 @@ class FileTokenUsageStore(TokenUsageStore):
                 usage.completion_tokens,
                 usage.total_tokens,
                 cost_usd,
+                price_known=price_known,
             )
             write_json_atomic(self._path, raw)
 
@@ -156,10 +189,12 @@ class FileTokenUsageStore(TokenUsageStore):
         total = data.setdefault("total", {})
         if isinstance(total, dict):
             total.setdefault("cost_usd", 0.0)
+            total.setdefault("unknown_price_calls", 0)
         for bucket_name in ("by_model", "by_task"):
             buckets = data.get(bucket_name)
             if isinstance(buckets, dict):
                 for bucket in buckets.values():
                     if isinstance(bucket, dict):
                         bucket.setdefault("cost_usd", 0.0)
+                        bucket.setdefault("unknown_price_calls", 0)
         return data

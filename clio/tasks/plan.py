@@ -27,6 +27,7 @@ from clio.i18n import t
 from clio.identity import SEGMENT_SUFFIX_RE, MediaIdentity, legacy_segment_offset_sec, load_identity
 from clio.log import timed
 from clio.plan_input import build_plan_clips
+from clio.plan_readiness import collect_media_index_aliases, expand_index_keys
 from clio.processing_state import ProcessingState
 from clio.progress import ProgressReporter
 from clio.prompt_overrides import resolve_prompt_template
@@ -52,7 +53,7 @@ from clio.tasks._helpers import (
     _task_lineage_settings,
 )
 from clio.tasks.consistency import load_entity_consistency
-from clio.tasks.cut import _resolve_cut_video_path
+from clio.tasks.cut import _resolve_cut_media
 from clio.utils import format_index, plan_day_stem, resolve_binary, write_json_atomic, write_text_atomic
 from clio.vmeta import VideoMeta
 
@@ -419,10 +420,16 @@ class _PlanClipEntry:
     index: int
     source_stem: str
     match_stem: str
+    media_index: str
+    compressed_path: Path
     segment_offset_sec: float
     capture_source: str
     compressed_source: str
     identity: MediaIdentity | None
+
+
+def _same_media_index(left: Any, right: Any, *, index_width: int) -> bool:
+    return bool(expand_index_keys(left, index_width=index_width) & expand_index_keys(right, index_width=index_width))
 
 
 def _collect_plan_clips(
@@ -436,6 +443,7 @@ def _collect_plan_clips(
 ) -> tuple[list[dict[str, Any]], list[tuple[str, str]], bool]:
     selected = _selection_from_files(files) if files is not None else None
     project_selection = _project_selection_stems(config)
+    media_aliases = collect_media_index_aliases(config)
     if report and selected is not None:
         print(t("task.plan.filter_selected", {"count": len(selected)}))
 
@@ -470,16 +478,15 @@ def _collect_plan_clips(
                 print(t("task.plan.invalid_index", {"index": raw_idx, "name": json_file.name}))
             skipped_inputs.append((json_file.name, t("task.plan.index_invalid_reason")))
             continue
-        if (
-            _resolve_cut_video_path(
-                config,
-                config.compressed_dir,
-                str(idx),
-                "compressed",
-                project_selection,
-            )
-            is None
-        ):
+        resolved_media = _resolve_cut_media(
+            config,
+            config.compressed_dir,
+            str(idx),
+            "compressed",
+            project_selection,
+            media_aliases,
+        )
+        if resolved_media is None:
             skipped_inputs.append((json_file.name, t("task.plan.media_missing_reason")))
             continue
         identity = load_identity(data)
@@ -492,7 +499,11 @@ def _collect_plan_clips(
             match_stem = source_stem
             segment_offset = 0.0
         capture_source = str(getattr(identity, "original_path", "") or data.get("source_file", "") or "")
-        compressed_source = str(getattr(identity, "compressed_path", "") or data.get("compressed_file", "") or "")
+        compressed_source = str(
+            getattr(identity, "compressed_path", "")
+            or data.get("compressed_file", "")
+            or resolved_media.compressed_path
+        )
         if capture_source and Path(capture_source).is_file() and not ffprobe_resolved:
             ffprobe_resolved = True
             with contextlib.suppress(OSError):
@@ -504,12 +515,35 @@ def _collect_plan_clips(
                 index=idx,
                 source_stem=source_stem,
                 match_stem=match_stem,
+                media_index=resolved_media.media_index,
+                compressed_path=resolved_media.compressed_path,
                 segment_offset_sec=segment_offset,
                 capture_source=capture_source,
                 compressed_source=compressed_source,
                 identity=identity,
             )
         )
+
+    # When an old analysis row and a current analysis row point at the same
+    # compressed file, keep the row whose index is the current media index.
+    # A legacy row is still useful when it is the only analysis available.
+    current_media = {
+        entry.compressed_path
+        for entry in entries
+        if _same_media_index(entry.index, entry.media_index, index_width=config.naming.index_width)
+    }
+    if current_media:
+        current_entries: list[_PlanClipEntry] = []
+        for entry in entries:
+            if entry.compressed_path in current_media and not _same_media_index(
+                entry.index,
+                entry.media_index,
+                index_width=config.naming.index_width,
+            ):
+                skipped_inputs.append((entry.json_file.name, t("task.plan.media_missing_reason")))
+                continue
+            current_entries.append(entry)
+        entries = current_entries
 
     if cancel_event and cancel_event.is_set():
         return clips, skipped_inputs, True

@@ -1,0 +1,301 @@
+diff --git a/clio/ui/handler_security.py b/clio/ui/handler_security.py
+--- a/clio/ui/handler_security.py
++++ b/clio/ui/handler_security.py
+@@ -7,6 +7,9 @@
+ from urllib.parse import parse_qs, urlparse
+ 
+ LocalSessionError = Literal["api.invalid_host", "api.invalid_origin"]
++TokenSource = Literal["disabled", "cookie", "bearer", "query"]
++
++SESSION_COOKIE_NAME = "clio_session"
+ 
+ # Fetch Metadata values a browser sends for the app's own requests ("same-origin")
+ # or for user-initiated navigations / non-browser clients ("none"). Anything else
+@@ -24,17 +27,55 @@
+     def get(self, key: str, default: str | None = None) -> str | None: ...
+ 
+ 
++def _token_matches(provided: object, token: str) -> bool:
++    """Constant-time compare that also tolerates non-ASCII input."""
++    if not isinstance(provided, str):
++        return False
++    provided_bytes = provided.encode("utf-8")
++    token_bytes = token.encode("utf-8")
++    return len(provided_bytes) == len(token_bytes) and hmac.compare_digest(provided_bytes, token_bytes)
++
++
++def session_cookie_value(headers: HeaderLookup) -> str | None:
++    """Return the ``clio_session`` cookie value from the Cookie header, if any."""
++    raw = headers.get("Cookie", "")
++    if not isinstance(raw, str) or not raw:
++        return None
++    for part in raw.split(";"):
++        name, sep, value = part.strip().partition("=")
++        if sep and name.strip() == SESSION_COOKIE_NAME:
++            return value.strip().strip('"')
++    return None
++
++
++def session_cookie_header(token: str) -> str:
++    """Set-Cookie value that hands the session token to the SPA without JS access."""
++    return f"{SESSION_COOKIE_NAME}={token}; HttpOnly; SameSite=Strict; Path=/"
++
++
++def api_token_source(headers: HeaderLookup, path: str, token: str | None) -> TokenSource | None:
++    """Return how a request authenticated, or None when it did not.
++
++    Accepted: the ``clio_session`` cookie, ``Authorization: Bearer``, or the
++    legacy ``?token=`` query parameter. An empty *token* means auth is disabled
++    (only used by embedders/tests; ``run()`` and the desktop always set one).
++    """
++    if not token:
++        return "disabled"
++    if _token_matches(session_cookie_value(headers), token):
++        return "cookie"
++    auth = headers.get("Authorization", "")
++    if isinstance(auth, str) and auth.startswith("Bearer ") and _token_matches(auth[7:], token):
++        return "bearer"
++    query_token = parse_qs(urlparse(path).query).get("token", [None])[0]
++    if _token_matches(query_token, token):
++        return "query"
++    return None
++
++
+ def has_valid_api_token(headers: HeaderLookup, path: str, token: str | None) -> bool:
+     """Return whether a request carries the configured API token."""
+-    if not token:
+-        return True
+-    auth = headers.get("Authorization", "")
+-    if isinstance(auth, str) and auth.startswith("Bearer "):
+-        provided = auth[7:]
+-        if isinstance(provided, str) and len(provided) == len(token) and hmac.compare_digest(provided, token):
+-            return True
+-    query_token = parse_qs(urlparse(path).query).get("token", [None])[0]
+-    return isinstance(query_token, str) and len(query_token) == len(token) and hmac.compare_digest(query_token, token)
++    return api_token_source(headers, path, token) is not None
+ 
+ 
+ def validate_request_origin(
+diff --git a/clio/ui/handler_factory.py b/clio/ui/handler_factory.py
+--- a/clio/ui/handler_factory.py
++++ b/clio/ui/handler_factory.py
+@@ -35,7 +35,9 @@
+ from clio.task_center.store import TaskStore
+ from clio.ui.handler_protocol import HandlerProtocol
+ from clio.ui.handler_security import (
++    api_token_source,
+     has_valid_api_token,
++    session_cookie_header,
+     validate_fetch_site,
+     validate_local_session,
+     validate_request_origin,
+@@ -129,6 +131,8 @@
+     _http_response_started: bool = False
+     _http_streaming: bool = False
+     _http_stream_status: int | None = None
++    # Set-Cookie value to attach to the next response (session token hand-off).
++    _pending_session_cookie: str | None = None
+ 
+     # Injected by BoundedThreadingHTTPServer; None disables the split budget.
+     request_budget: ClassVar[RequestBudget | None] = None
+@@ -144,6 +148,7 @@
+         self._http_response_started = False
+         self._http_streaming = False
+         self._http_stream_status = None
++        self._pending_session_cookie = None
+         try:
+             super().handle_one_request()
+         finally:
+@@ -221,6 +226,10 @@
+         super().send_header(keyword, value)
+ 
+     def end_headers(self) -> None:
++        cookie = self._pending_session_cookie
++        if cookie:
++            self._pending_session_cookie = None
++            self.send_header("Set-Cookie", cookie)
+         for key, value in self.__class__._security_headers:
+             if key.lower() not in self._sent_header_names:
+                 self.send_header(key, value)
+@@ -308,11 +317,30 @@
+         print(f"  {line} STREAM")
+ 
+     def _require_auth(self) -> bool:
+-        """Reject requests without the configured bearer or query token."""
+-        if has_valid_api_token(self.headers, self.path, self.__class__._api_token):
++        """Reject requests without the session cookie, bearer or query token."""
++        token = self.__class__._api_token
++        source = api_token_source(self.headers, self.path, token)
++        if source is not None:
++            if token and source in ("bearer", "query"):
++                # Swap header/URL tokens for the HttpOnly cookie so <img>/<video>/
++                # EventSource requests no longer need ?token= in their URLs.
++                self._pending_session_cookie = session_cookie_header(token)
+             return True
+         self._send_json({"error": t("api.unauthorized")}, 401)
+         return False
++
++    def _offer_session_cookie(self) -> None:
++        """Attach the session cookie to the SPA index response.
++
++        On a loopback bind the index hands the cookie to any same-machine
++        browser (SameSite=Strict keeps other sites from using it). On a LAN
++        bind it is only issued to a request that already proved the token.
++        """
++        token = self.__class__._api_token
++        if not token:
++            return
++        if self.__class__._enforce_local_session or has_valid_api_token(self.headers, self.path, token):
++            self._pending_session_cookie = session_cookie_header(token)
+ 
+     def _require_local_session(self) -> bool:
+         """Reject cross-origin requests and, on loopback, foreign Host values."""
+@@ -479,6 +507,7 @@
+         path = url.path
+ 
+         if path in ("/", "/index.html"):
++            self._offer_session_cookie()
+             return self._call_special_handler("handle_index")
+         if path == "/favicon.ico":
+             return self._call_special_handler("handle_favicon")
+diff --git a/clio/ui/server.py b/clio/ui/server.py
+--- a/clio/ui/server.py
++++ b/clio/ui/server.py
+@@ -404,8 +404,13 @@
+     host = host or "127.0.0.1"
+     _is_local = host in ("127.0.0.1", "localhost", "::1")
+     if TOKEN is None:
+-        TOKEN = "" if _is_local else secrets.token_urlsafe(32)
+-    if TOKEN:
++        # Always run with a session token, also on loopback: the SPA index hands
++        # it to the browser as an HttpOnly SameSite=Strict cookie, so other sites
++        # and token-less local clients cannot drive the API.
++        TOKEN = secrets.token_urlsafe(32)
++    if not _is_local:
++        # LAN clients need the token to get the cookie; loopback users do not,
++        # so keep it out of local console logs.
+         print(f"  API Token: {TOKEN}")
+         print(f"  Token URL: http://{host}:{port}/?token={TOKEN}")
+ 
+diff --git a/clio/tests/test_server.py b/clio/tests/test_server.py
+--- a/clio/tests/test_server.py
++++ b/clio/tests/test_server.py
+@@ -1551,7 +1551,7 @@
+         ("host", "expected_token", "expected_local_session"),
+         [
+             ("0.0.0.0", "generated-token", False),
+-            ("127.0.0.1", "", True),
++            ("127.0.0.1", "generated-token", True),
+         ],
+     )
+     def test_blank_token_is_normalized_by_access_mode(self, monkeypatch, host, expected_token, expected_local_session):
+diff --git a/clio/tests/test_fix_ui_auth.py b/clio/tests/test_fix_ui_auth.py
+--- a/clio/tests/test_fix_ui_auth.py
++++ b/clio/tests/test_fix_ui_auth.py
+@@ -7,7 +7,12 @@
+ import pytest
+ 
+ from clio.ui.handler_factory import _RequestHandler
+-from clio.ui.handler_security import validate_fetch_site
++from clio.ui.handler_security import (
++    SESSION_COOKIE_NAME,
++    api_token_source,
++    session_cookie_header,
++    validate_fetch_site,
++)
+ 
+ LOOPBACK = ("127.0.0.1", "::1", "localhost")
+ 
+@@ -17,6 +22,7 @@
+     _enforce_request_origin = True
+     _allowed_hosts = LOOPBACK
+     _api_token = "session-token"
++    _security_headers = ()
+ 
+ 
+ def _make(path: str, headers: dict[str, str]) -> _GateHandler:
+@@ -59,3 +65,84 @@
+ def test_static_assets_are_not_fetch_site_gated():
+     handler = _make("/static/app.js", {"Host": "127.0.0.1:8765", "Sec-Fetch-Site": "cross-site"})
+     assert handler._require_local_session() is True
++
++
++# ---------------------------------------------------------------------------
++# D-02: always-on session token handed over as an HttpOnly cookie
++# ---------------------------------------------------------------------------
++
++
++@pytest.mark.parametrize(
++    ("headers", "path", "expected"),
++    [
++        ({}, "/api/env", None),
++        ({"Cookie": f"{SESSION_COOKIE_NAME}=session-token"}, "/api/env", "cookie"),
++        ({"Cookie": f"other=1; {SESSION_COOKIE_NAME}=session-token"}, "/api/env", "cookie"),
++        ({"Cookie": f"{SESSION_COOKIE_NAME}=wrong"}, "/api/env", None),
++        ({"Authorization": "Bearer session-token"}, "/api/env", "bearer"),
++        ({}, "/api/env?token=session-token", "query"),
++        ({}, "/api/env?token=%E4%BD%A0%E5%A5%BD%E4%BD%A0%E5%A5%BD", None),
++    ],
++)
++def test_api_token_source(headers, path, expected):
++    assert api_token_source(headers, path, "session-token") == expected
++
++
++def test_session_cookie_attributes():
++    assert session_cookie_header("abc") == "clio_session=abc; HttpOnly; SameSite=Strict; Path=/"
++
++
++def test_no_origin_api_request_without_token_is_unauthorized():
++    handler = _make("/api/credentials/gemini/reveal", {"Host": "127.0.0.1:8765"})
++    assert handler._require_local_session() is True  # nothing to judge the origin by
++    assert handler._require_auth() is False
++    assert handler._send_json.call_args.args[1] == 401
++
++
++def test_cookie_authenticates_without_reissuing():
++    handler = _make("/api/env", {"Cookie": f"{SESSION_COOKIE_NAME}=session-token"})
++    assert handler._require_auth() is True
++    assert handler._pending_session_cookie is None
++
++
++def test_bearer_or_query_auth_is_exchanged_for_cookie():
++    handler = _make("/api/env?token=session-token", {})
++    assert handler._require_auth() is True
++    assert handler._pending_session_cookie == session_cookie_header("session-token")
++
++
++def test_index_sets_cookie_on_loopback_bind():
++    handler = _make("/", {"Host": "127.0.0.1:8765"})
++    handler._offer_session_cookie()
++    assert handler._pending_session_cookie == session_cookie_header("session-token")
++
++
++def test_index_on_lan_bind_requires_token_before_issuing_cookie():
++    class _LanHandler(_GateHandler):
++        _enforce_local_session = False
++
++    plain = _LanHandler.__new__(_LanHandler)
++    plain.path = "/"
++    plain.headers = {"Host": "192.168.1.5:8765"}  # type: ignore[assignment]
++    plain._offer_session_cookie()
++    assert plain._pending_session_cookie is None
++
++    with_token = _LanHandler.__new__(_LanHandler)
++    with_token.path = "/?token=session-token"
++    with_token.headers = {"Host": "192.168.1.5:8765"}  # type: ignore[assignment]
++    with_token._offer_session_cookie()
++    assert with_token._pending_session_cookie == session_cookie_header("session-token")
++
++
++def test_pending_cookie_is_emitted_once_by_end_headers():
++    handler = _GateHandler.__new__(_GateHandler)
++    handler._sent_header_names = set()
++    sent: list[tuple[str, str]] = []
++    handler.send_header = lambda key, value: sent.append((key, value))  # type: ignore[method-assign]
++    handler._pending_session_cookie = session_cookie_header("session-token")
++    handler.wfile = MagicMock()
++    handler._headers_buffer = []
++    handler.request_version = "HTTP/1.1"
++    handler.end_headers()
++    assert sent == [("Set-Cookie", session_cookie_header("session-token"))]
++    assert handler._pending_session_cookie is None

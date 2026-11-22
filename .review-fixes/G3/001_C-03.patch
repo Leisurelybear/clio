@@ -1,0 +1,112 @@
+diff --git a/clio/credentials/stores.py b/clio/credentials/stores.py
+--- a/clio/credentials/stores.py
++++ b/clio/credentials/stores.py
+@@ -1,6 +1,7 @@
+ from __future__ import annotations
+ 
+ import json
++import logging
+ import re
+ import threading
+ from collections.abc import Mapping
+@@ -10,6 +11,8 @@
+ 
+ from clio.credentials.environment import inherited_value, sync_dotenv
+ from clio.credentials.models import ENV_RE, validate_value
++
++logger = logging.getLogger("clio.credentials")
+ 
+ STORE_LOCK = threading.RLock()
+ 
+@@ -150,7 +153,11 @@
+         try:
+             return self._call("get_password", account)
+         except ValueError:
+-            self.backend = None
++            # A locked keychain, DBus timeout or denied prompt is transient. Keep the
++            # backend so later saves never silently fall back to a plaintext .env.
++            if self.backend is not None and not getattr(self, "_read_failure_logged", False):
++                self._read_failure_logged = True
++                logger.warning("OS keyring read failed; treating the credential as missing")
+             return None
+ 
+     def set(self, account: str, value: str) -> None:
+@@ -158,10 +165,9 @@
+         self._call("set_password", account, value)
+ 
+     def delete(self, account: str) -> None:
+-        if self.get(account) is not None:
++        # Read through _call so an unavailable or failing keyring is reported, not ignored.
++        if self._call("get_password", account) is not None:
+             self._call("delete_password", account)
+-        elif self.backend is None:
+-            raise ValueError("OS keyring is unavailable")
+ 
+     def contains(self, account: str) -> bool:
+         return bool(self.get(account))
+diff --git a/clio/tests/test_fix_credentials_keyring.py b/clio/tests/test_fix_credentials_keyring.py
+new file mode 100644
+--- /dev/null
++++ b/clio/tests/test_fix_credentials_keyring.py
+@@ -0,0 +1,61 @@
++"""Regression tests: a transient keyring failure must not downgrade storage to .env."""
++
++from __future__ import annotations
++
++import pytest
++
++from clio.credentials import CredentialService
++from clio.credentials.stores import KeyringStore
++
++
++class FlakyKeyring:
++    """In-memory keyring whose next ``get_password`` calls can be made to fail."""
++
++    def __init__(self, failures: int = 1):
++        self.values: dict[tuple[str, str], str] = {}
++        self.failures = failures
++
++    def get_password(self, service, account):
++        if self.failures > 0:
++            self.failures -= 1
++            raise RuntimeError("keychain is locked")
++        return self.values.get((service, account))
++
++    def set_password(self, service, account, value):
++        self.values[service, account] = value
++
++    def delete_password(self, service, account):
++        self.values.pop((service, account), None)
++
++
++def test_transient_read_failure_keeps_keyring_backend():
++    store = KeyringStore(FlakyKeyring())
++
++    assert store.get("gemini_api_key") is None
++    assert store.describe("") == {"available": True, "writable": True}
++
++    store.set("gemini_api_key", "secret-1")
++    assert store.get("gemini_api_key") == "secret-1"
++
++
++def test_default_source_stays_keyring_after_read_failure(tmp_path):
++    service = CredentialService({}, tmp_path, environ={}, keyring=KeyringStore(FlakyKeyring()))
++
++    service.status("gemini_api_key")
++
++    assert service.capabilities()["default_source"] == "keyring"
++
++
++def test_delete_reports_failing_keyring_instead_of_ignoring_it():
++    store = KeyringStore(FlakyKeyring())
++
++    with pytest.raises(ValueError, match="keyring operation failed"):
++        store.delete("gemini_api_key")
++
++
++def test_delete_without_backend_still_reports_unavailable():
++    store = KeyringStore(FlakyKeyring())
++    store.backend = None
++
++    with pytest.raises(ValueError, match="unavailable"):
++        store.delete("gemini_api_key")

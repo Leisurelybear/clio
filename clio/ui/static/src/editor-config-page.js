@@ -10,10 +10,7 @@ import { ensureGlobalUiDefaults } from './language-switcher.js';
 import { state } from './state.js';
 import { $, clearDirty, setStatus } from './utils.js';
 import {
-  DEFAULT_MODELS,
-  DEFAULT_PROVIDERS,
   attachProviderListHandlers,
-  providerCapabilities,
 } from './editor-providers.js';
 import { attachTaskBindingHandlers } from './editor-task-binding.js';
 import { renderLogs } from './editor-logs.js';
@@ -143,25 +140,6 @@ function _attachEnvEditor() {
   }
 }
 
-function _ensureDefaultProviderModels() {
-  const providers = state.configGlobal?.ai?.providers;
-  if (!providers) return;
-  for (const [name, p] of Object.entries(providers)) {
-    if (p && (!p.capabilities || p.capabilities.length === 0)) {
-      p.capabilities = [...providerCapabilities(p)];
-    }
-  }
-  for (const name of DEFAULT_PROVIDERS) {
-    const p = providers[name];
-    if (p && (!p.models || p.models.length === 0)) {
-      const defaults = DEFAULT_MODELS[name];
-      if (defaults) {
-        p.models = [...defaults];
-      }
-    }
-  }
-}
-
 function _bindTabSwitching(pane) {
   pane.querySelectorAll('.config-tab-btn').forEach(btn => {
     btn.onclick = async () => {
@@ -237,7 +215,6 @@ export function renderConfig() {
     return;
   }
 
-  _ensureDefaultProviderModels();
 
   const isFallback = state.configRaw._config_source === 'global_fallback';
   const active = state.configTab || 'project';

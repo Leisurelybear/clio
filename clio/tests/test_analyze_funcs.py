@@ -1802,7 +1802,8 @@ class TestPlanDailyVlog:
         short_plan = json.dumps({"sequence": [{"index": "001", "use_timeline": "00:00-00:05"}]})
         cfg = _fake_config()
         cfg.plan.target_duration_sec = 30
-        call = MagicMock(side_effect=["{}", short_plan, short_plan])
+        # outline, draft, review, then one advisory pacing-repair pass
+        call = MagicMock(side_effect=["{}", short_plan, short_plan, short_plan])
         monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (MagicMock(), "model"))
         monkeypatch.setattr("clio.analyze._wrap_with_context", lambda prompt, cfg, **kw: prompt)
         monkeypatch.setattr("clio.analyze._call_ai", call)
@@ -1811,7 +1812,7 @@ class TestPlanDailyVlog:
 
         assert [segment["use_timeline"] for segment in result["sequence"]] == ["00:00-00:05"]
         assert result["total_estimated_sec"] == 5.0
-        assert call.call_count == 3
+        assert call.call_count == 4
 
 
 def test_validate_plan_voiceover_collects_contract_issues():

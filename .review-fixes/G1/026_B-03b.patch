@@ -1,0 +1,278 @@
+diff --git a/clio/vmeta.py b/clio/vmeta.py
+--- a/clio/vmeta.py
++++ b/clio/vmeta.py
+@@ -2,8 +2,11 @@
+ 
+ from __future__ import annotations
+ 
++import glob
+ import hashlib
+ import json
++import os
++import re
+ from dataclasses import asdict, dataclass, field
+ from pathlib import Path
+ from typing import cast
+@@ -157,8 +160,24 @@
+             segments=segments,
+         )
+ 
++    def index_path(self, compressed_dir: Path) -> Path:
++        """Sidecar path for this index.
++
++        ``<stem>.vindex`` stays the default. When that file already belongs to
++        another original with the same stem (different folder), a source-path
++        hash suffix (``<stem>.<hash8>.vindex``) keeps both indexes.
++        """
++        legacy = compressed_dir / f"{self.source_stem}{VINDEX_EXT}"
++        hashed = compressed_dir / f"{self.source_stem}.{_source_key(self.source_path)}{VINDEX_EXT}"
++        if hashed.is_file():
++            return hashed
++        owner = _index_source_path(legacy)
++        if owner is None or _same_source(owner, self.source_path):
++            return legacy
++        return hashed
++
+     def write(self, compressed_dir: Path) -> Path:
+-        index_path = compressed_dir / f"{self.source_stem}{VINDEX_EXT}"
++        index_path = self.index_path(compressed_dir)
+         data = {
+             "version": self.version,
+             "source_stem": self.source_stem,
+@@ -173,8 +192,50 @@
+         return index_path
+ 
+     @staticmethod
+-    def read(source_stem: str, compressed_dir: Path) -> VideoIndex | None:
+-        index_path = compressed_dir / f"{source_stem}{VINDEX_EXT}"
++    def read(
++        source_stem: str,
++        compressed_dir: Path,
++        *,
++        segment_filename: str | None = None,
++        source_path: Path | str | None = None,
++    ) -> VideoIndex | None:
++        """Read the index for *source_stem*.
++
++        Without filters only ``<stem>.vindex`` is read (legacy behaviour). With
++        ``segment_filename`` and/or ``source_path`` every same-stem index
++        (including hash-suffixed ones) is tried and the first match returned.
++        """
++        if segment_filename is None and source_path is None:
++            return VideoIndex._read_path(compressed_dir / f"{source_stem}{VINDEX_EXT}")
++        wanted_source = None
++        if source_path is not None:
++            try:
++                wanted_source = str(Path(source_path).resolve())
++            except OSError:
++                wanted_source = str(source_path)
++        for index_path in _candidate_index_paths(source_stem, compressed_dir):
++            vindex = VideoIndex._read_path(index_path)
++            if vindex is None:
++                continue
++            if segment_filename is not None and not any(s.filename == segment_filename for s in vindex.segments):
++                continue
++            if wanted_source is not None and not _same_source(vindex.source_path, wanted_source):
++                continue
++            return vindex
++        return None
++
++    @staticmethod
++    def read_all(source_stem: str, compressed_dir: Path) -> list[VideoIndex]:
++        """All readable indexes for *source_stem* (legacy name first, then hash-suffixed)."""
++        result = []
++        for index_path in _candidate_index_paths(source_stem, compressed_dir):
++            vindex = VideoIndex._read_path(index_path)
++            if vindex is not None:
++                result.append(vindex)
++        return result
++
++    @staticmethod
++    def _read_path(index_path: Path) -> VideoIndex | None:
+         if not index_path.is_file():
+             return None
+         try:
+@@ -224,6 +285,37 @@
+             return int(st.st_mtime) != self.source_modifyTime or st.st_size != self.source_size
+         except OSError:
+             return True
++
++
++def _source_key(source_path: str) -> str:
++    """Short, stable hash of a resolved source path (case-folded on Windows)."""
++    return hashlib.sha1(os.path.normcase(source_path).encode("utf-8")).hexdigest()[:8]
++
++
++def _same_source(a: str, b: str) -> bool:
++    return os.path.normcase(a) == os.path.normcase(b)
++
++
++def _index_source_path(index_path: Path) -> str | None:
++    """``source_path`` recorded in an existing index file, or None if missing/unreadable."""
++    try:
++        raw = json.loads(index_path.read_text(encoding="utf-8-sig"))
++    except (OSError, UnicodeError, ValueError):
++        return None
++    source = raw.get("source_path") if isinstance(raw, dict) else None
++    return source if isinstance(source, str) and source else None
++
++
++def _candidate_index_paths(source_stem: str, compressed_dir: Path) -> list[Path]:
++    """``<stem>.vindex`` followed by any ``<stem>.<hash8>.vindex`` siblings."""
++    paths = [compressed_dir / f"{source_stem}{VINDEX_EXT}"]
++    pattern = re.compile(re.escape(source_stem) + r"\.[0-9a-f]{8}" + re.escape(VINDEX_EXT), re.IGNORECASE)
++    try:
++        hashed = sorted(compressed_dir.glob(f"{glob.escape(source_stem)}.*{VINDEX_EXT}"))
++    except OSError:
++        hashed = []
++    paths.extend(p for p in hashed if pattern.fullmatch(p.name))
++    return paths
+ 
+ 
+ def _quick_hash(path: Path, chunk: int = 1024 * 1024) -> str:
+diff --git a/clio/identity.py b/clio/identity.py
+--- a/clio/identity.py
++++ b/clio/identity.py
+@@ -32,13 +32,13 @@
+         return meta.split_info is not None or meta.is_split_segment
+ 
+     indexed_stem = _indexed_source_stem(compressed_path.stem)
+-    exact_vindex = VideoIndex.read(indexed_stem, compressed_path.parent)
++    exact_vindex = VideoIndex.read(indexed_stem, compressed_path.parent, segment_filename=compressed_path.name)
+     if _vindex_contains(exact_vindex, compressed_path):
+         assert exact_vindex is not None
+         return exact_vindex.is_split and len(exact_vindex.segments) > 1
+ 
+     original_stem = SEGMENT_SUFFIX_RE.sub("", indexed_stem)
+-    legacy_vindex = VideoIndex.read(original_stem, compressed_path.parent)
++    legacy_vindex = VideoIndex.read(original_stem, compressed_path.parent, segment_filename=compressed_path.name)
+     if _vindex_contains(legacy_vindex, compressed_path):
+         assert legacy_vindex is not None
+         return legacy_vindex.is_split and len(legacy_vindex.segments) > 1
+@@ -161,10 +161,10 @@
+     # Priority 2: Try the exact source stem before legacy suffix stripping.
+     indexed_stem = _indexed_source_stem(compressed_stem)
+     original_stem = indexed_stem
+-    vindex = VideoIndex.read(original_stem, compressed_path.parent)
++    vindex = VideoIndex.read(original_stem, compressed_path.parent, segment_filename=compressed_path.name)
+     if not _vindex_contains(vindex, compressed_path):
+         original_stem = SEGMENT_SUFFIX_RE.sub("", indexed_stem)
+-        vindex = VideoIndex.read(original_stem, compressed_path.parent)
++        vindex = VideoIndex.read(original_stem, compressed_path.parent, segment_filename=compressed_path.name)
+     # A candidate index is only usable when it actually lists this file.
+     if not _vindex_contains(vindex, compressed_path):
+         vindex = None
+@@ -225,7 +225,7 @@
+     if meta is not None:
+         return Path(meta.source_path).stem
+     indexed_stem = _indexed_source_stem(compressed_path.stem)
+-    exact_vindex = VideoIndex.read(indexed_stem, compressed_path.parent)
++    exact_vindex = VideoIndex.read(indexed_stem, compressed_path.parent, segment_filename=compressed_path.name)
+     if _vindex_contains(exact_vindex, compressed_path):
+         assert exact_vindex is not None
+         return exact_vindex.source_stem
+@@ -239,7 +239,7 @@
+             return Path(meta.source_path).stem
+         return None
+     indexed_stem = _indexed_source_stem(compressed_path.stem)
+-    vindex = VideoIndex.read(indexed_stem, compressed_path.parent)
++    vindex = VideoIndex.read(indexed_stem, compressed_path.parent, segment_filename=compressed_path.name)
+     if _vindex_contains(vindex, compressed_path) and vindex is not None and not vindex.is_split:
+         return vindex.source_stem
+     return None
+diff --git a/clio/tasks/_helpers.py b/clio/tasks/_helpers.py
+--- a/clio/tasks/_helpers.py
++++ b/clio/tasks/_helpers.py
+@@ -361,7 +361,7 @@
+         if stem in seen:
+             continue
+         seen.add(stem)
+-        vindex = VideoIndex.read(stem, path.parent)
++        vindex = VideoIndex.read(stem, path.parent, segment_filename=path.name)
+         if vindex is not None and any(segment.filename == path.name for segment in vindex.segments):
+             return Path(vindex.source_path)
+     return None
+diff --git a/clio/tasks/analyze.py b/clio/tasks/analyze.py
+--- a/clio/tasks/analyze.py
++++ b/clio/tasks/analyze.py
+@@ -1359,7 +1359,8 @@
+ ) -> list[tuple[Path, Path, str]] | None:
+     items: list[tuple[Path, Path, str]] = []
+     # Prefer the .vindex sidecar: O(1) split discovery for multi-segment originals.
+-    vindex = VideoIndex.read(single_file.stem, config.compressed_dir)
++    # source_path picks the right index when two originals share a stem.
++    vindex = VideoIndex.read(single_file.stem, config.compressed_dir, source_path=single_file)
+     if vindex is not None:
+         comp_paths = vindex.compressed_paths(config.compressed_dir)
+         if not comp_paths:
+diff --git a/clio/tests/test_fix_vindex_collision.py b/clio/tests/test_fix_vindex_collision.py
+new file mode 100644
+--- /dev/null
++++ b/clio/tests/test_fix_vindex_collision.py
+@@ -0,0 +1,66 @@
++"""Regression tests for B-03b: same-stem originals in different folders each get a .vindex."""
++
++from __future__ import annotations
++
++from pathlib import Path
++
++from clio.identity import resolve_identity
++from clio.vmeta import VINDEX_EXT, SegmentEntry, VideoIndex
++
++
++def _seg(filename: str) -> SegmentEntry:
++    return SegmentEntry(
++        index=filename.split("_", 1)[0],
++        filename=filename,
++        offset_sec=0.0,
++        duration_sec=10.0,
++        segment_number=1,
++        total_segments=1,
++    )
++
++
++def _two_sources(tmp_path: Path) -> tuple[Path, Path]:
++    src_a = tmp_path / "a" / "GL010683.mp4"
++    src_b = tmp_path / "b" / "GL010683.mp4"
++    for src in (src_a, src_b):
++        src.parent.mkdir(parents=True)
++        src.write_text(f"source {src.parent.name}")
++    return src_a, src_b
++
++
++class TestVideoIndexSameStem:
++    def test_second_source_gets_hash_suffixed_index(self, tmp_path: Path) -> None:
++        src_a, src_b = _two_sources(tmp_path)
++        comp = tmp_path / "compressed"
++        comp.mkdir()
++        path_a = VideoIndex.build(src_a, 10.0, [_seg("001_GL010683.mp4")]).write(comp)
++        path_b = VideoIndex.build(src_b, 10.0, [_seg("002_GL010683.mp4")]).write(comp)
++
++        assert path_a == comp / f"GL010683{VINDEX_EXT}"
++        assert path_b != path_a
++        assert path_b.name.startswith("GL010683.") and path_b.name.endswith(VINDEX_EXT)
++        # Rewriting either source keeps its own file instead of clobbering the other.
++        assert VideoIndex.build(src_a, 10.0, [_seg("001_GL010683.mp4")]).write(comp) == path_a
++        assert VideoIndex.build(src_b, 10.0, [_seg("002_GL010683.mp4")]).write(comp) == path_b
++
++        legacy = VideoIndex.read("GL010683", comp)
++        assert legacy is not None and legacy.source_path == str(src_a.resolve())
++        by_seg = VideoIndex.read("GL010683", comp, segment_filename="002_GL010683.mp4")
++        assert by_seg is not None and by_seg.source_path == str(src_b.resolve())
++        by_src = VideoIndex.read("GL010683", comp, source_path=src_b)
++        assert by_src is not None and [s.filename for s in by_src.segments] == ["002_GL010683.mp4"]
++        assert VideoIndex.read("GL010683", comp, segment_filename="999_GL010683.mp4") is None
++        assert len(VideoIndex.read_all("GL010683", comp)) == 2
++        # verify-style lookup by the sidecar's own stem still works.
++        assert VideoIndex.read(path_b.name[: -len(VINDEX_EXT)], comp) is not None
++
++    def test_identity_resolves_second_source_from_vindex(self, tmp_path: Path) -> None:
++        src_a, src_b = _two_sources(tmp_path)
++        comp = tmp_path / "compressed"
++        comp.mkdir()
++        (comp / "002_GL010683.mp4").write_text("comp b")
++        VideoIndex.build(src_a, 10.0, [_seg("001_GL010683.mp4")]).write(comp)
++        VideoIndex.build(src_b, 10.0, [_seg("002_GL010683.mp4")]).write(comp)
++
++        identity = resolve_identity(comp / "002_GL010683.mp4", "002")
++        assert identity.original_path == str(src_b.resolve())

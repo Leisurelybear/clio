@@ -1,0 +1,163 @@
+diff --git a/clio/ui/router.py b/clio/ui/router.py
+--- a/clio/ui/router.py
++++ b/clio/ui/router.py
+@@ -9,6 +9,7 @@
+ import re
+ from collections.abc import Callable
+ from dataclasses import dataclass
++from urllib.parse import unquote
+ 
+ 
+ @dataclass(frozen=True)
+@@ -54,7 +55,9 @@
+             else:
+                 m = pattern.match(path)
+                 if m:
+-                    kwargs = dict(zip(param_names, m.groups(), strict=True))
++                    # Path params arrive percent-encoded (the client encodeURIComponent()s
++                    # them); decode once here so every route sees the real value.
++                    kwargs = {name: unquote(value) for name, value in zip(param_names, m.groups(), strict=True)}
+                     return self._resolve_handler(route), kwargs, route
+         return None, {}, None
+ 
+diff --git a/clio/ui/routes/credentials.py b/clio/ui/routes/credentials.py
+--- a/clio/ui/routes/credentials.py
++++ b/clio/ui/routes/credentials.py
+@@ -6,7 +6,6 @@
+ import hmac
+ from dataclasses import asdict, replace
+ from typing import Any
+-from urllib.parse import unquote
+ 
+ import yaml
+ 
+@@ -70,7 +69,7 @@
+     try:
+         with STORE_LOCK:
+             service = _service(handler)
+-            ref = unquote(credential_id)
++            ref = credential_id
+             new = ref not in service.registry
+             if new:
+                 fields = obj.get("metadata", {})
+@@ -115,7 +114,7 @@
+         if obj.get("confirmed") is not True:
+             raise ValueError("reveal requires confirmation")
+         service = _service(handler)
+-        value = service.resolve(unquote(credential_id))
++        value = service.resolve(credential_id)
+         handler._send_json({"ok": True, "value": value}, extra_headers={"Pragma": "no-cache"})
+     except (OSError, UnicodeError, KeyError, ValueError, yaml.YAMLError) as exc:
+         _error(handler, exc)
+@@ -127,7 +126,7 @@
+             raise ValueError("deletion requires confirmation")
+         with STORE_LOCK:
+             service = _service(handler)
+-            ref = unquote(credential_id)
++            ref = credential_id
+             source = (qs.get("source") or [""])[0]
+             service.write(ref, None, source)
+             _invalidate(handler, service, ref)
+@@ -142,7 +141,7 @@
+             raise ValueError("migration requires confirmation")
+         with STORE_LOCK:
+             service = _service(handler)
+-            ref = unquote(credential_id)
++            ref = credential_id
+             value = service.resolve(ref)
+             if not value:
+                 raise ValueError("credential is empty")
+diff --git a/clio/ui/routes/config_routes.py b/clio/ui/routes/config_routes.py
+--- a/clio/ui/routes/config_routes.py
++++ b/clio/ui/routes/config_routes.py
+@@ -11,7 +11,6 @@
+ from dataclasses import asdict, is_dataclass
+ from pathlib import Path
+ from typing import TYPE_CHECKING, Any
+-from urllib.parse import unquote
+ 
+ import yaml
+ 
+@@ -969,7 +968,7 @@
+ 
+ @serialized_store_write
+ def handle_put_provider(handler: HandlerProtocol, qs: dict[str, Any], obj: dict[str, Any], name: str) -> None:
+-    name = unquote(name).strip()
++    name = name.strip()
+     raw, error = _read_global_config_raw(handler.config_path)
+     if error:
+         return handler._send_json({"ok": False, "error": error}, 500)
+@@ -1018,7 +1017,7 @@
+ 
+ @serialized_store_write
+ def handle_delete_provider(handler: HandlerProtocol, qs: dict[str, Any], name: str) -> None:
+-    name = unquote(name).strip()
++    name = name.strip()
+     if error := _provider_name_error(name):
+         return handler._send_json({"ok": False, "error": error}, 400)
+     if name in _DEFAULT_PROVIDERS:
+diff --git a/clio/ui/routes/videos.py b/clio/ui/routes/videos.py
+--- a/clio/ui/routes/videos.py
++++ b/clio/ui/routes/videos.py
+@@ -2,6 +2,7 @@
+ 
+ from __future__ import annotations
+ 
++import glob
+ import hashlib
+ import json
+ import os
+@@ -815,7 +816,7 @@
+     proj_out = handler._get_project_output(proj_dir)
+     comp_dir = proj_out / "compressed"
+ 
+-    for p in sorted(comp_dir.glob(f"{stem}.*")):
++    for p in sorted(comp_dir.glob(f"{glob.escape(stem)}.*")):
+         if p.is_file() and p.suffix.lower() in VIDEO_EXTS:
+             try:
+                 validate_within_root(p, proj_out)
+diff --git a/clio/tests/test_fix_router_params.py b/clio/tests/test_fix_router_params.py
+new file mode 100644
+--- /dev/null
++++ b/clio/tests/test_fix_router_params.py
+@@ -0,0 +1,40 @@
++"""Regression tests: router decodes path params once; vmeta glob is escaped."""
++
++from __future__ import annotations
++
++from pathlib import Path
++from unittest.mock import MagicMock, patch
++
++from clio.ui.routes.videos import handle_get_vmeta
++from clio.ui.router import Route, Router
++
++
++def test_dispatch_percent_decodes_path_params():
++    router = Router()
++    router.add(Route("GET", "/api/vmeta/{stem}", "h"))
++    _, kwargs, _ = router.dispatch("GET", "/api/vmeta/%E6%97%85%E8%A1%8C_01")
++    assert kwargs == {"stem": "旅行_01"}
++
++
++def test_dispatch_decodes_only_once():
++    router = Router()
++    router.add(Route("POST", "/api/credentials/{credential_id}/reveal", "h"))
++    _, kwargs, _ = router.dispatch("POST", "/api/credentials/a%2541/reveal")
++    assert kwargs == {"credential_id": "a%41"}
++
++
++def test_vmeta_stem_with_brackets_is_not_a_glob_class(tmp_path: Path):
++    comp = tmp_path / "compressed"
++    comp.mkdir()
++    (comp / "a.mp4").write_bytes(b"x")  # would match the unescaped pattern "[ab].*"
++    handler = MagicMock()
++    handler._resolve_project_dir.return_value = tmp_path
++    handler._get_project_output.return_value = tmp_path
++
++    with (
++        patch("clio.ui.routes.videos.VideoMeta.read", return_value=object()),
++        patch("clio.ui.routes.videos._meta_to_dict", return_value={"ok": True}),
++    ):
++        handle_get_vmeta(handler, {}, "[ab]")
++
++    handler._send_json.assert_called_once_with({"ok": False, "error": "not found"}, 404)

@@ -2529,6 +2529,46 @@ def test_preview_plan_voiceover_without_selected_or_existing_plan_stays_blocked(
     assert preview["next_stage"] == "voiceover_delivery"
 
 
+def test_preview_copies_per_step_counts_without_mixing_day_and_media_units(tmp_path: Path) -> None:
+    config, _analysis, _compressed = _prepare_reusable_downstream(tmp_path)
+    from clio.tasks._video_loader import save_selected_videos
+
+    sources: list[Path] = [config.project_dir / "A.mp4"]
+    for index in range(2, 182):
+        source = config.project_dir / f"clip_{index:03d}.mp4"
+        compressed = config.compressed_dir / f"{index:03d}_clip_{index}.mp4"
+        source.write_bytes(b"source")
+        compressed.write_bytes(b"compressed")
+        analysis = _write_current_analysis(config, source, compressed)
+        _write_current_voiceover(config, analysis)
+        sources.append(source)
+    save_selected_videos(config.project_dir, sources)
+
+    preview = build_run_preview(
+        config,
+        ["consistency", "voiceover", "plan", "plan_voiceover"],
+        force=False,
+        use_transcripts=True,
+    )
+
+    alignment = next(stage for stage in preview["stages"] if stage["key"] == "plan_alignment")
+    counts = {row["name"]: row for row in alignment["step_counts"]}
+    assert counts["consistency"]["will_run"] == 1
+    assert counts["consistency"]["will_skip"] == 0
+    assert counts["voiceover"]["will_run"] == 0
+    assert counts["voiceover"]["will_skip"] == 181
+    assert counts["plan"]["will_run"] == 1
+    assert counts["plan"]["will_skip"] == 0
+    assert alignment["will_run"] == 2
+    assert alignment["will_skip"] == 181
+
+    delivery = next(stage for stage in preview["stages"] if stage["key"] == "voiceover_delivery")
+    plan_voiceover = next(row for row in delivery["step_counts"] if row["name"] == "plan_voiceover")
+    assert plan_voiceover["deferred"] is True
+    assert plan_voiceover["waiting_on"] == ["plan"]
+    assert delivery["waiting_on"] == ["plan"]
+
+
 def test_preview_plan_voiceover_waits_when_cascade_makes_plan_possibly_run(tmp_path: Path) -> None:
     config, analysis_path, _compressed = _prepare_reusable_downstream(tmp_path)
     _make_analysis_stale(analysis_path)

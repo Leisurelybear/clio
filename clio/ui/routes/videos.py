@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from clio._constants import VIDEO_EXTENSIONS, VIDEO_EXTS
 from clio.i18n import t
-from clio.identity import prefer_canonical_compressed
+from clio.identity import _extract_original_stem, prefer_canonical_compressed
 from clio.index import ArtifactIndex
 from clio.tasks._helpers import _path_key, _stem_variants
 from clio.tasks._video_loader import load_selected_videos, save_selected_videos
@@ -41,6 +41,7 @@ _SEG_RE = re.compile(r"^(.+)_(?:seg|part|pt|chunk)(\d+)$", re.IGNORECASE)
 _MEDIA_PROBE_ERRORS = (OSError, subprocess.SubprocessError, TypeError, ValueError)
 _VIDEOS_CACHE_LOCK = threading.Lock()
 _VIDEOS_CACHE_MAX = 20
+_VIDEOS_DISK_CACHE_VERSION = 2
 _VIDEOS_CACHE: dict[tuple[str, str, str], tuple[tuple[Any, ...], dict[str, Any]]] = {}
 
 
@@ -63,7 +64,7 @@ def _load_disk_cache(proj_out: Path, source: str, signature: tuple[Any, ...]) ->
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
-    if data.get("version") != 1 or data.get("signature") != _signature_hash(signature):
+    if data.get("version") != _VIDEOS_DISK_CACHE_VERSION or data.get("signature") != _signature_hash(signature):
         return None
     payload = data.get("payload")
     if not isinstance(payload, dict):
@@ -77,7 +78,11 @@ def _save_disk_cache(proj_out: Path, source: str, signature: tuple[Any, ...], pa
     try:
         cache_dir = _cache_dir(proj_out)
         cache_dir.mkdir(parents=True, exist_ok=True)
-        data = {"version": 1, "signature": _signature_hash(signature), "payload": payload}
+        data = {
+            "version": _VIDEOS_DISK_CACHE_VERSION,
+            "signature": _signature_hash(signature),
+            "payload": payload,
+        }
         write_json_atomic(_disk_cache_path(proj_out, source), cast(JsonValue, data))
     except OSError:
         pass
@@ -437,6 +442,7 @@ def _compressed_video_entry(
     proj_dir: Path,
     text_titles: dict[str, str],
     cover_map: dict[str, str],
+    index: ArtifactIndex,
 ) -> tuple[dict[str, Any], str | None, int | None]:
     meta = VideoMeta.read(p)
     group_key, seg_num = (
@@ -444,12 +450,19 @@ def _compressed_video_entry(
         if meta is not None and meta.split_info is None and not meta.is_split_segment
         else _parse_segment_info(p.stem)
     )
+    original_stem = (
+        Path(meta.source_path).stem if meta is not None and meta.source_path else _extract_original_stem(p.stem)
+    )
+    segment_index = meta.split_info.segment_index if meta is not None and meta.split_info else seg_num
+    analysis_indexes = {idx} if idx else set()
+    analysis_indexes.update(index.analysis_indexes_for_media(original_stem, segment_index))
     text_json = group.texts[0].path.name if group and group.texts else None
     cover_file = group.cover.path.name if group and group.cover else _cover_for_text_json(text_json, cover_map, idx)
     video: dict[str, Any] = {
         "file": p.name,
         "source": "compressed",
         "index": idx,
+        "analysis_indexes": sorted(analysis_indexes),
         "title": group.texts[0].title if group and group.texts else text_titles.get(idx, ""),
         "text_json": text_json,
         "cover_file": cover_file,
@@ -534,7 +547,9 @@ def _build_compressed_payload(
         orig = _find_original_for_compressed(stem, proj_dir, comp_dir, project_dir=proj_dir)
         if selected_set and not _compressed_matches_selection(p, stem, selected_set, orig):
             continue
-        video, group_key, seg_num = _compressed_video_entry(p, idx, group, orig, proj_dir, text_titles, cover_map)
+        video, group_key, seg_num = _compressed_video_entry(
+            p, idx, group, orig, proj_dir, text_titles, cover_map, index
+        )
         if group_key is not None and seg_num is not None:
             group_members.setdefault(group_key, []).append((idx, seg_num, p.name))
         videos.append(video)

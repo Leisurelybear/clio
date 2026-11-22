@@ -1,0 +1,63 @@
+diff --git a/clio/ui/services/config_cache.py b/clio/ui/services/config_cache.py
+--- a/clio/ui/services/config_cache.py
++++ b/clio/ui/services/config_cache.py
+@@ -59,7 +59,9 @@
+                 if key in self._cache:
+                     old_cfg_fp, old_proj_fp = self._meta.get(key, ((0, 0), (0, 0)))
+                     if cfg_fp == old_cfg_fp and proj_fp == old_proj_fp:
+-                        cached = self._cache[key]
++                        # Re-insert so the dict order is least- to most-recently used.
++                        cached = self._cache.pop(key)
++                        self._cache[key] = cached
+                         _apply_locale(cached)
+                         return copy.deepcopy(cached)
+                     del self._cache[key]
+@@ -73,7 +75,8 @@
+                     oldest_key = next(iter(self._cache))
+                     self._cache.pop(oldest_key)
+                     self._meta.pop(oldest_key, None)
+-                    self._locks.pop(oldest_key, None)
++                    # Keep the evicted key's lock: another thread may hold it, and
++                    # replacing it would let two threads load that key at once.
+ 
+                 self._cache[key] = new_config
+                 self._meta[key] = (cfg_fp, proj_fp)
+diff --git a/clio/tests/test_fix_config_cache.py b/clio/tests/test_fix_config_cache.py
+new file mode 100644
+--- /dev/null
++++ b/clio/tests/test_fix_config_cache.py
+@@ -0,0 +1,34 @@
++"""Regression tests: ConfigCache evicts the least recently *used* entry."""
++
++from __future__ import annotations
++
++from pathlib import Path
++from unittest.mock import MagicMock, patch
++
++from clio.ui.services.config_cache import ConfigCache
++
++
++def test_cache_hit_refreshes_lru_position(tmp_path: Path):
++    dirs = {name: tmp_path / name for name in ("a", "b", "c")}
++    for d in dirs.values():
++        d.mkdir()
++    loads: list[Path | None] = []
++
++    def fake_load(_path, project_dir=None):
++        loads.append(project_dir)
++        cfg = MagicMock()
++        cfg.ui.language = None
++        return cfg
++
++    cache = ConfigCache(tmp_path / "config.yaml", maxsize=2)
++    with patch("clio.ui.services.config_cache.load_config", side_effect=fake_load), patch(
++        "clio.ui.services.config_cache.copy.deepcopy", side_effect=lambda obj: obj
++    ):
++        cache.get(dirs["a"])
++        cache.get(dirs["b"])
++        cache.get(dirs["a"])  # hit: a becomes most recently used
++        cache.get(dirs["c"])  # evicts b, not a
++        cache.get(dirs["a"])  # still cached
++
++    assert loads == [dirs["a"], dirs["b"], dirs["c"]]
++    assert str(dirs["b"].resolve()) not in cache.keys()

@@ -1,0 +1,63 @@
+diff --git a/clio/ai/gemini.py b/clio/ai/gemini.py
+--- a/clio/ai/gemini.py
++++ b/clio/ai/gemini.py
+@@ -35,6 +35,9 @@
+     "SPII",
+     "IMAGE_SAFETY",
+ }
++
++
++_LOCAL_IO_ERRORS = (FileNotFoundError, PermissionError, IsADirectoryError, NotADirectoryError)
+ 
+ 
+ _MEDIA_RESOLUTION_MAP = {
+@@ -183,6 +186,9 @@
+ 
+     def _is_retryable(self, exc: BaseException) -> bool:
+         """判断异常是否应该重试。"""
++        # Local file problems never heal on retry; only network-level OSErrors do.
++        if isinstance(exc, _LOCAL_IO_ERRORS):
++            return False
+         if isinstance(exc, (OSError, httpx.TransportError)):
+             return True
+         if _HAS_GENAI_ERRORS:
+@@ -397,11 +403,12 @@
+         system: str | None = None,
+         structured_output: StructuredOutput | None = None,
+     ) -> AIResponse:
++        # Read local images once, outside the retry loop: a missing file fails immediately.
++        image_bytes = [Path(path).read_bytes() for path in image_paths]
++
+         def _do() -> AIResponse:
+             wait_for_rate_limit(self._rl, cancel_event, what=self.provider_id)
+-            contents: list[Any] = [
+-                types.Part.from_bytes(data=Path(path).read_bytes(), mime_type="image/png") for path in image_paths
+-            ]
++            contents: list[Any] = [types.Part.from_bytes(data=data, mime_type="image/png") for data in image_bytes]
+             contents.append(prompt)
+             config = self._config_for(temperature, system, structured_output)
+             if config is None:
+diff --git a/clio/tests/test_fix_gemini_errors.py b/clio/tests/test_fix_gemini_errors.py
+--- a/clio/tests/test_fix_gemini_errors.py
++++ b/clio/tests/test_fix_gemini_errors.py
+@@ -28,3 +28,20 @@
+         provider._call_with_retry(fn, "test", "model")
+ 
+     fn.assert_called_once()
++
++
++@pytest.mark.parametrize("exc", [FileNotFoundError("gone"), PermissionError("denied"), IsADirectoryError("dir")])
++def test_local_file_errors_are_not_retryable(provider, exc):
++    assert provider._is_retryable(exc) is False
++
++
++def test_network_oserror_is_still_retryable(provider):
++    assert provider._is_retryable(ConnectionResetError("reset")) is True
++
++
++def test_missing_image_fails_without_retry_delay(provider, tmp_path):
++    with patch("clio.utils.time.sleep") as sleep, pytest.raises(FileNotFoundError):
++        provider.analyze_images([str(tmp_path / "missing.png")], "describe", "model")
++
++    sleep.assert_not_called()
++    provider._client.models.generate_content.assert_not_called()

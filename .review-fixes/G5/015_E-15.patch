@@ -1,0 +1,108 @@
+diff --git a/clio/ui/static/src/viewer.js b/clio/ui/static/src/viewer.js
+--- a/clio/ui/static/src/viewer.js
++++ b/clio/ui/static/src/viewer.js
+@@ -39,6 +39,14 @@
+ import { planIndexesKey, renderPlanSubtitleSettings, syncPlanExpandFromPreview } from './viewer-preview-support.js';
+ 
+ let _fadeCancel = null;
++/** Pending one-shot `loadedmetadata` handler of the last source switch. */
++let _pendingMetadata = null;
++
++function _clearPendingMetadata() {
++  if (!_pendingMetadata) return;
++  _pendingMetadata.player.removeEventListener('loadedmetadata', _pendingMetadata.handler);
++  _pendingMetadata = null;
++}
+ 
+ function isGlobalTimelineUi() {
+   return state.currentEntity === 'plan'
+@@ -130,6 +138,9 @@
+       ? { day: v.cut_day, rev: v.rev, project: state.currentProjectName }
+       : { abspath: v.abs_path, project: state.currentProjectName })
+     && player.readyState >= 1;
++  // A previous switch whose metadata never arrived must not seek/play the
++  // new source with stale arguments.
++  _clearPendingMetadata();
+   if (same) {
+     doSeek();
+   } else {
+@@ -144,12 +155,15 @@
+     } else {
+       player.src = url;
+     }
+-    player.addEventListener('loadedmetadata', () => {
++    const onMetadata = () => {
++      if (_pendingMetadata?.handler === onMetadata) _pendingMetadata = null;
+       if (!isGlobalTimelineUi()) {
+         $('player-time').textContent = `${fmtTime(0)} / ${fmtTime(player.duration)}`;
+       }
+       doSeek();
+-    }, { once: true });
++    };
++    _pendingMetadata = { player, handler: onMetadata };
++    player.addEventListener('loadedmetadata', onMetadata, { once: true });
+   }
+   if (!isGlobalTimelineUi()) {
+     loadWaveformForCurrentVideo();
+diff --git a/clio/ui/static/src/__tests__/viewer-source-switch.test.js b/clio/ui/static/src/__tests__/viewer-source-switch.test.js
+new file mode 100644
+--- /dev/null
++++ b/clio/ui/static/src/__tests__/viewer-source-switch.test.js
+@@ -0,0 +1,57 @@
++import { beforeEach, describe, expect, it, vi } from 'vitest';
++
++vi.mock('../waveform.js', () => ({
++  loadWaveformForCurrentVideo: vi.fn(),
++  loadPlanWaveform: vi.fn(),
++  recomposePlanWaveformFromCache: vi.fn(),
++  setWaveformPlanBridge: vi.fn(),
++  updateWaveformPlayhead: vi.fn(),
++  bindWaveformScrub: vi.fn(),
++  getPlanWaveformTotal: vi.fn(() => 0),
++  isPlanWaveformMode: vi.fn(() => false),
++}));
++
++vi.mock('../plan-subtitle.js', () => ({
++  renderPlanSubtitleFromState: vi.fn(),
++  hidePlanSubtitle: vi.fn(),
++  initSubtitleDrag: vi.fn(),
++}));
++
++beforeEach(async () => {
++  vi.resetModules();
++  const { seedCatalogs } = await import('./catalogs.js');
++  seedCatalogs();
++  document.body.innerHTML = `
++    <video id="player"></video>
++    <span id="player-name"></span>
++    <span id="player-time"></span>
++    <span id="status"></span>
++  `;
++  window.HTMLMediaElement.prototype.play = vi.fn(() => Promise.resolve());
++  window.HTMLMediaElement.prototype.pause = vi.fn();
++  window.HTMLMediaElement.prototype.load = vi.fn();
++});
++
++describe('source switching', () => {
++  it('drops the pending metadata handler of a superseded source', async () => {
++    const { state } = await import('../state.js');
++    const { playVideoSegment } = await import('../viewer.js');
++    state.currentEntity = 'video';
++    state.source = 'compressed';
++    state.videos = [{ file: 'a.mp4' }, { file: 'b.mp4' }];
++    const player = document.getElementById('player');
++    const seeks = [];
++    Object.defineProperty(player, 'currentTime', {
++      configurable: true,
++      get: () => 0,
++      set: value => { seeks.push(value); },
++    });
++
++    playVideoSegment('a.mp4', 5);
++    playVideoSegment('b.mp4', 9);
++    player.dispatchEvent(new Event('loadedmetadata'));
++
++    expect(seeks).toEqual([9]);
++    expect(player.src).toContain('file=b.mp4');
++  });
++});

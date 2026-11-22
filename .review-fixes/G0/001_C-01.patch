@@ -1,0 +1,39 @@
+diff --git a/clio/plan_pacing.py b/clio/plan_pacing.py
+--- a/clio/plan_pacing.py
++++ b/clio/plan_pacing.py
+@@ -1,4 +1,4 @@
+-﻿"""Shared pacing heuristics for daily vlog plans.
++"""Shared pacing heuristics for daily vlog plans.
+ 
+ Both the generation-time repair loop in :mod:`clio.analyze` and the export
+ readiness checks in :mod:`clio.plan_readiness` must agree on what a usable cut
+diff --git a/clio/tests/test_plan_pacing.py b/clio/tests/test_plan_pacing.py
+--- a/clio/tests/test_plan_pacing.py
++++ b/clio/tests/test_plan_pacing.py
+@@ -1,4 +1,4 @@
+-﻿"""Behavioral tests for the shared plan pacing heuristics."""
++"""Behavioral tests for the shared plan pacing heuristics."""
+ 
+ from __future__ import annotations
+ 
+diff --git a/clio/tests/test_i18n_inventory.py b/clio/tests/test_i18n_inventory.py
+--- a/clio/tests/test_i18n_inventory.py
++++ b/clio/tests/test_i18n_inventory.py
+@@ -95,7 +95,7 @@
+ 
+ 
+ def _chinese_literals(path: Path) -> list[str]:
+-    tree = ast.parse(path.read_text(encoding="utf-8"))
++    tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+     docstrings = _docstring_ids(tree)
+     found = []
+     for node in ast.walk(tree):
+@@ -108,7 +108,7 @@
+ 
+ 
+ def _translation_keys(path: Path) -> list[str]:
+-    tree = ast.parse(path.read_text(encoding="utf-8"))
++    tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+     keys = []
+     for node in ast.walk(tree):
+         if not isinstance(node, ast.Call) or not node.args:

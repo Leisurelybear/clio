@@ -1,0 +1,282 @@
+diff --git a/clio/tasks/waveform.py b/clio/tasks/waveform.py
+--- a/clio/tasks/waveform.py
++++ b/clio/tasks/waveform.py
+@@ -35,6 +35,10 @@
+ _PROBE_ERRORS = (OSError, subprocess.SubprocessError, TypeError, ValueError)
+ _FFMPEG_ERRORS = (OSError, RuntimeError, subprocess.SubprocessError, TypeError, ValueError)
+ _LOCK_READ_ERRORS = (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError)
++# Hung probes / decodes (e.g. a stalled network drive) must not pin the job slots.
++# The decode deadline stays below STALE_SEC so the lock never outlives the job.
++_PROBE_TIMEOUT_SEC = 30
++_DECODE_TIMEOUT_SEC = 600
+ 
+ _jobs_lock = threading.Lock()
+ # BoundedSemaphore now owns concurrency accounting: waiting threads block
+@@ -252,6 +256,22 @@
+     clear_error(project_output, key)
+ 
+ 
++class _DeadlineEvent(threading.Event):
++    """Event that also reads as set after *timeout_sec* or when *parent* is set."""
++
++    def __init__(self, timeout_sec: float, parent: threading.Event | None = None) -> None:
++        super().__init__()
++        self._deadline = time.monotonic() + timeout_sec
++        self._parent = parent
++
++    def is_set(self) -> bool:
++        return (
++            super().is_set()
++            or time.monotonic() >= self._deadline
++            or (self._parent is not None and self._parent.is_set())
++        )
++
++
+ def _spawn_job(fn: Callable[[], None]) -> None:
+     t = threading.Thread(target=fn, daemon=True)
+     t.start()
+@@ -269,6 +289,7 @@
+             duration_sec=input_data.get("duration_sec"),
+             audio_source=str(input_data.get("audio_source") or "original"),
+             ffprobe=str(input_data.get("ffprobe") or ""),
++            cancel_event=context.cancel_event,
+         )
+         _persist_peaks(project_output, key, payload)
+         return {"key": key, "bin_count": payload.get("bin_count", 0)}
+@@ -288,7 +309,7 @@
+         _run_managed_waveform_task,
+         concurrency_key="waveform",
+         max_concurrency=MAX_CONCURRENT_JOBS,
+-        cancellable=False,
++        cancellable=True,
+     )
+ 
+ 
+@@ -321,6 +342,7 @@
+             ],
+             capture_output=True,
+             text=True,
++            timeout=_PROBE_TIMEOUT_SEC,
+         )
+     except _PROBE_ERRORS:
+         return True
+@@ -334,8 +356,13 @@
+     duration_sec: float | None = None,
+     audio_source: str = "original",
+     ffprobe: str = "",
++    cancel_event: threading.Event | None = None,
+ ) -> dict[str, Any]:
+-    """Extract mono s16le via temp wav (8kHz is enough for amplitude peaks)."""
++    """Extract mono s16le via temp wav (8kHz is enough for amplitude peaks).
++
++    The decode is stopped after ``_DECODE_TIMEOUT_SEC`` (reported as a probe
++    error) or when *cancel_event* is set (raises ``InterruptedError``).
++    """
+     from clio.utils import get_duration_sec, resolve_binary, run_ffmpeg
+ 
+     video_path = Path(video_path)
+@@ -383,8 +410,11 @@
+                     str(tmp_path),
+                 ],
+                 ffmpeg_bin,
++                cancel_event=_DeadlineEvent(_DECODE_TIMEOUT_SEC, cancel_event),
+             )
+         except _FFMPEG_ERRORS as e:
++            if cancel_event is not None and cancel_event.is_set():
++                raise
+             return {
+                 "version": WAVEFORM_VERSION,
+                 "source_path": str(video_path.resolve()),
+diff --git a/clio/tasks/transcribe.py b/clio/tasks/transcribe.py
+--- a/clio/tasks/transcribe.py
++++ b/clio/tasks/transcribe.py
+@@ -142,6 +142,26 @@
+     except (OSError, _subprocess.SubprocessError, ValueError):
+         pass
+     return 0.0
++
++
++def _stop_process(proc: subprocess.Popen) -> None:
++    """Terminate *proc*, escalating to kill if it ignores SIGTERM for 5 s."""
++    if proc.poll() is not None:
++        return
++    proc.terminate()
++    try:
++        proc.wait(timeout=5)
++    except subprocess.TimeoutExpired:
++        proc.kill()
++        proc.wait()
++
++
++def _kill_on_cancel(proc: subprocess.Popen, cancel_event: threading.Event) -> None:
++    """Stop *proc* on cancel even while ffmpeg prints nothing (stalled input)."""
++    while proc.poll() is None:
++        if cancel_event.wait(0.5):
++            _stop_process(proc)
++            return
+ 
+ 
+ def _extract_audio(
+@@ -188,16 +208,14 @@
+     ]
+     proc = popen_subprocess(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, bufsize=1)
+     register_process(proc)
++    if cancel_event is not None:
++        threading.Thread(target=_kill_on_cancel, args=(proc, cancel_event), daemon=True).start()
+     time_pat = re.compile(r"time=(\d+):(\d+):(\d+\.\d+)")
+     last_log_pct = -1
+     try:
+         for line in proc.stderr or []:
+             if cancel_event and cancel_event.is_set():
+-                proc.terminate()
+-                proc.wait()
+-                print(t("task.transcribe.extract_cancelled"))
+-                tmp_path.unlink(missing_ok=True)
+-                return None
++                break
+             m = time_pat.search(line)
+             if m:
+                 sec = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+@@ -209,6 +227,11 @@
+                     total_s = f"{total_duration:.0f}"
+                     print(t("task.transcribe.extract_progress_line", {"sec": sec_s, "total": total_s, "pct": pct}))
+                     last_log_pct = pct
++        if cancel_event and cancel_event.is_set():
++            _stop_process(proc)
++            print(t("task.transcribe.extract_cancelled"))
++            tmp_path.unlink(missing_ok=True)
++            return None
+         proc.wait()
+         if proc.returncode != 0:
+             print(t("task.transcribe.extract_failed", {"code": proc.returncode}))
+@@ -218,13 +241,7 @@
+             progress_callback(100)
+         return tmp_path
+     except BaseException:
+-        if proc.poll() is None:
+-            proc.terminate()
+-            try:
+-                proc.wait(timeout=5)
+-            except subprocess.TimeoutExpired:
+-                proc.kill()
+-                proc.wait()
++        _stop_process(proc)
+         tmp_path.unlink(missing_ok=True)
+         raise
+     finally:
+diff --git a/clio/tests/test_fix_waveform.py b/clio/tests/test_fix_waveform.py
+--- a/clio/tests/test_fix_waveform.py
++++ b/clio/tests/test_fix_waveform.py
+@@ -2,8 +2,11 @@
+ 
+ from __future__ import annotations
+ 
++import threading
+ from pathlib import Path
+ from unittest.mock import patch
++
++import pytest
+ 
+ from clio.tasks import waveform as wf
+ 
+@@ -54,3 +57,56 @@
+         assert task.status is TaskStatus.FAILED
+         assert wf.read_peaks(tmp_path, pending["key"]) is None
+         assert wf.recent_error(tmp_path, pending["key"]) == "bad"
++
++
++class TestSubprocessTimeouts:
++    def test_has_audio_stream_passes_a_timeout(self, tmp_path: Path):
++        src = tmp_path / "v.mp4"
++        src.write_bytes(b"v")
++
++        class _R:
++            stdout = "audio\n"
++
++        with (
++            patch("clio.utils.resolve_binary", return_value="C:/fake/ffprobe.exe"),
++            patch("clio.utils.run_subprocess", return_value=_R()) as run,
++        ):
++            assert wf.has_audio_stream(src, ffprobe="") is True
++        assert run.call_args.kwargs["timeout"] == wf._PROBE_TIMEOUT_SEC
++
++    def test_deadline_event_expires_and_follows_parent(self):
++        assert wf._DeadlineEvent(0).is_set() is True
++        parent = threading.Event()
++        event = wf._DeadlineEvent(60, parent)
++        assert event.is_set() is False
++        parent.set()
++        assert event.is_set() is True
++
++    def test_decode_gets_cancel_event_and_cancel_is_not_a_probe_error(self, tmp_path: Path):
++        src = tmp_path / "v.mp4"
++        src.write_bytes(b"v")
++        cancel = threading.Event()
++        seen = {}
++
++        def fake_run(args, ffmpeg, **kwargs):
++            seen["cancel_event"] = kwargs.get("cancel_event")
++            cancel.set()
++            raise InterruptedError("cancelled")
++
++        with (
++            patch("clio.utils.resolve_binary", return_value="C:/fake/ffmpeg.exe"),
++            patch("clio.tasks.waveform.has_audio_stream", return_value=True),
++            patch("clio.utils.run_ffmpeg", side_effect=fake_run),
++        ):
++            with pytest.raises(InterruptedError):
++                wf.extract_peaks_for_video(src, ffmpeg="", duration_sec=1.0, cancel_event=cancel)
++        assert seen["cancel_event"] is not None
++
++    def test_waveform_tasks_are_cancellable(self, tmp_path: Path):
++        from clio.task_center.manager import TaskManager
++        from clio.task_center.models import TaskKind
++        from clio.task_center.store import TaskStore
++
++        manager = TaskManager(TaskStore(tmp_path / "tasks.sqlite3"))
++        wf._ensure_waveform_handler(manager)
++        assert manager.registry.require(TaskKind.WAVEFORM).cancellable is True
+diff --git a/clio/tests/test_fix_transcribe.py b/clio/tests/test_fix_transcribe.py
+new file mode 100644
+--- /dev/null
++++ b/clio/tests/test_fix_transcribe.py
+@@ -0,0 +1,39 @@
++"""Regression tests for transcribe audio extraction fixes."""
++
++from __future__ import annotations
++
++import subprocess
++import threading
++from unittest.mock import MagicMock
++
++from clio.tasks import transcribe as tr
++
++
++def test_stop_process_kills_when_terminate_is_ignored():
++    proc = MagicMock()
++    proc.poll.return_value = None
++    proc.wait.side_effect = [subprocess.TimeoutExpired("ffmpeg", 5), 0]
++
++    tr._stop_process(proc)
++
++    proc.terminate.assert_called_once()
++    proc.kill.assert_called_once()
++
++
++def test_cancel_stops_a_silent_process():
++    proc = MagicMock()
++    state = {"alive": True}
++    proc.poll.side_effect = lambda: None if state["alive"] else 0
++
++    def terminate():
++        state["alive"] = False
++
++    proc.terminate.side_effect = terminate
++    cancel = threading.Event()
++    watcher = threading.Thread(target=tr._kill_on_cancel, args=(proc, cancel))
++    watcher.start()
++    cancel.set()
++    watcher.join(5)
++
++    assert not watcher.is_alive()
++    proc.terminate.assert_called_once()

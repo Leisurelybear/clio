@@ -1,0 +1,447 @@
+diff --git a/clio/prompts.py b/clio/prompts.py
+--- a/clio/prompts.py
++++ b/clio/prompts.py
+@@ -1,12 +1,10 @@
+ from __future__ import annotations
+ 
+-import re
+ from dataclasses import dataclass
+ from pathlib import Path
+ 
+ PROMPT_OVERRIDE_DIR = Path("templates") / "prompts"
+ PROMPT_SUFFIXES = (".md", ".txt", "")
+-_PLACEHOLDER_RE = re.compile(r"(?<!\{)\{([A-Za-z_][A-Za-z0-9_]*)\}(?!\})")
+ _PROMPT_FILE_CACHE: dict[Path, tuple[int, int, str]] = {}
+ 
+ 
+@@ -62,25 +60,6 @@
+     if override:
+         return override.content
+     return default
+-
+-
+-def render_prompt_template(name: str, template: str, **values: object) -> str:
+-    placeholders = set(_PLACEHOLDER_RE.findall(template))
+-    unknown = sorted(placeholders - values.keys())
+-    if unknown:
+-        raise ValueError(f"Prompt {name} contains unknown placeholder(s): {', '.join(unknown)}")
+-
+-    def replace(match: re.Match[str]) -> str:
+-        key = match.group(1)
+-        if key not in values:
+-            return match.group(0)
+-        return str(values[key])
+-
+-    return _PLACEHOLDER_RE.sub(replace, template).replace("{{", "{").replace("}}", "}")
+-
+-
+-def render_prompt(name: str, default: str, project_dir: str | Path | None = None, **values: object) -> str:
+-    return render_prompt_template(name, load_prompt(name, default, project_dir), **values)
+ 
+ 
+ ANALYZE_PROMPT = """请仔细分析这段旅行 vlog 原始素材视频，用中文回复。
+diff --git a/clio/analyze_windows.py b/clio/analyze_windows.py
+--- a/clio/analyze_windows.py
++++ b/clio/analyze_windows.py
+@@ -1,4 +1,4 @@
+-"""Logical analyze windows: geometry, time shift, merge, and legacy slice helpers.
++"""Logical analyze windows: geometry, time shift, and merge.
+ 
+ Physical video split is deprecated. Long clips are analyzed as sliding
+ windows inside analyze only; see
+@@ -7,12 +7,10 @@
+ 
+ from __future__ import annotations
+ 
+-import contextlib
+ import copy
+ import json
+ import re
+ import shutil
+-from collections.abc import Callable
+ from dataclasses import dataclass
+ from difflib import SequenceMatcher
+ from itertools import pairwise
+@@ -22,7 +20,7 @@
+ 
+ from clio.i18n import t
+ from clio.timecode import parse_timestamp
+-from clio.utils import get_duration_sec, write_json_atomic
++from clio.utils import write_json_atomic
+ 
+ MAX_ANALYZE_WINDOWS = 1000
+ 
+@@ -603,153 +601,3 @@
+ def cleanup_window_cache_dir(cache_dir: Path) -> None:
+     """Drop cached windows after the whole clip is committed to texts/."""
+     shutil.rmtree(cache_dir, ignore_errors=True)
+-
+-
+-def slice_window_video(
+-    *,
+-    source: Path,
+-    window: AnalyzeWindow,
+-    dest_dir: Path,
+-    ffmpeg: str,
+-    max_bytes: int,
+-    ffprobe: str | None = None,
+-    run_ffmpeg: Callable[..., Any] | None = None,
+-    cancel_event: Any | None = None,
+-) -> Path:
+-    """Cut a temp slice from an already-compressed file for one analyze window.
+-
+-    Prefer stream-copy; on failure or empty output, re-encode lightly so
+-    keyframe-misaligned cuts still produce a valid Gemini upload. ``max_bytes``
+-    is supplied by the caller from the provider upload limit so the slice cap
+-    follows configuration instead of a module-level constant.
+-    """
+-    from clio.utils import run_ffmpeg as _default_run_ffmpeg
+-
+-    runner = run_ffmpeg or _default_run_ffmpeg
+-    dest_dir.mkdir(parents=True, exist_ok=True)
+-    start = max(0.0, float(window.start_sec))
+-    dur = max(0.01, float(window.duration_sec))
+-    out = dest_dir / f"{source.stem}_w{window.index:02d}_{int(start)}-{int(start + dur)}.mp4"
+-
+-    def _run(args: list[str]) -> None:
+-        # run_ffmpeg accepts cancel_event; custom test doubles may not.
+-        try:
+-            runner(args, ffmpeg, cancel_event=cancel_event)
+-        except TypeError:
+-            runner(args, ffmpeg)
+-
+-    if max_bytes <= 0:
+-        raise ValueError("max_bytes must be positive")
+-
+-    def _has_output() -> bool:
+-        return out.is_file() and out.stat().st_size > 0
+-
+-    def _valid_output(*, check_duration: bool) -> bool:
+-        if not _has_output() or out.stat().st_size > max_bytes:
+-            return False
+-        if not check_duration or ffprobe is None:
+-            return True
+-        try:
+-            actual_duration = get_duration_sec(out, ffprobe)
+-        except (OSError, RuntimeError, ValueError):
+-            return False
+-        return abs(actual_duration - dur) <= 0.5
+-
+-    copy_args = [
+-        "-ss",
+-        str(start),
+-        "-i",
+-        str(source),
+-        "-t",
+-        str(dur),
+-        "-c",
+-        "copy",
+-        "-y",
+-        str(out),
+-    ]
+-    try:
+-        _run(copy_args)
+-        if _valid_output(check_duration=True):
+-            return out
+-        # empty or oversized copy → fall through to re-encode / shrink
+-        out.unlink(missing_ok=True)
+-    except InterruptedError:
+-        # User cancel must not fall through to re-encode (C1).
+-        out.unlink(missing_ok=True)
+-        raise
+-    except (OSError, RuntimeError, ValueError):
+-        out.unlink(missing_ok=True)
+-
+-    reencode_args = [
+-        "-ss",
+-        str(start),
+-        "-i",
+-        str(source),
+-        "-t",
+-        str(dur),
+-        "-c:v",
+-        "libx264",
+-        "-preset",
+-        "ultrafast",
+-        "-crf",
+-        "28",
+-        "-c:a",
+-        "aac",
+-        "-ac",
+-        "1",
+-        "-b:a",
+-        "64k",
+-        "-y",
+-        str(out),
+-    ]
+-    _run(reencode_args)
+-    if not _has_output():
+-        raise RuntimeError(t("analyze.window_slice_empty", {"name": out.name}))
+-    if out.stat().st_size > max_bytes:
+-        out.unlink(missing_ok=True)
+-        shrink_args = [
+-            "-ss",
+-            str(start),
+-            "-i",
+-            str(source),
+-            "-t",
+-            str(dur),
+-            "-vf",
+-            "scale=min(480\\,iw):-2",
+-            "-c:v",
+-            "libx264",
+-            "-preset",
+-            "ultrafast",
+-            "-crf",
+-            "32",
+-            "-c:a",
+-            "aac",
+-            "-ac",
+-            "1",
+-            "-b:a",
+-            "64k",
+-            "-y",
+-            str(out),
+-        ]
+-        _run(shrink_args)
+-        if not _has_output():
+-            raise RuntimeError(t("analyze.window_slice_empty", {"name": out.name}))
+-        if out.stat().st_size > max_bytes:
+-            raise RuntimeError(
+-                t(
+-                    "analyze.window_slice_too_large",
+-                    {"size": f"{out.stat().st_size / 1024 / 1024:.0f}"},
+-                )
+-            )
+-    if not _valid_output(check_duration=True):
+-        out.unlink(missing_ok=True)
+-        raise RuntimeError(t("analyze.window_slice_duration", {"name": out.name}))
+-    return out
+-
+-
+-def cleanup_analyze_windows_dir(dest_dir: Path) -> None:
+-    if not dest_dir.is_dir():
+-        return
+-    for p in dest_dir.glob("*_w*.mp4"):
+-        with contextlib.suppress(OSError):
+-            p.unlink(missing_ok=True)
+diff --git a/clio/tests/test_prompts.py b/clio/tests/test_prompts.py
+--- a/clio/tests/test_prompts.py
++++ b/clio/tests/test_prompts.py
+@@ -3,8 +3,6 @@
+ import os
+ import time
+ from pathlib import Path
+-
+-import pytest
+ 
+ from clio.prompt_overrides import PROMPT_PLACEHOLDERS, validate_prompt_template
+ from clio.prompts import (
+@@ -21,7 +19,6 @@
+     SCRIPT_PROMPT,
+     TRANSCRIPT_CONTEXT,
+     load_prompt,
+-    render_prompt_template,
+ )
+ 
+ 
+@@ -75,19 +72,6 @@
+ 
+     assert load_prompt("ANALYZE_PROMPT", "default", tmp_path) == "updated prompt"
+     assert read_count == 2
+-
+-
+-def test_render_prompt_template_allows_json_braces():
+-    template = '返回 JSON: {"index": "{index}", "items": []}'
+-
+-    result = render_prompt_template("SCRIPT_PROMPT", template, index="001")
+-
+-    assert result == '返回 JSON: {"index": "001", "items": []}'
+-
+-
+-def test_render_prompt_template_rejects_unknown_placeholder():
+-    with pytest.raises(ValueError, match="unknown"):
+-        render_prompt_template("SCRIPT_PROMPT", "hello {missing}", index="001")
+ 
+ 
+ def test_analyze_prompt_requires_high_detail_timeline():
+diff --git a/clio/tests/test_analyze_windows.py b/clio/tests/test_analyze_windows.py
+--- a/clio/tests/test_analyze_windows.py
++++ b/clio/tests/test_analyze_windows.py
+@@ -4,7 +4,6 @@
+ 
+ import json
+ from itertools import pairwise
+-from pathlib import Path
+ from typing import Any
+ 
+ import pytest
+@@ -13,14 +12,12 @@
+     AnalyzeWindow,
+     TimelineGap,
+     build_analyze_windows,
+-    cleanup_analyze_windows_dir,
+     measure_timeline_coverage,
+     merge_timeline_completion,
+     merge_window_analyses,
+     select_sparse_retry_gap,
+     shift_analysis_times,
+     slice_transcript_context,
+-    slice_window_video,
+     timeline_gaps,
+ )
+ 
+@@ -390,153 +387,3 @@
+             (105, "retry moment"),
+         ]
+         assert base["timeline"][0]["text"] == "before"
+-
+-
+-class TestSliceWindowVideo:
+-    def test_slice_window_video_invokes_ffmpeg(self, tmp_path: Path):
+-        src = tmp_path / "001_GL.mp4"
+-        src.write_bytes(b"\x00" * 10)
+-        dest = tmp_path / ".analyze_windows"
+-        calls = []
+-
+-        def fake_run(args, ffmpeg, **kw):
+-            calls.append(args)
+-            Path(args[-1]).write_bytes(b"x")
+-
+-        out = slice_window_video(
+-            source=src,
+-            window=AnalyzeWindow(0, 0, 60),
+-            dest_dir=dest,
+-            ffmpeg="ffmpeg",
+-            max_bytes=10 * 1024 * 1024,
+-            run_ffmpeg=fake_run,
+-        )
+-        assert out.is_file()
+-        assert "w00" in out.name
+-        assert "-ss" in calls[0]
+-        assert "-c" in calls[0]
+-
+-    def test_slice_falls_back_to_reencode_on_copy_fail(self, tmp_path: Path):
+-        src = tmp_path / "001_GL.mp4"
+-        src.write_bytes(b"\x00" * 10)
+-        dest = tmp_path / ".analyze_windows"
+-        calls = []
+-
+-        def fake_run(args, ffmpeg, **kw):
+-            calls.append(list(args))
+-            if "-c" in args and args[args.index("-c") + 1] == "copy":
+-                raise RuntimeError("copy failed")
+-            Path(args[-1]).write_bytes(b"reencoded")
+-
+-        out = slice_window_video(
+-            source=src,
+-            window=AnalyzeWindow(1, 100, 160),
+-            dest_dir=dest,
+-            ffmpeg="ffmpeg",
+-            max_bytes=10 * 1024 * 1024,
+-            run_ffmpeg=fake_run,
+-        )
+-        assert out.is_file()
+-        assert len(calls) == 2
+-        assert "libx264" in calls[1]
+-        assert "-an" not in calls[1]
+-        assert calls[1][calls[1].index("-c:a") + 1] == "aac"
+-        assert calls[1][calls[1].index("-ac") + 1] == "1"
+-
+-    def test_slice_reencodes_when_copy_duration_drifts(self, monkeypatch, tmp_path: Path):
+-        src = tmp_path / "001_GL.mp4"
+-        src.write_bytes(b"source")
+-        dest = tmp_path / ".analyze_windows"
+-        calls = []
+-        durations = iter([62.0, 60.0])
+-
+-        def fake_run(args, ffmpeg, **kw):
+-            calls.append(args)
+-            Path(args[-1]).write_bytes(b"video")
+-
+-        monkeypatch.setattr("clio.analyze_windows.get_duration_sec", lambda *args: next(durations))
+-
+-        out = slice_window_video(
+-            source=src,
+-            window=AnalyzeWindow(0, 0, 60),
+-            dest_dir=dest,
+-            ffmpeg="ffmpeg",
+-            max_bytes=10 * 1024 * 1024,
+-            ffprobe="ffprobe",
+-            run_ffmpeg=fake_run,
+-        )
+-
+-        assert out.is_file()
+-        assert len(calls) == 2
+-        assert "libx264" in calls[1]
+-
+-    def test_slice_cancel_during_copy_does_not_reencode(self, tmp_path: Path):
+-        """InterruptedError on stream-copy must not fall through to re-encode (C1)."""
+-        src = tmp_path / "001_GL.mp4"
+-        src.write_bytes(b"\x00" * 10)
+-        dest = tmp_path / ".analyze_windows"
+-        calls: list[list] = []
+-
+-        def fake_run(args, ffmpeg, **kw):
+-            calls.append(list(args))
+-            Path(args[-1]).write_bytes(b"partial")
+-            if "-c" in args and args[args.index("-c") + 1] == "copy":
+-                raise InterruptedError("ffmpeg 被用户取消")
+-            # If re-encode is wrongly attempted, leave a marker file content.
+-            Path(args[-1]).write_bytes(b"reencoded-after-cancel")
+-
+-        with pytest.raises(InterruptedError, match="用户取消"):
+-            slice_window_video(
+-                source=src,
+-                window=AnalyzeWindow(0, 0, 60),
+-                dest_dir=dest,
+-                ffmpeg="ffmpeg",
+-                max_bytes=10 * 1024 * 1024,
+-                run_ffmpeg=fake_run,
+-            )
+-
+-        assert len(calls) == 1, f"expected only copy call, got {len(calls)}: {calls}"
+-        assert not any(dest.glob("*.mp4")), "partial slice must be unlinked on cancel"
+-
+-    def test_slice_shrinks_when_over_custom_cap(self, tmp_path: Path):
+-        src = tmp_path / "001_GL.mp4"
+-        src.write_bytes(b"\x00" * 10)
+-        dest = tmp_path / ".analyze_windows"
+-        calls = []
+-
+-        def fake_run(args, ffmpeg, **kw):
+-            calls.append(list(args))
+-            outp = Path(args[-1])
+-            # Stay oversized until shrink path (has -vf scale)
+-            joined = " ".join(str(a) for a in args)
+-            if "-vf" in args or "scale=" in joined:
+-                outp.write_bytes(b"small")
+-            else:
+-                outp.write_bytes(b"x" * 2048)
+-
+-        out = slice_window_video(
+-            source=src,
+-            window=AnalyzeWindow(0, 0, 60),
+-            dest_dir=dest,
+-            ffmpeg="ffmpeg",
+-            max_bytes=1024,
+-            run_ffmpeg=fake_run,
+-        )
+-        assert out.is_file()
+-        assert out.stat().st_size < 1024
+-        assert any("-vf" in c for c in calls)
+-        shrink = next(c for c in calls if "-vf" in c)
+-        assert "-an" not in shrink
+-        assert shrink[shrink.index("-c:a") + 1] == "aac"
+-        assert shrink[shrink.index("-ac") + 1] == "1"
+-
+-    def test_cleanup_removes_window_files(self, tmp_path: Path):
+-        dest = tmp_path / ".analyze_windows"
+-        dest.mkdir()
+-        f = dest / "001_GL_w00_0-60.mp4"
+-        f.write_bytes(b"x")
+-        other = dest / "keep.txt"
+-        other.write_text("y", encoding="utf-8")
+-        cleanup_analyze_windows_dir(dest)
+-        assert not f.exists()
+-        assert other.exists()

@@ -739,6 +739,26 @@ def test_plan_clips_keep_current_analysis_for_duplicate_source_stem(cfg: AppConf
     assert not cancelled
 
 
+def test_plan_clips_keep_legacy_analysis_when_current_analysis_absent(cfg: AppConfig) -> None:
+    from clio.tasks.plan import _collect_plan_clips
+
+    _write_text(cfg, "016_GX011275.json", "GX011275", 16, compressed=False)
+    (cfg.compressed_dir / "197_GX011275.mp4").write_bytes(b"video")
+
+    clips, skipped, cancelled = _collect_plan_clips(
+        cfg,
+        "day1",
+        None,
+        filter_by_day=False,
+        cancel_event=None,
+    )
+
+    assert [clip["index"] for clip in clips] == ["016"]
+    assert clips[0]["match_stem"] == "GX011275"
+    assert skipped == []
+    assert not cancelled
+
+
 def _write_consistency_report(cfg: AppConfig, *, lineage: str, malformed: bool = False) -> Path:
     from clio.schema import add_schema_version
     from clio.tasks.consistency import entity_consistency_paths

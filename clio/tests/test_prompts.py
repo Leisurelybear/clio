@@ -143,6 +143,9 @@ def test_plan_prompt_requires_precise_timeline_and_budget():
     assert "use_timeline" in PLAN_PROMPT
     assert "越界" in PLAN_PROMPT
     assert "target_duration_sec" in PLAN_PROMPT
+    assert "15-40 秒" in PLAN_PROMPT
+    assert "80%" in PLAN_PROMPT
+    assert "不短于 8 秒" in PLAN_PROMPT
     assert "预算" in PLAN_PROMPT
 
 
@@ -163,10 +166,10 @@ def test_plan_prompt_enforces_short_hook_broll_and_narrative_beats():
     assert "transition" in PLAN_PROMPT
 
 
-def test_planning_prompt_examples_use_short_segments():
+def test_planning_prompt_examples_use_complete_segments():
     for prompt in (PLAN_PROMPT, PLAN_REVIEW_PROMPT):
-        assert "00:10-00:45" not in prompt
-        assert "00:10-00:18" in prompt
+        assert "00:10-00:40" in prompt
+        assert "00:10-00:18" not in prompt
 
 
 def test_planning_prompts_separate_source_and_segment_limits():
@@ -301,6 +304,9 @@ def test_plan_outline_prompt_separates_structure_from_timeline_selection():
     assert "use_timeline" in PLAN_OUTLINE_PROMPT
     assert "必须原样引用" in PLAN_OUTLINE_PROMPT
     assert "只规划叙事结构" in PLAN_OUTLINE_PROMPT
+    assert "5-8 个" in PLAN_OUTLINE_PROMPT
+    assert "20-45 秒" in PLAN_OUTLINE_PROMPT
+    assert "5 秒左右的碎片" in PLAN_OUTLINE_PROMPT
 
 
 def test_plan_review_prompt_checks_transitions_and_preserves_valid_fields():
@@ -310,6 +316,9 @@ def test_plan_review_prompt_checks_transitions_and_preserves_valid_fields():
     assert "转场方式" in PLAN_REVIEW_PROMPT
     assert "use_timeline" in PLAN_REVIEW_PROMPT
     assert "不要为了改写而重写" in PLAN_REVIEW_PROMPT
+    assert "不得低于目标的 80%" in PLAN_REVIEW_PROMPT
+    assert "不短于 8 秒" in PLAN_REVIEW_PROMPT
+    assert "5-6 秒小片段" in PLAN_REVIEW_PROMPT
 
 
 def test_plan_shortlist_prompt_limits_cards_to_valid_indices():

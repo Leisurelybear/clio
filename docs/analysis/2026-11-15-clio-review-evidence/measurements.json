@@ -1,0 +1,141 @@
+{
+  "baseline": "aef5b0a96692a93893f680158a30044dfc867e53",
+  "tracked_files_at_inventory": 711,
+  "files_by_area": {
+    "Root/tooling": 37,
+    "CI/release": 2,
+    "Domain/media/CLI": 46,
+    "AI providers": 8,
+    "ASR": 8,
+    "Configuration": 8,
+    "Desktop": 9,
+    "Export": 2,
+    "Task runtime": 8,
+    "Pipeline task adapters": 19,
+    "Python tests": 138,
+    "HTTP infrastructure": 10,
+    "Web routes": 25,
+    "Web services": 8,
+    "Web frontend/assets": 85,
+    "Frontend tests": 92,
+    "Documentation": 198,
+    "Packaging": 5,
+    "Templates": 3
+  },
+  "selected_section_files": 113,
+  "production_python_files": 149,
+  "production_python_lines": 42546,
+  "production_javascript_files": 81,
+  "production_javascript_lines": 17356,
+  "largest_source_files": [
+    {
+      "path": "clio/analyze.py",
+      "lines": 2109
+    },
+    {
+      "path": "clio/tasks/analyze.py",
+      "lines": 1664
+    },
+    {
+      "path": "clio/ui/services/run_preview.py",
+      "lines": 1155
+    },
+    {
+      "path": "clio/ui/routes/videos.py",
+      "lines": 1096
+    },
+    {
+      "path": "clio/utils.py",
+      "lines": 1011
+    },
+    {
+      "path": "clio/ui/routes/run.py",
+      "lines": 995
+    },
+    {
+      "path": "clio/tasks/scripts.py",
+      "lines": 932
+    },
+    {
+      "path": "clio/task_center/store.py",
+      "lines": 923
+    },
+    {
+      "path": "clio/ui/static/src/runner.js",
+      "lines": 910
+    },
+    {
+      "path": "clio/ui/static/src/viewer.js",
+      "lines": 886
+    },
+    {
+      "path": "clio/ui/routes/whisper_download.py",
+      "lines": 850
+    },
+    {
+      "path": "clio/tasks/plan.py",
+      "lines": 806
+    },
+    {
+      "path": "clio/plan_readiness.py",
+      "lines": 796
+    },
+    {
+      "path": "clio/ui/routes/config_routes.py",
+      "lines": 794
+    },
+    {
+      "path": "clio/tasks/cut.py",
+      "lines": 786
+    }
+  ],
+  "python_coverage": {
+    "covered_lines": 21201,
+    "num_statements": 23792,
+    "percent_covered": 86.8167701863354,
+    "percent_covered_display": "87",
+    "missing_lines": 2591,
+    "excluded_lines": 42,
+    "percent_statements_covered": 89.10978480161398,
+    "percent_statements_covered_display": "89",
+    "num_branches": 8408,
+    "num_partial_branches": 1316,
+    "covered_branches": 6754,
+    "missing_branches": 1654,
+    "percent_branches_covered": 80.32825880114177,
+    "percent_branches_covered_display": "80"
+  },
+  "frontend_coverage": {
+    "lines": {
+      "total": 9141,
+      "covered": 5844,
+      "skipped": 0,
+      "pct": 63.93
+    },
+    "statements": {
+      "total": 10788,
+      "covered": 6585,
+      "skipped": 0,
+      "pct": 61.04
+    },
+    "functions": {
+      "total": 1505,
+      "covered": 984,
+      "skipped": 0,
+      "pct": 65.38
+    },
+    "branches": {
+      "total": 8637,
+      "covered": 4767,
+      "skipped": 0,
+      "pct": 55.19
+    },
+    "branchesTrue": {
+      "total": 0,
+      "covered": 0,
+      "skipped": 0,
+      "pct": "Unknown"
+    }
+  },
+  "note": "Line counts include blanks/comments. Coverage is execution evidence, not individual manual review. Inventory excludes untracked review deliverables and unrelated local files."
+}

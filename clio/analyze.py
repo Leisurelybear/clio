@@ -24,6 +24,7 @@ from clio.ai.structured import (
 )
 from clio.ai.token_usage import estimate_cost_usd
 from clio.config import AppConfig
+from clio.config.models import resolve_model_prices
 from clio.cut import parse_time_range
 from clio.i18n import t
 from clio.log import format_size, timed
@@ -32,6 +33,16 @@ from clio.plan_input import (
     plan_candidate_limit,
     resolve_plan_candidates,
     should_shortlist_plan_clips,
+)
+from clio.plan_pacing import (
+    MAX_REPORTED_SHORT_SEGMENTS,
+    MIN_SEGMENT_SEC,
+    MIN_TOTAL_DURATION_RATIO,
+    effective_max_segments,
+    is_pacing_improvement,
+    notable_fragments,
+    segment_durations,
+    total_seconds,
 )
 from clio.prompt_overrides import format_prompt_template, resolve_prompt_template
 from clio.prompts import (
@@ -87,11 +98,22 @@ def _usage_meta(config: AppConfig, task: TaskName) -> dict[str, Any]:
             "provider_name": "",
             "prompt_price_per_1m_usd": 0.0,
             "completion_price_per_1m_usd": 0.0,
+            "price_known": False,
         }
+    prices = resolve_model_prices(provider_cfg, task_cfg.model) if provider_cfg is not None else None
+    if prices is None:
+        return {
+            "provider_name": task_cfg.provider,
+            "prompt_price_per_1m_usd": 0.0,
+            "completion_price_per_1m_usd": 0.0,
+            "price_known": False,
+        }
+    prompt_price, completion_price = prices
     return {
         "provider_name": task_cfg.provider,
-        "prompt_price_per_1m_usd": float(getattr(provider_cfg, "prompt_price_per_1m_usd", 0.0) or 0.0),
-        "completion_price_per_1m_usd": float(getattr(provider_cfg, "completion_price_per_1m_usd", 0.0) or 0.0),
+        "prompt_price_per_1m_usd": prompt_price,
+        "completion_price_per_1m_usd": completion_price,
+        "price_known": True,
     }
 
 
@@ -592,6 +614,7 @@ def _call_ai(
     provider_name: str = "",
     prompt_price_per_1m_usd: float = 0.0,
     completion_price_per_1m_usd: float = 0.0,
+    price_known: bool = True,
     retry_on_truncated: bool = True,
 ) -> str:
     # Check cancel_event before starting AI call
@@ -624,6 +647,7 @@ def _call_ai(
                     prompt_price_per_1m_usd,
                     completion_price_per_1m_usd,
                 ),
+                price_known=price_known,
             )
         if resp.blocked:
             raise RuntimeError(t("ai.response_blocked", {"reason": resp.block_reason}))
@@ -699,6 +723,50 @@ def _plan_index_key(value: Any) -> int | str:
         return int(str(value).strip())
     except (TypeError, ValueError):
         return str(value).strip()
+
+
+def _plan_pacing_issues(result: dict, target_duration_sec: float) -> list[str]:
+    """Report pacing problems that are advisory for the review pass.
+
+    These issues never fail the plan on their own: short days may genuinely have
+    little material. They are fed to the review pass so the model extends or
+    merges existing cuts instead of shipping a string of 5-second fragments.
+    """
+    sequence = [segment for segment in result.get("sequence", []) if isinstance(segment, dict)]
+    if not sequence:
+        return []
+    durations = segment_durations(sequence)
+    total = sum(durations)
+    issues: list[str] = []
+
+    if target_duration_sec > 0:
+        minimum = target_duration_sec * MIN_TOTAL_DURATION_RATIO
+        if total + 0.05 < minimum:
+            issues.append(
+                t(
+                    "analyze.plan_issue_total_short",
+                    {
+                        "total": f"{total:.1f}",
+                        "target": f"{target_duration_sec:.1f}",
+                        "minimum": f"{minimum:.1f}",
+                    },
+                )
+            )
+
+    fragments = notable_fragments(durations)
+    if fragments:
+        shown = fragments[:MAX_REPORTED_SHORT_SEGMENTS]
+        issues.append(
+            t(
+                "analyze.plan_issue_fragments",
+                {
+                    "positions": ", ".join(str(position) for position in shown),
+                    "count": len(fragments),
+                    "min": f"{MIN_SEGMENT_SEC:.0f}",
+                },
+            )
+        )
+    return issues
 
 
 def _plan_validation_issues(
@@ -1635,8 +1703,9 @@ def plan_daily_vlog(
     outline_template = resolve_prompt_template("plan_outline", PLAN_OUTLINE_PROMPT, config, task_prompts=task_prompts)
     review_template = resolve_prompt_template("plan_review", PLAN_REVIEW_PROMPT, config, task_prompts=task_prompts)
     max_clips = int(getattr(config.plan, "max_clips_per_day", 0) or 0)
-    max_segments = int(getattr(config.plan, "max_segments", 40) or 0)
+    raw_max_segments = int(getattr(config.plan, "max_segments", 40) or 0)
     target_duration_sec = float(getattr(config.plan, "target_duration_sec", 0) or 0)
+    max_segments = effective_max_segments(raw_max_segments, target_duration_sec)
     system = _system_context(config)
 
     def call_stage(
@@ -1683,6 +1752,49 @@ def plan_daily_vlog(
                 print(t("analyze.plan_review_fallback"))
                 return draft
             raise
+
+    def try_pacing_repair(plan_obj: dict, issues: list[str]) -> dict | None:
+        """One extra review pass for pacing only; never raises on model failure."""
+        prompt = _make_plan_review_prompt(
+            plan_obj,
+            issues,
+            review_template=review_template,
+            clips_json=clips_json,
+            max_clips=max_clips,
+            max_segments=max_segments,
+            target_duration_sec=target_duration_sec,
+            day_label=day_label,
+            context_suffix=context_suffix,
+            config=config,
+            context_override=context_override,
+        )
+        try:
+            text = call_stage(t("analyze.label.vlog_plan_review"), prompt, VLOG_PLAN_REVIEW_OUTPUT)
+        except InterruptedError:
+            raise
+        except Exception:
+            if cancel_event is not None and cancel_event.is_set():
+                raise
+            return None
+        try:
+            payload = extract_json(text)
+        except ValueError:
+            return None
+        candidate = _plan_from_review_payload(payload)
+        if candidate is None:
+            return None
+        repaired, problems = _validate_plan_candidate(
+            candidate,
+            selected_clips=selected_clips,
+            day_label=day_label,
+            selected_validation_clips=selected_validation_clips,
+            target_duration_sec=target_duration_sec,
+            max_clips=max_clips,
+            max_segments=max_segments,
+        )
+        if problems or not repaired.get("sequence"):
+            return None
+        return repaired
 
     with provider_use(provider, acquire=lambda: get_task_provider(config, TaskName.VLOG_PLAN)[0]) as provider:
         if should_shortlist_plan_clips(clips, config):
@@ -1826,11 +1938,12 @@ def plan_daily_vlog(
             max_clips=max_clips,
             max_segments=max_segments,
         )
+        review_issues = [*draft_issues, *_plan_pacing_issues(draft, target_duration_sec)]
 
         reviewed = call_review(
             _make_plan_review_prompt(
                 draft,
-                draft_issues,
+                review_issues,
                 review_template=review_template,
                 clips_json=clips_json,
                 max_clips=max_clips,
@@ -1883,6 +1996,26 @@ def plan_daily_vlog(
                 ),
                 result,
             )
+
+        if valid_plan is not None:
+            pacing_issues = _plan_pacing_issues(valid_plan, target_duration_sec)
+            if pacing_issues:
+                print(t("analyze.plan_pacing_repair", {"errors": "；".join(pacing_issues)}))
+                repaired_plan = try_pacing_repair(valid_plan, pacing_issues)
+                if repaired_plan is not None and is_pacing_improvement(valid_plan, repaired_plan, target_duration_sec):
+                    valid_plan = repaired_plan
+                    remaining = _plan_pacing_issues(valid_plan, target_duration_sec)
+                    if remaining:
+                        print(t("analyze.plan_pacing_still_short", {"errors": "；".join(remaining)}))
+                    else:
+                        print(
+                            t("analyze.plan_pacing_repaired", {"total": f"{total_seconds(valid_plan['sequence']):.1f}"})
+                        )
+                else:
+                    if repaired_plan is None:
+                        print(t("analyze.plan_pacing_repair_failed"))
+                    else:
+                        print(t("analyze.plan_pacing_repair_no_improvement"))
 
     if valid_plan is None:
         raise AssertionError("plan review loop exited unexpectedly")

@@ -1,0 +1,107 @@
+diff --git a/clio/desktop/single_instance.py b/clio/desktop/single_instance.py
+--- a/clio/desktop/single_instance.py
++++ b/clio/desktop/single_instance.py
+@@ -3,9 +3,11 @@
+ 
+ A JSON lock file (``clio.lock``) in the config dir records the first
+ instance's server port. A second instance decides liveness by POSTing the
+-focus endpoint: any HTTP response proves the first instance is alive, while a
+-connection error means the lock is stale and can be taken over. PID checks are
+-deliberately avoided because os.kill(pid, 0) is unreliable on Windows.
++focus endpoint: a Clio reply (200, or an error carrying Clio's JSON body)
++proves the first instance is alive, while a connection error or a "no such
++endpoint" reply from some other local server means the lock is stale and can
++be taken over. PID checks are deliberately avoided because os.kill(pid, 0) is
++unreliable on Windows.
+ """
+ 
+ from __future__ import annotations
+@@ -97,12 +99,33 @@
+         return False
+ 
+ 
++# Clio always routes POST /api/desktop/focus, so these statuses come from a
++# different server that now owns the port recorded in a stale lock.
++_FOREIGN_FOCUS_STATUSES = frozenset({404, 405, 501})
++
++
++def _is_clio_focus_error(exc: urllib.error.HTTPError) -> bool:
++    """Tell a Clio error reply (e.g. 503 while starting) from a foreign server."""
++    try:
++        body = exc.read(4096) or b""
++    except (OSError, ValueError, AttributeError):
++        body = b""
++    try:
++        data = json.loads(body.decode("utf-8"))
++    except (UnicodeDecodeError, ValueError):
++        data = None
++    if isinstance(data, dict) and "ok" in data:
++        return True
++    return exc.code not in _FOREIGN_FOCUS_STATUSES
++
++
+ def focus_first_instance(host: str, port: int, timeout: float = 3.0) -> bool:
+     """Ask the first instance to focus its window.
+ 
+-    Returns True when any HTTP response is received (the first instance is
+-    alive — including 5xx while its window is still starting up). Returns
+-    False only when the server is unreachable (stale lock / connection error).
++    Returns True when the first instance answers — including 5xx while its
++    window is still starting up. Returns False when the server is unreachable,
++    or when the reply shows the port now belongs to another HTTP service
++    (404/405/501 without Clio's JSON body), i.e. the lock is stale.
+     """
+     try:
+         req = urllib.request.Request(
+@@ -113,8 +136,8 @@
+         )
+         with urllib.request.urlopen(req, timeout=timeout) as resp:
+             return resp.status == 200
+-    except urllib.error.HTTPError:
+-        return True
++    except urllib.error.HTTPError as exc:
++        return _is_clio_focus_error(exc)
+     except OSError:
+         return False
+ 
+diff --git a/clio/tests/test_fix_desktop_single_instance.py b/clio/tests/test_fix_desktop_single_instance.py
+new file mode 100644
+--- /dev/null
++++ b/clio/tests/test_fix_desktop_single_instance.py
+@@ -0,0 +1,36 @@
++"""Regression tests: a stale lock whose port now hosts another server is taken over."""
++
++from __future__ import annotations
++
++import io
++import json
++import urllib.error
++from email.message import Message
++
++import pytest
++
++from clio.desktop.single_instance import focus_first_instance
++
++
++def _raise(code: int, body: bytes = b""):
++    def _urlopen(*args, **kwargs):
++        raise urllib.error.HTTPError("http://127.0.0.1:9/api/desktop/focus", code, "x", Message(), io.BytesIO(body))
++
++    return _urlopen
++
++
++@pytest.mark.parametrize("code", [404, 405, 501])
++def test_foreign_server_on_stale_port_is_not_alive(monkeypatch, code):
++    monkeypatch.setattr("urllib.request.urlopen", _raise(code, b"<html>Not Found</html>"))
++    assert focus_first_instance("127.0.0.1", 9) is False
++
++
++def test_clio_json_error_means_alive(monkeypatch):
++    body = json.dumps({"ok": False, "error": "desktop window unavailable"}).encode()
++    monkeypatch.setattr("urllib.request.urlopen", _raise(503, body))
++    assert focus_first_instance("127.0.0.1", 9) is True
++
++
++def test_server_error_without_body_still_means_alive(monkeypatch):
++    monkeypatch.setattr("urllib.request.urlopen", _raise(500))
++    assert focus_first_instance("127.0.0.1", 9) is True

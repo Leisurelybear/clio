@@ -1,0 +1,79 @@
+diff --git a/clio/ui/routes/env_routes.py b/clio/ui/routes/env_routes.py
+--- a/clio/ui/routes/env_routes.py
++++ b/clio/ui/routes/env_routes.py
+@@ -113,11 +113,12 @@
+ def handle_get_env(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
+     env_path = _dotenv_path(handler)
+     if env_path and env_path.is_file():
+-        text = env_path.read_text(encoding="utf-8")
++        # utf-8-sig: Notepad-saved .env files start with a BOM that would hide the first key.
++        text = env_path.read_text(encoding="utf-8-sig")
+     else:
+         template_path = env_path.parent / ".env.example" if env_path else None
+         if template_path and template_path.is_file():
+-            text = template_path.read_text(encoding="utf-8")
++            text = template_path.read_text(encoding="utf-8-sig")
+         else:
+             text = t("api.env_template_header")
+     secret_names = _secret_env_names(handler)
+@@ -143,7 +144,7 @@
+     content = obj.get("content", "")
+     if not isinstance(content, str):
+         return handler._send_json({"ok": False, "error": "content must be a string"}, 400)
+-    previous_content = env_path.read_text(encoding="utf-8") if env_path.is_file() else ""
++    previous_content = env_path.read_text(encoding="utf-8-sig") if env_path.is_file() else ""
+     secret_names = _secret_env_names(handler)
+     secret_names.update(
+         key.upper()
+diff --git a/clio/tests/test_fix_env_bom.py b/clio/tests/test_fix_env_bom.py
+new file mode 100644
+--- /dev/null
++++ b/clio/tests/test_fix_env_bom.py
+@@ -0,0 +1,47 @@
++"""Regression tests: /api/env tolerates a UTF-8 BOM in .env (Windows Notepad)."""
++
++from __future__ import annotations
++
++from pathlib import Path
++from unittest.mock import MagicMock, patch
++
++from clio.ui.routes.env_routes import handle_get_env, handle_put_env
++
++
++def _handler(tmp_path: Path) -> MagicMock:
++    config_path = tmp_path / "config.yaml"
++    config_path.write_text("ai: {}\n", encoding="utf-8")
++    handler = MagicMock()
++    handler.config_path = config_path
++    handler.__class__._config_cache = MagicMock()
++    return handler
++
++
++def test_get_env_strips_bom_and_masks_first_key(tmp_path: Path):
++    handler = _handler(tmp_path)
++    (tmp_path / ".env").write_bytes("\ufeffGEMINI_API_KEY=secret-1\nOTHER=1\n".encode())
++
++    handle_get_env(handler, {})
++
++    payload = handler._send_json.call_args.args[0]
++    assert not payload["content"].startswith("\ufeff")
++    assert payload["content"].startswith("GEMINI_API_KEY=********")
++    assert "secret-1" not in payload["content"]
++
++
++def test_put_env_restores_masked_first_key_from_bom_file(tmp_path: Path):
++    handler = _handler(tmp_path)
++    env_path = tmp_path / ".env"
++    env_path.write_bytes("\ufeffGEMINI_API_KEY=secret-1\n".encode())
++
++    with (
++        patch("clio.ui.routes.env_routes._load_dotenv"),
++        patch("clio.ui.routes.env_routes._sync_env_to_environ"),
++        patch("clio.ui.routes.env_routes._clear_provider_cache"),
++    ):
++        handle_put_env(handler, {}, {"content": "GEMINI_API_KEY=********\nNEW=2\n"})
++
++    assert handler._send_json.call_args.args[0]["ok"] is True
++    saved = env_path.read_bytes().decode("utf-8")
++    assert not saved.startswith("\ufeff")
++    assert "GEMINI_API_KEY=secret-1" in saved

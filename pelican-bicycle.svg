@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 700" role="img" aria-labelledby="title desc">
+  <title id="title">Pelican riding a bicycle</title>
+  <desc id="desc">A cheerful pelican rides a red bicycle beneath a bright sky.</desc>
+
+  <rect width="900" height="700" fill="#eaf7fb"/>
+  <circle cx="735" cy="125" r="62" fill="#ffd166"/>
+  <path d="M0 492 C160 438 284 465 418 488 C594 518 743 474 900 438 V700 H0 Z" fill="#b7dfbd"/>
+  <path d="M0 560 C186 526 340 551 492 573 C655 596 780 564 900 542 V700 H0 Z" fill="#78b98b"/>
+
+  <!-- bicycle -->
+  <g fill="none" stroke="#17324d" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="244" cy="548" r="92" stroke-width="10" fill="#f8fbfc"/>
+    <circle cx="650" cy="548" r="92" stroke-width="10" fill="#f8fbfc"/>
+    <path d="M244 548 L363 350 L501 548 L244 548 M363 350 L650 548 M501 548 L574 355 L650 548 M574 355 H630" stroke-width="12"/>
+    <path d="M330 360 H392" stroke-width="13"/>
+    <path d="M363 350 L344 313" stroke-width="10"/>
+    <path d="M574 355 L595 319" stroke-width="10"/>
+    <path d="M335 310 H405" stroke-width="12"/>
+    <path d="M573 317 C600 307 624 309 645 322" stroke-width="10"/>
+    <path d="M244 548 L224 468 M244 548 L277 603 M244 548 L174 566 M244 548 L286 487" stroke="#9cc9d4" stroke-width="4"/>
+    <path d="M650 548 L630 468 M650 548 L683 603 M650 548 L580 566 M650 548 L692 487" stroke="#9cc9d4" stroke-width="4"/>
+  </g>
+  <g fill="#e76f51" stroke="#17324d" stroke-width="7" stroke-linejoin="round">
+    <path d="M352 350 H403 L389 375 H357 Z"/>
+    <path d="M561 351 H601 L612 375 H570 Z"/>
+    <circle cx="363" cy="350" r="14" fill="#ffd166"/>
+    <circle cx="574" cy="355" r="14" fill="#ffd166"/>
+  </g>
+
+  <!-- pelican body -->
+  <g stroke="#17324d" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M413 305 C408 248 436 209 487 205 C544 200 582 246 570 302 C558 355 528 391 477 388 C438 386 418 355 413 305 Z" fill="#fffdf5" stroke-width="8"/>
+    <path d="M449 239 C461 192 500 168 534 189 C557 204 565 238 550 269 C534 301 499 321 472 308 C453 298 444 271 449 239 Z" fill="#f5f1df" stroke-width="8"/>
+    <path d="M467 275 C486 257 519 256 539 271 C523 302 490 319 469 307 C459 301 459 286 467 275 Z" fill="#5aa7b8" stroke-width="7"/>
+    <path d="M527 204 C557 182 593 190 603 218 C613 247 595 268 566 270 L530 259 Z" fill="#fffdf5" stroke-width="8"/>
+    <path d="M574 221 C638 220 691 240 734 263 C686 289 628 286 564 263 Z" fill="#f28c5b" stroke-width="8"/>
+    <path d="M578 264 C628 275 681 272 734 263 C700 305 631 310 572 276 Z" fill="#e66b4f" stroke-width="8"/>
+    <circle cx="566" cy="220" r="7" fill="#17324d" stroke="none"/>
+    <path d="M492 207 C518 219 533 238 539 260" fill="none" stroke="#d8d2bd" stroke-width="7"/>
+
+    <!-- wing and tail -->
+    <path d="M445 282 C407 292 384 338 393 378 C430 368 461 343 479 310 Z" fill="#dfe9e7" stroke-width="8"/>
+    <path d="M443 334 C422 353 407 374 396 400" fill="none" stroke="#9ebbbd" stroke-width="7"/>
+    <path d="M421 329 C392 343 370 360 356 380 C388 383 414 372 435 353" fill="#fffdf5" stroke-width="8"/>
+
+    <!-- legs -->
+    <path d="M466 365 L452 444 L404 481" fill="none" stroke-width="11"/>
+    <path d="M527 365 L550 443 L595 470" fill="none" stroke-width="11"/>
+    <path d="M397 481 C415 475 430 478 441 488" fill="none" stroke="#f28c5b" stroke-width="10"/>
+    <path d="M589 469 C607 464 622 468 632 479" fill="none" stroke="#f28c5b" stroke-width="10"/>
+
+    <!-- wings reaching the handlebars -->
+    <path d="M535 296 C560 309 579 330 590 356 C571 362 549 351 528 332 Z" fill="#e6efec" stroke-width="8"/>
+    <path d="M590 356 L604 319" fill="none" stroke-width="9"/>
+    <path d="M540 303 C558 321 570 338 577 356" fill="none" stroke="#9ebbbd" stroke-width="5"/>
+    <path d="M421 299 C404 315 394 336 390 357" fill="none" stroke="#9ebbbd" stroke-width="5"/>
+  </g>
+
+  <!-- small motion marks -->
+  <g fill="none" stroke="#5aa7b8" stroke-width="8" stroke-linecap="round">
+    <path d="M125 420 H183"/>
+    <path d="M103 450 H148"/>
+    <path d="M753 394 H808"/>
+  </g>
+</svg>

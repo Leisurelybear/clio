@@ -6,6 +6,7 @@ import { hasKey, t } from './i18n.js';
 import { state } from './state.js';
 import { clearDirty, escapeHtml, markDirty, setDeep } from './utils.js';
 import { providerCapabilities, providerTypeLabel } from './editor-providers.js';
+import { configuredModelPrice, formatModelPrice } from './editor-model-prices.js';
 
 export function taskLabel(taskKey) {
   const key = `settings.task.label.${taskKey}`;
@@ -122,7 +123,9 @@ export function renderTaskBinding(tasks, providersObj, descs, opts = {}, renderT
           html += `<option value="">${t('settings.provider.select_model_placeholder')}</option>`;
           for (const m of models) {
             const selected = m === currentModel ? ' selected' : '';
-            html += `<option value="${escapeHtml(m)}"${selected}>${escapeHtml(m)}</option>`;
+            const pair = configuredModelPrice(providersObj[currentProvider], m);
+            const label = pair ? `${m} — ${formatModelPrice(pair[0], pair[1])}` : m;
+            html += `<option value="${escapeHtml(m)}"${selected}>${escapeHtml(label)}</option>`;
           }
           html += '</select>';
         } else {

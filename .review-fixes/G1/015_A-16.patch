@@ -1,0 +1,154 @@
+diff --git a/clio/plan_readiness.py b/clio/plan_readiness.py
+--- a/clio/plan_readiness.py
++++ b/clio/plan_readiness.py
+@@ -809,7 +809,11 @@
+     return {alias: next(iter(owners)) for alias, owners in aliases.items() if len(owners) == 1}
+ 
+ 
+-def collect_project_indices(cfg: Any) -> tuple[set[str], set[str]]:
++def collect_project_indices(
++    cfg: Any,
++    *,
++    media_aliases: Mapping[str, set[str]] | None = None,
++) -> tuple[set[str], set[str]]:
+     """Build (known_indices, offline_indices) from compressed media + videos.json.
+ 
+     known/offline sets include expanded index key forms ("1", "001", …).
+@@ -818,6 +822,10 @@
+     indexes whose original media is listed in videos.json but currently missing
+     on disk (mapped via texts media_identity / source_file or compressed filename
+     stems).
++
++    *media_aliases* is a precomputed :func:`collect_media_index_aliases` result;
++    pass it when calling several collectors so texts/ and compressed/ are not
++    rescanned for every one of them.
+     """
+     width = _index_width_from_cfg(cfg)
+     selection = _project_selection_stems(cfg)
+@@ -839,19 +847,26 @@
+         stem_to_indices=stem_to_indices,
+     )
+     _collect_offline_indices(getattr(cfg, "project_dir", None), stem_to_indices, offline)
+-    for alias in _unique_media_index_aliases(collect_media_index_aliases(cfg)):
++    if media_aliases is None:
++        media_aliases = collect_media_index_aliases(cfg)
++    for alias in _unique_media_index_aliases(media_aliases):
+         known.update(expand_index_keys(alias, index_width=width))
+ 
+     return known, offline
+ 
+ 
+-def collect_project_media_durations(cfg: Any) -> dict[str, float]:
++def collect_project_media_durations(
++    cfg: Any,
++    *,
++    media_aliases: Mapping[str, set[str]] | None = None,
++) -> dict[str, float]:
+     """Return compressed clip durations keyed by plan index.
+ 
+     Plan timelines are expressed in compressed-clip time for both cut sources;
+     ``source=original`` only changes how an offline original is reported and
+     how cutting resolves the file. Prefer .vmeta because it is cheap, then
+     probe only when older artifacts have no trustworthy target duration.
++    *media_aliases*: see :func:`collect_project_indices`.
+     """
+     compressed_dir = getattr(cfg, "compressed_dir", None)
+     if not isinstance(compressed_dir, Path) or not compressed_dir.is_dir():
+@@ -892,7 +907,9 @@
+                 durations[index] = max(duration, durations.get(index, 0.0))
+     except OSError:
+         pass
+-    for alias, owner in _unique_media_index_aliases(collect_media_index_aliases(cfg)).items():
++    if media_aliases is None:
++        media_aliases = collect_media_index_aliases(cfg)
++    for alias, owner in _unique_media_index_aliases(media_aliases).items():
+         duration = durations.get(owner)
+         if duration is not None:
+             durations.setdefault(alias, duration)
+diff --git a/clio/main.py b/clio/main.py
+--- a/clio/main.py
++++ b/clio/main.py
+@@ -583,6 +583,7 @@
+     from clio.plan_model import Plan
+     from clio.plan_readiness import (
+         check_plan_export_readiness,
++        collect_media_index_aliases,
+         collect_project_analysis_timelines,
+         collect_project_indices,
+         collect_project_media_durations,
+@@ -596,12 +597,13 @@
+         print(t("cli.error", {"detail": t("cli.plan.not_found", {"path": plan_path})}), file=sys.stderr)
+         return 1
+     plan = Plan.from_dict(json.loads(plan_path.read_text(encoding="utf-8-sig")))
+-    known, offline = collect_project_indices(config)
++    media_aliases = collect_media_index_aliases(config)
++    known, offline = collect_project_indices(config, media_aliases=media_aliases)
+     ready = check_plan_export_readiness(
+         plan,
+         known_indices=known,
+         offline_indices=offline,
+-        media_durations=collect_project_media_durations(config),
++        media_durations=collect_project_media_durations(config, media_aliases=media_aliases),
+         analysis_timelines=collect_project_analysis_timelines(config),
+         source=args.source,
+         target_duration_sec=float(getattr(config.plan, "target_duration_sec", 0) or 0),
+@@ -627,6 +629,7 @@
+     from clio.plan_model import Plan
+     from clio.plan_readiness import (
+         check_plan_export_readiness,
++        collect_media_index_aliases,
+         collect_project_analysis_timelines,
+         collect_project_indices,
+         collect_project_media_durations,
+@@ -638,12 +641,13 @@
+         print(t("cli.error", {"detail": t("cli.plan.not_found", {"path": plan_path})}), file=sys.stderr)
+         return 1
+     plan = Plan.from_dict(json.loads(plan_path.read_text(encoding="utf-8-sig")))
+-    known, offline = collect_project_indices(config)
++    media_aliases = collect_media_index_aliases(config)
++    known, offline = collect_project_indices(config, media_aliases=media_aliases)
+     ready = check_plan_export_readiness(
+         plan,
+         known_indices=known,
+         offline_indices=offline,
+-        media_durations=collect_project_media_durations(config),
++        media_durations=collect_project_media_durations(config, media_aliases=media_aliases),
+         analysis_timelines=collect_project_analysis_timelines(config),
+         source="original",
+         target_duration_sec=float(getattr(config.plan, "target_duration_sec", 0) or 0),
+diff --git a/clio/tests/test_fix_plan_readiness.py b/clio/tests/test_fix_plan_readiness.py
+--- a/clio/tests/test_fix_plan_readiness.py
++++ b/clio/tests/test_fix_plan_readiness.py
+@@ -86,3 +86,32 @@
+     )
+ 
+     assert collect_project_media_durations(_durations_cfg(compressed)) == {"002": 10.0}
++
++
++def test_collectors_reuse_precomputed_media_aliases(tmp_path, monkeypatch):
++    compressed = tmp_path / "compressed"
++    compressed.mkdir()
++    (compressed / "002_new.mp4").write_bytes(b"x")
++    texts = tmp_path / "texts"
++    texts.mkdir()
++
++    def rescan(_cfg):
++        raise AssertionError("aliases must not be recomputed when passed in")
++
++    monkeypatch.setattr("clio.plan_readiness.collect_media_index_aliases", rescan)
++    monkeypatch.setattr("clio.plan_readiness.resolve_binary", lambda *_args: "ffprobe")
++    monkeypatch.setattr("clio.plan_readiness.get_duration_sec", lambda *_args: 6.0)
++    cfg = SimpleNamespace(
++        compressed_dir=compressed,
++        texts_dir=texts,
++        project_dir=None,
++        naming=SimpleNamespace(index_width=3),
++        paths=SimpleNamespace(ffprobe=""),
++    )
++    aliases = {"001": {"002"}}
++
++    known, _offline = collect_project_indices(cfg, media_aliases=aliases)
++    durations = collect_project_media_durations(cfg, media_aliases=aliases)
++
++    assert "001" in known and "002" in known
++    assert durations == {"002": 6.0, "001": 6.0}

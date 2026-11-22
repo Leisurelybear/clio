@@ -1,0 +1,167 @@
+diff --git a/clio/ui/static/src/video-info.js b/clio/ui/static/src/video-info.js
+--- a/clio/ui/static/src/video-info.js
++++ b/clio/ui/static/src/video-info.js
+@@ -7,7 +7,10 @@
+ import { t } from './i18n.js';
+ 
+ const HOVER_DELAY_MS = 400;
++const CACHE_MAX_ENTRIES = 200;
+ const _cache = new Map();
++/** In-flight probes, so hover + modal on the same row share one ffprobe. */
++const _inflight = new Map();
+ 
+ let _tipEl = null;
+ let _hoverTimer = null;
+@@ -29,6 +32,7 @@
+ 
+ export function clearVideoInfoCache() {
+   _cache.clear();
++  _inflight.clear();
+ }
+ 
+ export function formatBytes(bytes) {
+@@ -158,13 +162,24 @@
+ async function _loadInfo(video, source) {
+   const key = cacheKey(video, source);
+   if (_cache.has(key)) return _cache.get(key);
+-  try {
+-    const info = await fetchVideoInfo(video, source);
+-    _cache.set(key, info);
+-    return info;
+-  } catch (e) {
+-    return { ok: false, error: String(e?.message || e) };
+-  }
++  if (_inflight.has(key)) return _inflight.get(key);
++  const pending = (async () => {
++    try {
++      const info = await fetchVideoInfo(video, source);
++      if (_inflight.get(key) === pending) {
++        _cache.set(key, info);
++        // Map keeps insertion order: drop the oldest entries past the cap.
++        while (_cache.size > CACHE_MAX_ENTRIES) _cache.delete(_cache.keys().next().value);
++      }
++      return info;
++    } catch (e) {
++      return { ok: false, error: String(e?.message || e) };
++    } finally {
++      if (_inflight.get(key) === pending) _inflight.delete(key);
++    }
++  })();
++  _inflight.set(key, pending);
++  return pending;
+ }
+ 
+ function _infoHtml(info) {
+@@ -249,8 +264,23 @@
+   _positionTip(li, tip);
+   const info = await _loadInfo(video, source);
+   if (_activeLi !== li) return;
++  if (!li.isConnected) {
++    // The row was re-rendered meanwhile; it will never get a mouseleave.
++    _activeLi = null;
++    _hideTip();
++    return;
++  }
+   tip.innerHTML = _infoHtml(info);
+   _positionTip(li, tip);
++}
++
++/** Close the hover card and drop pending hover state (rows are being replaced). */
++export function hideVideoInfoTip() {
++  clearTimeout(_hoverTimer);
++  _hoverTimer = null;
++  _cancelHide();
++  _activeLi = null;
++  _hideTip();
+ }
+ 
+ /** Wire delayed hover tooltip on one sidebar row. */
+@@ -266,6 +296,7 @@
+       _hideTip();
+     }
+     _hoverTimer = setTimeout(() => {
++      if (!li.isConnected) return;
+       _activeLi = li;
+       _showTip(li, video, source);
+     }, HOVER_DELAY_MS);
+diff --git a/clio/ui/static/src/sidebar-data.js b/clio/ui/static/src/sidebar-data.js
+--- a/clio/ui/static/src/sidebar-data.js
++++ b/clio/ui/static/src/sidebar-data.js
+@@ -18,7 +18,7 @@
+ } from './sidebar-video-filter.js';
+ import { toggleSelectionFor, videoSelectionKey } from './video-selection.js';
+ import { selectVideosButtonHtml } from './select-btn.js';
+-import { bindVideoInfoHover, clearVideoInfoCache } from './video-info.js';
++import { bindVideoInfoHover, clearVideoInfoCache, hideVideoInfoTip } from './video-info.js';
+ import { t, onLocaleChange } from './i18n.js';
+ import { confirmDialog } from './confirm.js';
+ import { renderFilterChips, renderOfflineSummary, renderStageCountBar } from './sidebar-video-overview.js';
+@@ -400,6 +400,8 @@
+ export function renderVideoList() {
+   const ul = $('video-list');
+   if (!ul) return;
++  // Rows are rebuilt below; a card anchored to an old row would never close.
++  hideVideoInfoTip();
+   hideVideoListLoading();
+   ul.innerHTML = '';
+   renderOfflineSummary();
+diff --git a/clio/ui/static/src/__tests__/video-info.test.js b/clio/ui/static/src/__tests__/video-info.test.js
+--- a/clio/ui/static/src/__tests__/video-info.test.js
++++ b/clio/ui/static/src/__tests__/video-info.test.js
+@@ -20,6 +20,7 @@
+   formatDuration,
+   formatFps,
+   formatMtime,
++  hideVideoInfoTip,
+   infoSectionsToHtml,
+   openVideoInfoModal,
+ } from '../video-info.js';
+@@ -227,6 +228,48 @@
+     expect(tip.classList.contains('open')).toBe(false);
+   });
+ 
++  it('shares one in-flight probe between hover and the modal', async () => {
++    let finish;
++    api.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
++    document.body.insertAdjacentHTML('beforeend', `
++      <div id="modal-video-info" class="modal" style="display:none;">
++        <span id="video-info-name"></span><div id="video-info-body"></div>
++      </div>`);
++    const li = document.getElementById('row');
++    const video = { file: '001_a.mp4' };
++    bindVideoInfoHover(li, video, 'compressed');
++
++    li.dispatchEvent(new MouseEvent('mouseenter'));
++    await vi.advanceTimersByTimeAsync(400);
++    const modal = openVideoInfoModal(video, 'compressed');
++    expect(api).toHaveBeenCalledTimes(1);
++    finish(SAMPLE_INFO);
++    await modal;
++    expect(document.getElementById('video-info-body').textContent).toContain('640×360');
++  });
++
++  it('does not open a card for a row replaced before the delay', async () => {
++    api.mockResolvedValue(SAMPLE_INFO);
++    const li = document.getElementById('row');
++    bindVideoInfoHover(li, { file: '001_a.mp4' }, 'compressed');
++    li.dispatchEvent(new MouseEvent('mouseenter'));
++    li.remove();
++    await vi.advanceTimersByTimeAsync(400);
++    expect(api).not.toHaveBeenCalled();
++    expect(document.querySelector('.video-info-tooltip.open')).toBeNull();
++  });
++
++  it('closes the card when hideVideoInfoTip is called on re-render', async () => {
++    api.mockResolvedValue(SAMPLE_INFO);
++    const li = document.getElementById('row');
++    bindVideoInfoHover(li, { file: '001_a.mp4' }, 'compressed');
++    li.dispatchEvent(new MouseEvent('mouseenter'));
++    await vi.advanceTimersByTimeAsync(400);
++    expect(document.querySelector('.video-info-tooltip').classList.contains('open')).toBe(true);
++    hideVideoInfoTip();
++    expect(document.querySelector('.video-info-tooltip').classList.contains('open')).toBe(false);
++  });
++
+   it('does not fetch when the pointer leaves before the delay', async () => {
+     const li = document.getElementById('row');
+     bindVideoInfoHover(li, { file: '001_a.mp4' }, 'compressed');

@@ -1,0 +1,100 @@
+diff --git a/clio/tasks/analyze.py b/clio/tasks/analyze.py
+--- a/clio/tasks/analyze.py
++++ b/clio/tasks/analyze.py
+@@ -75,6 +75,7 @@
+     _path_key,
+     _project_selection_stems,
+     _selection_from_files,
++    _stem_variants,
+     _task_lineage_settings,
+     _write_csv,
+     _write_text_file,
+@@ -1334,6 +1335,24 @@
+     return prefer_canonical_compressed(paths)
+ 
+ 
++def _compressed_belongs_to(compressed: Path, single_file: Path) -> bool:
++    """True when *compressed* was produced from *single_file*.
++
++    The ``.vmeta`` source path decides when it still points at an existing file;
++    otherwise the compressed stem must equal the original stem (index prefix and
++    legacy split suffix stripped), never merely contain it.
++    """
++    meta = VideoMeta.read(compressed)
++    if meta is not None:
++        source = meta.source_path_obj()
++        try:
++            if source.is_file():
++                return source.resolve() == single_file.resolve()
++        except OSError:
++            pass
++    return single_file.stem.lower() in _stem_variants(compressed.stem, include_segment_base=True)
++
++
+ def _collect_single_file_items(
+     single_file: Path,
+     config: AppConfig,
+@@ -1349,7 +1368,7 @@
+     else:
+         # Fall back to original-stem matching so every matching segment is analyzed.
+         comp_paths = [
+-            p for p in _list_compressed_videos(config.compressed_dir) if single_file.stem.lower() in p.stem.lower()
++            p for p in _list_compressed_videos(config.compressed_dir) if _compressed_belongs_to(p, single_file)
+         ]
+         if not comp_paths:
+             print(t("task.analyze.compressed_missing", {"name": single_file.name}))
+diff --git a/clio/tests/test_fix_analyze_single.py b/clio/tests/test_fix_analyze_single.py
+new file mode 100644
+--- /dev/null
++++ b/clio/tests/test_fix_analyze_single.py
+@@ -0,0 +1,50 @@
++"""Regression tests: single-file re-analyze must not match other videos by substring."""
++
++from __future__ import annotations
++
++from pathlib import Path
++from types import SimpleNamespace
++from typing import cast
++
++from clio.config import AppConfig
++from clio.tasks.analyze import _collect_single_file_items
++from clio.vmeta import VideoMeta
++
++
++def _config(compressed_dir: Path) -> AppConfig:
++    return cast(AppConfig, SimpleNamespace(compressed_dir=compressed_dir))
++
++
++def test_stem_prefix_of_another_video_is_not_matched(tmp_path: Path):
++    comp = tmp_path / "compressed"
++    comp.mkdir()
++    for name in ("001_GH01_seg01.mp4", "002_GH0123.mp4", "003_GH01_seg02.mp4", "004_xGH01.mp4"):
++        (comp / name).write_bytes(b"c")
++    original = tmp_path / "GH01.MP4"
++    original.write_bytes(b"o")
++
++    items = _collect_single_file_items(original, _config(comp))
++
++    assert items is not None
++    assert sorted(item[0].name for item in items) == ["001_GH01_seg01.mp4", "003_GH01_seg02.mp4"]
++
++
++def test_vmeta_source_path_wins_over_stem(tmp_path: Path):
++    comp = tmp_path / "compressed"
++    comp.mkdir()
++    mine = tmp_path / "a" / "GH01.MP4"
++    other = tmp_path / "b" / "GH01.MP4"
++    for p in (mine, other):
++        p.parent.mkdir()
++        p.write_bytes(b"o")
++    own = comp / "001_GH01.mp4"
++    foreign = comp / "002_GH01.mp4"
++    own.write_bytes(b"c1")
++    foreign.write_bytes(b"c2")
++    VideoMeta.build(source=mine, target=own, source_duration=1.0, target_duration=1.0).write(own)
++    VideoMeta.build(source=other, target=foreign, source_duration=1.0, target_duration=1.0).write(foreign)
++
++    items = _collect_single_file_items(mine, _config(comp))
++
++    assert items is not None
++    assert [item[0].name for item in items] == ["001_GH01.mp4"]

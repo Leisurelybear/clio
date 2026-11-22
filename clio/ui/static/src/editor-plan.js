@@ -19,6 +19,7 @@ import { exportJianyingDraft } from './plan-export.js';
 import { waitForTask } from './task-center.js';
 import { openPlanRangePicker } from './plan-range-picker.js';
 import { openPlanInsertModal } from './editor-plan-insert.js';
+import { findPlanVideo } from './plan-video.js';
 import {
   configurePlanReadiness,
   getPlanReadiness,
@@ -237,7 +238,7 @@ function openRangePickerForSegment(segIndex) {
   const p = state.plan;
   if (!p?.sequence?.[segIndex]) return;
   const seg = p.sequence[segIndex];
-  const v = (state.videos || []).find((x) => String(x.index) === String(seg.index));
+  const v = findPlanVideo(state.videos, seg.index);
   if (!v?.file) {
     addToast(t('plan.video_not_found_range', { index: seg.index || '?' }), 'warning');
     return;
@@ -422,7 +423,7 @@ export function renderPlan() {
       if (sameExpanded && samePreview) return;
 
       _expandedSegIndex = i;
-      const v = state.videos.find(x => String(x.index) === String(seg.index));
+      const v = findPlanVideo(state.videos, seg.index);
       if (!v) {
         setStatus(t('plan.video_not_found', { index: seg.index }), 'warn');
         renderPlan();

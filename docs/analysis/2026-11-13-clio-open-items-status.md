@@ -116,6 +116,15 @@ passed. No live AI pipeline was started during verification.
 | P2 | 59 | 31 | 28 | 0 | 0 | 0 | 0 | 0 | 0 |
 | P3 | 14 | 10 | 2 | 0 | 2 | 0 | 0 | 0 | 0 |
 
+Working-tree review (2026-11-21): the
+[full review](2026-11-21-clio-full-review.md) re-verified the carried R03-R17 rows against the
+current tree and added local N01-N07. It found two new P1 media-identity defects (stale-index cuts
+and export rebuilt from raw analysis indexes), plus preview re-scan cost, duplicated identity
+helpers, a wrong plan-dedupe reason, token-in-URL, and a typecheck coverage gap. The current
+working tree fails `ruff format --check` (4 files), `mypy` (4 test errors), and one Vitest price
+assertion; the backend suite result is unconfirmed. N- and V-series IDs are local to that review
+and are not folded into the historical 117-row totals.
+
 ## Item status
 
 | # | Priority | ID | Issue | Status | Evidence / verification |

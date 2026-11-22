@@ -1,0 +1,85 @@
+diff --git a/clio/analyze.py b/clio/analyze.py
+--- a/clio/analyze.py
++++ b/clio/analyze.py
+@@ -1944,19 +1944,27 @@
+         if outline is None:
+             print(t("analyze.plan_outline_fallback"))
+ 
+-        draft_text = call_stage(
+-            t("analyze.label.vlog_plan"),
+-            _make_shot_selection_prompt(
+-                outline,
+-                base=base,
+-                context_suffix=context_suffix,
+-                day_label=day_label,
+-                config=config,
+-                context_override=context_override,
+-            ),
+-            VLOG_PLAN_OUTPUT,
+-        )
+-        draft = _validate_plan(extract_json(draft_text), day_label)
++        draft_prompt = _make_shot_selection_prompt(
++            outline,
++            base=base,
++            context_suffix=context_suffix,
++            day_label=day_label,
++            config=config,
++            context_override=context_override,
++        )
++        draft_text = call_stage(t("analyze.label.vlog_plan"), draft_prompt, VLOG_PLAN_OUTPUT)
++        try:
++            draft_payload = extract_json(draft_text)
++        except ValueError as exc:
++            # One parse retry, like analyze/voiceover: don't waste the shortlist/outline tokens.
++            print(t("analyze.parse_retry", {"errors": str(exc)}))
++            draft_text = call_stage(
++                t("analyze.label.vlog_plan"),
++                draft_prompt + "\n\n" + PARSE_RETRY_PROMPT,
++                VLOG_PLAN_OUTPUT,
++            )
++            draft_payload = extract_json(draft_text)
++        draft = _validate_plan(draft_payload, day_label)
+         raw_sequence_count = len(draft.get("sequence", []))
+         draft, draft_issues = _validate_plan_candidate(
+             draft,
+diff --git a/clio/tests/test_analyze_funcs.py b/clio/tests/test_analyze_funcs.py
+--- a/clio/tests/test_analyze_funcs.py
++++ b/clio/tests/test_analyze_funcs.py
+@@ -2260,3 +2260,37 @@
+ 
+     assert seen
+     assert all(event is cancel for event in seen)
++
++
++def test_plan_daily_vlog_retries_draft_once_on_invalid_json(monkeypatch):
++    from clio.i18n import t
++    from clio.prompts import PARSE_RETRY_PROMPT
++
++    cfg = _fake_config()
++    draft_label = t("analyze.label.vlog_plan")
++    draft_prompts: list[str] = []
++    plan_json = json.dumps(
++        {
++            "day_title": "day1",
++            "theme": "",
++            "total_estimated_sec": 10,
++            "sequence": [{"index": "001", "use_timeline": "00:00-00:10"}],
++        }
++    )
++
++    def fake_call_ai(label: str, _provider: str, _model: str, prompt: str, *_a: Any, **_kw: Any) -> str:
++        if label == draft_label:
++            draft_prompts.append(prompt)
++            if len(draft_prompts) == 1:
++                return "sorry, here is the plan: not json"
++        return plan_json
++
++    monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (MagicMock(), "model"))
++    monkeypatch.setattr("clio.analyze._call_ai", fake_call_ai)
++    clips = [{"index": "001", "title": "A", "timeline": [{"start": "00:00", "end": "00:10", "description": "x"}]}]
++
++    result = plan_daily_vlog(clips, cfg, "day1", use_transcripts=False)
++
++    assert result["sequence"][0]["index"] == "001"
++    assert len(draft_prompts) == 2
++    assert PARSE_RETRY_PROMPT in draft_prompts[1]

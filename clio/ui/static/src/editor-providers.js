@@ -7,6 +7,15 @@ import { t } from './i18n.js';
 import { state } from './state.js';
 import { attachCredentialFields, renderCredentialField, saveCredential } from './credential-field.js';
 import { escapeHtml, markDirty, setStatus } from './utils.js';
+import {
+  applyMissingPricePresets,
+  configuredModelPrice,
+  formatModelPrice,
+  hasModelPriceEntry,
+  officialPriceCatalogKey,
+  officialPriceSourceFor,
+  PRICE_PRESET_VERIFIED_AT,
+} from './editor-model-prices.js';
 
 export const DEFAULT_PROVIDERS = ['gemini', 'openai', 'deepseek'];
 
@@ -47,8 +56,14 @@ export function providerEnvName(name) {
 }
 
 export const DEFAULT_MODELS = {
-  gemini: ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3-flash', 'gemini-3.1-flash-lite', 'gemini-3.5-flash'],
-  openai: ['gpt-4o', 'gpt-4o-mini'],
+  gemini: [
+    'gemini-3.8-flash',
+    'gemini-3.6-flash',
+    'gemini-3.5-flash-lite',
+    'gemini-3.1-flash-lite',
+    'gemini-2.5-flash',
+  ],
+  openai: ['gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.4', 'gpt-5.4-mini'],
   deepseek: ['deepseek-flash', 'deepseek-v4-pro'],
 };
 const DEFAULT_CAPABILITIES = {
@@ -128,15 +143,22 @@ export function renderProviderList(providers, descs) {
     const typeLabel = providerTypeLabel(p.type);
     const hasModels = p.models && p.models.length > 0;
     const modelTags = hasModels
-      ? p.models.map(m => `<span class="tag-chip">${escapeHtml(m)}</span>`).join(' ')
+      ? p.models.map((model) => {
+        const pair = hasModelPriceEntry(p, model) ? configuredModelPrice(p, model) : null;
+        if (!pair) return `<span class="tag-chip">${escapeHtml(model)}</span>`;
+        const price = escapeHtml(formatModelPrice(pair[0], pair[1]));
+        return `<span class="tag-chip provider-model-price-chip"><span>${escapeHtml(model)}</span><span class="provider-model-price">· ${price}</span></span>`;
+      }).join(' ')
       : `<span class="warn">⚠️ ${t('settings.provider.no_models_badge')}</span>`;
     const capabilityTags = providerCapabilities(p)
       .map(c => `<span class="tag-chip">${escapeHtml(c)}</span>`)
       .join(' ');
-    const promptPrice = Number(p.prompt_price_per_1m_usd || 0);
-    const completionPrice = Number(p.completion_price_per_1m_usd || 0);
-    const priceField = promptPrice > 0 || completionPrice > 0
-      ? `<div class="provider-card-field"><span class="provider-card-label">${t('settings.provider.field.price')}</span><span>${escapeHtml(t('settings.provider.field.price_summary', { prompt: String(promptPrice), completion: String(completionPrice) }))}</span></div>`
+    const legacyPrice = configuredModelPrice({
+      prompt_price_per_1m_usd: p.prompt_price_per_1m_usd,
+      completion_price_per_1m_usd: p.completion_price_per_1m_usd,
+    }, '__legacy__');
+    const legacyPriceField = legacyPrice
+      ? `<div class="provider-card-field provider-legacy-price"><span class="provider-card-label">${t('settings.provider.price.legacy_fallback')}</span><span><strong>${escapeHtml(formatModelPrice(legacyPrice[0], legacyPrice[1]))}</strong><span class="hint provider-price-hint">${t('settings.provider.price.legacy_hint')}</span></span></div>`
       : '';
 
     html += `<div class="provider-card" data-provider="${escapeHtml(name)}">
@@ -158,7 +180,7 @@ export function renderProviderList(providers, descs) {
         <div class="provider-card-field"><span class="provider-card-label">max_tokens</span><span>${p.max_tokens === 0 || p.max_tokens == null ? t('settings.provider.field.unlimited') : escapeHtml(String(p.max_tokens))}</span></div>
         ${p.type === 'gemini' ? `<div class="provider-card-field"><span class="provider-card-label">video_upload_max_mb</span><span>${escapeHtml(String(p.video_upload_max_mb ?? 200))} MB</span></div>` : ''}
         <div class="provider-card-field"><span class="provider-card-label">timeout</span><span>${escapeHtml(String(p.timeout_sec ?? 120))}s</span></div>
-        ${priceField}
+        ${legacyPriceField}
         <div class="provider-test-status" data-provider="${escapeHtml(name)}"></div>
       </div>
     </div>`;
@@ -182,91 +204,110 @@ function _showProviderModal(providersObj, name, onSave) {
 
   backdrop.innerHTML = `
     <div class="modal-backdrop"></div>
-    <div class="modal-dialog" style="max-width:520px">
+    <div class="modal-dialog provider-modal-dialog">
       <h3 style="margin:0 0 var(--space-4)">${isEdit ? t('settings.provider.edit_title') : t('settings.provider.add_title')}</h3>
-      <div class="form-group">
-        <label class="form-label">${t('settings.provider.field.name')} <span class="muted">${t('settings.provider.field.name_hint')}</span></label>
-        <input id="modal-provider-name" class="form-input" value="${escapeHtml(name || '')}" placeholder="${t('settings.provider.field.name_placeholder')}">
-      </div>
-      <div class="form-group">
-        <label class="form-label">${t('settings.provider.field.type')}</label>
-        <select id="modal-provider-type" class="form-input">${typeOptions}</select>
-        <span class="hint">${t('settings.provider.field.type_hint')}</span>
-      </div>
-      <div class="form-group">
-        <label class="form-label">${t('settings.provider.field.api_key')}</label>
-        <div style="display:flex;gap:8px">
-          <input id="modal-provider-key" class="form-input" type="password" placeholder="${t('settings.provider.field.key_placeholder')}" style="flex:1">
-          <button id="modal-key-toggle" class="btn-secondary">${t('settings.provider.show_key')}</button>
+      <div class="provider-modal-body">
+        <div class="form-group">
+          <label class="form-label">${t('settings.provider.field.name')} <span class="muted">${t('settings.provider.field.name_hint')}</span></label>
+          <input id="modal-provider-name" class="form-input" value="${escapeHtml(name || '')}" placeholder="${t('settings.provider.field.name_placeholder')}">
         </div>
-        <span class="hint">${t('settings.provider.field.key_hint')}${isEdit ? t('settings.provider.field.key_hint_edit') : ''}</span>
-      </div>
-      <div class="form-group" id="modal-base-url-group" style="${existing?.type === 'gemini' && !isEdit ? 'display:none' : ''}">
-        <label class="form-label">${t('settings.provider.field.base_url')}</label>
-        <input id="modal-provider-base-url" class="form-input" value="${escapeHtml(existing?.base_url || '')}" placeholder="https://api.openai.com/v1">
-        <span class="hint">${t('settings.provider.field.base_url_hint')}</span>
-      </div>
-      <div class="form-group">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-          <label class="form-label" style="margin:0">${t('settings.provider.field.models_label')} <span class="muted">${t('settings.provider.field.enter_to_add')}</span></label>
-          <button id="modal-load-models" type="button" class="btn-secondary" style="font-size:var(--text-xs)">${icon('refresh', 13)} ${t('settings.provider.load_models')}</button>
+        <div class="form-group">
+          <label class="form-label">${t('settings.provider.field.type')}</label>
+          <select id="modal-provider-type" class="form-input">${typeOptions}</select>
+          <span class="hint">${t('settings.provider.field.type_hint')}</span>
         </div>
-        <div id="modal-provider-models"></div>
-        <span class="hint">${t('settings.provider.field.models_hint')}</span>
-      </div>
-      <div class="form-group">
-        <label class="form-label">${t('settings.provider.field.capabilities_label')} <span class="muted">${t('settings.provider.field.enter_to_add')}</span></label>
-        <div id="modal-provider-capabilities"></div>
-        <span class="hint">${t('settings.provider.field.capabilities_hint')}</span>
-      </div>
-      <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div>
-          <label class="form-label">max_tokens</label>
-          <input id="modal-provider-max-tokens" class="form-input" type="number" min="0" step="1"
-            value="${existing?.max_tokens ?? 0}">
-          <span class="hint">${t('settings.provider.field.max_tokens_hint')}</span>
+        <div class="form-group">
+          <label class="form-label">${t('settings.provider.field.api_key')}</label>
+          <div style="display:flex;gap:8px">
+            <input id="modal-provider-key" class="form-input" type="password" placeholder="${t('settings.provider.field.key_placeholder')}" style="flex:1">
+            <button id="modal-key-toggle" class="btn-secondary">${t('settings.provider.show_key')}</button>
+          </div>
+          <span class="hint">${t('settings.provider.field.key_hint')}${isEdit ? t('settings.provider.field.key_hint_edit') : ''}</span>
         </div>
-        <div>
-          <label class="form-label">timeout_sec</label>
-          <input id="modal-provider-timeout" class="form-input" type="number" min="0" step="1"
-            value="${existing?.timeout_sec ?? 120}">
-          <span class="hint">${t('settings.provider.field.timeout_hint')}</span>
+        <div class="form-group" id="modal-base-url-group" style="${existing?.type === 'gemini' && !isEdit ? 'display:none' : ''}">
+          <label class="form-label">${t('settings.provider.field.base_url')}</label>
+          <input id="modal-provider-base-url" class="form-input" value="${escapeHtml(existing?.base_url || '')}" placeholder="https://api.openai.com/v1">
+          <span class="hint">${t('settings.provider.field.base_url_hint')}</span>
         </div>
-        <div>
-          <label class="form-label">retry_attempts</label>
-          <input id="modal-provider-retry" class="form-input" type="number" min="0" step="1"
-            value="${existing?.retry_attempts ?? 2}">
-          <span class="hint">${t('settings.provider.field.retry_hint')}</span>
+        <div class="form-group">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <label class="form-label" style="margin:0">${t('settings.provider.field.models_label')} <span class="muted">${t('settings.provider.field.enter_to_add')}</span></label>
+            <button id="modal-load-models" type="button" class="btn-secondary" style="font-size:var(--text-xs)">${icon('refresh', 13)} ${t('settings.provider.load_models')}</button>
+          </div>
+          <div id="modal-provider-models"></div>
+          <span class="hint">${t('settings.provider.field.models_hint')}</span>
         </div>
-        <div>
-          <label class="form-label">requests_per_minute</label>
-          <input id="modal-provider-rpm" class="form-input" type="number" min="0" step="1"
-            value="${existing?.requests_per_minute ?? 0}">
-          <span class="hint">${t('settings.provider.field.rpm_hint')}</span>
+        <div class="form-group model-price-editor">
+          <div class="model-price-editor-header">
+            <div>
+              <span class="form-label">${t('settings.provider.price.heading')}</span>
+              <span class="hint">${t('settings.provider.price.model_price_hint')}</span>
+            </div>
+            <button id="modal-apply-price-presets" type="button" class="btn-secondary">${icon('check', 13)} ${t('settings.provider.price.apply_presets')}</button>
+          </div>
+          <div id="modal-model-prices" class="model-price-rows"></div>
+          <div id="modal-price-catalog" class="price-catalog-note"></div>
         </div>
-        <div id="modal-poll-group" style="${(existing?.type || 'gemini') === 'gemini' ? '' : 'display:none'}">
-          <label class="form-label">poll_interval_sec</label>
-          <input id="modal-provider-poll" class="form-input" type="number" min="0" step="1"
-            value="${existing?.poll_interval_sec ?? 5}">
-          <span class="hint">${t('settings.provider.field.poll_hint')}</span>
+        <div class="form-group provider-legacy-prices">
+          <div class="provider-legacy-prices-header">
+            <span class="form-label">${t('settings.provider.price.legacy_fallback')}</span>
+            <span class="hint">${t('settings.provider.price.legacy_hint')}</span>
+          </div>
+          <div class="provider-legacy-price-grid">
+            <div>
+              <label class="form-label">prompt_price_per_1m_usd</label>
+              <input id="modal-provider-prompt-price" class="form-input" type="number" min="0" step="0.01"
+                value="${existing?.prompt_price_per_1m_usd ?? 0}">
+            </div>
+            <div>
+              <label class="form-label">completion_price_per_1m_usd</label>
+              <input id="modal-provider-completion-price" class="form-input" type="number" min="0" step="0.01"
+                value="${existing?.completion_price_per_1m_usd ?? 0}">
+            </div>
+          </div>
         </div>
-        <div id="modal-video-upload-group" style="${(existing?.type || 'gemini') === 'gemini' ? '' : 'display:none'}">
-          <label class="form-label">video_upload_max_mb</label>
-          <input id="modal-provider-upload-max" class="form-input" type="number" min="1" step="1"
-            value="${existing?.video_upload_max_mb ?? 200}">
-          <span class="hint">${t('settings.provider.field.video_upload_max_mb_hint')}</span>
+        <div class="form-group">
+          <label class="form-label">${t('settings.provider.field.capabilities_label')} <span class="muted">${t('settings.provider.field.enter_to_add')}</span></label>
+          <div id="modal-provider-capabilities"></div>
+          <span class="hint">${t('settings.provider.field.capabilities_hint')}</span>
         </div>
-        <div>
-          <label class="form-label">prompt_price_per_1m_usd</label>
-          <input id="modal-provider-prompt-price" class="form-input" type="number" min="0" step="0.01"
-            value="${existing?.prompt_price_per_1m_usd ?? 0}">
-          <span class="hint">${t('settings.provider.field.prompt_price_hint')}</span>
-        </div>
-        <div>
-          <label class="form-label">completion_price_per_1m_usd</label>
-          <input id="modal-provider-completion-price" class="form-input" type="number" min="0" step="0.01"
-            value="${existing?.completion_price_per_1m_usd ?? 0}">
-          <span class="hint">${t('settings.provider.field.completion_price_hint')}</span>
+        <div class="form-group provider-runtime-grid">
+          <div>
+            <label class="form-label">max_tokens</label>
+            <input id="modal-provider-max-tokens" class="form-input" type="number" min="0" step="1"
+              value="${existing?.max_tokens ?? 0}">
+            <span class="hint">${t('settings.provider.field.max_tokens_hint')}</span>
+          </div>
+          <div>
+            <label class="form-label">timeout_sec</label>
+            <input id="modal-provider-timeout" class="form-input" type="number" min="0" step="1"
+              value="${existing?.timeout_sec ?? 120}">
+            <span class="hint">${t('settings.provider.field.timeout_hint')}</span>
+          </div>
+          <div>
+            <label class="form-label">retry_attempts</label>
+            <input id="modal-provider-retry" class="form-input" type="number" min="0" step="1"
+              value="${existing?.retry_attempts ?? 2}">
+            <span class="hint">${t('settings.provider.field.retry_hint')}</span>
+          </div>
+          <div>
+            <label class="form-label">requests_per_minute</label>
+            <input id="modal-provider-rpm" class="form-input" type="number" min="0" step="1"
+              value="${existing?.requests_per_minute ?? 0}">
+            <span class="hint">${t('settings.provider.field.rpm_hint')}</span>
+          </div>
+          <div id="modal-poll-group" style="${(existing?.type || 'gemini') === 'gemini' ? '' : 'display:none'}">
+            <label class="form-label">poll_interval_sec</label>
+            <input id="modal-provider-poll" class="form-input" type="number" min="0" step="1"
+              value="${existing?.poll_interval_sec ?? 5}">
+            <span class="hint">${t('settings.provider.field.poll_hint')}</span>
+          </div>
+          <div id="modal-video-upload-group" style="${(existing?.type || 'gemini') === 'gemini' ? '' : 'display:none'}">
+            <label class="form-label">video_upload_max_mb</label>
+            <input id="modal-provider-upload-max" class="form-input" type="number" min="1" step="1"
+              value="${existing?.video_upload_max_mb ?? 200}">
+            <span class="hint">${t('settings.provider.field.video_upload_max_mb_hint')}</span>
+          </div>
         </div>
       </div>
       <div class="modal-actions">
@@ -278,8 +319,11 @@ function _showProviderModal(providersObj, name, onSave) {
   `;
   document.body.appendChild(backdrop);
 
-  // Tag input for models — pre-populate defaults for known providers
+  // Tag input for models — pre-populate defaults only when opening a known
+  // provider editor; configuration rendering itself never mutates the config.
   const modelsContainer = backdrop.querySelector('#modal-provider-models');
+  const pricesContainer = backdrop.querySelector('#modal-model-prices');
+  const priceCatalog = backdrop.querySelector('#modal-price-catalog');
   let modelsList;
   if (existing) {
     modelsList = existing.models?.length ? [...existing.models] : [...(DEFAULT_MODELS[name] || [])];
@@ -287,11 +331,218 @@ function _showProviderModal(providersObj, name, onSave) {
     modelsList = [];
   }
   let draftRevision = 0;
+
+  const initialPrices = existing?.model_prices && typeof existing.model_prices === 'object'
+    ? existing.model_prices
+    : {};
+  const priceDrafts = Object.create(null);
+  for (const model of modelsList) {
+    if (!Object.prototype.hasOwnProperty.call(initialPrices, model)) continue;
+    const entry = initialPrices[model] || {};
+    const toText = (value) => {
+      if (value === null || value === undefined || typeof value === 'boolean') return '';
+      if (typeof value === 'string' && value.trim() === '') return '';
+      const number = Number(value);
+      return Number.isFinite(number) && number >= 0 ? String(number) : '';
+    };
+    priceDrafts[model] = Object.assign(Object.create(null), {
+      prompt: toText(entry.prompt_price_per_1m_usd),
+      completion: toText(entry.completion_price_per_1m_usd),
+    });
+  }
+
+  const priceDraftFor = (model) => {
+    if (!priceDrafts[model]) priceDrafts[model] = Object.assign(Object.create(null), { prompt: '', completion: '' });
+    return priceDrafts[model];
+  };
+
+  const hasDraftPrice = (model) => {
+    const draft = priceDrafts[model];
+    return Boolean(draft && (draft.prompt.trim() !== '' || draft.completion.trim() !== ''));
+  };
+
+  const parseDraftPrice = (value) => {
+    const text = String(value ?? '').trim();
+    if (!text) return null;
+    const number = Number(text);
+    return Number.isFinite(number) && number >= 0 ? number : null;
+  };
+
+  const draftPriceEntries = () => {
+    const entries = Object.create(null);
+    for (const model of modelsList) {
+      const draft = priceDrafts[model];
+      if (!draft || (!draft.prompt.trim() && !draft.completion.trim())) continue;
+      entries[model] = {
+        prompt_price_per_1m_usd: draft.prompt,
+        completion_price_per_1m_usd: draft.completion,
+      };
+    }
+    return entries;
+  };
+
+  const validatePriceEntries = () => {
+    const entries = Object.create(null);
+    for (const model of modelsList) {
+      const draft = priceDrafts[model] || { prompt: '', completion: '' };
+      const promptText = draft.prompt.trim();
+      const completionText = draft.completion.trim();
+      if (!promptText && !completionText) continue;
+      if (!promptText || !completionText) {
+        return { ok: false, error: t('settings.provider.price.incomplete', { model }) };
+      }
+      const prompt = parseDraftPrice(promptText);
+      const completion = parseDraftPrice(completionText);
+      if (prompt === null || completion === null) {
+        return { ok: false, error: t('settings.provider.price.invalid', { model }) };
+      }
+      entries[model] = {
+        prompt_price_per_1m_usd: prompt,
+        completion_price_per_1m_usd: completion,
+      };
+    }
+    return { ok: true, entries };
+  };
+
+  const renderPriceCatalogInfo = () => {
+    const providerDraft = {
+      name: backdrop.querySelector('#modal-provider-name')?.value.trim() || '',
+      type: backdrop.querySelector('#modal-provider-type')?.value || '',
+      base_url: backdrop.querySelector('#modal-provider-base-url')?.value.trim() || '',
+    };
+    const key = officialPriceCatalogKey(providerDraft);
+    const source = officialPriceSourceFor(providerDraft);
+    let detail = '';
+    if (key === 'ollama') {
+      detail = `<span>${t('settings.provider.price.ollama_free')}</span>`;
+    } else if (key) {
+      detail = `<span>${t('settings.provider.price.source')}: <a class="price-source-link" href="${escapeHtml(source)}" target="_blank" rel="noopener noreferrer">${escapeHtml(source)}</a></span>`;
+    } else {
+      detail = `<span>${t('settings.provider.price.catalog_unknown')}</span>`;
+    }
+    const deepseek = key === 'deepseek'
+      ? `<span>${t('settings.provider.price.deepseek_peak')} ${t('settings.provider.price.deepseek_low')}</span><span>${t('settings.provider.price.deepseek_rule')}</span>`
+      : '';
+    priceCatalog.innerHTML = `
+      <span>${t('settings.provider.price.verified_at', { date: PRICE_PRESET_VERIFIED_AT })}</span>
+      ${detail}
+      <span>${t('settings.provider.price.standard_context')}</span>
+      ${deepseek}`;
+  };
+
+  const draftPriceState = (model) => {
+    const draft = priceDrafts[model];
+    if (!draft) return 'not-configured';
+    const prompt = parseDraftPrice(draft.prompt);
+    const completion = parseDraftPrice(draft.completion);
+    if (prompt === 0 && completion === 0) return 'free';
+    if (prompt !== null && completion !== null) return 'configured';
+    return 'not-configured';
+  };
+
+  function updatePriceBadge(row, model) {
+    const badge = row?.querySelector('.price-state-badge');
+    if (!badge) return;
+    const state = draftPriceState(model);
+    badge.className = `price-state-badge ${state}`;
+    const key = state === 'free'
+      ? 'settings.provider.price.free'
+      : state === 'configured'
+        ? 'settings.provider.price.configured'
+        : 'settings.provider.price.not_configured';
+    badge.textContent = t(key);
+  }
+
+  const renderModelPrices = () => {
+    if (!modelsList.length) {
+      pricesContainer.innerHTML = `<p class="muted model-price-empty">${t('settings.provider.price.need_models')}</p>`;
+      return;
+    }
+    pricesContainer.innerHTML = modelsList.map((model) => {
+      const draft = priceDraftFor(model);
+      const configured = hasDraftPrice(model);
+      const priceState = draftPriceState(model);
+      const stateKey = priceState === 'free'
+        ? 'settings.provider.price.free'
+        : priceState === 'configured'
+          ? 'settings.provider.price.configured'
+          : 'settings.provider.price.not_configured';
+      return `<div class="model-price-row${configured ? ' configured' : ''}" data-price-model="${escapeHtml(model)}">
+        <div class="model-price-name">
+          <span class="provider-model-id">${escapeHtml(model)}</span>
+          <span class="price-state-badge ${priceState}">${t(stateKey)}</span>
+        </div>
+        <label class="model-price-field">
+          <span>${t('settings.provider.price.prompt')}</span>
+          <input class="form-input model-price-input" type="number" min="0" step="any" inputmode="decimal"
+            data-price-field="prompt" value="${escapeHtml(draft.prompt)}" placeholder="0">
+        </label>
+        <label class="model-price-field">
+          <span>${t('settings.provider.price.completion')}</span>
+          <input class="form-input model-price-input" type="number" min="0" step="any" inputmode="decimal"
+            data-price-field="completion" value="${escapeHtml(draft.completion)}" placeholder="0">
+        </label>
+      </div>`;
+    }).join('');
+  };
+
   const renderModelsInput = () => {
     modelsContainer.innerHTML = '';
-    renderTagInput(modelsContainer, modelsList, () => { draftRevision += 1; });
+    renderTagInput(modelsContainer, modelsList, () => {
+      draftRevision += 1;
+      renderModelPrices();
+    });
+    renderModelPrices();
   };
+
+  pricesContainer.addEventListener('input', (event) => {
+    const input = event.target.closest('[data-price-field]');
+    if (!input) return;
+    const row = input.closest('[data-price-model]');
+    const model = row?.dataset.priceModel;
+    if (!model || !modelsList.includes(model)) return;
+    const field = input.dataset.priceField;
+    if (field !== 'prompt' && field !== 'completion') return;
+    priceDraftFor(model)[field] = input.value;
+    row.classList.toggle('configured', hasDraftPrice(model));
+    updatePriceBadge(row, model);
+    draftRevision += 1;
+  });
+
+  backdrop.querySelector('#modal-apply-price-presets').onclick = () => {
+    if (!modelsList.length) {
+      void setStatus(t('settings.provider.price.need_models'), 'warn');
+      return;
+    }
+    const providerDraft = {
+      name: backdrop.querySelector('#modal-provider-name')?.value.trim() || '',
+      type: backdrop.querySelector('#modal-provider-type')?.value || '',
+      base_url: backdrop.querySelector('#modal-provider-base-url')?.value.trim() || '',
+      model_prices: draftPriceEntries(),
+    };
+    const next = applyMissingPricePresets(providerDraft, modelsList);
+    let added = 0;
+    for (const model of modelsList) {
+      const entry = next.model_prices?.[model];
+      if (!entry || Object.prototype.hasOwnProperty.call(providerDraft.model_prices, model)) continue;
+      priceDrafts[model] = Object.assign(Object.create(null), {
+        prompt: String(entry.prompt_price_per_1m_usd),
+        completion: String(entry.completion_price_per_1m_usd),
+      });
+      added += 1;
+    }
+    draftRevision += 1;
+    renderModelPrices();
+    void setStatus(
+      added
+        ? t('settings.provider.price.presets_applied', { count: added })
+        : t('settings.provider.price.no_presets'),
+      added ? 'ok' : 'warn',
+    );
+  };
+
   renderModelsInput();
+  renderPriceCatalogInfo();
 
   const draftRevisionFields = [
     '#modal-provider-name',
@@ -311,6 +562,11 @@ function _showProviderModal(providersObj, name, onSave) {
     const field = backdrop.querySelector(selector);
     field?.addEventListener('input', () => { draftRevision += 1; });
     field?.addEventListener('change', () => { draftRevision += 1; });
+  }
+  for (const selector of ['#modal-provider-name', '#modal-provider-type', '#modal-provider-base-url']) {
+    const field = backdrop.querySelector(selector);
+    field?.addEventListener('input', renderPriceCatalogInfo);
+    field?.addEventListener('change', renderPriceCatalogInfo);
   }
 
   backdrop.querySelector('#modal-load-models').onclick = async () => {
@@ -418,6 +674,8 @@ function _showProviderModal(providersObj, name, onSave) {
     if (!newName) { setStatus(t('settings.provider.name_required'), 'warn'); return; }
     if (!isEdit && providersObj[newName]) { setStatus(t('settings.provider.name_exists', { name: newName }), 'warn'); return; }
     if (isEdit && newName !== name && providersObj[newName]) { setStatus(t('settings.provider.name_exists', { name: newName }), 'warn'); return; }
+    const priceResult = validatePriceEntries();
+    if (!priceResult.ok) { setStatus(priceResult.error, 'warn'); return; }
     if (newMaxTokens < 0 || newTimeout < 0 || newRetry < 0 || newRpm < 0 || newPoll < 0
         || newPromptPrice < 0 || newCompletionPrice < 0) {
       setStatus(t('settings.provider.negative_numbers'), 'warn');
@@ -461,8 +719,9 @@ function _showProviderModal(providersObj, name, onSave) {
       credential_ref: newKey ? credentialRef : existing?.credential_ref || '',
       credential_proof: credentialProof,
       base_url: newBaseUrl || '',
-      models: modelsList,
-      capabilities: capabilitiesList,
+      models: [...modelsList],
+      capabilities: [...capabilitiesList],
+      model_prices: priceResult.entries,
       max_tokens: newMaxTokens,
       video_upload_max_mb: newUploadMax,
       prompt_price_per_1m_usd: newPromptPrice,
@@ -500,6 +759,7 @@ function _showProviderModal(providersObj, name, onSave) {
         base_url: newBaseUrl || '',
         models: [...modelsList],
         capabilities: [...capabilitiesList],
+        model_prices: priceResult.entries,
         max_tokens: newMaxTokens,
         video_upload_max_mb: newUploadMax,
         prompt_price_per_1m_usd: newPromptPrice,
@@ -529,6 +789,11 @@ function _showProviderModal(providersObj, name, onSave) {
       void setStatus(!draftName ? t('settings.provider.name_required') : t('settings.provider.test_need_models'), 'warn');
       return;
     }
+    const priceResult = validatePriceEntries();
+    if (!priceResult.ok) {
+      void setStatus(priceResult.error, 'warn');
+      return;
+    }
     const candidate = {
       credential_ref: existing?.credential_ref || '',
       type: draftType,
@@ -537,6 +802,7 @@ function _showProviderModal(providersObj, name, onSave) {
       base_url: draftBaseUrl,
       models: modelValues,
       capabilities: [...capabilitiesList],
+      model_prices: priceResult.entries,
       max_tokens: Number(backdrop.querySelector('#modal-provider-max-tokens')?.value || 0),
       timeout_sec: Number(backdrop.querySelector('#modal-provider-timeout')?.value || 120),
       retry_attempts: Number(backdrop.querySelector('#modal-provider-retry')?.value || 2),

@@ -1,0 +1,155 @@
+diff --git a/clio/ui/static/src/utils.js b/clio/ui/static/src/utils.js
+--- a/clio/ui/static/src/utils.js
++++ b/clio/ui/static/src/utils.js
+@@ -124,6 +124,8 @@
+   label.textContent = t(key);
+ }
+ 
++let _statusClearTimer = null;
++
+ function setStatus(msg, kind = '', options = {}) {
+   const el = $('status');
+   if (el) {
+@@ -134,7 +136,15 @@
+     const captured = msg;
+     // Errors stick longer so users can read them; info/ok clear quickly
+     const ttl = kind === 'err' || kind === 'error' ? 8000 : 4000;
+-    if (el) setTimeout(() => { if (el.textContent === captured) el.textContent = ''; }, ttl);
++    // Keep only the latest clear timer: an older one must not wipe a newer
++    // (possibly identical) message early.
++    if (el) {
++      clearTimeout(_statusClearTimer);
++      _statusClearTimer = setTimeout(() => {
++        _statusClearTimer = null;
++        if (el.textContent === captured) el.textContent = '';
++      }, ttl);
++    }
+     const severity = kind === 'err' || kind === 'error'
+       ? 'error'
+       : kind === 'warn' || kind === 'warning'
+diff --git a/clio/ui/static/src/runner.js b/clio/ui/static/src/runner.js
+--- a/clio/ui/static/src/runner.js
++++ b/clio/ui/static/src/runner.js
+@@ -725,6 +725,7 @@
+ }
+ 
+ async function cancelRun() {
++  if (!_managedTaskId) return;
+   const btn = $('btn-run-cancel');
+   if (btn) { btn.disabled = true; btn.innerHTML = t('run.cancelling'); }
+   try {
+diff --git a/clio/ui/static/src/task-center.js b/clio/ui/static/src/task-center.js
+--- a/clio/ui/static/src/task-center.js
++++ b/clio/ui/static/src/task-center.js
+@@ -206,7 +206,10 @@
+     if (request !== _detailRequest) return;
+     state.taskDetail = result;
+     _render();
+-  } catch (error) { setStatus(t('task.detail_load_failed', { detail: error.message }), 'err'); }
++  } catch (error) {
++    if (request !== _detailRequest) return;
++    setStatus(t('task.detail_load_failed', { detail: error.message }), 'err');
++  }
+ }
+ 
+ /** Fetch one task snapshot for consumers that may subscribe after a fast task finished. */
+diff --git a/clio/ui/static/src/sidebar-video-row.js b/clio/ui/static/src/sidebar-video-row.js
+--- a/clio/ui/static/src/sidebar-video-row.js
++++ b/clio/ui/static/src/sidebar-video-row.js
+@@ -11,6 +11,12 @@
+ 
+ let _portalDropdown = null;
+ let _portalCloseHandler = null;
++
++/** Close the portal row menu; its closure targets a row that is being replaced. */
++export function closeVideoRowMenu() {
++  if (_portalDropdown) { _portalDropdown.remove(); _portalDropdown = null; }
++  if (_portalCloseHandler) { document.removeEventListener('click', _portalCloseHandler); _portalCloseHandler = null; }
++}
+ 
+ async function requestRerun(payload) {
+   try {
+diff --git a/clio/ui/static/src/sidebar-data.js b/clio/ui/static/src/sidebar-data.js
+--- a/clio/ui/static/src/sidebar-data.js
++++ b/clio/ui/static/src/sidebar-data.js
+@@ -23,7 +23,7 @@
+ import { confirmDialog } from './confirm.js';
+ import { renderFilterChips, renderOfflineSummary, renderStageCountBar } from './sidebar-video-overview.js';
+ import { bindCoverThumbFallback, videoDisplayName, videoThumbHtml } from './sidebar-video-display.js';
+-import { renderVideoItem } from './sidebar-video-row.js';
++import { closeVideoRowMenu, renderVideoItem } from './sidebar-video-row.js';
+ 
+ // ── Video relink helper ───────────────────────────────────────
+ 
+@@ -402,6 +402,7 @@
+   if (!ul) return;
+   // Rows are rebuilt below; a card anchored to an old row would never close.
+   hideVideoInfoTip();
++  closeVideoRowMenu();
+   hideVideoListLoading();
+   ul.innerHTML = '';
+   renderOfflineSummary();
+diff --git a/clio/ui/static/src/__tests__/utils.test.js b/clio/ui/static/src/__tests__/utils.test.js
+--- a/clio/ui/static/src/__tests__/utils.test.js
++++ b/clio/ui/static/src/__tests__/utils.test.js
+@@ -1,4 +1,4 @@
+-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
++import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+ import { state } from '../state.js';
+ import {
+   escapeHtml,
+@@ -10,6 +10,7 @@
+   setDeep,
+   markDirty,
+   clearDirty,
++  setStatus,
+ } from '../utils.js';
+ 
+ describe('escapeHtml', () => {
+@@ -217,3 +218,23 @@
+     expect(state.editSeq).toBe(before + 2);
+   });
+ });
++
++describe('setStatus clear timer', () => {
++  afterEach(() => {
++    vi.useRealTimers();
++    document.body.innerHTML = '';
++  });
++
++  it('does not clear a repeated message early with the previous timer', () => {
++    vi.useFakeTimers();
++    document.body.innerHTML = '<span id="status"></span>';
++    const el = document.getElementById('status');
++    setStatus('same');
++    vi.advanceTimersByTime(3000);
++    setStatus('same');
++    vi.advanceTimersByTime(1500);
++    expect(el.textContent).toBe('same');
++    vi.advanceTimersByTime(3000);
++    expect(el.textContent).toBe('');
++  });
++});
+diff --git a/clio/ui/static/src/__tests__/sidebar-video-row.test.js b/clio/ui/static/src/__tests__/sidebar-video-row.test.js
+--- a/clio/ui/static/src/__tests__/sidebar-video-row.test.js
++++ b/clio/ui/static/src/__tests__/sidebar-video-row.test.js
+@@ -48,6 +48,19 @@
+ }
+ 
+ describe('renderVideoItem', () => {
++  it('closeVideoRowMenu removes an open portal menu', async () => {
++    const { renderVideoItem, closeVideoRowMenu } = await import('../sidebar-video-row.js');
++    const li = renderVideoItem(
++      { file: 'clip.mp4', match: { abs_path: 'D:/videos/clip.mp4' } },
++      { relinkVideo: vi.fn(), removeVideoFromProject: vi.fn(), rerenderVideoList: vi.fn() },
++    );
++    document.body.appendChild(li);
++    li.querySelector('.menu-btn').click();
++    expect(document.body.querySelectorAll('.menu-dropdown.open')).toHaveLength(1);
++    closeVideoRowMenu();
++    expect(document.body.querySelectorAll('.menu-dropdown.open')).toHaveLength(0);
++  });
++
+   it('escapes the video index in the row label', async () => {
+     const { renderVideoItem } = await import('../sidebar-video-row.js');
+     const li = renderVideoItem(

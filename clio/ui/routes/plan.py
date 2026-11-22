@@ -308,6 +308,7 @@ def handle_post_plan_readiness(handler: HandlerProtocol, qs: dict[str, Any], obj
         media_durations=collect_project_media_durations(cfg),
         analysis_timelines=collect_project_analysis_timelines(cfg),
         source=source,
+        target_duration_sec=float(getattr(cfg.plan, "target_duration_sec", 0) or 0),
     )
     handler._send_json(result.to_dict())
 
@@ -357,6 +358,7 @@ def handle_post_cut(handler: HandlerProtocol, qs: dict[str, list[str]], obj: dic
         media_durations=collect_project_media_durations(cfg),
         analysis_timelines=collect_project_analysis_timelines(cfg),
         source=str(source),
+        target_duration_sec=float(getattr(cfg.plan, "target_duration_sec", 0) or 0),
     )
     blocked = readiness_block_payload(result, force=force)
     if blocked is not None:

@@ -34,6 +34,7 @@ import { phaseNewSource } from './video-fade.js';
 import { preloadNextSegment, clearPreload } from './preview-preload.js';
 import { videoUrlFor } from './video-url.js';
 import { resolvePlanMedia, localSecForPlayer } from './plan-preview-media.js';
+import { findPlanVideo, findTimelineVideoIndex } from './plan-video.js';
 import { t, onLocaleChange } from './i18n.js';
 import { planIndexesKey, renderPlanSubtitleSettings, syncPlanExpandFromPreview } from './viewer-preview-support.js';
 
@@ -345,15 +346,14 @@ function _resyncPlanPreviewFromPlayer(player, opts = {}) {
   const curFile = state.currentVideo;
   const v = (state.videos || []).find((x) => x.file === curFile)
     || (state.previewIndex >= 0
-      ? state.videos.find(
-        (x) => String(x.index) === String(tl.segments[state.previewIndex]?.videoIndex),
-      )
+      ? findPlanVideo(state.videos, tl.segments[state.previewIndex]?.videoIndex)
       : null);
   if (!v) return false;
 
   const offset = state.source === 'original' ? (v.offset_sec || 0) : 0;
   const planSec = Math.max(0, player.currentTime - offset);
-  const loc = locateSegmentByPlanSec(tl, v.index, planSec, state.previewIndex);
+  const timelineIndex = findTimelineVideoIndex(v, tl) ?? v.index;
+  const loc = locateSegmentByPlanSec(tl, timelineIndex, planSec, state.previewIndex);
   if (!loc) return false;
 
   state.previewIndex = loc.segIndex;

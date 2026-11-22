@@ -357,10 +357,11 @@ capture_time（拍摄时间）和 gps（经纬度）：
 选片原则（按优先级）：
 1. **画面质量优先**：优先选择光线充足、画面稳定、构图清晰的片段
 2. **叙事价值**：优先保留有人物互动、风景变化、有趣事件的内容
-3. **节奏控制**：开场先用 3-5 秒钩子，中段用 1-3 秒 B-roll 或反应镜头提速，结尾有收束感
-4. **多样性**：避免连续选取同一场景/同一角度的片段
-5. **时长适配**：叙事主镜头通常 5-20 秒；开场钩子 3-5 秒；B-roll、反应或转场镜头
-   1-3 秒，只有信息完整且必要时才保留更长区间
+3. **段落完整**：每个片段要讲完一件事或一个动作单元；宁可少用素材，也不要把同一段体验切成
+   一堆 5-6 秒的碎片，同一地点、同一事件的连续镜头尽量留在同一个片段里
+4. **节奏控制**：开场先用 3-5 秒钩子，中段偶尔插入 1-3 秒 B-roll 或反应镜头提速，结尾有收束感
+5. **时长适配**：叙事主镜头通常 15-40 秒；开场钩子 3-5 秒；B-roll、反应或转场镜头 1-3 秒，
+   且这类短镜头合计不超过总时长的 20%；只有信息完整且必要时才保留更长区间
 6. **时间与地点连续性**：素材含 capture_time 时优先按拍摄时间组织行程；含 gps 时结合经纬度
    判断相邻地点和重复场景。字段缺失时不要假设或编造拍摄时间与地点
 7. **显著性优先**：key_moments 是该素材最值得使用的区间，优先从其附近选片。timeline[].score
@@ -370,13 +371,16 @@ capture_time（拍摄时间）和 gps（经纬度）：
 
 **重要规则：**
 - 不同素材数量不得超过 {max_clips} 个，最终 sequence 片段数不得超过 {max_segments} 个。
-- 同一素材可以拆成多个时间不重叠的 segment；需要开场 3-5 秒钩子、1-3 秒 B-roll 或反应镜头时，优先这样拆分。
+- 同一素材可以拆成多个时间不重叠的 segment，但只在需要开场 3-5 秒钩子、1-3 秒 B-roll 或反应镜头
+  时才这样拆分；不要把主叙事拆成多个短碎片。
 - 每个 segment 的 index 字段必须精确匹配素材列表中某个素材的 index 值，不要自行编造序号。
   index 是引用素材的键，不是输出序号。
-- 每个 segment 的 use_timeline 必须从该素材 timeline 的真实时间范围内选取（如 "00:10-00:18"），
+- 每个 segment 的 use_timeline 必须从该素材 timeline 的真实时间范围内选取（如 "00:10-00:40"），
   不得越界或编造时间轴。
-- 控制总时长：total_estimated_sec 应接近 {target_duration_sec} 秒。
+- 控制总时长：total_estimated_sec 应接近 {target_duration_sec} 秒，且不得低于目标的 80%。
+  时长不足时优先延长已有片段的 use_timeline（选取更完整的区间），而不是新增短碎片凑数量；
   素材超过预算时，优先裁掉叙事价值最低的片段，而不是全部保留。
+- 除开场钩子和 B-roll/转场外，单个 segment 的 use_timeline 不短于 8 秒。
 - 每个 segment 的 reason 要写清楚两件事：放在这里的**叙事作用** + 选择它的**画面依据**
   （引用该素材的亮点或具体内容）。
 - voiceover_hint 必须结合该片段实际画面内容给出口播方向，禁止空泛套话。
@@ -394,7 +398,7 @@ capture_time（拍摄时间）和 gps（经纬度）：
       "index": "{example_index}",
       "title": "...",
       "reason": "叙事作用 + 画面依据",
-      "use_timeline": "00:10-00:18",
+      "use_timeline": "00:10-00:40",
       "voiceover_hint": "结合画面内容的口播方向",
       "narrative_beat": "develop",
       "transition": "hard_cut"
@@ -436,7 +440,10 @@ PLAN_OUTLINE_PROMPT = """你是旅行 vlog 剪辑策划。先不要直接排定�
 最终最多输出 {max_segments} 个片段，总时长约 {target_duration_sec} 秒。
 
 ## 大纲要求
-- beats 必须按播放顺序排列，数量不超过 {max_segments}；通常为 4-8 个，片段上限较小时按上限收敛
+- beats 必须按播放顺序排列，数量不超过 {max_segments}；通常为 5-8 个，片段上限较小时按上限收敛
+- 每个 beat 承载一个完整段落：各 beat 的 target_duration_sec 之和应接近 {target_duration_sec} 秒；
+  叙事主体 beat 通常 20-45 秒，钩子 3-5 秒，B-roll/过渡 1-3 秒
+- 不要把同一地点、同一段体验拆成多个 5 秒左右的碎片 beat
 - 不同 candidate 素材总数不得超过 {max_clips}；同一素材可在多个 beat 中复用，以支持 3-5 秒钩子和 1-3 秒 B-roll
 - 每个 beat 明确 narrative_beat、叙事作用、目标时长，以及 1-3 个 candidate_indices
 - candidate_indices 必须原样引用素材 JSON 中存在的 index，不得编造
@@ -479,13 +486,18 @@ PLAN_REVIEW_PROMPT = """你是旅行 vlog 的剪辑规划复审员。请检查�
 {clips_json}
 
 ## 规划约束
-- 最多使用 {max_clips} 个不同素材，最终 sequence 最多 {max_segments} 个片段，总时长尽量接近 {target_duration_sec} 秒
-- 同一素材可拆成多个不重叠片段；优先用短切点构造 3-5 秒钩子和 1-3 秒 B-roll，而不是删除这些镜头
+- 最多使用 {max_clips} 个不同素材，最终 sequence 最多 {max_segments} 个片段，总时长尽量接近
+  {target_duration_sec} 秒，且不得低于目标的 80%
+- 同一素材可拆成多个不重叠片段，但只用于 3-5 秒钩子和 1-3 秒 B-roll；不要把主叙事拆成多个短碎片
+- 时长与节奏修复：优先延长已有片段的 use_timeline、合并相邻碎片、补上同场景的后继镜头；
+  不要靠新增多个 5-6 秒小片段来凑结构
+- 除钩子和 B-roll 外，单个 segment 不短于 8 秒
 - 每个 index 必须来自素材列表；每个 use_timeline 必须落在该素材真实 timeline 内
 - 同一素材的多个 use_timeline 不得重叠
 - 检查叙事是否完整、开场是否有钩子、结尾是否收束、节奏是否合理
 - 检查相邻片段是否重复场景或重复信息，转场方式是否与前后画面和声音匹配
-- 只修正确有依据的问题；不要为了改写而重写无问题的标题、理由或口播方向
+- 只修正确有依据的问题；不要为了改写而重写无问题的标题、理由或口播方向，
+  但「一致性校验问题」里列出的时长/节奏问题必须修好
 
 ## 一致性校验问题
 {validation_issues}
@@ -511,7 +523,7 @@ PLAN_REVIEW_PROMPT = """你是旅行 vlog 的剪辑规划复审员。请检查�
         "index": "001",
         "title": "...",
         "reason": "叙事作用 + 画面依据",
-        "use_timeline": "00:10-00:18",
+        "use_timeline": "00:10-00:40",
         "voiceover_hint": "结合画面内容的口播方向",
         "narrative_beat": "develop",
         "transition": "hard_cut"

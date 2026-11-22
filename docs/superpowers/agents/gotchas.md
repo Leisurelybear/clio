@@ -37,12 +37,15 @@ See `clio/compress.py`.
 - Although the field is named `skip_existing`, it is actually a **skip toggle shared by all steps**
 - Do not create a new `scripts.skip_existing` — reuse this one
 
-### 9.7 Gemini Files API Upload Not Cleaned Up
+### 9.7 Gemini Files API Upload Lifecycle
 
-- In `gemini.py`, `ensure_file_active` uploads video to File API, but **does not** request file deletion after the call completes
-- Multiple analyze runs accumulate many files, eventually exhausting quotas (per-minute/daily upload limits)
-- Fix: call `client.files.delete(name=file.name)` in a `finally` block to ensure cleanup
-- Note: `with_retry` should not wrap the upload operation (otherwise retries re-upload), only wrap `wait` and `generate_content` after successful upload
+- `gemini.py` caches active video uploads per `(path, size, mtime_ns)` and deletes the remote file
+  in `_delete_upload()` when a cache entry is replaced, on `release_video_upload()`, and in
+  `close()`; the per-call path also deletes after `generate_content` (`clio/ai/gemini.py:315`,
+  `:320`, `:552`).
+- Do not remove that cleanup: repeated analyze runs would exhaust File API upload quotas.
+- Keep the upload call outside `with_retry` so retries never re-upload; only `wait` and
+  `generate_content` are retried after a successful upload.
 
 ### 9.8 Temporary File Residue
 
@@ -213,3 +216,15 @@ See `clio/compress.py`.
   answer `_send_json(..., 503)`, and both log, so the browser, `api()` and the server log agree.
 - Diagnose pool exhaustion with `py-spy dump --pid <serve pid>`; `handle_get_*_stream` frames at the
   top of many threads plus matching `ESTABLISHED` sockets mean streams own the pool.
+
+### 9.27 Verify With the Project Venv, Not `PATH` Python
+
+- The `python` on `PATH` may be 3.10.x; modules import `from datetime import UTC` and fail
+  collection. Use `.venv/Scripts/python.exe` (3.11.x) for `pytest`, `mypy`, and `main.py check`.
+- Media identity is resolved in several places (`clio/identity.py`, `clio/plan_readiness.py`,
+  `clio/run_scope.py`, `clio/tasks/cut.py`, `clio/export/jianying.py`). When changing matching,
+  update all of them or route through the shared resolver; export currently rebuilds
+  `index -> source` from raw analysis JSON and can disagree with cut. See
+  `docs/analysis/2026-11-21-clio-full-review.md` (N01/N02/N04).
+- A stale plan index that a different source now owns must be treated as a conflict, not silently
+  cut; `test_exact_current_index_wins_over_legacy_alias` currently codifies the silent behavior.

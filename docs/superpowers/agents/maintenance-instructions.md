@@ -4,7 +4,7 @@
 
 ## 1. Treat configuration as a two-layer contract
 
-`config.yaml` is global and `project.yaml` is project-local. Relative project paths must resolve from the project directory, not from the repo root or global config path. The loader also auto-upgrades user config files by injecting missing dataclass defaults, so config changes must update:
+`config.yaml` is global and `project.yaml` is project-local. Relative project paths must resolve from the project directory, not from the repo root or global config path. The loader is read-only: missing fields fall back to dataclass defaults in memory, and it only writes a version marker or runs an explicit versioned migration (see `gotchas.md` 9.21). Config changes must update:
 
 - the dataclass model
 - the parser/loader path

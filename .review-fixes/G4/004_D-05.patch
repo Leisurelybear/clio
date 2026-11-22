@@ -1,0 +1,272 @@
+diff --git a/clio/ui/services/file_service.py b/clio/ui/services/file_service.py
+--- a/clio/ui/services/file_service.py
++++ b/clio/ui/services/file_service.py
+@@ -612,11 +612,17 @@
+             pass
+ 
+ 
+-def resolve_texts(basename: str, proj_out: Path | None, output_dir: Path) -> Path | None:
++def resolve_texts(
++    basename: str,
++    proj_out: Path | None,
++    output_dir: Path,
++    preferred_subdir: str | None = None,
++) -> Path | None:
++    """Find *basename* in the configured texts dir first, then texts / texts - *."""
+     if not _is_safe_basename(basename):
+         return None
+     base = proj_out or output_dir
+-    for d in _find_texts_dirs(base):
++    for d in _find_texts_dirs(base, preferred_subdir=preferred_subdir):
+         p = d / basename
+         if p.is_file():
+             return p
+diff --git a/clio/ui/handler_factory.py b/clio/ui/handler_factory.py
+--- a/clio/ui/handler_factory.py
++++ b/clio/ui/handler_factory.py
+@@ -458,8 +458,13 @@
+     def _send_video_range(self, path: Path) -> None:
+         self.__class__._video_range_sender(self, path)
+ 
+-    def _resolve_texts(self, basename: str, proj_out: Path | None = None) -> Path | None:
+-        return self.__class__._texts_resolver(basename, proj_out, self.__class__.output_dir)
++    def _resolve_texts(
++        self,
++        basename: str,
++        proj_out: Path | None = None,
++        preferred_subdir: str | None = None,
++    ) -> Path | None:
++        return self.__class__._texts_resolver(basename, proj_out, self.__class__.output_dir, preferred_subdir)
+ 
+     def _resolve_in(self, subdir: str, basename: str, proj_out: Path | None = None) -> Path | None:
+         return self.__class__._file_resolver(subdir, basename, proj_out, self.__class__.output_dir)
+diff --git a/clio/ui/handler_protocol.py b/clio/ui/handler_protocol.py
+--- a/clio/ui/handler_protocol.py
++++ b/clio/ui/handler_protocol.py
+@@ -45,7 +45,12 @@
+     def _send_video_range(self, path: Path) -> None: ...
+     def _get_state(self, project_key: str) -> Any: ...
+     def _get_task_manager(self) -> TaskManager: ...
+-    def _resolve_texts(self, basename: str, proj_out: Path | None = None) -> Path | None: ...
++    def _resolve_texts(
++        self,
++        basename: str,
++        proj_out: Path | None = None,
++        preferred_subdir: str | None = None,
++    ) -> Path | None: ...
+     def _resolve_in(self, subdir: str, basename: str, proj_out: Path | None = None) -> Path | None: ...
+ 
+     # -- Stable class-level attributes --
+diff --git a/clio/ui/server.py b/clio/ui/server.py
+--- a/clio/ui/server.py
++++ b/clio/ui/server.py
+@@ -359,7 +359,9 @@
+         project_resolver=lambda qs, project_dir, config_path: resolve_project_dir(qs, project_dir, config_path),
+         project_output_resolver=lambda project_dir: _project_output_dir(project_dir),
+         video_range_sender=lambda handler, path: send_video_range(handler, path),
+-        texts_resolver=lambda basename, proj_out, output_dir: resolve_texts(basename, proj_out, output_dir),
++        texts_resolver=lambda basename, proj_out, output_dir, preferred_subdir=None: resolve_texts(
++            basename, proj_out, output_dir, preferred_subdir
++        ),
+         file_resolver=lambda subdir, basename, proj_out, output_dir: resolve_in(subdir, basename, proj_out, output_dir),
+     )
+ 
+diff --git a/clio/ui/routes/texts.py b/clio/ui/routes/texts.py
+--- a/clio/ui/routes/texts.py
++++ b/clio/ui/routes/texts.py
+@@ -14,6 +14,7 @@
+ from clio.tasks._helpers import _rewrite_script_md, _rewrite_text_file
+ from clio.ui.services.file_service import (
+     ArtifactConflictError,
++    _normalized_relative_subdir,
+     read_with_version,
+     request_version,
+     save_with_version,
+@@ -140,6 +141,34 @@
+     return saved
+ 
+ 
++def _configured_artifact_subdir(handler: HandlerProtocol, proj_dir: Path, kind: str) -> str | None:
++    """Return the project's configured texts/scripts subdir (None = defaults).
++
++    ``/api/videos`` lists artifacts from ``analyze.texts_subdir`` /
++    ``script.scripts_subdir``; the read/write routes must look in the same place.
++    """
++    cfg = handler._get_config(proj_dir)
++    section, field = ("analyze", "texts_subdir") if kind == "texts" else ("script", "scripts_subdir")
++    value = getattr(getattr(cfg, section, None), field, None)
++    if not isinstance(value, str):
++        return None
++    return _normalized_relative_subdir(value)
++
++
++def _resolve_texts_artifact(handler: HandlerProtocol, qs_or_dir: dict[str, Any] | Path, fname: str) -> Path | None:
++    proj_dir = handler._resolve_project_dir(qs_or_dir) if isinstance(qs_or_dir, dict) else qs_or_dir
++    proj_out = handler._get_project_output(proj_dir)
++    subdir = _configured_artifact_subdir(handler, proj_dir, "texts")
++    return handler._resolve_texts(fname, proj_out, preferred_subdir=subdir)
++
++
++def _resolve_scripts_artifact(handler: HandlerProtocol, qs_or_dir: dict[str, Any] | Path, fname: str) -> Path | None:
++    proj_dir = handler._resolve_project_dir(qs_or_dir) if isinstance(qs_or_dir, dict) else qs_or_dir
++    proj_out = handler._get_project_output(proj_dir)
++    subdir = _configured_artifact_subdir(handler, proj_dir, "scripts") or "scripts"
++    return handler._resolve_in(subdir, fname, proj_out)
++
++
+ def _send_artifact_conflict(handler: HandlerProtocol, exc: ArtifactConflictError) -> None:
+     headers = version_headers(exc.current_version) if exc.current_version else None
+     handler._send_json(
+@@ -156,9 +185,8 @@
+ 
+ def handle_get_texts(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
+     """Handle GET /api/texts."""
+-    proj_out = handler._get_project_output(qs)
+     fname = qs.get("file", [""])[0]
+-    p = handler._resolve_texts(fname, proj_out)
++    p = _resolve_texts_artifact(handler, qs, fname)
+     if p is None:
+         return handler.send_error(HTTPStatus.NOT_FOUND)
+     data, version = read_with_version(p)
+@@ -171,9 +199,8 @@
+ 
+ def handle_get_voiceover(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
+     """Handle GET /api/voiceover."""
+-    proj_out = handler._get_project_output(qs)
+     fname = qs.get("file", [""])[0]
+-    p = handler._resolve_in("scripts", fname, proj_out)
++    p = _resolve_scripts_artifact(handler, qs, fname)
+     if p is None:
+         return handler.send_error(HTTPStatus.NOT_FOUND)
+     data, version = read_with_version(p)
+@@ -216,9 +243,8 @@
+ 
+ def handle_put_texts(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
+     """Handle PUT /api/texts."""
+-    proj_out = handler._get_project_output(qs)
+     fname = qs.get("file", [""])[0]
+-    p = handler._resolve_texts(fname, proj_out)
++    p = _resolve_texts_artifact(handler, qs, fname)
+     if p is None:
+         return handler._send_json({"ok": False, "error": "forbidden or not found"}, 403)
+     error = _analysis_payload_error(obj)
+@@ -246,9 +272,8 @@
+ 
+ def handle_put_voiceover(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
+     """Handle PUT /api/voiceover."""
+-    proj_out = handler._get_project_output(qs)
+     fname = qs.get("file", [""])[0]
+-    p = handler._resolve_in("scripts", fname, proj_out)
++    p = _resolve_scripts_artifact(handler, qs, fname)
+     if p is None:
+         return handler._send_json({"ok": False, "error": "forbidden or not found"}, 403)
+     error = _voiceover_payload_error(obj)
+diff --git a/clio/ui/routes/refine.py b/clio/ui/routes/refine.py
+--- a/clio/ui/routes/refine.py
++++ b/clio/ui/routes/refine.py
+@@ -12,7 +12,11 @@
+ from clio.i18n import t
+ from clio.tasks._helpers import _rewrite_script_md, _rewrite_text_file
+ from clio.tasks.refine import _load_analysis_for_script
+-from clio.ui.routes.texts import _preserve_analysis_server_fields
++from clio.ui.routes.texts import (
++    _preserve_analysis_server_fields,
++    _resolve_scripts_artifact,
++    _resolve_texts_artifact,
++)
+ from clio.ui.services.file_service import (
+     ArtifactConflictError,
+     content_version,
+@@ -67,7 +71,10 @@
+ 
+     proj_dir = handler._resolve_project_dir(qs)
+     proj_out = handler._get_project_output(proj_dir)
+-    p = handler._resolve_texts(fname, proj_out) if ftype == "texts" else handler._resolve_in("scripts", fname, proj_out)
++    if ftype == "texts":
++        p = _resolve_texts_artifact(handler, proj_dir, fname)
++    else:
++        p = _resolve_scripts_artifact(handler, proj_dir, fname)
+ 
+     if p is None:
+         return handler._send_json({"ok": False, "error": "forbidden or not found"}, 404)
+diff --git a/clio/tests/test_routes_texts.py b/clio/tests/test_routes_texts.py
+--- a/clio/tests/test_routes_texts.py
++++ b/clio/tests/test_routes_texts.py
+@@ -46,7 +46,7 @@
+         from clio.ui.routes.texts import handle_get_texts
+ 
+         handle_get_texts(handler, {"file": ["001.json"], "project": ["proj1"]})
+-        handler._resolve_texts.assert_called_once_with("001.json", "/output")
++        handler._resolve_texts.assert_called_once_with("001.json", "/output", preferred_subdir=None)
+ 
+ 
+ class TestHandleGetVoiceover:
+diff --git a/clio/tests/test_fix_texts_subdirs.py b/clio/tests/test_fix_texts_subdirs.py
+new file mode 100644
+--- /dev/null
++++ b/clio/tests/test_fix_texts_subdirs.py
+@@ -0,0 +1,64 @@
++"""Regression tests: texts/scripts routes honour configured artifact subdirs."""
++
++from __future__ import annotations
++
++import json
++from pathlib import Path
++from types import SimpleNamespace
++from unittest.mock import MagicMock
++
++from clio.ui.routes.texts import _resolve_scripts_artifact, _resolve_texts_artifact, handle_get_texts
++from clio.ui.services.file_service import resolve_in, resolve_texts
++
++
++def _handler(proj_out: Path, texts_subdir: str = "analysis", scripts_subdir: str = "vo") -> MagicMock:
++    handler = MagicMock()
++    handler._resolve_project_dir.return_value = proj_out
++    handler._get_project_output.return_value = proj_out
++    handler._get_config.return_value = SimpleNamespace(
++        analyze=SimpleNamespace(texts_subdir=texts_subdir),
++        script=SimpleNamespace(scripts_subdir=scripts_subdir),
++    )
++    handler._resolve_texts.side_effect = lambda name, out, preferred_subdir=None: resolve_texts(
++        name, out, out, preferred_subdir
++    )
++    handler._resolve_in.side_effect = lambda sub, name, out: resolve_in(sub, name, out, out)
++    return handler
++
++
++def test_resolve_texts_uses_preferred_subdir(tmp_path: Path):
++    (tmp_path / "analysis").mkdir()
++    target = tmp_path / "analysis" / "001_a.json"
++    target.write_text("{}", encoding="utf-8")
++    assert resolve_texts("001_a.json", tmp_path, tmp_path) is None
++    assert resolve_texts("001_a.json", tmp_path, tmp_path, "analysis") == target
++
++
++def test_routes_find_custom_texts_and_scripts_dirs(tmp_path: Path):
++    (tmp_path / "analysis").mkdir()
++    (tmp_path / "vo").mkdir()
++    text = tmp_path / "analysis" / "001_a.json"
++    text.write_text(json.dumps({"title": "x"}), encoding="utf-8")
++    script = tmp_path / "vo" / "001_a_voiceover.json"
++    script.write_text("{}", encoding="utf-8")
++    handler = _handler(tmp_path)
++
++    assert _resolve_texts_artifact(handler, {}, "001_a.json") == text
++    assert _resolve_scripts_artifact(handler, {}, "001_a_voiceover.json") == script
++
++    handle_get_texts(handler, {"file": ["001_a.json"]})
++    handler.send_error.assert_not_called()
++    assert handler._send_bytes.call_args.args[0] == text.read_bytes()
++
++
++def test_default_subdirs_still_work(tmp_path: Path):
++    (tmp_path / "texts").mkdir()
++    (tmp_path / "scripts").mkdir()
++    text = tmp_path / "texts" / "001_a.json"
++    text.write_text("{}", encoding="utf-8")
++    script = tmp_path / "scripts" / "001_a_voiceover.json"
++    script.write_text("{}", encoding="utf-8")
++    handler = _handler(tmp_path, texts_subdir="texts", scripts_subdir="scripts")
++
++    assert _resolve_texts_artifact(handler, {}, "001_a.json") == text
++    assert _resolve_scripts_artifact(handler, {}, "001_a_voiceover.json") == script

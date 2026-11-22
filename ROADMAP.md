@@ -10,6 +10,23 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
 
 ## Active backlog (2026-11-13)
 
+### Full review (2026-11-21)
+
+- `[x]` Review the working tree end-to-end and publish the
+  [full review](docs/analysis/2026-11-21-clio-full-review.md): 2 new P1 media-identity defects,
+  5 further findings, 4 gate blockers and 4 hygiene items; no code was changed.
+- `[ ]` Make the tree commit-ready: `ruff format` the 4 flagged files, fix the 4 test `Path`
+  typing errors, update the stale Provider price Vitest assertion, and finish a full backend
+  pytest run (V01-V04).
+- `[ ]` Resolve the two P1 media-identity defects so cut and export share plan/preview resolution:
+  stale-index cuts must report a conflict instead of cutting the wrong clip (N01), and export must
+  stop rebuilding sources from raw analysis indexes (N02).
+- `[ ]` Collapse duplicated media-identity helpers into `clio/identity.py` and reduce preview to one
+  project scan per request (N03/N04).
+- `[ ]` Fix the plan dedupe reason, drop the API token from media URLs, and cover the new frontend
+  modules in typecheck (N05-N07).
+- `[ ]` Commit the tracked review documents and remove stray `.tmp_*`/patch files (H01-H04).
+
 ### AI provider model discovery (2026-11-16)
 
 - `[x]` Load available models from configured Gemini and OpenAI-compatible providers in the
@@ -44,6 +61,7 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
 - `[x]` Defer plan voiceover behind a same-run plan instead of reporting a final blocker.
 - `[x]` Explain cascade risk and minimum estimates in the Run UI.
 - `[x]` Confirm consistency/voiceover lineage ordering and fix if unintended.
+- `[x]` Show run-preview counts per step so day-scoped and media-scoped totals are never added together.
 
 ### Run scope validation (2026-11-19)
 
@@ -60,6 +78,8 @@ Feature tracking. Each feature is broken down into minimal executable sub-tasks 
   without a matching compressed video are now reported as skipped instead of runnable.
 - `[x]` Treat compressed media as the source of truth for plan export/cut readiness: text-only
   analyses may map offline originals but can no longer make a missing index look present.
+- `[x]` Resolve stale plan analysis indexes to current compressed media through unique
+  media-identity aliases, so the plan composer and preview can open legacy plan indexes.
 
 ### Capture-day scope identity (2026-11-19)
 

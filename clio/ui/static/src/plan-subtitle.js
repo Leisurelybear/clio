@@ -3,6 +3,7 @@
 import { apiWithMeta } from './api.js';
 import { state, setArtifactVersion } from './state.js';
 import { buildTimeline } from './plan-timeline.js';
+import { findPlanVideo } from './plan-video.js';
 import { t } from './i18n.js';
 
 const SENTENCE_BREAKS = '。！？；…!?;';
@@ -379,7 +380,7 @@ export async function renderPlanSubtitle(opts = {}) {
   if (!seg) { clear(); return; }
 
   const idx = String(seg.index ?? '');
-  const v = (c.videos || []).find((x) => String(x.index) === idx);
+  const v = findPlanVideo(c.videos, idx);
   const segHasSubtitle = typeof seg.subtitle === 'string' && seg.subtitle.trim() !== '';
   if (!segHasSubtitle && (!v || !v.script_json)) { clear(); return; }
 

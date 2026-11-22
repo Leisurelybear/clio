@@ -1,0 +1,61 @@
+diff --git a/clio/ui/static/src/toast.js b/clio/ui/static/src/toast.js
+--- a/clio/ui/static/src/toast.js
++++ b/clio/ui/static/src/toast.js
+@@ -76,10 +76,20 @@
+   return notificationPromise;
+ }
+ 
++// Slightly longer than the 200ms toastOut animation. Used as a fallback when
++// `animationend` never fires (prefers-reduced-motion sets `animation: none`).
++const REMOVE_FALLBACK_MS = 250;
++
+ function removeToast(toast) {
+   if (toast.classList.contains('removing')) return;
+   toast.classList.add('removing');
+-  toast.addEventListener('animationend', () => {
++  let finalized = false;
++  let fallbackTimer = null;
++  const finalize = () => {
++    if (finalized) return;
++    finalized = true;
++    if (fallbackTimer !== null) clearTimeout(fallbackTimer);
++    toast.removeEventListener('animationend', finalize);
+     if (toast.parentNode) toast.parentNode.removeChild(toast);
+     if (queue.length > 0) {
+       const next = queue.shift();
+@@ -91,7 +101,9 @@
+       const ms = Number.isFinite(nextDur) ? nextDur : DEFAULT_DURATIONS.info;
+       if (ms > 0) setTimeout(() => removeToast(next), ms);
+     }
+-  }, { once: true });
++  };
++  toast.addEventListener('animationend', finalize, { once: true });
++  fallbackTimer = setTimeout(finalize, REMOVE_FALLBACK_MS);
+ }
+ 
+ export { addToast, DEFAULT_DURATIONS };
+diff --git a/clio/ui/static/src/__tests__/toast.test.js b/clio/ui/static/src/__tests__/toast.test.js
+--- a/clio/ui/static/src/__tests__/toast.test.js
++++ b/clio/ui/static/src/__tests__/toast.test.js
+@@ -60,4 +60,21 @@
+       t.textContent?.includes('sticky'),
+     )).toBe(true);
+   });
++
++  it('removes toasts even when animationend never fires (reduced motion)', async () => {
++    const { addToast } = await import('../toast.js');
++    const container = document.getElementById('toast-container');
++    addToast('a', 'info', 100);
++    addToast('b', 'info', 100);
++    addToast('c', 'info', 100);
++    addToast('queued', 'info', 100);
++    expect(container.children.length).toBe(3);
++    // No animationend dispatched: simulate `animation: none`.
++    vi.advanceTimersByTime(100 + 300);
++    const texts = [...container.querySelectorAll('.toast')].map((el) => el.textContent);
++    expect(texts).toHaveLength(1);
++    expect(texts[0]).toContain('queued');
++    vi.advanceTimersByTime(1000);
++    expect(container.children.length).toBe(0);
++  });
+ });

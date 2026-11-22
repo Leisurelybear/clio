@@ -19,7 +19,7 @@ from clio.config.models import (
     ScriptConfig,
 )
 from clio.tasks._video_loader import save_selected_videos
-from clio.vmeta import VideoMeta
+from clio.vmeta import SplitInfo, VideoMeta
 
 
 @pytest.fixture
@@ -56,6 +56,31 @@ def _write_plan(cfg: AppConfig, day_label: str = "day1", seq: list | None = None
     plan = {"day_title": "Day 1", "theme": "Paris", "total_estimated_sec": 120, "sequence": seq}
     plan_path = cfg.plans_dir / f"{day_label}_plan.json"
     plan_path.write_text(json.dumps(plan), encoding="utf-8")
+
+
+def _write_analysis_identity(
+    cfg: AppConfig,
+    index: str,
+    original_stem: str,
+    *,
+    segment_index: int | None = None,
+    segment_offset_sec: float = 0.0,
+    title: str | None = None,
+) -> None:
+    identity = {
+        "original_stem": original_stem,
+        "original_path": str(cfg.project_dir / f"{original_stem}.mp4"),
+        "compressed_stem": f"{index}_{original_stem}",
+        "compressed_path": str(cfg.compressed_dir / f"{index}_{original_stem}.mp4"),
+        "index": index,
+        "segment_index": segment_index,
+        "segment_offset_sec": segment_offset_sec,
+        "segment_duration_sec": None,
+    }
+    data: dict[str, object] = {"index": index, "media_identity": identity}
+    if title is not None:
+        data["title"] = title
+    (cfg.texts_dir / f"{index}_legacy.json").write_text(json.dumps(data), encoding="utf-8")
 
 
 class TestOrphanedCutBackups:
@@ -644,6 +669,147 @@ class TestResolveVideoPath:
         assert mock_cut.call_args.args[0] == original
         state = json.loads((cfg.paths.output_dir / ".processing.json").read_text(encoding="utf-8"))
         assert state["files"]["holiday_part01"]["cut"] == "done"
+
+
+class TestResolveVideoPathLegacyAliases:
+    @patch("clio.tasks.cut.cut_one")
+    @patch("clio.tasks.cut.resolve_binary")
+    def test_maps_unique_legacy_index_to_current_compressed(self, mock_resolve, mock_cut, cfg):
+        _write_plan(cfg, seq=[{"index": "016", "title": "A", "use_timeline": "00:00-00:10"}])
+        current = cfg.compressed_dir / "197_GX011275.mp4"
+        current.write_bytes(b"\x00")
+        _write_analysis_identity(cfg, "016", "GX011275")
+        mock_resolve.return_value = "ffmpeg"
+
+        from clio.tasks.cut import run_cut_all
+
+        with patch("clio.utils.get_duration_sec", return_value=100.0):
+            result = run_cut_all(cfg, "day1", source="compressed")
+
+        assert len(result) == 1
+        assert result[0]["video_index"] == "016"
+        assert mock_cut.call_args.args[0] == current
+
+    @patch("clio.tasks.cut.cut_one")
+    @patch("clio.tasks.cut.resolve_binary")
+    def test_exact_current_index_wins_over_legacy_alias(self, mock_resolve, mock_cut, cfg):
+        _write_plan(cfg, seq=[{"index": "016", "title": "A", "use_timeline": "00:00-00:10"}])
+        exact = cfg.compressed_dir / "016_Other.mp4"
+        exact.write_bytes(b"\x00")
+        (cfg.compressed_dir / "197_GX011275.mp4").write_bytes(b"\x00")
+        _write_analysis_identity(cfg, "016", "GX011275")
+        mock_resolve.return_value = "ffmpeg"
+
+        from clio.tasks.cut import run_cut_all
+
+        with patch("clio.utils.get_duration_sec", return_value=100.0):
+            result = run_cut_all(cfg, "day1", source="compressed")
+
+        assert len(result) == 1
+        assert mock_cut.call_args.args[0] == exact
+
+    @patch("clio.tasks.cut.cut_one")
+    @patch("clio.tasks.cut.resolve_binary")
+    def test_sidecar_prefers_current_analysis_after_legacy_index_remap(self, mock_resolve, mock_cut, cfg):
+        _write_plan(cfg, seq=[{"index": "016", "title": "A", "use_timeline": "00:00-00:10"}])
+        (cfg.compressed_dir / "197_GX011275.mp4").write_bytes(b"\x00")
+        _write_analysis_identity(cfg, "016", "GX011275", title="Legacy title")
+        _write_analysis_identity(cfg, "197", "GX011275", title="Current title")
+        mock_resolve.return_value = "ffmpeg"
+
+        from clio.tasks.cut import run_cut_all
+
+        with patch("clio.utils.get_duration_sec", return_value=100.0):
+            result = run_cut_all(cfg, "day1", source="compressed")
+
+        sidecar = cfg.paths.output_dir / "cuts" / "day1" / result[0]["text_file"]
+        assert json.loads(sidecar.read_text(encoding="utf-8"))["title"] == "Current title"
+
+    @patch("clio.tasks.cut.cut_one")
+    @patch("clio.tasks.cut.resolve_binary")
+    def test_sidecar_falls_back_to_legacy_analysis(self, mock_resolve, mock_cut, cfg):
+        _write_plan(cfg, seq=[{"index": "016", "title": "A", "use_timeline": "00:00-00:10"}])
+        (cfg.compressed_dir / "197_GX011275.mp4").write_bytes(b"\x00")
+        _write_analysis_identity(cfg, "016", "GX011275", title="Legacy title")
+        mock_resolve.return_value = "ffmpeg"
+
+        from clio.tasks.cut import run_cut_all
+
+        with patch("clio.utils.get_duration_sec", return_value=100.0):
+            result = run_cut_all(cfg, "day1", source="compressed")
+
+        sidecar = cfg.paths.output_dir / "cuts" / "day1" / result[0]["text_file"]
+        assert json.loads(sidecar.read_text(encoding="utf-8"))["title"] == "Legacy title"
+
+    @patch("clio.tasks.cut.cut_one")
+    @patch("clio.tasks.cut.resolve_binary")
+    def test_sidecar_uses_analysis_identity_with_selected_videos_json(self, mock_resolve, mock_cut, cfg):
+        original = cfg.project_dir / "GX011275.mp4"
+        original.write_bytes(b"\x00")
+        save_selected_videos(cfg.project_dir, [original])
+        _write_plan(cfg, seq=[{"index": "016", "title": "A", "use_timeline": "00:00-00:10"}])
+        (cfg.compressed_dir / "197_GX011275.mp4").write_bytes(b"\x00")
+        _write_analysis_identity(cfg, "016", "GX011275", title="Legacy title")
+        _write_analysis_identity(cfg, "197", "GX011275", title="Selected title")
+        mock_resolve.return_value = "ffmpeg"
+
+        from clio.tasks.cut import run_cut_all
+
+        with patch("clio.utils.get_duration_sec", return_value=100.0):
+            result = run_cut_all(cfg, "day1", source="compressed")
+
+        sidecar = cfg.paths.output_dir / "cuts" / "day1" / result[0]["text_file"]
+        assert json.loads(sidecar.read_text(encoding="utf-8"))["title"] == "Selected title"
+
+    @patch("clio.tasks.cut.cut_one")
+    @patch("clio.tasks.cut.resolve_binary")
+    def test_rejects_legacy_alias_with_multiple_media_owners(self, mock_resolve, mock_cut, cfg):
+        _write_plan(cfg, seq=[{"index": "016", "title": "A", "use_timeline": "00:00-00:10"}])
+        (cfg.compressed_dir / "197_GX011275.mp4").write_bytes(b"\x00")
+        (cfg.compressed_dir / "198_GX011275.mp4").write_bytes(b"\x00")
+        _write_analysis_identity(cfg, "016", "GX011275")
+        mock_resolve.return_value = "ffmpeg"
+
+        from clio.tasks.cut import run_cut_all
+
+        result = run_cut_all(cfg, "day1", source="compressed")
+
+        assert result == []
+        mock_cut.assert_not_called()
+
+    @patch("clio.tasks.cut.cut_one")
+    @patch("clio.tasks.cut.resolve_binary")
+    def test_original_source_uses_alias_and_resolved_segment_offset(self, mock_resolve, mock_cut, cfg):
+        _write_plan(cfg, seq=[{"index": "016", "title": "A", "use_timeline": "00:00-00:10"}])
+        original = cfg.project_dir / "GX011275.mp4"
+        original.write_bytes(b"\x00")
+        save_selected_videos(cfg.project_dir, [original])
+        compressed = cfg.compressed_dir / "197_GX011275_seg2.mp4"
+        compressed.write_bytes(b"\x00")
+        VideoMeta.build(
+            original,
+            compressed,
+            120.0,
+            10.0,
+            split_info=SplitInfo(
+                original_stem="GX011275",
+                segment_index=2,
+                total_segments=2,
+                offset_sec=60.0,
+                segment_duration_sec=10.0,
+            ),
+        ).write(compressed)
+        _write_analysis_identity(cfg, "016", "GX011275", segment_index=2)
+        mock_resolve.return_value = "ffmpeg"
+
+        from clio.tasks.cut import run_cut_all
+
+        with patch("clio.utils.get_duration_sec", return_value=120.0):
+            result = run_cut_all(cfg, "day1", source="original")
+
+        assert len(result) == 1
+        assert mock_cut.call_args.args[0] == original
+        assert mock_cut.call_args.args[2:4] == (60.0, 70.0)
 
 
 class TestRunCutAll:

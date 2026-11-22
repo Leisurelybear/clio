@@ -1,0 +1,9 @@
+diff --git a/serve.ps1 b/serve.ps1
+--- a/serve.ps1
++++ b/serve.ps1
+@@ -9,4 +9,4 @@
+ }
+ 
+ Write-Host "Starting web UI..." -ForegroundColor Cyan
+-.\.venv\Scripts\python.exe -m clio serve --port 8800 @args
++.\.venv\Scripts\python.exe -m clio serve @args

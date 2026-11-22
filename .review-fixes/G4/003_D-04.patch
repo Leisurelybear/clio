@@ -1,0 +1,231 @@
+diff --git a/clio/ui/routes/refine.py b/clio/ui/routes/refine.py
+--- a/clio/ui/routes/refine.py
++++ b/clio/ui/routes/refine.py
+@@ -4,13 +4,21 @@
+ 
+ import json
+ import threading
++from pathlib import Path
+ from typing import TYPE_CHECKING, Any
+ 
+ from clio.ai.token_usage import FileTokenUsageStore
+ from clio.analyze import refine_script, refine_text
+ from clio.i18n import t
++from clio.tasks._helpers import _rewrite_script_md, _rewrite_text_file
+ from clio.tasks.refine import _load_analysis_for_script
+-from clio.ui.services.file_service import save_with_version, version_headers
++from clio.ui.routes.texts import _preserve_analysis_server_fields
++from clio.ui.services.file_service import (
++    ArtifactConflictError,
++    content_version,
++    save_with_version,
++    version_headers,
++)
+ 
+ if TYPE_CHECKING:
+     from clio.ui.handler_protocol import HandlerProtocol
+@@ -22,6 +30,15 @@
+ def _is_file_busy(path: str) -> bool:
+     with _refining_lock:
+         return path in _refining
++
++
++def _try_mark_busy(path: str) -> bool:
++    """Atomically claim *path* for a refine; False when one is already running."""
++    with _refining_lock:
++        if path in _refining:
++            return False
++        _refining.add(path)
++        return True
+ 
+ 
+ def _mark_busy(path: str, busy: bool) -> None:
+@@ -56,22 +73,38 @@
+         return handler._send_json({"ok": False, "error": "forbidden or not found"}, 404)
+ 
+     abs_path = str(p.resolve())
+-    if _is_file_busy(abs_path):
++    # Check-and-claim in one lock step so two requests cannot refine (and bill)
++    # the same file concurrently.
++    if not _try_mark_busy(abs_path):
+         return handler._send_json(
+             {"ok": False, "error": t("api.refine_busy"), "code": "refine_busy"},
+             409,
+         )
++    try:
++        _refine_and_save(handler, p, ftype, proj_dir, proj_out, context_override)
++    finally:
++        _mark_busy(abs_path, False)
+ 
++
++def _refine_and_save(
++    handler: HandlerProtocol,
++    p: Path,
++    ftype: str,
++    proj_dir: Path,
++    proj_out: Path,
++    context_override: str | None,
++) -> None:
+     try:
+-        data = json.loads(p.read_text(encoding="utf-8"))
+-    except (json.JSONDecodeError, OSError) as e:
++        raw_before = p.read_bytes()
++        base_version = content_version(raw_before)
++        data = json.loads(raw_before.decode("utf-8"))
++    except (json.JSONDecodeError, UnicodeError, OSError) as e:
+         return handler._send_json({"ok": False, "error": f"failed to read file: {e}"}, 500)
+ 
+     config = handler._get_config(proj_dir)
+ 
+     token_store = FileTokenUsageStore(str(proj_out))
+ 
+-    _mark_busy(abs_path, True)
+     try:
+         if ftype == "texts":
+             refined = refine_text(data, config, context_override=context_override, token_store=token_store)
+@@ -80,11 +113,31 @@
+             refined = refine_script(data, analysis, config, context_override=context_override, token_store=token_store)
+     except Exception as e:  # noqa: BLE001 - AI provider failures are heterogeneous
+         return handler._send_json({"ok": False, "error": f"refine failed: {e}"}, 500)
+-    finally:
+-        _mark_busy(abs_path, False)
+ 
++    if ftype == "texts" and isinstance(data, dict) and isinstance(refined, dict):
++        refined = _preserve_analysis_server_fields(data, refined)
+     raw = json.dumps(refined, ensure_ascii=False, indent=2).encode("utf-8")
+-    version = save_with_version(p, raw)
++    try:
++        # The AI call can take tens of seconds; never overwrite an edit the user
++        # saved meanwhile. Return the refined data so the client can merge.
++        version = save_with_version(p, raw, base_version)
++    except ArtifactConflictError as exc:
++        return handler._send_json(
++            {
++                "ok": False,
++                "code": "artifact_conflict",
++                "error": t("api.artifact_conflict"),
++                "current_version": exc.current_version,
++                "data": refined,
++            },
++            409,
++            extra_headers=version_headers(exc.current_version) if exc.current_version else None,
++        )
++    if isinstance(refined, dict):
++        if ftype == "texts":
++            _rewrite_text_file(p.with_suffix(".txt"), refined)
++        else:
++            _rewrite_script_md(p.with_suffix(".md"), refined)
+ 
+     handler._send_json(
+         {"ok": True, "data": refined, "version": version},
+diff --git a/clio/tests/test_refine_routes.py b/clio/tests/test_refine_routes.py
+--- a/clio/tests/test_refine_routes.py
++++ b/clio/tests/test_refine_routes.py
+@@ -8,8 +8,8 @@
+ 
+ import pytest
+ 
+-from clio.ui.routes.refine import _is_file_busy, _mark_busy, handle_post_refine
+-from clio.ui.services.file_service import version_headers
++from clio.ui.routes.refine import _is_file_busy, _mark_busy, _try_mark_busy, handle_post_refine
++from clio.ui.services.file_service import ArtifactConflictError, content_version, version_headers
+ 
+ 
+ @pytest.fixture(autouse=True)
+@@ -25,7 +25,7 @@
+     """Create a MagicMock that looks like a Path for the refine route handler."""
+     p = MagicMock(spec=Path)
+     p.resolve.return_value = Path(resolved)
+-    p.read_text.return_value = content or '{"key": "value"}'
++    p.read_bytes.return_value = (content or '{"key": "value"}').encode("utf-8")
+     return p
+ 
+ 
+@@ -196,7 +196,7 @@
+     def test_oserror_returns_500(self):
+         p = MagicMock(spec=Path)
+         p.resolve.return_value = Path("/some/path.json")
+-        p.read_text.side_effect = OSError("permission denied")
++        p.read_bytes.side_effect = OSError("permission denied")
+         handler = _make_handler(p, with_config=False)
+         handle_post_refine(handler, {}, {"file": "test.json", "type": "texts"})
+         handler._send_json.assert_called_once()
+@@ -208,6 +208,15 @@
+ # ===========================================================================
+ # handle_post_refine — success path: texts
+ # ===========================================================================
++
++
++@pytest.fixture(autouse=True)
++def _no_sidecar_writes():
++    with (
++        patch("clio.ui.routes.refine._rewrite_text_file") as text_sidecar,
++        patch("clio.ui.routes.refine._rewrite_script_md") as script_sidecar,
++    ):
++        yield text_sidecar, script_sidecar
+ 
+ 
+ class TestHandlePostRefineTextsSuccess:
+@@ -230,9 +239,10 @@
+         assert kwargs.get("context_override") is None
+ 
+         mock_save.assert_called_once()
+-        save_path, save_data = mock_save.call_args.args
++        save_path, save_data, expected_version = mock_save.call_args.args
+         assert save_path is p
+         assert json.loads(save_data) == refined_data
++        assert expected_version == content_version(b'{"index": 1, "title": "original"}')
+         handler._send_json.assert_called_once_with(
+             {"ok": True, "data": refined_data, "version": version},
+             extra_headers=version_headers(version),
+@@ -346,3 +356,50 @@
+             handle_post_refine(handler, {}, {"file": "test.json", "type": "texts"})
+ 
+         mock_save.assert_not_called()
++
++
++# ===========================================================================
++# D-04: atomic busy claim and no lost user edits
++# ===========================================================================
++
++
++class TestRefineRaceFixes:
++    def test_try_mark_busy_is_test_and_set(self):
++        assert _try_mark_busy("/race/file.json") is True
++        assert _try_mark_busy("/race/file.json") is False
++        _mark_busy("/race/file.json", False)
++        assert _try_mark_busy("/race/file.json") is True
++
++    @patch("clio.ui.routes.refine.refine_text")
++    @patch("clio.ui.routes.refine.save_with_version")
++    def test_conflict_when_file_changed_during_refine(self, mock_save, mock_refine, _no_sidecar_writes):
++        refined = {"index": 1, "title": "ai"}
++        mock_refine.return_value = refined
++        mock_save.side_effect = ArtifactConflictError("aaaaaaaaaaaaaaaa")
++
++        p = _mock_path(content='{"index": 1, "title": "original"}')
++        handler = _make_handler(p)
++        handle_post_refine(handler, {}, {"file": "test.json", "type": "texts"})
++
++        body, status = handler._send_json.call_args.args
++        assert status == 409
++        assert body["code"] == "artifact_conflict"
++        assert body["data"] == refined
++        assert body["current_version"] == "aaaaaaaaaaaaaaaa"
++        _no_sidecar_writes[0].assert_not_called()
++
++    @patch("clio.ui.routes.refine.refine_text")
++    @patch("clio.ui.routes.refine.save_with_version")
++    def test_texts_refine_keeps_server_fields_and_rewrites_txt(self, mock_save, mock_refine, _no_sidecar_writes):
++        mock_refine.return_value = {"index": 99, "title": "ai", "source_file": "spoofed.mp4"}
++        mock_save.return_value = "0123456789abcdef"
++
++        p = _mock_path(content='{"index": 1, "title": "original", "source_file": "GX01.mp4"}')
++        handler = _make_handler(p)
++        handle_post_refine(handler, {}, {"file": "test.json", "type": "texts"})
++
++        saved = json.loads(mock_save.call_args.args[1])
++        assert saved["index"] == 1
++        assert saved["source_file"] == "GX01.mp4"
++        assert saved["title"] == "ai"
++        _no_sidecar_writes[0].assert_called_once()

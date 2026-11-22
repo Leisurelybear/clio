@@ -1,0 +1,106 @@
+diff --git a/clio/ui/static/src/state.js b/clio/ui/static/src/state.js
+--- a/clio/ui/static/src/state.js
++++ b/clio/ui/static/src/state.js
+@@ -20,6 +20,7 @@
+   plan: null,
+   planPreviewMedia: null,
+   dirty: false,
++  editSeq: 0,  // bumped by markDirty(); lets in-flight saves detect newer edits
+   artifactVersions: { plan: {}, texts: {}, voiceover: {} },
+   projectName: null,
+   projects: [],
+diff --git a/clio/ui/static/src/utils.js b/clio/ui/static/src/utils.js
+--- a/clio/ui/static/src/utils.js
++++ b/clio/ui/static/src/utils.js
+@@ -97,7 +97,11 @@
+   cur[keys[keys.length - 1]] = value;
+ }
+ 
+-function markDirty() { state.dirty = true; updateSaveBtn(); }
++function markDirty() {
++  state.editSeq = (state.editSeq || 0) + 1;
++  state.dirty = true;
++  updateSaveBtn();
++}
+ 
+ /** Clear unsaved flag and sync the Save button label (discard / after save). */
+ function clearDirty() { state.dirty = false; updateSaveBtn(); }
+diff --git a/clio/ui/static/src/editor-plan-persistence.js b/clio/ui/static/src/editor-plan-persistence.js
+--- a/clio/ui/static/src/editor-plan-persistence.js
++++ b/clio/ui/static/src/editor-plan-persistence.js
+@@ -85,6 +85,12 @@
+     return;
+   }
+   const generation = ++_saveGeneration;
++  // Edits made while the request is in flight are not in the request body;
++  // only clear dirty when nothing changed since the snapshot was taken.
++  const editSeq = state.editSeq;
++  const clearDirtyIfUnchanged = () => {
++    if (state.editSeq === editSeq) clearDirty();
++  };
+   const entity = state.currentEntity;
+   const day = state.currentDay;
+   const tab = state.currentTab;
+@@ -112,7 +118,7 @@
+       }
+       if (r.error) throw new Error(r.error);
+       if (generation !== _saveGeneration) return;
+-      clearDirty();
++      clearDirtyIfUnchanged();
+       if (ct === 'global') applySavedConfigLanguage();
+       const status = configSaveStatusForTab(ct);
+       setStatus(status.message, status.level);
+@@ -161,7 +167,7 @@
+     });
+     if (generation !== _saveGeneration) return;
+     setArtifactVersion(versionKind, versionKey, result.version || result.data?.version);
+-    clearDirty();
++    clearDirtyIfUnchanged();
+     setStatus(t('plan.saved'), 'ok');
+     addToast(t('plan.saved'), 'success', undefined, { persist: false });
+     if (target.action === 'plan') options.onPlanSaved?.();
+diff --git a/clio/ui/static/src/__tests__/editor-artifact-save.test.js b/clio/ui/static/src/__tests__/editor-artifact-save.test.js
+--- a/clio/ui/static/src/__tests__/editor-artifact-save.test.js
++++ b/clio/ui/static/src/__tests__/editor-artifact-save.test.js
+@@ -121,6 +121,23 @@
+     );
+     expect(state.dirty).toBe(false);
+     expect(artifactVersion('texts', 'a.json')).toBe('new-version');
++  });
++
++  it('keeps dirty when the user edits while the save is in flight', async () => {
++    state.texts = { title: 'first' };
++    state.artifactVersions.texts['a.json'] = 'old-version';
++    apiWithMeta.mockImplementation(async () => {
++      // Simulate markDirty() from an edit made before the response arrives.
++      state.editSeq = (state.editSeq || 0) + 1;
++      state.dirty = true;
++      return { data: { ok: true }, version: 'new-version' };
++    });
++
++    await save();
++
++    expect(state.dirty).toBe(true);
++    expect(artifactVersion('texts', 'a.json')).toBe('new-version');
++    apiWithMeta.mockReset();
+   });
+ 
+   it.each([
+diff --git a/clio/ui/static/src/__tests__/utils.test.js b/clio/ui/static/src/__tests__/utils.test.js
+--- a/clio/ui/static/src/__tests__/utils.test.js
++++ b/clio/ui/static/src/__tests__/utils.test.js
+@@ -198,4 +198,13 @@
+     expect(btn.textContent).toBe('保存');
+     expect(btn.classList.contains('dirty')).toBe(false);
+   });
+-});
++
++  it('markDirty bumps editSeq so in-flight saves can detect newer edits', () => {
++    const before = state.editSeq;
++    markDirty();
++    markDirty();
++    expect(state.editSeq).toBe(before + 2);
++    clearDirty();
++    expect(state.editSeq).toBe(before + 2);
++  });
++});

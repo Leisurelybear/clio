@@ -1,0 +1,191 @@
+diff --git a/clio/ai/token_usage.py b/clio/ai/token_usage.py
+--- a/clio/ai/token_usage.py
++++ b/clio/ai/token_usage.py
+@@ -4,6 +4,7 @@
+ 
+ import copy
+ import json
++import logging
+ import time
+ from abc import ABC, abstractmethod
+ from pathlib import Path
+@@ -13,6 +14,8 @@
+ 
+ if TYPE_CHECKING:
+     from clio.ai.base import TokenUsage
++
++logger = logging.getLogger("clio.ai.token_usage")
+ 
+ 
+ class TokenUsageStore(ABC):
+@@ -47,6 +50,15 @@
+     "history": [],
+ }
+ 
++_EMPTY_BUCKET: dict[str, Any] = {
++    "prompt_tokens": 0,
++    "completion_tokens": 0,
++    "total_tokens": 0,
++    "calls": 0,
++    "cost_usd": 0.0,
++    "unknown_price_calls": 0,
++}
++
+ 
+ def estimate_cost_usd(
+     prompt_tokens: int,
+@@ -82,17 +94,7 @@
+     if not price_known:
+         total["unknown_price_calls"] = int(total.get("unknown_price_calls", 0)) + 1
+ 
+-    model_key = stats["by_model"].setdefault(
+-        model,
+-        {
+-            "prompt_tokens": 0,
+-            "completion_tokens": 0,
+-            "total_tokens": 0,
+-            "calls": 0,
+-            "cost_usd": 0.0,
+-            "unknown_price_calls": 0,
+-        },
+-    )
++    model_key = stats["by_model"].setdefault(model, dict(_EMPTY_BUCKET))
+     model_key["prompt_tokens"] += pt
+     model_key["completion_tokens"] += ct
+     model_key["total_tokens"] += tt
+@@ -101,17 +103,7 @@
+     if not price_known:
+         model_key["unknown_price_calls"] = int(model_key.get("unknown_price_calls", 0)) + 1
+ 
+-    task_key = stats["by_task"].setdefault(
+-        task,
+-        {
+-            "prompt_tokens": 0,
+-            "completion_tokens": 0,
+-            "total_tokens": 0,
+-            "calls": 0,
+-            "cost_usd": 0.0,
+-            "unknown_price_calls": 0,
+-        },
+-    )
++    task_key = stats["by_task"].setdefault(task, dict(_EMPTY_BUCKET))
+     task_key["prompt_tokens"] += pt
+     task_key["completion_tokens"] += ct
+     task_key["total_tokens"] += tt
+@@ -178,24 +170,46 @@
+     def close(self) -> None:
+         pass
+ 
++    def _quarantine(self) -> None:
++        """Move an unreadable stats file aside so the next record cannot overwrite it."""
++        target = self._path.with_name(f"{self._path.name}.corrupt.{time.strftime('%Y%m%d-%H%M%S')}")
++        try:
++            self._path.replace(target)
++        except OSError as exc:
++            logger.warning("token usage file %s is corrupt and could not be moved aside: %s", self._path, exc)
++            return
++        logger.warning("token usage file %s was corrupt; kept as %s", self._path, target.name)
++
+     def _read_raw(self) -> dict[str, Any]:
+         if not self._path.is_file():
+             return copy.deepcopy(_EMPTY_STATS)
+         try:
+             data = json.loads(self._path.read_text(encoding="utf-8"))
+-        except (json.JSONDecodeError, OSError):
+-            return copy.deepcopy(_EMPTY_STATS)
+-        if not isinstance(data, dict) or "history" not in data or not isinstance(data.get("history"), list):
+-            return copy.deepcopy(_EMPTY_STATS)
+-        total = data.setdefault("total", {})
+-        if isinstance(total, dict):
+-            total.setdefault("cost_usd", 0.0)
+-            total.setdefault("unknown_price_calls", 0)
+-        for bucket_name in ("by_model", "by_task"):
+-            buckets = data.get(bucket_name)
+-            if isinstance(buckets, dict):
+-                for bucket in buckets.values():
+-                    if isinstance(bucket, dict):
+-                        bucket.setdefault("cost_usd", 0.0)
+-                        bucket.setdefault("unknown_price_calls", 0)
+-        return data
++        except OSError:
++            return copy.deepcopy(_EMPTY_STATS)
++        except ValueError:  # JSONDecodeError / UnicodeDecodeError
++            self._quarantine()
++            return copy.deepcopy(_EMPTY_STATS)
++        if not isinstance(data, dict) or not isinstance(data.get("history"), list):
++            self._quarantine()
++            return copy.deepcopy(_EMPTY_STATS)
++        return _fill_missing_stats(data)
++
++
++def _fill_missing_stats(data: dict[str, Any]) -> dict[str, Any]:
++    """Backfill fields that older or hand-edited files lack so merging never hits KeyError."""
++    total = data.get("total")
++    if not isinstance(total, dict):
++        total = data["total"] = {}
++    for key, default in _EMPTY_STATS["total"].items():
++        total.setdefault(key, default)
++    for bucket_name in ("by_model", "by_task"):
++        buckets = data.get(bucket_name)
++        if not isinstance(buckets, dict):
++            buckets = data[bucket_name] = {}
++        for name, bucket in list(buckets.items()):
++            if not isinstance(bucket, dict):
++                bucket = buckets[name] = {}
++            for key, default in _EMPTY_BUCKET.items():
++                bucket.setdefault(key, default)
++    return data
+diff --git a/clio/tests/test_fix_token_usage_recovery.py b/clio/tests/test_fix_token_usage_recovery.py
+new file mode 100644
+--- /dev/null
++++ b/clio/tests/test_fix_token_usage_recovery.py
+@@ -0,0 +1,49 @@
++"""Regression tests: corrupt or partial token usage files never lose history silently."""
++
++from __future__ import annotations
++
++import json
++
++from clio.ai.base import TokenUsage
++from clio.ai.token_usage import _EMPTY_STATS, FileTokenUsageStore
++
++USAGE = TokenUsage(prompt_tokens=1, completion_tokens=2, total_tokens=3)
++
++
++def test_corrupt_file_is_moved_aside_before_record(tmp_path):
++    store = FileTokenUsageStore(str(tmp_path))
++    store._path.write_text("{not json", encoding="utf-8")
++
++    store.record("analyze", "m", USAGE)
++
++    corrupt = [p for p in tmp_path.iterdir() if p.name.startswith(".token_usage.json.corrupt.")]
++    assert len(corrupt) == 1
++    assert corrupt[0].read_text(encoding="utf-8") == "{not json"
++    assert store.get_stats()["total"]["total_tokens"] == 3
++
++
++def test_wrong_shape_is_moved_aside(tmp_path):
++    store = FileTokenUsageStore(str(tmp_path))
++    store._path.write_text(json.dumps({"total": {}}), encoding="utf-8")
++
++    assert store.get_stats() == _EMPTY_STATS
++    assert any(p.name.startswith(".token_usage.json.corrupt.") for p in tmp_path.iterdir())
++
++
++def test_record_backfills_missing_sections(tmp_path):
++    store = FileTokenUsageStore(str(tmp_path))
++    partial = {
++        "total": {"total_tokens": 7},
++        "by_model": {"m": {"calls": 1}},
++        "history": [{"task": "old"}],
++    }
++    store._path.write_text(json.dumps(partial), encoding="utf-8")
++
++    store.record("analyze", "m", USAGE)
++
++    stats = store.get_stats()
++    assert stats["total"]["total_tokens"] == 10
++    assert stats["total"]["prompt_tokens"] == 1
++    assert stats["by_model"]["m"]["calls"] == 2
++    assert stats["by_task"]["analyze"]["calls"] == 1
++    assert len(stats["history"]) == 2

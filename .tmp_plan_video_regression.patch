@@ -1,0 +1,96 @@
+﻿*** Begin Patch
+*** Update File: G:\Coding_Project\IdeaProjects\vlog-video-analysis\clio\tests\test_index.py
+@@
+-def _make_text_json(path: Path, compressed_stem: str, index: str, title: str):
++def _make_text_json(
++    path: Path,
++    compressed_stem: str,
++    index: str,
++    title: str,
++    *,
++    original_stem: str = "GL010683",
++    segment_index: int | None = None,
++):
+     """Create a v2 text JSON file with media_identity."""
+     identity = MediaIdentity(
+-        original_stem="GL010683",
+-        original_path=str(path.parent.parent / "GL010683.mp4"),
++        original_stem=original_stem,
++        original_path=str(path.parent.parent / f"{original_stem}.mp4"),
+         compressed_stem=compressed_stem,
+         compressed_path=str(path.parent.parent / "compressed" / f"{compressed_stem}.mp4"),
+         index=index,
+-        segment_index=None,
++        segment_index=segment_index,
+         segment_offset_sec=0.0,
+         segment_duration_sec=None,
+     )
+@@
+     def test_equivalent_index_ambiguity_is_not_auto_assigned(self, tmp_path: Path):
+@@
+         assert all(group.texts == [] for group in index.all_groups())
+         assert index.ambiguous_artifacts() == (texts_dir / "1_analysis.json",)
+ 
++    def test_analysis_indexes_follow_original_media_identity(self, tmp_path: Path):
++        compressed_dir = tmp_path / "compressed"
++        texts_dir = tmp_path / "texts"
++        compressed_dir.mkdir()
++        texts_dir.mkdir()
++        (compressed_dir / "197_GX011275.mp4").write_bytes(b"video")
++
++        _make_text_json(
++            texts_dir / "016_Legacy.json",
++            "016_GX011275",
++            "016",
++            "Legacy",
++            original_stem="GX011275",
++        )
++        _make_text_json(
++            texts_dir / "197_Current.json",
++            "197_GX011275",
++            "197",
++            "Current",
++            original_stem="GX011275",
++        )
++
++        index = self._make_index(tmp_path)
++        index.build()
++
++        assert index.analysis_indexes_for_media("GX011275") == ["016", "197"]
++        assert index.analysis_indexes_for_media("gx011275") == ["016", "197"]
++
++    def test_analysis_indexes_are_partitioned_by_segment_index(self, tmp_path: Path):
++        compressed_dir = tmp_path / "compressed"
++        texts_dir = tmp_path / "texts"
++        compressed_dir.mkdir()
++        texts_dir.mkdir()
++        (compressed_dir / "197_GX011275_seg01.mp4").write_bytes(b"video")
++        (compressed_dir / "198_GX011275_seg02.mp4").write_bytes(b"video")
++
++        _make_text_json(
++            texts_dir / "016_Legacy.json",
++            "197_GX011275_seg01",
++            "016",
++            "Legacy",
++            original_stem="GX011275",
++            segment_index=1,
++        )
++        _make_text_json(
++            texts_dir / "197_Current.json",
++            "198_GX011275_seg02",
++            "197",
++            "Current",
++            original_stem="GX011275",
++            segment_index=2,
++        )
++
++        index = self._make_index(tmp_path)
++        index.build()
++
++        assert index.analysis_indexes_for_media("GX011275", 1) == ["016"]
++        assert index.analysis_indexes_for_media("GX011275", "1") == ["016"]
++        assert index.analysis_indexes_for_media("GX011275", 2) == ["197"]
++        assert index.analysis_indexes_for_media("GX011275") == []
++
+     def test_legacy_split_artifacts(self, tmp_path: Path):
+*** End Patch

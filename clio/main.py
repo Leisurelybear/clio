@@ -597,6 +597,7 @@ def _run_cut_command(args: argparse.Namespace, config) -> int:
         media_durations=collect_project_media_durations(config),
         analysis_timelines=collect_project_analysis_timelines(config),
         source=args.source,
+        target_duration_sec=float(getattr(config.plan, "target_duration_sec", 0) or 0),
     )
     blocked = readiness_block_payload(ready, force=bool(getattr(args, "force", False)))
     if blocked is not None:
@@ -638,6 +639,7 @@ def _run_export_command(args: argparse.Namespace, config) -> int:
         media_durations=collect_project_media_durations(config),
         analysis_timelines=collect_project_analysis_timelines(config),
         source="original",
+        target_duration_sec=float(getattr(config.plan, "target_duration_sec", 0) or 0),
     )
     blocked = readiness_block_payload(ready, force=bool(getattr(args, "force", False)))
     if blocked is not None:

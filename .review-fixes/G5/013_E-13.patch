@@ -1,0 +1,142 @@
+diff --git a/clio/ui/static/src/notification-center.js b/clio/ui/static/src/notification-center.js
+--- a/clio/ui/static/src/notification-center.js
++++ b/clio/ui/static/src/notification-center.js
+@@ -13,6 +13,13 @@
+ const _seenNotificationIds = new Set();
+ let _stream = null;
+ let _streamRetry = null;
++const STREAM_RETRY_MIN_MS = 3_000;
++const STREAM_RETRY_MAX_MS = 60_000;
++const STREAM_PROBE_AFTER_FAILURES = 3;
++let _streamRetryDelay = STREAM_RETRY_MIN_MS;
++let _streamFailures = 0;
++let _streamStopped = false;
++let _streamWaitingVisible = false;
+ let _streamCursor = 0;
+ let _initialized = false;
+ let _filter = 'all';
+@@ -261,9 +268,11 @@
+   // EventSource cannot send headers; the HttpOnly session cookie authenticates it.
+   const url = `/api/notifications/stream?after=${encodeURIComponent(_streamCursor)}`;
+   try { _stream = new EventSource(url); } catch { return; }
++  _stream.onopen = _resetStreamBackoff;
+   _stream.onmessage = event => {
+     try {
+       const payload = JSON.parse(event.data);
++      _resetStreamBackoff();
+       const revision = Number(payload.seq) || 0;
+       if (revision <= _streamCursor) return;
+       _recordRevision(revision);
+@@ -282,8 +291,55 @@
+   _stream.onerror = () => {
+     _stream?.close();
+     _stream = null;
+-    if (!_streamRetry) _streamRetry = setTimeout(() => { _streamRetry = null; _startStream(); }, 3_000);
++    _streamFailures += 1;
++    _scheduleStreamRetry();
+   };
++}
++
++function _resetStreamBackoff() {
++  _streamRetryDelay = STREAM_RETRY_MIN_MS;
++  _streamFailures = 0;
++}
++
++function _isAuthError(error) {
++  return error?.status === 401 || error?.message === t('errors.http_auth');
++}
++
++/** Reconnect with exponential backoff; pause while hidden, stop on 401. */
++function _scheduleStreamRetry() {
++  if (_streamRetry || _streamStopped) return;
++  const delay = _streamRetryDelay;
++  _streamRetryDelay = Math.min(delay * 2, STREAM_RETRY_MAX_MS);
++  _streamRetry = setTimeout(async () => {
++    if (document.hidden) {
++      _streamRetry = null;
++      if (!_streamWaitingVisible) {
++        _streamWaitingVisible = true;
++        const onVisible = () => {
++          if (document.hidden) return;
++          document.removeEventListener('visibilitychange', onVisible);
++          _streamWaitingVisible = false;
++          _scheduleStreamRetry();
++        };
++        document.addEventListener('visibilitychange', onVisible);
++      }
++      return;
++    }
++    if (_streamFailures >= STREAM_PROBE_AFTER_FAILURES) {
++      try {
++        await api('GET', _query(0, 1));
++      } catch (error) {
++        if (_isAuthError(error)) {
++          // api() already opened the re-auth prompt; submitting it reloads the page.
++          _streamStopped = true;
++          _streamRetry = null;
++          return;
++        }
++      }
++    }
++    _streamRetry = null;
++    _startStream();
++  }, delay);
+ }
+ 
+ function _contextLink(overrides = {}) {
+diff --git a/clio/ui/static/src/__tests__/notification-center.test.js b/clio/ui/static/src/__tests__/notification-center.test.js
+--- a/clio/ui/static/src/__tests__/notification-center.test.js
++++ b/clio/ui/static/src/__tests__/notification-center.test.js
+@@ -504,6 +504,52 @@
+     expect(eventSource).not.toBe(first);
+   });
+ 
++  it('backs off exponentially between failed reconnects', async () => {
++    api.mockResolvedValue({ notifications: [], unread_count: 0, latest_seq: 0, total_count: 0 });
++    const { initNotificationCenter } = await import('../notification-center.js');
++    initNotificationCenter();
++    await vi.waitFor(() => expect(eventSource).toBeTruthy());
++
++    vi.useFakeTimers();
++    try {
++      const first = eventSource;
++      first.onerror();
++      await vi.advanceTimersByTimeAsync(3_100);
++      const second = eventSource;
++      expect(second).not.toBe(first);
++
++      second.onerror();
++      await vi.advanceTimersByTimeAsync(3_100);
++      expect(eventSource).toBe(second);
++      await vi.advanceTimersByTimeAsync(3_000);
++      expect(eventSource).not.toBe(second);
++    } finally {
++      vi.useRealTimers();
++    }
++  });
++
++  it('stops reconnecting once the server rejects the session (401)', async () => {
++    api.mockResolvedValue({ notifications: [], unread_count: 0, latest_seq: 0, total_count: 0 });
++    const { initNotificationCenter } = await import('../notification-center.js');
++    initNotificationCenter();
++    await vi.waitFor(() => expect(eventSource).toBeTruthy());
++
++    vi.useFakeTimers();
++    try {
++      for (let i = 0; i < 2; i += 1) {
++        eventSource.onerror();
++        await vi.advanceTimersByTimeAsync(60_000);
++      }
++      api.mockRejectedValue(Object.assign(new Error('HTTP 401'), { status: 401 }));
++      const last = eventSource;
++      last.onerror();
++      await vi.advanceTimersByTimeAsync(600_000);
++      expect(eventSource).toBe(last);
++    } finally {
++      vi.useRealTimers();
++    }
++  });
++
+   it('keeps only warnings and errors in the attention filter', async () => {
+     api.mockResolvedValue({
+       notifications: [

@@ -6,6 +6,7 @@ from __future__ import annotations
 import contextlib
 import copy
 import json
+import math
 import tempfile
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
@@ -321,8 +322,31 @@ def _global_type_reference(existing: Any) -> dict[str, Any]:
     return _type_reference(defaults, existing)
 
 
+def _model_price_type_reference() -> dict[str, float]:
+    return {
+        "prompt_price_per_1m_usd": 0.0,
+        "completion_price_per_1m_usd": 0.0,
+    }
+
+
 def _provider_type_reference() -> dict[str, Any]:
-    return _json_safe(asdict(ProviderConfig(name="", type="")))
+    ref = _json_safe(asdict(ProviderConfig(name="", type="")))
+    ref["model_prices"] = _model_price_type_reference()
+    return ref
+
+
+def _coerce_model_prices(raw: object) -> object:
+    """Coerce prices keyed by arbitrary model ids.
+
+    ``_coerce_config_types`` cannot infer the value type for dynamic dict keys,
+    so model-level prices need a dedicated pass.
+    """
+    if not isinstance(raw, dict):
+        return raw
+    ref = _model_price_type_reference()
+    return {
+        model: _coerce_config_types(price, ref) if isinstance(price, dict) else price for model, price in raw.items()
+    }
 
 
 def _coerce_provider_entries(raw: dict[str, Any]) -> None:
@@ -333,7 +357,10 @@ def _coerce_provider_entries(raw: dict[str, Any]) -> None:
     ref = _provider_type_reference()
     for name, provider in list(providers.items()):
         if isinstance(provider, dict):
-            providers[name] = _coerce_config_types(provider, ref)
+            coerced = _coerce_config_types(provider, ref)
+            if isinstance(coerced, dict):
+                coerced["model_prices"] = _coerce_model_prices(coerced.get("model_prices", {}))
+            providers[name] = coerced
 
 
 def _project_type_reference(proj_yaml: Path) -> dict[str, Any]:
@@ -614,6 +641,25 @@ def _provider_error(name: str, provider: dict[str, Any]) -> str | None:
         not isinstance(capabilities, list) or any(not isinstance(c, str) for c in capabilities)
     ):
         return "capabilities must be a list of strings"
+    return _model_prices_error(provider.get("model_prices"))
+
+
+def _model_prices_error(prices: object) -> str | None:
+    if prices is None:
+        return None
+    if not isinstance(prices, dict):
+        return "model_prices must be a mapping"
+    for model, price in prices.items():
+        if not isinstance(model, str) or not model.strip():
+            return "model_prices model ids must be non-empty strings"
+        if not isinstance(price, dict):
+            return f"model_prices.{model} must be a mapping"
+        for field in ("prompt_price_per_1m_usd", "completion_price_per_1m_usd"):
+            value = price.get(field, 0.0)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                return f"model_prices.{model}.{field} must be a number"
+            if not math.isfinite(value) or value < 0:
+                return f"model_prices.{model}.{field} must be a finite non-negative number"
     return None
 
 
@@ -633,6 +679,7 @@ def _normalize_provider(name: str, obj: dict[str, Any]) -> dict[str, Any]:
         "timeout_sec": obj.get("timeout_sec", 120.0),
         "max_tokens": obj.get("max_tokens", 0),
         "video_upload_max_mb": obj.get("video_upload_max_mb", 200),
+        "model_prices": obj.get("model_prices", {}),
         "prompt_price_per_1m_usd": obj.get("prompt_price_per_1m_usd", 0.0),
         "completion_price_per_1m_usd": obj.get("completion_price_per_1m_usd", 0.0),
         "models": obj.get("models", []),
@@ -640,7 +687,15 @@ def _normalize_provider(name: str, obj: dict[str, Any]) -> dict[str, Any]:
     }
     if obj.get("name"):
         data["name"] = name
-    return _coerce_config_types(data, _provider_type_reference())
+    coerced = _coerce_config_types(data, _provider_type_reference())
+    if not isinstance(coerced, dict):
+        return coerced
+    model_prices = _coerce_model_prices(coerced.get("model_prices", {}))
+    models = coerced.get("models")
+    if isinstance(models, list) and isinstance(model_prices, dict):
+        model_prices = {model: price for model, price in model_prices.items() if model in models}
+    coerced["model_prices"] = model_prices
+    return coerced
 
 
 def _provider_mapping(raw: dict[str, Any]) -> dict[str, Any]:

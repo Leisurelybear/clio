@@ -32,6 +32,24 @@ function sumUsage(rows) {
   };
 }
 
+function stepCountRows(stage, selected, previewRows, summary) {
+  const sourceRows = Array.isArray(summary?.step_counts) ? summary.step_counts : null;
+  const steps = stage.steps.filter(step => selected.has(step));
+  const rows = sourceRows || steps
+    .map(step => previewRows.find(row => row?.name === step))
+    .filter(Boolean);
+  return rows.map(row => ({
+    name: String(row?.name || ''),
+    total: Number(row?.total) || 0,
+    willRun: Number(row?.will_run) || 0,
+    willRunMax: Number(row?.will_run_max ?? row?.will_run) || 0,
+    willSkip: Number(row?.will_skip) || 0,
+    willSkipMin: Number(row?.will_skip_min ?? row?.will_skip) || 0,
+    deferred: Boolean(row?.deferred),
+    waitingOn: Array.isArray(row?.waiting_on) ? row.waiting_on.map(String) : [],
+  }));
+}
+
 /**
  * Fallback stage summary for responses that predate the authoritative
  * `preview.stages` contract (older backends, cached payloads, partial mocks).
@@ -98,6 +116,7 @@ export function buildRunStageModel({ selectedSteps, preview, activePhase = '', c
       ...summary,
       steps,
       status,
+      stepCounts: stepCountRows(stage, selected, previewRows, summary),
       pending: Number(summary?.will_run) || 0,
       pendingMax: Number(summary?.will_run_max ?? summary?.will_run) || 0,
       skipped: Number(summary?.will_skip) || 0,

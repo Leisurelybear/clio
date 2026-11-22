@@ -1,0 +1,87 @@
+diff --git a/clio/credentials/models.py b/clio/credentials/models.py
+--- a/clio/credentials/models.py
++++ b/clio/credentials/models.py
+@@ -7,6 +7,8 @@
+ ENV_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+ KINDS = {"api_key", "access_key", "secret", "password"}
+ SOURCES = {"auto", "environment", "keyring", "dotenv", "inline"}
++# Placeholders the UI shows instead of a secret; never a real credential value.
++MASKED_PLACEHOLDERS = frozenset({"***", "********", "••••••••••"})
+ 
+ 
+ @dataclass(frozen=True)
+@@ -41,5 +43,5 @@
+ def validate_value(value: str) -> None:
+     if not isinstance(value, str) or len(value.encode("utf-8")) > 4096 or any(c in value for c in "\r\n\0"):
+         raise ValueError("credential must be a single-line string of at most 4096 bytes")
+-    if value in {"***", "********", "••••••••••"}:
++    if value in MASKED_PLACEHOLDERS:
+         raise ValueError("a masked placeholder is not a credential")
+diff --git a/clio/credentials/service.py b/clio/credentials/service.py
+--- a/clio/credentials/service.py
++++ b/clio/credentials/service.py
+@@ -4,7 +4,7 @@
+ from dataclasses import asdict
+ from pathlib import Path
+ 
+-from clio.credentials.models import CredentialMetadata, validate_value
++from clio.credentials.models import MASKED_PLACEHOLDERS, CredentialMetadata, validate_value
+ from clio.credentials.stores import CredentialStore, DotenvStore, EnvironmentStore, InlineLegacyStore, KeyringStore
+ 
+ BUILTIN_ENVS = (
+@@ -80,7 +80,7 @@
+             inline = provider.get("api_key") or ""
+             # An empty inline value carries nothing to compare; skipping it keeps the
+             # result independent of the order the sharing providers are listed in.
+-            if inline and inline not in {"***", "********", "••••••••••"}:
++            if inline and inline not in MASKED_PLACEHOLDERS:
+                 previous_inline = self.legacy.get(ref)
+                 if previous_inline and previous_inline != inline:
+                     raise ValueError("shared credential reference has conflicting inline values")
+@@ -128,7 +128,7 @@
+                 return value
+         fallback = self.environment.get(env) or (self.dotenv.get(env) if self.dotenv and env else None)
+         inline = provider.get("api_key") or ""
+-        return fallback or ("" if inline in {"***", "********", "••••••••••"} else inline)
++        return fallback or ("" if inline in MASKED_PLACEHOLDERS else inline)
+ 
+     def status(self, ref: str) -> dict:
+         meta = self.metadata(ref)
+diff --git a/clio/ai/provider_security.py b/clio/ai/provider_security.py
+--- a/clio/ai/provider_security.py
++++ b/clio/ai/provider_security.py
+@@ -5,8 +5,10 @@
+ import re
+ from urllib.parse import urlsplit
+ 
++from clio.credentials.models import MASKED_PLACEHOLDERS
++
+ PROVIDER_KEY_ENV_RE = re.compile(r"^[A-Z][A-Z0-9_]*_API_KEY$")
+-_MASKED_SECRET_VALUES = frozenset({"***", "********", "••••••••••"})
++_MASKED_SECRET_VALUES = MASKED_PLACEHOLDERS
+ _NON_ASCII_RE = re.compile(r"[^\x00-\x7F]")
+ _FNV_OFFSET_BASIS = 0x811C9DC5
+ _FNV_PRIME = 0x01000193
+diff --git a/clio/tests/test_fix_credentials_masks.py b/clio/tests/test_fix_credentials_masks.py
+new file mode 100644
+--- /dev/null
++++ b/clio/tests/test_fix_credentials_masks.py
+@@ -0,0 +1,18 @@
++"""Regression test: masked placeholders come from one shared definition."""
++
++from __future__ import annotations
++
++import pytest
++
++from clio.ai import provider_security
++from clio.credentials.models import MASKED_PLACEHOLDERS, validate_value
++
++
++def test_provider_security_reuses_shared_placeholders():
++    assert provider_security._MASKED_SECRET_VALUES is MASKED_PLACEHOLDERS
++
++
++@pytest.mark.parametrize("placeholder", sorted(MASKED_PLACEHOLDERS))
++def test_every_placeholder_is_rejected_as_a_value(placeholder):
++    with pytest.raises(ValueError, match="masked placeholder"):
++        validate_value(placeholder)

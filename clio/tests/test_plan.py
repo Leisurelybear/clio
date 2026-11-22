@@ -989,3 +989,188 @@ class TestPlanClipProbeCaching:
             _collect_plan_clips(loaded_config, "day1", None, filter_by_day=True, cancel_event=None, report=False)
 
         assert probe.call_count == 2
+
+
+def _pacing_clip() -> dict[str, Any]:
+    return {
+        "index": "001",
+        "title": "a",
+        "summary": "s",
+        "timeline": [{"start": "00:00", "end": "01:00", "description": "d"}],
+        "location": "",
+        "highlights": [],
+        "suggested_use": "",
+    }
+
+
+def _pacing_config() -> MagicMock:
+    cfg = MagicMock(spec=AppConfig)
+    cfg.ai = MagicMock(debug_print_prompt=False)
+    cfg.plan = MagicMock()
+    cfg.plan.max_clips_per_day = 12
+    cfg.plan.max_segments = 12
+    cfg.plan.target_duration_sec = 180
+    cfg.plan.max_candidate_clips = 60
+    cfg.whisper = MagicMock()
+    cfg.whisper.enabled = False
+    cfg.whisper.max_segments_per_clip = 5
+    return cfg
+
+
+def test_plan_pacing_issues_flags_short_fragmented_cut():
+    from clio.analyze import _plan_pacing_issues
+
+    sequence = [{"index": "001", "use_timeline": "00:00-00:05"} for _ in range(12)]
+    issues = _plan_pacing_issues({"sequence": sequence}, 180.0)
+
+    assert len(issues) == 2
+    assert "80%" in issues[0]
+    assert "144.0" in issues[0]
+    assert "碎片" in issues[1] or "fragment" in issues[1].lower()
+
+
+def test_plan_pacing_issues_accepts_complete_cut():
+    from clio.analyze import _plan_pacing_issues
+
+    ranges = ["00:00-00:25", "00:00-00:15", "00:00-00:27", "00:00-00:25", "00:00-00:31", "00:00-00:35", "00:00-00:39"]
+    sequence = [{"index": "001", "use_timeline": span} for span in ranges]
+
+    assert _plan_pacing_issues({"sequence": sequence}, 180.0) == []
+
+
+def test_plan_pacing_issues_allows_short_broll_in_complete_cut():
+    from clio.analyze import _plan_pacing_issues
+
+    sequence = [{"index": "001", "use_timeline": "00:00-00:30"} for _ in range(5)]
+    sequence += [{"index": "001", "use_timeline": "00:00-00:02"} for _ in range(4)]
+
+    assert _plan_pacing_issues({"sequence": sequence}, 180.0) == []
+
+
+def test_plan_pacing_issues_flags_five_second_narrative_fragments_when_total_is_complete():
+    from clio.analyze import _plan_pacing_issues
+
+    sequence = [{"index": "001", "use_timeline": "00:00-00:30"} for _ in range(6)]
+    sequence += [{"index": "001", "use_timeline": "00:00-00:05"} for _ in range(3)]
+
+    issues = _plan_pacing_issues({"sequence": sequence}, 180.0)
+
+    assert len(issues) == 1
+    assert "碎片" in issues[0] or "fragment" in issues[0].lower()
+
+
+def test_plan_pacing_issues_accepts_exact_floor():
+    from clio.analyze import _plan_pacing_issues
+
+    sequence = [{"index": "001", "use_timeline": "00:00-00:36"} for _ in range(4)]
+
+    assert _plan_pacing_issues({"sequence": sequence}, 180.0) == []
+
+
+def test_plan_pacing_issues_flags_just_below_floor():
+    from clio.analyze import _plan_pacing_issues
+
+    sequence = [{"index": "001", "use_timeline": "00:00-00:35"} for _ in range(4)]
+    sequence.append({"index": "001", "use_timeline": "00:00-00:03"})
+
+    issues = _plan_pacing_issues({"sequence": sequence}, 180.0)
+
+    assert len(issues) == 1
+    assert "143.0" in issues[0]
+    assert "144.0" in issues[0]
+
+
+def test_plan_requests_pacing_repair_when_cut_is_too_short():
+    from clio.analyze import plan_daily_vlog
+
+    short_plan = {
+        "day_title": "short",
+        "sequence": [
+            {"index": "001", "use_timeline": "00:00-00:06"},
+            {"index": "001", "use_timeline": "00:10-00:16"},
+        ],
+    }
+    repaired_plan = {
+        "day_title": "paced",
+        "sequence": [{"index": "001", "use_timeline": "00:00-00:45"}],
+    }
+    payloads = iter([{}, short_plan, short_plan, repaired_plan])
+    call_ai = MagicMock(return_value="{}")
+
+    with (
+        patch("clio.analyze.get_task_provider", return_value=(MagicMock(), "deepseek-chat")),
+        patch("clio.analyze._wrap_with_context", side_effect=lambda text, *a, **k: text),
+        patch("clio.analyze._call_ai", call_ai),
+        patch("clio.analyze.extract_json", side_effect=lambda _text: next(payloads)),
+        patch("clio.analyze.review_plan_transitions", side_effect=lambda plan, *a, **k: plan),
+    ):
+        result = plan_daily_vlog([_pacing_clip()], _pacing_config(), "day1")
+
+    assert result["day_title"] == "paced"
+    prompts = [call.args[3] for call in call_ai.call_args_list if len(call.args) > 3]
+    assert any("144.0" in prompt for prompt in prompts)
+
+
+def test_plan_keeps_valid_plan_when_pacing_repair_fails():
+    from clio.analyze import plan_daily_vlog
+
+    short_plan = {
+        "day_title": "short",
+        "sequence": [{"index": "001", "use_timeline": "00:00-00:06"}],
+    }
+    payloads = iter([{}, short_plan, short_plan, {"sequence": []}])
+    call_ai = MagicMock(return_value="{}")
+
+    with (
+        patch("clio.analyze.get_task_provider", return_value=(MagicMock(), "deepseek-chat")),
+        patch("clio.analyze._wrap_with_context", side_effect=lambda text, *a, **k: text),
+        patch("clio.analyze._call_ai", call_ai),
+        patch("clio.analyze.extract_json", side_effect=lambda _text: next(payloads)),
+        patch("clio.analyze.review_plan_transitions", side_effect=lambda plan, *a, **k: plan),
+    ):
+        result = plan_daily_vlog([_pacing_clip()], _pacing_config(), "day1")
+
+    assert result["day_title"] == "short"
+    assert result["sequence"] == short_plan["sequence"]
+
+
+def test_plan_rejects_worse_pacing_repair():
+    from clio.analyze import plan_daily_vlog
+
+    # Original plan: 60s total, no fragments
+    orig_plan = {
+        "day_title": "original",
+        "sequence": [
+            {"index": "001", "use_timeline": "00:00-00:30"},
+            {"index": "001", "use_timeline": "00:30-01:00"},
+        ],
+    }
+
+    # Worse repair: 40s total, adds fragments
+    worse_repair = {
+        "day_title": "worse",
+        "sequence": [
+            {"index": "001", "use_timeline": "00:00-00:20"},
+            {"index": "001", "use_timeline": "00:20-00:25"},  # 5s fragment
+            {"index": "001", "use_timeline": "00:25-00:35"},  # 10s ok
+        ],
+    }
+
+    # Simulate: outline fails, plan succeeds, repair returns worse plan
+    payloads = iter([{}, orig_plan, orig_plan, worse_repair])
+    call_ai = MagicMock(return_value="{}")
+
+    with (
+        patch("clio.analyze.get_task_provider", return_value=(MagicMock(), "deepseek-chat")),
+        patch("clio.analyze._wrap_with_context", side_effect=lambda text, *a, **k: text),
+        patch("clio.analyze._call_ai", call_ai),
+        patch("clio.analyze.extract_json", side_effect=lambda _text: next(payloads)),
+        patch("clio.analyze.review_plan_transitions", side_effect=lambda plan, *a, **k: plan),
+    ):
+        result = plan_daily_vlog([_pacing_clip()], _pacing_config(), "day1")
+
+    # Should keep original plan, not the worse repair
+    assert result["day_title"] == "original"
+    assert len(result["sequence"]) == 2
+    assert result["sequence"][0]["use_timeline"] == "00:00-00:30"
+    assert result["sequence"][1]["use_timeline"] == "00:30-01:00"
