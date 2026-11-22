@@ -21,7 +21,7 @@ from clio.ai.provider_security import (
     provider_key_env_error,
     provider_rebind_error,
 )
-from clio.config import CONFIG_DESCRIPTIONS, deep_merge, load_config, load_global_config
+from clio.config import CONFIG_DESCRIPTIONS, deep_merge, load_config, load_global_config, validate_project_yaml
 from clio.config.models import (
     AnalyzeConfig,
     ExportConfig,
@@ -44,7 +44,6 @@ from clio.ui.services.file_service import (
     _coerce_config_types,
     _create_project_yaml,
     _find_texts_dirs,
-    _restore_atomic_unlocked,
     _save_atomic,
 )
 from clio.utils import path_write_lock
@@ -60,26 +59,21 @@ _DEFAULT_PROVIDERS = frozenset({"gemini", "openai", "deepseek"})
 
 
 def _write_project_yaml_validated(config_path: Path, proj_dir: Path, data: bytes) -> Exception | None:
-    """Write project.yaml, validate the merged config, roll back on failure.
+    """Validate candidate project.yaml bytes, then write them atomically.
 
-    ``load_project_config`` resolves relative paths and context files against
-    the real project dir, so validation reads the written file. Write, validate
-    and rollback run under project.yaml's path lock (shared with every UI
-    writer of that file) and the rollback is atomic and keeps ``.bak`` intact.
-    Returns the validation error, or None on success.
+    The candidate is validated in memory with ``validate_project_yaml`` (same
+    parsing and checks as ``load_config``), so an invalid config never reaches
+    disk and concurrent readers (pipelines, CLI) can never observe it.
+    Validation and write run under project.yaml's path lock, shared with every
+    UI writer of that file. Returns the validation error, or None on success.
     """
     proj_yaml = proj_dir / "project.yaml"
     with path_write_lock(proj_yaml):
-        orig_backup = proj_yaml.read_bytes() if proj_yaml.is_file() else None
         try:
-            _save_atomic(proj_yaml, data)
-            load_config(config_path, project_dir=proj_dir)
-        except Exception as e:  # noqa: BLE001 - project config validation boundary restores the previous file
-            if orig_backup is not None:
-                _restore_atomic_unlocked(proj_yaml, orig_backup)
-            else:
-                proj_yaml.unlink(missing_ok=True)
+            validate_project_yaml(data.decode("utf-8"), proj_dir, config_path=config_path)
+        except Exception as e:  # noqa: BLE001 - project config validation boundary reports any failure
             return e
+        _save_atomic(proj_yaml, data)
     return None
 
 
