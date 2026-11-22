@@ -162,7 +162,7 @@ def handle_post_export(
         return
 
     try:
-        plan = Plan.from_dict(json.loads(plan_path.read_text(encoding="utf-8")))
+        plan = Plan.from_dict(json.loads(plan_path.read_text(encoding="utf-8-sig")))
     except (json.JSONDecodeError, OSError) as e:
         handler._send_json({"ok": False, "error": str(e)}, 400)
         return

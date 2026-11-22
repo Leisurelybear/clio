@@ -175,7 +175,7 @@ def handle_get_plan_preview_media(handler: HandlerProtocol, qs: dict[str, Any]) 
     if not plan_path.is_file():
         return handler._send_json({"ok": False, "error": t("api.plan_missing", {"path": plan_path})}, 404)
     try:
-        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        plan = json.loads(plan_path.read_text(encoding="utf-8-sig"))
         plan_mtime = plan_path.stat().st_mtime
     except (OSError, json.JSONDecodeError) as exc:
         return handler._send_json({"ok": False, "error": str(exc)}, 400)
@@ -296,7 +296,7 @@ def handle_post_plan_readiness(handler: HandlerProtocol, qs: dict[str, Any], obj
                 404,
             )
         try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
+            raw = json.loads(path.read_text(encoding="utf-8-sig"))
         except (json.JSONDecodeError, OSError) as e:
             return handler._send_json({"ok": False, "error": str(e)}, 400)
         plan = Plan.from_dict(raw if isinstance(raw, dict) else {})
@@ -350,7 +350,7 @@ def handle_post_cut(handler: HandlerProtocol, qs: dict[str, list[str]], obj: dic
     if not plan_path.is_file():
         return handler._send_json({"ok": False, "error": t("api.plan_missing", {"path": plan_path})}, 404)
     try:
-        plan = Plan.from_dict(json.loads(plan_path.read_text(encoding="utf-8")))
+        plan = Plan.from_dict(json.loads(plan_path.read_text(encoding="utf-8-sig")))
     except (json.JSONDecodeError, OSError) as e:
         return handler._send_json({"ok": False, "error": str(e)}, 400)
     # Scan texts/ + compressed/ for index aliases once and share it.
