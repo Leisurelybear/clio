@@ -45,8 +45,10 @@ from clio.ui.services.file_service import (
     _coerce_config_types,
     _create_project_yaml,
     _find_texts_dirs,
+    _restore_atomic_unlocked,
     _save_atomic,
 )
+from clio.utils import path_write_lock
 from clio.ui.services.project_service import _project_output_dir, _registry_path, _registry_project_paths
 
 if TYPE_CHECKING:
@@ -56,6 +58,30 @@ _YAML_READ_ERRORS = (OSError, UnicodeDecodeError, yaml.YAMLError, TypeError, Val
 _YAML_WRITE_ERRORS = (yaml.YAMLError, TypeError, ValueError)
 _PROVIDER_TYPES = {"gemini", "openai", "openai_compat", "ollama"}
 _DEFAULT_PROVIDERS = frozenset({"gemini", "openai", "deepseek"})
+
+
+def _write_project_yaml_validated(config_path: Path, proj_dir: Path, data: bytes) -> Exception | None:
+    """Write project.yaml, validate the merged config, roll back on failure.
+
+    ``load_project_config`` resolves relative paths and context files against
+    the real project dir, so validation reads the written file. Write, validate
+    and rollback run under project.yaml's path lock (shared with every UI
+    writer of that file) and the rollback is atomic and keeps ``.bak`` intact.
+    Returns the validation error, or None on success.
+    """
+    proj_yaml = proj_dir / "project.yaml"
+    with path_write_lock(proj_yaml):
+        orig_backup = proj_yaml.read_bytes() if proj_yaml.is_file() else None
+        try:
+            _save_atomic(proj_yaml, data)
+            load_config(config_path, project_dir=proj_dir)
+        except Exception as e:  # noqa: BLE001 - project config validation boundary restores the previous file
+            if orig_backup is not None:
+                _restore_atomic_unlocked(proj_yaml, orig_backup)
+            else:
+                proj_yaml.unlink(missing_ok=True)
+            return e
+    return None
 
 
 def _provider_name_error(name: str) -> str | None:
@@ -155,16 +181,8 @@ def handle_put_config_raw(handler: HandlerProtocol, qs: dict[str, Any], obj: dic
             yml = yaml.dump(obj, allow_unicode=True, default_flow_style=False, sort_keys=False, indent=2)
         except _YAML_WRITE_ERRORS as e:
             return handler._send_json({"ok": False, "error": f"YAML serialization failed: {e}"}, 400)
-        orig_backup = target_path.read_bytes() if target_path.is_file() else None
-        try:
-            _save_atomic(target_path, yml.encode("utf-8"))
-            load_config(config_path, project_dir=proj_dir)
-        except Exception as e:  # noqa: BLE001 - config validation boundary restores the previous file
-            if orig_backup is not None:
-                target_path.write_bytes(orig_backup)
-            else:
-                target_path.unlink(missing_ok=True)
-            return handler._send_json({"ok": False, "error": f"config validation failed: {e}"}, 400)
+        if error := _write_project_yaml_validated(config_path, proj_dir, yml.encode("utf-8")):
+            return handler._send_json({"ok": False, "error": f"config validation failed: {error}"}, 400)
         handler.__class__._config_cache.invalidate_key(str(proj_dir.resolve()))
         _clear_provider_cache()
         return handler._send_json({"ok": True, "path": str(target_path)})
@@ -615,6 +633,7 @@ def handle_put_config_global(handler: HandlerProtocol, qs: dict[str, Any], obj: 
     handler._send_json({"ok": True, "path": str(config_path)})
 
 
+@serialized_store_write
 def handle_put_config_project(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
     """Handle PUT /api/config/project."""
     config_path = handler.config_path
@@ -632,16 +651,8 @@ def handle_put_config_project(handler: HandlerProtocol, qs: dict[str, Any], obj:
         yml = yaml.dump(obj, allow_unicode=True, default_flow_style=False, sort_keys=False, indent=2)
     except _YAML_WRITE_ERRORS as e:
         return handler._send_json({"ok": False, "error": f"YAML serialization failed: {e}"}, 400)
-    orig_backup = proj_yaml.read_bytes() if proj_yaml.is_file() else None
-    try:
-        _save_atomic(proj_yaml, yml.encode("utf-8"))
-        load_config(config_path, project_dir=proj_dir)
-    except Exception as e:  # noqa: BLE001 - project config validation boundary restores the previous file
-        if orig_backup is not None:
-            proj_yaml.write_bytes(orig_backup)
-        else:
-            proj_yaml.unlink()
-        return handler._send_json({"ok": False, "error": f"config validation failed: {e}"}, 400)
+    if error := _write_project_yaml_validated(config_path, proj_dir, yml.encode("utf-8")):
+        return handler._send_json({"ok": False, "error": f"config validation failed: {error}"}, 400)
     handler.__class__._config_cache.invalidate_key(str(proj_dir.resolve()))
     _clear_provider_cache()
     handler._send_json({"ok": True, "path": str(proj_yaml)})

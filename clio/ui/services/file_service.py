@@ -234,6 +234,30 @@ def _save_atomic_unlocked(path: Path, data: bytes) -> None:
     _prune_rotated_backups(path)
 
 
+def _restore_atomic_unlocked(path: Path, data: bytes) -> None:
+    """Atomically put *data* back at *path* without rotating ``.bak`` (rollback).
+
+    Callers hold ``path_write_lock(path)``.
+    """
+    import os
+
+    from clio.utils import _exclusive_random_tmp, _fsync_dir
+
+    tmp, fd = _exclusive_random_tmp(path)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+        _fsync_dir(path.parent)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.close(fd)
+        tmp.unlink(missing_ok=True)
+        raise
+
+
 def _prune_rotated_backups(path: Path, keep: int = 3) -> None:
     """Keep at most *keep* timestamped ``.bak.*`` sidecars besides ``.bak``."""
     bak = path.with_suffix(path.suffix + ".bak")
