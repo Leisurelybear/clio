@@ -80,6 +80,14 @@ from clio.utils import extract_json
 
 logger = logging.getLogger("clio.analyze")
 
+
+class AnalysisCancelled(InterruptedError, RuntimeError):
+    """Raised at every user-cancellation point in AI analysis/planning.
+
+    Subclasses InterruptedError (the project-wide cancel signal) and, for
+    callers that historically caught the RuntimeError raised here, RuntimeError.
+    """
+
 _trip_context_cache: dict[str, str] = {}
 _trip_context_lock = threading.Lock()
 
@@ -642,7 +650,7 @@ def _call_ai(
 ) -> str:
     # Check cancel_event before starting AI call
     if cancel_event and cancel_event.is_set():
-        raise RuntimeError(t("analyze.cancelled_by_user", {"label": label}))
+        raise AnalysisCancelled(t("analyze.cancelled_by_user", {"label": label}))
 
     if debug_print:
         print("=" * 60)
@@ -1264,7 +1272,7 @@ def analyze_video(
         text = call_analyze(prompt)
         # Check cancel_event after AI call but before validation
         if cancel_event and cancel_event.is_set():
-            raise RuntimeError(t("analyze.cancelled"))
+            raise AnalysisCancelled(t("analyze.cancelled"))
         result = _validate_with_retry(
             text,
             video_path,
@@ -1297,7 +1305,7 @@ def generate_voiceover(
     task_prompts: dict[str, str] | None = None,
 ) -> dict:
     if cancel_event and cancel_event.is_set():
-        raise RuntimeError(t("analyze.voiceover_cancelled"))
+        raise AnalysisCancelled(t("analyze.voiceover_cancelled"))
 
     provider, model = get_task_provider(config, TaskName.VOICEOVER)
 
@@ -1387,7 +1395,7 @@ def generate_plan_voiceover(
 ) -> dict:
     """Generate one voiceover from its planned sequence position and adjacent context."""
     if cancel_event and cancel_event.is_set():
-        raise RuntimeError(t("analyze.voiceover_cancelled"))
+        raise AnalysisCancelled(t("analyze.voiceover_cancelled"))
 
     sequence = plan.get("sequence", [])
     if not isinstance(sequence, list) or position < 0 or position >= len(sequence):
@@ -1754,6 +1762,7 @@ def plan_daily_vlog(
             debug_print=config.ai.debug_print_prompt,
             token_store=token_store,
             task_name=token_task_name,
+            cancel_event=cancel_event,
             system_message=system,
             **_usage_meta(config, TaskName.VLOG_PLAN),
         )
@@ -2111,10 +2120,10 @@ def refine_text(
             )
     except Exception as exc:  # translate provider failures after cancellation
         if cancel_event is not None and cancel_event.is_set():
-            raise InterruptedError(t("analyze.cancelled")) from exc
+            raise AnalysisCancelled(t("analyze.cancelled")) from exc
         raise
     if cancel_event is not None and cancel_event.is_set():
-        raise InterruptedError(t("analyze.cancelled"))
+        raise AnalysisCancelled(t("analyze.cancelled"))
     result = extract_json(text)
     if not isinstance(result, dict):
         print(t("analyze.refine_text_bad_structure"))
@@ -2168,10 +2177,10 @@ def summarize_window_analysis(
             )
     except Exception as exc:  # translate provider failures after cancellation
         if cancel_event is not None and cancel_event.is_set():
-            raise InterruptedError(t("analyze.cancelled")) from exc
+            raise AnalysisCancelled(t("analyze.cancelled")) from exc
         raise
     if cancel_event is not None and cancel_event.is_set():
-        raise InterruptedError(t("analyze.cancelled"))
+        raise AnalysisCancelled(t("analyze.cancelled"))
 
     candidate = extract_json(text)
     if not isinstance(candidate, dict) or any(
@@ -2254,10 +2263,10 @@ def refine_script(
             )
     except Exception as exc:  # translate provider failures after cancellation
         if cancel_event is not None and cancel_event.is_set():
-            raise InterruptedError(t("analyze.cancelled")) from exc
+            raise AnalysisCancelled(t("analyze.cancelled")) from exc
         raise
     if cancel_event is not None and cancel_event.is_set():
-        raise InterruptedError(t("analyze.cancelled"))
+        raise AnalysisCancelled(t("analyze.cancelled"))
     result = extract_json(text)
     if not isinstance(result, dict):
         print(t("analyze.refine_script_bad_structure"))

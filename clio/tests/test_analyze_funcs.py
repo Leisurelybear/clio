@@ -2219,3 +2219,44 @@ def test_plan_invalid_review_corrections_fall_back_to_valid_draft(monkeypatch):
     )
     result = plan_daily_vlog([{"index": "001", "timeline": [{"start": "00:00", "end": "00:10"}]}], _fake_config())
     assert result["day_title"] == "draft"
+
+
+def test_call_ai_cancellation_is_an_interrupted_error():
+    from clio.analyze import AnalysisCancelled
+
+    cancel = threading.Event()
+    cancel.set()
+    provider_call = MagicMock()
+
+    with pytest.raises(InterruptedError) as excinfo:
+        _call_ai("plan", "p", "m", "prompt", provider_call, cancel_event=cancel)
+
+    assert isinstance(excinfo.value, AnalysisCancelled)
+    assert isinstance(excinfo.value, RuntimeError)  # backwards compatible with older callers
+    provider_call.assert_not_called()
+
+
+def test_plan_daily_vlog_forwards_cancel_event_to_every_stage(monkeypatch):
+    cfg = _fake_config()
+    cancel = threading.Event()
+    seen: list[Any] = []
+
+    def fake_call_ai(*_args: Any, **kwargs: Any) -> str:
+        seen.append(kwargs.get("cancel_event"))
+        return json.dumps(
+            {
+                "day_title": "day1",
+                "theme": "",
+                "total_estimated_sec": 10,
+                "sequence": [{"index": "001", "use_timeline": "00:00-00:10"}],
+            }
+        )
+
+    monkeypatch.setattr("clio.analyze.get_task_provider", lambda *a: (MagicMock(), "model"))
+    monkeypatch.setattr("clio.analyze._call_ai", fake_call_ai)
+    clips = [{"index": "001", "title": "A", "timeline": [{"start": "00:00", "end": "00:10", "description": "x"}]}]
+
+    plan_daily_vlog(clips, cfg, "day1", use_transcripts=False, cancel_event=cancel)
+
+    assert seen
+    assert all(event is cancel for event in seen)
