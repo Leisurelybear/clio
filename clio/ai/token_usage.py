@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import copy
 import json
-import threading
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from clio.utils import write_json_atomic
+from clio.utils import path_write_lock, write_json_atomic
 
 if TYPE_CHECKING:
     from clio.ai.base import TokenUsage
@@ -128,7 +127,9 @@ _MAX_TOKEN_HISTORY = 500
 class FileTokenUsageStore(TokenUsageStore):
     def __init__(self, output_dir: str):
         self._path = Path(output_dir) / ".token_usage.json"
-        self._lock = threading.Lock()
+        # Tasks each create their own store; a per-path lock shared by all instances in
+        # this process keeps concurrent read-merge-write cycles from losing records.
+        self._lock = path_write_lock(self._path)
 
     def record(
         self,
