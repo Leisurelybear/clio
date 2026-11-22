@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from clio.i18n import t
+from clio.timecode import parse_timestamp_strict
 from clio.utils import write_text_atomic
 
 MANIFEST_SCHEMA_VERSION = 1
@@ -166,34 +167,7 @@ def load_evaluation_manifest(
 
 
 def _timestamp_seconds(value: Any) -> float | None:
-    if isinstance(value, bool) or value is None:
-        return None
-    if isinstance(value, (int, float)):
-        number = float(value)
-        return number if math.isfinite(number) and number >= 0 else None
-    text = str(value).strip()
-    if not text:
-        return None
-    parts = text.split(":")
-    if not 1 <= len(parts) <= 3:
-        return None
-    try:
-        values = [float(part) for part in parts]
-    except ValueError:
-        return None
-    if any(not math.isfinite(part) or part < 0 for part in values):
-        return None
-    if len(values) == 3:
-        hours, minutes, seconds = values
-        if minutes >= 60 or seconds >= 60:
-            return None
-        return hours * 3600 + minutes * 60 + seconds
-    if len(values) == 2:
-        minutes, seconds = values
-        if seconds >= 60:
-            return None
-        return minutes * 60 + seconds
-    return values[0]
+    return parse_timestamp_strict(value)
 
 
 def _merge_intervals(intervals: list[tuple[float, float]]) -> list[tuple[float, float]]:

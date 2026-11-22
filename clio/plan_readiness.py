@@ -28,6 +28,7 @@ from clio.tasks._helpers import (
     _matches_selected_stem,
     _project_selection_stems,
 )
+from clio.timecode import parse_timestamp_strict
 from clio.utils import format_index, get_duration_sec, resolve_binary
 from clio.vmeta import VideoMeta
 
@@ -128,35 +129,7 @@ def _normalized_media_key(index: str) -> str:
 
 
 def _timestamp_seconds(value: Any) -> float | None:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)):
-        seconds = float(value)
-        return seconds if math.isfinite(seconds) and seconds >= 0 else None
-
-    text = str(value or "").strip()
-    if not text:
-        return None
-    parts = text.split(":")
-    if not 1 <= len(parts) <= 3:
-        return None
-    try:
-        values = [float(part) for part in parts]
-    except ValueError:
-        return None
-    if any(not math.isfinite(part) or part < 0 for part in values):
-        return None
-    if len(values) == 3:
-        hours, minutes, seconds = values
-        if minutes >= 60 or seconds >= 60:
-            return None
-        return hours * 3600 + minutes * 60 + seconds
-    if len(values) == 2:
-        minutes, seconds = values
-        if seconds >= 60:
-            return None
-        return minutes * 60 + seconds
-    return values[0]
+    return parse_timestamp_strict(value)
 
 
 def _merge_timeline_intervals(intervals: Iterable[tuple[float, float]]) -> list[tuple[float, float]]:

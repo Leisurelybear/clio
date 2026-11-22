@@ -75,6 +75,7 @@ from clio.prompts import (
     WINDOW_SUMMARY_PROMPT,
 )
 from clio.scene import align_shots_to_boundaries, format_scene_timestamp, scene_ranges
+from clio.timecode import parse_timestamp
 from clio.transition_review import review_plan_transitions
 from clio.utils import extract_json
 
@@ -693,22 +694,8 @@ def _call_ai(
 
 def _timeline_intervals(clip: dict) -> list[tuple[float, float]]:
     def parse_strict(value: Any) -> float:
-        if isinstance(value, bool) or value is None:
-            raise ValueError("invalid timestamp")
-        if isinstance(value, (int, float)):
-            result = float(value)
-            if math.isfinite(result):
-                return result
-            raise ValueError("invalid timestamp")
-        text = str(value).strip()
-        parts = text.split(":")
-        if len(parts) == 2:
-            result = int(parts[0]) * 60 + float(parts[1])
-        elif len(parts) == 3:
-            result = int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
-        else:
-            raise ValueError("invalid timestamp")
-        if not math.isfinite(result):
+        result = parse_timestamp(value)
+        if result is None:
             raise ValueError("invalid timestamp")
         return result
 

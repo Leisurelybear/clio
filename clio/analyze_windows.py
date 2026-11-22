@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from clio.i18n import t
+from clio.timecode import parse_timestamp
 from clio.utils import get_duration_sec, write_json_atomic
 
 MAX_ANALYZE_WINDOWS = 1000
@@ -76,21 +77,7 @@ _TIME_KEYS = ("start", "end", "time", "t", "timestamp", "cover_timestamp")
 
 
 def _parse_ts(value: Any) -> float | None:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    if not isinstance(value, str) or not value.strip():
-        return None
-    parts = value.strip().split(":")
-    try:
-        if len(parts) == 2:
-            return int(parts[0]) * 60 + float(parts[1])
-        if len(parts) == 3:
-            return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
-    except ValueError:
-        return None
-    return None
+    return parse_timestamp(value)
 
 
 def _format_ts(sec: float, original: Any) -> Any:
@@ -115,6 +102,10 @@ def _format_ts(sec: float, original: Any) -> Any:
             return f"{hours:02d}:{minutes:02d}:{seconds_text}"
         total_minutes = shifted_units // (60 * scale)
         return f"{total_minutes:02d}:{seconds_text}"
+    if isinstance(original, str):
+        # Plain-second string such as "12.5": keep it a string with the same precision.
+        precision = len(original.strip().partition(".")[2])
+        return f"{sec:.{precision}f}"
     return sec
 
 
