@@ -100,6 +100,9 @@ class TaskStore:
         # Writers notify this condition after committing; SSE streams wait here
         # instead of polling SQLite while idle.
         self._change_condition = threading.Condition()
+        # Bumped under the condition after every commit. Waiters compare it
+        # instead of querying SQLite while holding the lock writers need.
+        self._change_revision = 0
         self._waiters_stopped = False
         self.path.parent.mkdir(parents=True, exist_ok=True)
         # Create the database eagerly so startup failures are reported at the
@@ -357,7 +360,22 @@ class TaskStore:
 
     def _notify_change(self) -> None:
         with self._change_condition:
+            self._change_revision += 1
             self._change_condition.notify_all()
+
+    def _change_snapshot(self) -> int | None:
+        """Return the current change revision, or None once waiters are stopped."""
+        with self._change_condition:
+            return None if self._waiters_stopped else self._change_revision
+
+    def _wait_for_change(self, revision: int, timeout: float) -> bool:
+        """Sleep until a commit after *revision*; False on timeout or stop."""
+        with self._change_condition:
+            self._change_condition.wait_for(
+                lambda: self._waiters_stopped or self._change_revision != revision,
+                timeout,
+            )
+            return not self._waiters_stopped and self._change_revision != revision
 
     def stop_waiters(self) -> None:
         """Permanently retire SSE waiters without blocking in-flight writes."""
@@ -373,30 +391,31 @@ class TaskStore:
     def wait_for_events(self, *, after_seq: int, timeout: float, limit: int = 200) -> builtins.list[TaskEvent]:
         """Return events after ``after_seq``, sleeping until one is committed.
 
-        The initial query and the wait share the condition lock so an event
-        committed between them cannot be missed.
+        The change revision is read before the query, so an event committed
+        after the query bumps it and the wait returns immediately; SQLite is
+        never queried while holding the lock that writers notify through.
         """
-        with self._change_condition:
-            if self._waiters_stopped:
-                return []
-            events = self.events(after_seq=after_seq, limit=limit)
-            if events:
-                return events
-            if not self._change_condition.wait(timeout) or self._waiters_stopped:
-                return []
-            return self.events(after_seq=after_seq, limit=limit)
+        revision = self._change_snapshot()
+        if revision is None:
+            return []
+        events = self.events(after_seq=after_seq, limit=limit)
+        if events:
+            return events
+        if not self._wait_for_change(revision, timeout):
+            return []
+        return self.events(after_seq=after_seq, limit=limit)
 
     def wait_for_notification_revision(self, *, after_seq: int, timeout: float) -> int:
         """Return the notification revision, sleeping until it advances."""
-        with self._change_condition:
-            if self._waiters_stopped:
-                return after_seq
-            revision = self.latest_notification_seq()
-            if revision > after_seq:
-                return revision
-            if not self._change_condition.wait(timeout) or self._waiters_stopped:
-                return after_seq
-            return max(after_seq, self.latest_notification_seq())
+        change = self._change_snapshot()
+        if change is None:
+            return after_seq
+        revision = self.latest_notification_seq()
+        if revision > after_seq:
+            return revision
+        if not self._wait_for_change(change, timeout):
+            return after_seq
+        return max(after_seq, self.latest_notification_seq())
 
     def create_notification(self, notification: Notification) -> Notification:
         """Persist a UI-originated notification, returning the deduped row."""

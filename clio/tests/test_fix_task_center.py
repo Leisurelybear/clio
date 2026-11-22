@@ -152,3 +152,53 @@ class TestUnreadNotificationRetention:
 
         assert len(store.list_notifications()) == 2
         assert store.count() == 2
+
+
+class TestWaitForEventsLocking:
+    def test_waiter_does_not_query_while_holding_the_change_lock(self, tmp_path, monkeypatch):
+        store = TaskStore(tmp_path / "tasks.sqlite3")
+        held_during_query: list[bool] = []
+        real_events = store.events
+
+        def tracking_events(**kwargs):
+            import threading
+
+            # The condition wraps an RLock, so probe it from another thread.
+            result: dict[str, bool] = {}
+
+            def probe() -> None:
+                acquired = store._change_condition.acquire(blocking=False)
+                if acquired:
+                    store._change_condition.release()
+                result["held"] = not acquired
+
+            thread = threading.Thread(target=probe)
+            thread.start()
+            thread.join(2)
+            held_during_query.append(result["held"])
+            return real_events(**kwargs)
+
+        monkeypatch.setattr(store, "events", tracking_events)
+        assert store.wait_for_events(after_seq=0, timeout=0.01) == []
+        assert held_during_query and not any(held_during_query)
+
+    def test_event_committed_after_query_is_not_missed(self, tmp_path, monkeypatch):
+        store = TaskStore(tmp_path / "tasks.sqlite3")
+        store.create(create_task(TaskKind.PIPELINE, "pipe", task_id="t1"))
+        cursor = store.latest_event_seq()
+        real_events = store.events
+        calls = {"n": 0}
+
+        def events_then_commit(**kwargs):
+            result = real_events(**kwargs)
+            calls["n"] += 1
+            if calls["n"] == 1:
+                store.append_event(
+                    TaskEvent(task_id="t1", type=TaskEventType.LOG, created_at="2026-08-16T00:00:01.000Z", message="x")
+                )
+            return result
+
+        monkeypatch.setattr(store, "events", events_then_commit)
+        events = store.wait_for_events(after_seq=cursor, timeout=5)
+
+        assert [event.message for event in events] == ["x"]
