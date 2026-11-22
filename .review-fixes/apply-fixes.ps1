@@ -8,8 +8,9 @@
       powershell -ExecutionPolicy Bypass -File .review-fixes\apply-fixes.ps1 -DryRun   # check only, changes nothing
       powershell -ExecutionPolicy Bypass -File .review-fixes\apply-fixes.ps1           # apply + commit
 
-  Before the real run, commit (or otherwise save) your own in-progress work, so that every
-  fix commit contains only that fix. The real run refuses to start on a dirty tree.
+  The real run first commits any uncommitted work as one "wip: snapshot ..." commit
+  (hooks skipped), so every following fix commit contains only its own fix.
+  Use -NoSnapshot to refuse instead.
 
   Options:
       -Branch <name>  branch to create/use (default: fix/code-review-2026-11-22)
@@ -24,7 +25,8 @@ param(
     [switch]$DryRun,
     [string]$From = "",
     [switch]$RunHooks,
-    [switch]$NoFormat
+    [switch]$NoFormat,
+    [switch]$NoSnapshot
 )
 # Native tools (git) write progress to stderr; don't let PowerShell turn that into errors.
 $ErrorActionPreference = "Continue"
@@ -98,6 +100,14 @@ if ($DryRun) {
 }
 
 # ---------- real run ----------
+$current = (& git rev-parse --abbrev-ref HEAD).Trim()
+if ($current -ne $Branch) {
+    & git rev-parse --verify --quiet "refs/heads/$Branch" *> $null
+    if ($LASTEXITCODE -eq 0) { Invoke-Git switch -q $Branch | Out-Null } else { Invoke-Git switch -q -c $Branch | Out-Null }
+}
+
+# Snapshot any uncommitted work (tracked changes + untracked files the patches touch) into ONE
+# "wip" commit, so every following fix commit contains only its own fix. Skips git hooks.
 $dirty = @(& git status --porcelain --untracked-files=no)
 $untrackedTouched = @()
 foreach ($p in $patches) {
@@ -106,21 +116,24 @@ foreach ($p in $patches) {
         if ($LASTEXITCODE -ne 0 -and (Test-Path -LiteralPath (Join-Path $repo $f))) { $untrackedTouched += $f }
     }
 }
-$untrackedTouched = $untrackedTouched | Sort-Object -Unique
+$untrackedTouched = @($untrackedTouched | Sort-Object -Unique)
 if ($dirty.Count -gt 0 -or $untrackedTouched.Count -gt 0) {
-    Write-Host "Your working tree has uncommitted work the patches are based on." -ForegroundColor Yellow
-    if ($dirty.Count -gt 0) { Write-Host "Modified tracked files: $($dirty.Count)" }
-    if ($untrackedTouched.Count -gt 0) {
-        Write-Host "Untracked files that patches modify:"
-        $untrackedTouched | ForEach-Object { Write-Host "  $_" }
+    if ($NoSnapshot) {
+        Write-Host "Uncommitted work found ($($dirty.Count) tracked, $($untrackedTouched.Count) untracked). Commit it or drop -NoSnapshot." -ForegroundColor Yellow
+        exit 1
     }
-    Write-Host "Commit that work first (e.g. git add -A; git commit -m 'wip: ...'), then rerun." -ForegroundColor Yellow
-    exit 1
-}
-$current = (& git rev-parse --abbrev-ref HEAD).Trim()
-if ($current -ne $Branch) {
-    & git rev-parse --verify --quiet "refs/heads/$Branch" *> $null
-    if ($LASTEXITCODE -eq 0) { Invoke-Git switch -q $Branch | Out-Null } else { Invoke-Git switch -q -c $Branch | Out-Null }
+    Write-Host "Snapshotting uncommitted work: $($dirty.Count) modified tracked file(s), $($untrackedTouched.Count) untracked file(s) the patches touch."
+    $dirty | ForEach-Object { Write-Host "  $_" }
+    $untrackedTouched | ForEach-Object { Write-Host "  ?? $_" }
+    try {
+        Invoke-Git add -u | Out-Null
+        if ($untrackedTouched.Count -gt 0) { Invoke-Git add -- @untrackedTouched | Out-Null }
+        Invoke-Git commit -q --no-verify -m "wip: snapshot of in-progress work before review fixes" | Out-Null
+    } catch {
+        Write-Host "[FAIL] could not create the wip snapshot commit: $_" -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "[done] wip snapshot commit" -ForegroundColor Green
 }
 
 $done = 0

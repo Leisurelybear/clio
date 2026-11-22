@@ -9,7 +9,7 @@ diff --git a/clio/analyze.py b/clio/analyze.py
  import math
  import threading
  from collections.abc import Callable, Sequence
-@@ -75,6 +76,8 @@
+@@ -77,6 +78,8 @@
  from clio.transition_review import review_plan_transitions
  from clio.utils import extract_json
  
@@ -18,7 +18,7 @@ diff --git a/clio/analyze.py b/clio/analyze.py
  _trip_context_cache: dict[str, str] = {}
  _trip_context_lock = threading.Lock()
  
-@@ -166,40 +169,51 @@
+@@ -168,40 +171,51 @@
      return any(not isinstance(item, dict) for item in candidate)
  
  

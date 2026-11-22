@@ -1,13 +1,8 @@
-fix(encoding): strip UTF-8 BOM from plan_pacing sources
+test(i18n): read sources with utf-8-sig in the inventory guard
 
-clio/plan_pacing.py and its test started with U+FEFF. Imports were fine, but
 test_i18n_inventory reads sources with encoding="utf-8" and ast.parse(str)
-rejects the BOM, so both i18n guard tests errored on every CI run.
-
-- remove the BOM from both files
-- read sources with utf-8-sig in the inventory test so a future BOM cannot
-  break the guard again
-
-Also covers A-05 / B-25.
+rejects a leading U+FEFF, so any module saved with a BOM (plan_pacing.py was)
+made both i18n guard tests error. Read with utf-8-sig so a BOM cannot break
+the guard again. (The BOMs themselves were already removed in the tree.)
 
 Refs: C-01

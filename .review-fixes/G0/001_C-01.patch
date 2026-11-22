@@ -1,21 +1,3 @@
-diff --git a/clio/plan_pacing.py b/clio/plan_pacing.py
---- a/clio/plan_pacing.py
-+++ b/clio/plan_pacing.py
-@@ -1,4 +1,4 @@
--﻿"""Shared pacing heuristics for daily vlog plans.
-+"""Shared pacing heuristics for daily vlog plans.
- 
- Both the generation-time repair loop in :mod:`clio.analyze` and the export
- readiness checks in :mod:`clio.plan_readiness` must agree on what a usable cut
-diff --git a/clio/tests/test_plan_pacing.py b/clio/tests/test_plan_pacing.py
---- a/clio/tests/test_plan_pacing.py
-+++ b/clio/tests/test_plan_pacing.py
-@@ -1,4 +1,4 @@
--﻿"""Behavioral tests for the shared plan pacing heuristics."""
-+"""Behavioral tests for the shared plan pacing heuristics."""
- 
- from __future__ import annotations
- 
 diff --git a/clio/tests/test_i18n_inventory.py b/clio/tests/test_i18n_inventory.py
 --- a/clio/tests/test_i18n_inventory.py
 +++ b/clio/tests/test_i18n_inventory.py

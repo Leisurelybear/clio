@@ -1,7 +1,7 @@
 diff --git a/clio/analyze.py b/clio/analyze.py
 --- a/clio/analyze.py
 +++ b/clio/analyze.py
-@@ -76,6 +76,7 @@
+@@ -78,6 +78,7 @@
  from clio.utils import extract_json
  
  _trip_context_cache: dict[str, str] = {}
@@ -9,7 +9,7 @@ diff --git a/clio/analyze.py b/clio/analyze.py
  
  
  def _task_temperature(config: AppConfig, task: TaskName) -> float | None:
-@@ -134,10 +135,16 @@
+@@ -136,10 +137,16 @@
  def _store_trip_context(project_dir: str, key: str, text: str) -> None:
      """Keep at most one cached trip context for each project directory."""
      prefix = f"{project_dir}@"
@@ -30,7 +30,7 @@ diff --git a/clio/analyze.py b/clio/analyze.py
  
  
  def _refinement_value_compatible(original: Any, candidate: Any) -> bool:
-@@ -178,8 +185,9 @@
+@@ -180,8 +187,9 @@
              return ""
          mtime = project_path.stat().st_mtime
          key = f"{project_dir}@{mtime}"
@@ -42,7 +42,7 @@ diff --git a/clio/analyze.py b/clio/analyze.py
          text = project_path.read_text(encoding="utf-8").strip()
          if text:
              _store_trip_context(project_dir, key, text)
-@@ -188,8 +196,9 @@
+@@ -190,8 +198,9 @@
      if default_path is not None:
          mtime = default_path.stat().st_mtime
          key = f"{project_dir}@default@{mtime}"

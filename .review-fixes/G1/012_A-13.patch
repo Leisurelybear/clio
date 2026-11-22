@@ -88,7 +88,7 @@ new file mode 100644
 diff --git a/clio/analyze.py b/clio/analyze.py
 --- a/clio/analyze.py
 +++ b/clio/analyze.py
-@@ -73,6 +73,7 @@
+@@ -75,6 +75,7 @@
      WINDOW_SUMMARY_PROMPT,
  )
  from clio.scene import align_shots_to_boundaries, format_scene_timestamp, scene_ranges
@@ -96,7 +96,7 @@ diff --git a/clio/analyze.py b/clio/analyze.py
  from clio.transition_review import review_plan_transitions
  from clio.utils import extract_json
  
-@@ -691,22 +692,8 @@
+@@ -693,22 +694,8 @@
  
  def _timeline_intervals(clip: dict) -> list[tuple[float, float]]:
      def parse_strict(value: Any) -> float:

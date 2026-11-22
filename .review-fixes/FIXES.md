@@ -1,6 +1,6 @@
 # clio 代码审查修复包（2026-11-22）
 
-共 **140** 个 patch，一个 patch 对应一个 commit。提交顺序：G0 → G1 → G2 → G3 → G4 → G5 → G6，组内按编号。
+共 **139** 个 patch，一个 patch 对应一个 commit。提交顺序：G0 → G1 → G2 → G3 → G4 → G5 → G6，组内按编号。
 
 ## 使用方法（PowerShell，在项目根目录执行）
 
@@ -25,7 +25,7 @@ npm test
 
 ## 已验证 / 未验证
 
-- ✅ 已从你机器上拉取原始文件，按顺序应用全部 patch，结果与修复后的代码逐字节一致；CRLF/LF 换行符保持原样。
+- ✅ 已基于你 11:20 的工作区重新生成（C-02 与 C-01 的去 BOM 部分你那边已完成，已剔除）；从你机器上拉取原始文件，按顺序应用全部 patch，结果与修复后的代码逐字节一致；CRLF/LF 换行符保持原样。
 - ✅ 所有改动过的 Python 文件都能通过 AST 语法解析。
 - ⚠️ **pytest、vitest、ruff、mypy 都没有运行过**（沙箱里装不了），需要你在本地跑。
 
@@ -48,9 +48,8 @@ npm test
 
 ### G0 · CI 恢复
 
-- `001_C-01` — fix(encoding): strip UTF-8 BOM from plan_pacing sources
+- `001_C-01` — test(i18n): read sources with utf-8-sig in the inventory guard
 - `002_E-25` — chore(ui): strip UTF-8 BOM from frontend modules
-- `003_C-02` — style(config): collapse triple blank lines so ruff format --check passes
 - `004_C-22` — ci: run on pushes to branches containing a slash
 
 ### G1 · 核心模块 / ffmpeg

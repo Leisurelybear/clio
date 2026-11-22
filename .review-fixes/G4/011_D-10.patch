@@ -96,7 +96,7 @@ diff --git a/clio/ui/routes/config_routes.py b/clio/ui/routes/config_routes.py
          handler.__class__._config_cache.invalidate_key(str(proj_dir.resolve()))
          _clear_provider_cache()
          return handler._send_json({"ok": True, "path": str(target_path)})
-@@ -616,6 +634,7 @@
+@@ -615,6 +633,7 @@
      handler._send_json({"ok": True, "path": str(config_path)})
  
  
@@ -104,7 +104,7 @@ diff --git a/clio/ui/routes/config_routes.py b/clio/ui/routes/config_routes.py
  def handle_put_config_project(handler: HandlerProtocol, qs: dict[str, Any], obj: dict) -> None:
      """Handle PUT /api/config/project."""
      config_path = handler.config_path
-@@ -633,16 +652,8 @@
+@@ -632,16 +651,8 @@
          yml = yaml.dump(obj, allow_unicode=True, default_flow_style=False, sort_keys=False, indent=2)
      except _YAML_WRITE_ERRORS as e:
          return handler._send_json({"ok": False, "error": f"YAML serialization failed: {e}"}, 400)

@@ -1,7 +1,7 @@
 diff --git a/clio/ui/routes/config_routes.py b/clio/ui/routes/config_routes.py
 --- a/clio/ui/routes/config_routes.py
 +++ b/clio/ui/routes/config_routes.py
-@@ -434,6 +434,43 @@
+@@ -433,6 +433,43 @@
      return None
  
  
@@ -45,7 +45,7 @@ diff --git a/clio/ui/routes/config_routes.py b/clio/ui/routes/config_routes.py
  def handle_get_config_global(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
      """Handle GET /api/config/global."""
      config_path = handler.config_path
-@@ -545,8 +582,11 @@
+@@ -544,8 +581,11 @@
      if error := _validate_provider_bindings(ref_raw, coerced, config_path.parent):
          return handler._send_json({"ok": False, "error": error}, 400)
      _strip_provider_api_keys(coerced)

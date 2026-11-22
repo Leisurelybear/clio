@@ -34,7 +34,7 @@ diff --git a/clio/tasks/analyze.py b/clio/tasks/analyze.py
  def _collect_single_file_items(
      single_file: Path,
      config: AppConfig,
-@@ -1349,7 +1368,7 @@
+@@ -1350,7 +1369,7 @@
      else:
          # Fall back to original-stem matching so every matching segment is analyzed.
          comp_paths = [

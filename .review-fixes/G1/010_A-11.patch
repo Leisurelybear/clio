@@ -1,7 +1,7 @@
 diff --git a/clio/analyze.py b/clio/analyze.py
 --- a/clio/analyze.py
 +++ b/clio/analyze.py
-@@ -78,6 +78,14 @@
+@@ -80,6 +80,14 @@
  
  logger = logging.getLogger("clio.analyze")
  
@@ -16,7 +16,7 @@ diff --git a/clio/analyze.py b/clio/analyze.py
  _trip_context_cache: dict[str, str] = {}
  _trip_context_lock = threading.Lock()
  
-@@ -640,7 +648,7 @@
+@@ -642,7 +650,7 @@
  ) -> str:
      # Check cancel_event before starting AI call
      if cancel_event and cancel_event.is_set():
@@ -25,7 +25,7 @@ diff --git a/clio/analyze.py b/clio/analyze.py
  
      if debug_print:
          print("=" * 60)
-@@ -1262,7 +1270,7 @@
+@@ -1264,7 +1272,7 @@
          text = call_analyze(prompt)
          # Check cancel_event after AI call but before validation
          if cancel_event and cancel_event.is_set():
@@ -34,7 +34,7 @@ diff --git a/clio/analyze.py b/clio/analyze.py
          result = _validate_with_retry(
              text,
              video_path,
-@@ -1295,7 +1303,7 @@
+@@ -1297,7 +1305,7 @@
      task_prompts: dict[str, str] | None = None,
  ) -> dict:
      if cancel_event and cancel_event.is_set():
@@ -43,7 +43,7 @@ diff --git a/clio/analyze.py b/clio/analyze.py
  
      provider, model = get_task_provider(config, TaskName.VOICEOVER)
  
-@@ -1385,7 +1393,7 @@
+@@ -1387,7 +1395,7 @@
  ) -> dict:
      """Generate one voiceover from its planned sequence position and adjacent context."""
      if cancel_event and cancel_event.is_set():
@@ -52,7 +52,7 @@ diff --git a/clio/analyze.py b/clio/analyze.py
  
      sequence = plan.get("sequence", [])
      if not isinstance(sequence, list) or position < 0 or position >= len(sequence):
-@@ -1751,6 +1759,7 @@
+@@ -1754,6 +1762,7 @@
              debug_print=config.ai.debug_print_prompt,
              token_store=token_store,
              task_name=token_task_name,
@@ -60,7 +60,7 @@ diff --git a/clio/analyze.py b/clio/analyze.py
              system_message=system,
              **_usage_meta(config, TaskName.VLOG_PLAN),
          )
-@@ -2101,10 +2110,10 @@
+@@ -2111,10 +2120,10 @@
              )
      except Exception as exc:  # translate provider failures after cancellation
          if cancel_event is not None and cancel_event.is_set():
@@ -73,7 +73,7 @@ diff --git a/clio/analyze.py b/clio/analyze.py
      result = extract_json(text)
      if not isinstance(result, dict):
          print(t("analyze.refine_text_bad_structure"))
-@@ -2158,10 +2167,10 @@
+@@ -2168,10 +2177,10 @@
              )
      except Exception as exc:  # translate provider failures after cancellation
          if cancel_event is not None and cancel_event.is_set():
@@ -86,7 +86,7 @@ diff --git a/clio/analyze.py b/clio/analyze.py
  
      candidate = extract_json(text)
      if not isinstance(candidate, dict) or any(
-@@ -2244,10 +2253,10 @@
+@@ -2254,10 +2263,10 @@
              )
      except Exception as exc:  # translate provider failures after cancellation
          if cancel_event is not None and cancel_event.is_set():

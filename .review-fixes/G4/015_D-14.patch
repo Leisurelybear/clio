@@ -78,7 +78,7 @@ diff --git a/clio/ui/routes/config_routes.py b/clio/ui/routes/config_routes.py
  
  import yaml
  
-@@ -969,7 +968,7 @@
+@@ -968,7 +967,7 @@
  
  @serialized_store_write
  def handle_put_provider(handler: HandlerProtocol, qs: dict[str, Any], obj: dict[str, Any], name: str) -> None:
@@ -87,7 +87,7 @@ diff --git a/clio/ui/routes/config_routes.py b/clio/ui/routes/config_routes.py
      raw, error = _read_global_config_raw(handler.config_path)
      if error:
          return handler._send_json({"ok": False, "error": error}, 500)
-@@ -1018,7 +1017,7 @@
+@@ -1017,7 +1016,7 @@
  
  @serialized_store_write
  def handle_delete_provider(handler: HandlerProtocol, qs: dict[str, Any], name: str) -> None:

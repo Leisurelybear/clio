@@ -1,7 +1,7 @@
 diff --git a/clio/analyze.py b/clio/analyze.py
 --- a/clio/analyze.py
 +++ b/clio/analyze.py
-@@ -1944,19 +1944,27 @@
+@@ -1947,19 +1947,27 @@
          if outline is None:
              print(t("analyze.plan_outline_fallback"))
  

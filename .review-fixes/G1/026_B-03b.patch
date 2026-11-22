@@ -183,7 +183,7 @@ diff --git a/clio/identity.py b/clio/identity.py
 diff --git a/clio/tasks/_helpers.py b/clio/tasks/_helpers.py
 --- a/clio/tasks/_helpers.py
 +++ b/clio/tasks/_helpers.py
-@@ -361,7 +361,7 @@
+@@ -343,7 +343,7 @@
          if stem in seen:
              continue
          seen.add(stem)
@@ -195,7 +195,7 @@ diff --git a/clio/tasks/_helpers.py b/clio/tasks/_helpers.py
 diff --git a/clio/tasks/analyze.py b/clio/tasks/analyze.py
 --- a/clio/tasks/analyze.py
 +++ b/clio/tasks/analyze.py
-@@ -1359,7 +1359,8 @@
+@@ -1340,7 +1340,8 @@
  ) -> list[tuple[Path, Path, str]] | None:
      items: list[tuple[Path, Path, str]] = []
      # Prefer the .vindex sidecar: O(1) split discovery for multi-segment originals.
