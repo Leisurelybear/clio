@@ -170,14 +170,17 @@ def replace_file_safely(dest: Path, write_fn) -> None:
     """Write *dest* via rename-backup → write → delete-backup; restore on failure.
 
     Matches product rule for re-cuts: keep old file until the new one succeeds.
+    An existing ``.clio_bak`` is the only good copy left by an interrupted re-cut,
+    so it is never overwritten: resolve it via the orphaned-backup restore flow.
     """
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
     bak: Path | None = None
+    existing_bak = dest.with_name(dest.name + CUT_BAK_SUFFIX)
+    if existing_bak.exists():
+        raise CutBackupConflictError(t("task.cut.backup_conflict", {"path": existing_bak}))
     if dest.exists():
-        bak = dest.with_name(dest.name + ".clio_bak")
-        if bak.exists():
-            bak.unlink()
+        bak = existing_bak
         dest.replace(bak)
     try:
         write_fn(dest)

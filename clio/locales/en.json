@@ -611,6 +611,7 @@
   "task.cut.skip_video_missing": "  [skip] no video for index={index} ({source}): {title}",
   "task.cut.skip_video_missing_tracker": "Skipping segment {index}: video not found",
   "task.cut.stale_backup_conflict": "Cannot move stale cut artifact; backup already exists: {path}",
+  "task.cut.backup_conflict": "A backup from an interrupted re-cut already exists: {path}. Restore or discard it before cutting again",
   "task.cut.stale_moved": "  [cut] moved stale cut artifact: {name}",
   "task.cut.timed_label": "run_cut_all {day} ({count} segments)",
   "task.eta_line": "[{label} {i}/{total}] {name} (avg {avg}, ~{remaining} left)",

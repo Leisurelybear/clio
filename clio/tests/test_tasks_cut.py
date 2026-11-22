@@ -208,6 +208,22 @@ class TestReplaceFileSafely:
         assert dest.read_bytes() == b"new"
         assert not (tmp_path / "out.mp4.clio_bak").exists()
 
+    def test_existing_backup_is_never_overwritten(self, tmp_path):
+        from clio.tasks.cut import CutBackupConflictError, replace_file_safely
+
+        dest = tmp_path / "out.mp4"
+        dest.write_bytes(b"half-written")
+        bak = tmp_path / "out.mp4.clio_bak"
+        bak.write_bytes(b"last-good")
+        calls = []
+
+        with pytest.raises(CutBackupConflictError):
+            replace_file_safely(dest, calls.append)
+
+        assert calls == []
+        assert bak.read_bytes() == b"last-good"
+        assert dest.read_bytes() == b"half-written"
+
     def test_unlinks_partial_without_bak(self, tmp_path):
         from clio.tasks.cut import replace_file_safely
 
