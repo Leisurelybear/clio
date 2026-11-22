@@ -227,6 +227,19 @@ def handle_put_transcripts(handler: HandlerProtocol, qs: dict[str, Any], obj: di
         handler._send_json({"ok": False, "error": str(e)}, 500)
 
 
+def _segment_time_error(start: float, end: float) -> str | None:
+    """Shared start/end rules for created and appended segments."""
+    if not math.isfinite(start) or not math.isfinite(end):
+        return "start/end must be finite numbers"
+    if start < 0:
+        return "start time cannot be negative"
+    if end <= start:
+        return "end time must be greater than start time"
+    if end > _MAX_TIME_SEC:
+        return f"end time exceeds maximum ({_MAX_TIME_SEC}s)"
+    return None
+
+
 def _build_initial_segments(handler: HandlerProtocol, init_segments: Any) -> list[dict[str, Any]] | None:
     """Validate and normalize client-supplied segments for a new transcript.
 
@@ -251,11 +264,23 @@ def _build_initial_segments(handler: HandlerProtocol, init_segments: Any) -> lis
         except (TypeError, ValueError):
             handler._send_json({"ok": False, "error": "segment.start/end must be numbers"}, 400)
             return None
+        # float() accepts "nan"/"inf"; those would be written as NaN/Infinity,
+        # which is not JSON and leaves the transcript unopenable in the UI.
+        if error := _segment_time_error(seg_start, seg_end):
+            handler._send_json({"ok": False, "error": f"segment: {error}"}, 400)
+            return None
+        text = seg["text"].strip()
+        if len(text) > _MAX_SEGMENT_TEXT_LENGTH:
+            handler._send_json(
+                {"ok": False, "error": f"segment text too long ({len(text)} > {_MAX_SEGMENT_TEXT_LENGTH} chars)"},
+                400,
+            )
+            return None
         segments.append(
             {
                 "start": round(seg_start, 2),
                 "end": round(seg_end, 2),
-                "text": seg["text"].strip(),
+                "text": text,
                 "low_confidence": False,
             }
         )
@@ -273,7 +298,7 @@ def _handle_create_transcript(handler: HandlerProtocol, qs: dict[str, Any], vide
     if segments is None:
         return
     skeleton: dict[str, Any] = {"segments": segments, "_rev": 1}
-    _save_atomic(tp, json.dumps(skeleton, ensure_ascii=False, indent=2).encode("utf-8"))
+    _save_atomic(tp, json.dumps(skeleton, ensure_ascii=False, indent=2, allow_nan=False).encode("utf-8"))
     handler._send_json({"ok": True, "message": "transcript file created"})
 
 
@@ -290,17 +315,8 @@ def _validate_new_segment(handler: HandlerProtocol, obj: dict) -> tuple[float, f
     if not isinstance(text, str):
         handler._send_json({"ok": False, "error": "text must be a string"}, 400)
         return None
-    if not math.isfinite(start) or not math.isfinite(end):
-        handler._send_json({"ok": False, "error": "start/end must be finite numbers"}, 400)
-        return None
-    if start < 0:
-        handler._send_json({"ok": False, "error": "start time cannot be negative"}, 400)
-        return None
-    if end <= start:
-        handler._send_json({"ok": False, "error": "end time must be greater than start time"}, 400)
-        return None
-    if end > _MAX_TIME_SEC:
-        handler._send_json({"ok": False, "error": f"end time exceeds maximum ({_MAX_TIME_SEC}s)"}, 400)
+    if error := _segment_time_error(start, end):
+        handler._send_json({"ok": False, "error": error}, 400)
         return None
     text = text.strip()
     if not text:

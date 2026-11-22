@@ -8,8 +8,10 @@ import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from clio.ui.routes import transcripts as transcripts_mod
-from clio.ui.routes.transcripts import handle_put_transcripts
+from clio.ui.routes.transcripts import handle_post_transcripts, handle_put_transcripts
 
 
 def _handler(tmp_path: Path) -> MagicMock:
@@ -54,3 +56,36 @@ def test_concurrent_put_with_same_revision_yields_one_conflict(tmp_path: Path):
 
     assert sorted(statuses) == [200, 409]
     assert json.loads(tp.read_text(encoding="utf-8"))["_rev"] == 1
+
+
+@pytest.mark.parametrize(
+    "segment",
+    [
+        {"text": "a", "start": "nan", "end": 1},
+        {"text": "a", "start": 0, "end": "inf"},
+        {"text": "a", "start": -1, "end": 1},
+        {"text": "a", "start": 2, "end": 1},
+        {"text": "a", "start": 0, "end": 90000},
+        {"text": "x" * 5001, "start": 0, "end": 1},
+    ],
+)
+def test_create_rejects_invalid_initial_segments(tmp_path: Path, segment: dict):
+    (tmp_path / "transcripts").mkdir()
+    handler = _handler(tmp_path)
+
+    handle_post_transcripts(handler, {"video": ["clip.mp4"]}, {"create": True, "segments": [segment]})
+
+    assert handler._send_json.call_args.args[1] == 400
+    assert not (tmp_path / "transcripts" / "clip_transcript.json").exists()
+
+
+def test_create_accepts_valid_initial_segments(tmp_path: Path):
+    (tmp_path / "transcripts").mkdir()
+    handler = _handler(tmp_path)
+
+    handle_post_transcripts(
+        handler, {"video": ["clip.mp4"]}, {"create": True, "segments": [{"text": " hi ", "start": "0.5", "end": 2}]}
+    )
+
+    data = json.loads((tmp_path / "transcripts" / "clip_transcript.json").read_text(encoding="utf-8"))
+    assert data["segments"] == [{"start": 0.5, "end": 2.0, "text": "hi", "low_confidence": False}]
