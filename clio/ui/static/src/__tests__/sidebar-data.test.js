@@ -362,4 +362,39 @@ describe('removeSelectedVideosFromProject', () => {
     expect(state.selectedFiles).toEqual([]);
     vi.unstubAllGlobals();
   });
+
+  it('serializes overlapping removals so the second PUT sees the first', async () => {
+    document.body.innerHTML = `
+      <button id=btn-select-videos></button>
+      <ul id=video-list></ul>
+    `;
+    const { api } = await import('../api.js');
+    api.mockReset();
+    const { state } = await import('../state.js');
+    state.videos = [];
+    state.selectedFiles = [];
+    state.source = 'original';
+    let server = ['D:/clips/001_a.mp4', 'D:/clips/002_b.mp4', 'D:/clips/003_c.mp4'];
+    api.mockImplementation(async (method, url, body) => {
+      if (method === 'GET' && url === '/api/videos/selected') {
+        const snapshot = server.slice();
+        await new Promise(resolve => setTimeout(resolve, 0));
+        return { videos: snapshot };
+      }
+      if (method === 'PUT' && url === '/api/videos/selected') {
+        server = body.videos.slice();
+        return { ok: true };
+      }
+      if (method === 'GET' && String(url).startsWith('/api/videos?')) return { videos: [], groups: {} };
+      return {};
+    });
+
+    const { removeVideoFromProject } = await import('../sidebar-data.js');
+    await Promise.all([
+      removeVideoFromProject('001_a.mp4', 'D:/clips/001_a.mp4'),
+      removeVideoFromProject('003_c.mp4', 'D:/clips/003_c.mp4'),
+    ]);
+
+    expect(server).toEqual(['D:/clips/002_b.mp4']);
+  });
 });

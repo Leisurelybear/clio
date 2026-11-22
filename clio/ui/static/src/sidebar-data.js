@@ -71,7 +71,18 @@ async function _selectedVideoTargets(files) {
     .map(_removeTarget);
 }
 
-async function _removeVideos(targets) {
+// videos.json is updated with a read-modify-write (GET then PUT of the whole
+// list), so overlapping removals in this tab would overwrite each other.
+// Run them strictly one after another.
+let _removeChain = Promise.resolve();
+
+function _removeVideos(targets) {
+  const run = _removeChain.then(() => _removeVideosNow(targets));
+  _removeChain = run.catch(() => {});
+  return run;
+}
+
+async function _removeVideosNow(targets) {
   const list = (Array.isArray(targets) ? targets : []).filter(Boolean);
   if (!list.length) return null;
   try {
