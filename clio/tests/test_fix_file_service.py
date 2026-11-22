@@ -46,3 +46,21 @@ def test_save_atomic_second_write_rotates_previous_backup(tmp_path: Path):
     assert target.with_suffix(".json.bak").read_bytes() == b"2"
     rotated = [p for p in tmp_path.iterdir() if p.name.startswith("a.json.bak.")]
     assert [p.read_bytes() for p in rotated] == [b"1"]
+
+
+def test_prune_rotated_backups_handles_glob_metacharacters(tmp_path: Path):
+    from clio.ui.services.file_service import _prune_rotated_backups
+
+    target = tmp_path / "001_trip[1].json"
+    target.write_bytes(b"x")
+    for i in range(6):
+        rotated = tmp_path / f"001_trip[1].json.bak.{i}"
+        rotated.write_bytes(b"old")
+        os.utime(rotated, (1_000_000 + i, 1_000_000 + i))
+    (tmp_path / "001_trip[1].json.bak").write_bytes(b"bak")
+
+    _prune_rotated_backups(target, keep=3)
+
+    left = sorted(p.name for p in tmp_path.iterdir() if p.name.startswith("001_trip[1].json.bak."))
+    assert left == ["001_trip[1].json.bak.3", "001_trip[1].json.bak.4", "001_trip[1].json.bak.5"]
+    assert (tmp_path / "001_trip[1].json.bak").exists()

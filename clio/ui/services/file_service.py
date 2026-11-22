@@ -237,11 +237,22 @@ def _save_atomic_unlocked(path: Path, data: bytes) -> None:
 def _prune_rotated_backups(path: Path, keep: int = 3) -> None:
     """Keep at most *keep* timestamped ``.bak.*`` sidecars besides ``.bak``."""
     bak = path.with_suffix(path.suffix + ".bak")
-    rotated = sorted(
-        (p for p in path.parent.glob(path.name + ".bak.*") if p.is_file() and p != bak),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
+    prefix = path.name + ".bak."
+    # No glob: names such as "001_trip[1].json" would be read as a character class.
+    candidates: list[tuple[float, Path]] = []
+    try:
+        entries = list(path.parent.iterdir())
+    except OSError:
+        return
+    for p in entries:
+        if not p.name.startswith(prefix) or p == bak:
+            continue
+        try:
+            if p.is_file():
+                candidates.append((p.stat().st_mtime, p))
+        except OSError:
+            continue
+    rotated = [p for _, p in sorted(candidates, key=lambda item: item[0], reverse=True)]
     for old in rotated[keep:]:
         with contextlib.suppress(OSError):
             old.unlink()
