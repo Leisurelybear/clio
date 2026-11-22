@@ -5,13 +5,13 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
 from clio.i18n import SUPPORTED_LOCALES, t
 from clio.tasks._video_loader import load_selected_videos, save_selected_videos
-from clio.utils import find_videos
+from clio.utils import JsonValue, find_videos, write_json_atomic
 
 _REGISTRY_READ_ERRORS = (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError)
 _YAML_READ_ERRORS = (OSError, UnicodeDecodeError, yaml.YAMLError, TypeError, ValueError)
@@ -274,6 +274,11 @@ def _migrate_one(old_dir: Path, config_path: Path, registry_file: Path) -> tuple
     has_input = bool(paths_raw.get("input_dir"))
     if videos_json.is_file() and not has_input:
         return False, f"{old_dir}: " + t("task.migrate.already_new_suffix")
+    # Refuse before writing anything when the registry cannot be updated safely.
+    try:
+        _load_registry(registry_file)
+    except _RegistryReadError as e:
+        return False, str(e)
 
     old_input_path = _resolve_legacy_input_path(old_dir, paths_raw)
     name = old_raw.get("name") or old_dir.name
@@ -316,14 +321,26 @@ def _migrate_one(old_dir: Path, config_path: Path, registry_file: Path) -> tuple
     )
 
 
+class _RegistryReadError(ValueError):
+    """projects.json exists but cannot be parsed; it must not be overwritten."""
+
+
 def _load_registry(registry_file: Path) -> dict[str, Any]:
     if not registry_file.is_file():
         return {"projects": []}
     try:
         loaded = json.loads(registry_file.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
-        return {"projects": []}
-    return loaded if isinstance(loaded, dict) else {"projects": []}
+    except _REGISTRY_READ_ERRORS as e:
+        raise _RegistryReadError(t("task.migrate.registry_read_failed", {"detail": e})) from e
+    if not isinstance(loaded, dict):
+        raise _RegistryReadError(
+            t("task.migrate.registry_read_failed", {"detail": "projects.json root must be an object"})
+        )
+    if not isinstance(loaded.get("projects", []), list):
+        raise _RegistryReadError(
+            t("task.migrate.registry_read_failed", {"detail": "projects.json 'projects' must be a list"})
+        )
+    return loaded
 
 
 def _resolve_registry_entry(entry: Any) -> str:
@@ -337,12 +354,6 @@ def _resolve_registry_entry(entry: Any) -> str:
         return str(Path(path).resolve())
     except _PATH_RESOLVE_ERRORS:
         return path
-
-
-def _registry_entry_value(entry: Any, resolved: str) -> str:
-    if isinstance(entry, dict):
-        return entry.get("project_dir") or entry.get("input_dir") or resolved
-    return str(entry)
 
 
 def _should_update_last_project(last: Any, name: str, old_s: str) -> bool:
@@ -366,25 +377,41 @@ def _should_update_last_project(last: Any, name: str, old_s: str) -> bool:
 
 
 def _update_registry(registry_file: Path, old_dir: Path, new_dir: Path, name: str) -> None:
+    """Point the registry at *new_dir*, keeping every other key and entry shape.
+
+    Raises ``_RegistryReadError`` instead of resetting an unreadable registry.
+    """
     reg = _load_registry(registry_file)
     old_s = str(old_dir.resolve())
     new_s = str(new_dir.resolve())
 
-    projects: list[str] = []
+    projects: list[Any] = []
+    carried = False
     for entry in reg.get("projects", []):
         resolved = _resolve_registry_entry(entry)
-        if not resolved or resolved in (old_s, new_s):
+        if not resolved:
             continue
-        projects.append(_registry_entry_value(entry, resolved))
+        if resolved not in (old_s, new_s):
+            projects.append(entry)
+            continue
+        if carried:
+            continue
+        carried = True
+        if isinstance(entry, dict):
+            # Keep the entry's metadata; only its location changes.
+            moved = {key: value for key, value in entry.items() if key != "input_dir"}
+            moved["project_dir"] = new_s
+            projects.append(moved)
+        else:
+            projects.append(new_s)
 
-    if new_s not in {_resolve_registry_entry(p) for p in projects}:
+    if not carried:
         projects.append(new_s)
-    projects = [p for p in projects if p]
 
     last = reg.get("last_project")
     if _should_update_last_project(last, name, old_s) or last is None:
-        last = {"name": name, "project_dir": new_s}
+        kept = {key: value for key, value in last.items() if key != "input_dir"} if isinstance(last, dict) else {}
+        last = {**kept, "name": name, "project_dir": new_s}
 
-    out: dict[str, Any] = {"projects": projects, "last_project": last}
-    registry_file.parent.mkdir(parents=True, exist_ok=True)
-    registry_file.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+    out: dict[str, Any] = {**reg, "projects": projects, "last_project": last}
+    write_json_atomic(registry_file, cast(JsonValue, out))
