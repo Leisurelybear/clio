@@ -6,8 +6,8 @@
 # Requires (installed automatically when missing):
 #   - a universal2 CPython 3.11 (e.g. python.org pkg), because PyInstaller's
 #     --target-architecture universal2 needs a universal2 interpreter
-#   - pyinstaller, pywebview, pyobjc-core and the pyobjc frameworks (Cocoa,
-#     WebKit, Quartz, Security)
+#   - pyinstaller, pywebview, keyring, pyobjc-core and the pyobjc frameworks
+#     (Cocoa, WebKit, Quartz, Security)
 #
 # Usage: bash packaging/build-desktop-macos.sh [--no-clean]
 set -euo pipefail
@@ -23,7 +23,9 @@ done
 
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 
-"$PYTHON_BIN" -m pip install --quiet pyinstaller "pywebview" \
+# keyring==25.7.0 matches the Windows build and CI: without it the bundle has no
+# OS keyring backend and credentials silently fall back to a plaintext .env.
+"$PYTHON_BIN" -m pip install --quiet pyinstaller "pywebview" "keyring==25.7.0" \
     "pyobjc-core" "pyobjc-framework-Cocoa" "pyobjc-framework-WebKit" \
     "pyobjc-framework-Quartz" "pyobjc-framework-Security"
 
