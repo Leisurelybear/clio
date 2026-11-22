@@ -183,6 +183,8 @@ def _save_atomic_unlocked(path: Path, data: bytes) -> None:
       rotated aside (timestamped) before the current file becomes the new bak —
       so a corrupt primary cannot clobber the last known-good backup.
     - If only ``.bak`` exists (no primary), it is left untouched.
+    - The primary is never moved away: ``.bak`` is a hard link/copy of it and
+      the new content replaces it in a single ``os.replace``.
     - Parent directory is fsynced after replace; prior mode bits are preserved.
     """
     import os
@@ -215,11 +217,13 @@ def _save_atomic_unlocked(path: Path, data: bytes) -> None:
                     bak.replace(rotated)
                 except OSError:
                     shutil.copy2(bak, rotated)
+            # Keep the primary in place while taking the backup (hard link, or a
+            # copy where links are unsupported) so readers never see it missing
+            # and a crash here cannot leave only the .bak behind.
             try:
-                path.replace(bak)
+                os.link(path, bak)
             except OSError:
                 shutil.copy2(path, bak)
-                path.unlink(missing_ok=True)
         os.replace(tmp, path)
         _fsync_dir(path.parent)
     except BaseException:
