@@ -31,6 +31,24 @@ from clio.utils import (
 from clio.vmeta import VideoIndex, VideoMeta
 
 
+_PLAN_SEGMENT_TEXT_FIELDS = ("index", "title", "use_timeline", "subtitle", "transition")
+
+
+def normalize_plan_segment(segment: object) -> dict:
+    """Return a copy of one plan ``sequence`` entry with its text fields as ``str``.
+
+    Hand-edited, legacy or non-structured plans may carry ``index`` as an int or
+    ``title: null``; every reader (cut, JianYing export) goes through this first.
+    """
+    if not isinstance(segment, dict):
+        return {}
+    normalized = dict(segment)
+    for key in _PLAN_SEGMENT_TEXT_FIELDS:
+        value = normalized.get(key)
+        normalized[key] = "" if value is None else str(value).strip()
+    return normalized
+
+
 def _task_lineage_settings(config: AppConfig, task_name: str) -> dict[str, object]:
     """Return provider settings that can change a task's AI output."""
     tasks = getattr(getattr(config, "ai", None), "tasks", {})

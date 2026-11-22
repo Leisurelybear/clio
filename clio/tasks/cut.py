@@ -26,6 +26,7 @@ from clio.tasks._helpers import (
     _matches_selected_artifact,
     _matches_selected_stem,
     _project_selection_stems,
+    normalize_plan_segment,
 )
 from clio.utils import (
     get_duration_sec,
@@ -808,7 +809,8 @@ def run_cut_all(
         raise FileNotFoundError(t("task.cut.plan_missing", {"path": plan_path}))
 
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
-    seq = plan.get("sequence", [])
+    raw_seq = plan.get("sequence", [])
+    seq = [normalize_plan_segment(seg) for seg in raw_seq] if isinstance(raw_seq, list) else []
     if not seq:
         print(t("task.cut.plan_empty_sequence", {"name": plan_path.name}))
         return []
