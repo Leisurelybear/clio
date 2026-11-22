@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from clio.task_center.models import (
     TaskEvent,
     TaskEventLevel,
@@ -108,3 +110,45 @@ class TestProgressDedupe:
 
         progress = [e for e in manager.store.events(task_id=task.id) if e.type is TaskEventType.PROGRESS]
         assert [e.message for e in progress] == ["a.mp4 42%", "a.mp4 43%"]
+
+
+def _finished_task_with_notification(store: TaskStore, task_id: str, finished_at: str):
+    task = store.create(create_task(TaskKind.PIPELINE, task_id, task_id=task_id, created_at=finished_at))
+    running = transition_task(task, TaskStatus.RUNNING, at=finished_at)
+    done = transition_task(running, TaskStatus.SUCCEEDED, at=finished_at)
+    store.save_with_event(
+        done,
+        TaskEvent(
+            task_id=task_id,
+            type=TaskEventType.STATUS,
+            created_at=finished_at,
+            message="done",
+            data={"from": "queued", "to": "succeeded"},
+        ),
+        expected_status=TaskStatus.QUEUED,
+    )
+
+
+class TestUnreadNotificationRetention:
+    def test_old_unread_notifications_and_their_tasks_expire(self, tmp_path):
+        store = TaskStore(tmp_path / "tasks.sqlite3")
+        _finished_task_with_notification(store, "ancient", "2026-01-01T00:00:00.000Z")
+        _finished_task_with_notification(store, "recent", "2026-08-01T00:00:00.000Z")
+
+        now = datetime.fromisoformat("2026-08-16T00:00:00+00:00")
+        store.cleanup(retention_days=30, max_terminal_tasks=10, now=now)
+
+        assert store.get("ancient") is None
+        assert store.get("recent") is not None
+        assert [n.task_id for n in store.list_notifications()] == ["recent"]
+
+    def test_unread_notifications_are_capped(self, tmp_path):
+        store = TaskStore(tmp_path / "tasks.sqlite3")
+        for i in range(4):
+            _finished_task_with_notification(store, f"t{i}", f"2026-08-1{i}T00:00:00.000Z")
+
+        now = datetime.fromisoformat("2026-08-16T00:00:00+00:00")
+        store.cleanup(retention_days=30, max_terminal_tasks=2, now=now)
+
+        assert len(store.list_notifications()) == 2
+        assert store.count() == 2

@@ -83,6 +83,12 @@ class NotificationQuery:
             raise ValueError("notification query offset must be non-negative")
 
 
+# Unread inbox entries outlive read ones, but must not keep their tasks (and
+# events) forever when the user never opens the inbox.
+_UNREAD_NOTIFICATION_MIN_RETENTION_DAYS = 90
+_UNREAD_NOTIFICATION_RETENTION_FACTOR = 3
+
+
 class TaskStore:
     def __init__(self, path: Path, *, busy_timeout_ms: int = 5000):
         if busy_timeout_ms <= 0:
@@ -563,11 +569,15 @@ class TaskStore:
                 "? AND NOT EXISTS (SELECT 1 FROM notifications WHERE notifications.task_id = tasks.id)",  # noqa: S608
                 (*terminal_values, cutoff),
             ).rowcount
+            # Every terminal task counts towards the cap; only tasks still linked
+            # from a (capped) notification survive beyond it.
             excess_rows = connection.execute(
                 f"""
-                SELECT id FROM tasks WHERE status IN ({placeholders})
-                AND NOT EXISTS (SELECT 1 FROM notifications WHERE notifications.task_id = tasks.id)
-                ORDER BY finished_at DESC, id DESC LIMIT -1 OFFSET ?
+                SELECT id FROM (
+                    SELECT id FROM tasks WHERE status IN ({placeholders})
+                    ORDER BY finished_at DESC, id DESC LIMIT -1 OFFSET ?
+                ) AS excess
+                WHERE NOT EXISTS (SELECT 1 FROM notifications WHERE notifications.task_id = excess.id)
                 """,  # noqa: S608
                 (*terminal_values, max_terminal_tasks),
             ).fetchall()
@@ -590,17 +600,28 @@ class TaskStore:
                 "DELETE FROM notifications WHERE read_at IS NOT NULL AND created_at < ?",
                 (cutoff,),
             ).rowcount
-            excess_rows = connection.execute(
-                "SELECT id FROM notifications WHERE read_at IS NOT NULL ORDER BY seq DESC LIMIT -1 OFFSET ?",
-                (max(0, max_notifications),),
-            ).fetchall()
-            if excess_rows:
-                ids = [row[0] for row in excess_rows]
-                placeholders = ",".join("?" for _ in ids)
-                removed += connection.execute(
-                    f"DELETE FROM notifications WHERE id IN ({placeholders})",  # noqa: S608
-                    ids,
-                ).rowcount
+            unread_days = max(
+                retention_days * _UNREAD_NOTIFICATION_RETENTION_FACTOR, _UNREAD_NOTIFICATION_MIN_RETENTION_DAYS
+            )
+            unread_cutoff = (
+                (now - timedelta(days=unread_days)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+            )
+            removed += connection.execute(
+                "DELETE FROM notifications WHERE read_at IS NULL AND created_at < ?",
+                (unread_cutoff,),
+            ).rowcount
+            for read_clause in ("read_at IS NOT NULL", "read_at IS NULL"):
+                excess_rows = connection.execute(
+                    f"SELECT id FROM notifications WHERE {read_clause} ORDER BY seq DESC LIMIT -1 OFFSET ?",  # noqa: S608
+                    (max(0, max_notifications),),
+                ).fetchall()
+                if excess_rows:
+                    ids = [row[0] for row in excess_rows]
+                    placeholders = ",".join("?" for _ in ids)
+                    removed += connection.execute(
+                        f"DELETE FROM notifications WHERE id IN ({placeholders})",  # noqa: S608
+                        ids,
+                    ).rowcount
             if removed:
                 self._bump_notification_revision(connection)
             connection.commit()
