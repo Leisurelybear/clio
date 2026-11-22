@@ -295,7 +295,8 @@ def _validate_config(config: AppConfig) -> None:
         available = ", ".join(CANVAS_PRESETS)
         raise ValueError(f"export.canvas_ratio must be one of {available}, got: {config.export.canvas_ratio}")
     if config.export.output_subdir != "export":
-        raise NotImplementedError(t("config.export_output_subdir_unimplemented"))
+        # ValueError like every other field, so callers turn it into a user-facing message.
+        raise ValueError(t("config.export_output_subdir_unimplemented"))
     _require_choice("preview.subtitles.mode", config.preview.subtitles.mode, ("auto", "multi", "scroll"))
     _require_min("preview.subtitles.max_lines", config.preview.subtitles.max_lines, 1)
     _require_min("preview.subtitles.max_len_per_line", config.preview.subtitles.max_len_per_line, 1)
