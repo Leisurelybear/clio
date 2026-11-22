@@ -83,12 +83,18 @@ function parseTimecode(s) {
   return NaN;
 }
 
+// Config paths come from YAML keys; never let them reach Object.prototype.
+const _UNSAFE_PATH_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 function getDeep(obj, path) {
-  return String(path).split('.').reduce((o, k) => (o != null ? o[k] : undefined), obj);
+  const keys = String(path).split('.');
+  if (keys.some(k => _UNSAFE_PATH_KEYS.has(k))) return undefined;
+  return keys.reduce((o, k) => (o != null ? o[k] : undefined), obj);
 }
 
 function setDeep(obj, path, value) {
   const keys = String(path).split('.');
+  if (keys.some(k => _UNSAFE_PATH_KEYS.has(k))) return;
   let cur = obj;
   for (let i = 0; i < keys.length - 1; i++) {
     if (!cur[keys[i]] || typeof cur[keys[i]] !== 'object') cur[keys[i]] = {};

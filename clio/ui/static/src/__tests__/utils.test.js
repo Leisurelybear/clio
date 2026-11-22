@@ -164,6 +164,15 @@ describe('setDeep', () => {
     setDeep(obj, 'x.y.z', 'deep');
     expect(obj.x.y.z).toBe('deep');
   });
+
+  it('ignores prototype-polluting path segments', () => {
+    const obj = {};
+    setDeep(obj, '__proto__.polluted', 1);
+    setDeep(obj, 'a.constructor.prototype.polluted', 1);
+    expect({}.polluted).toBeUndefined();
+    expect(Object.prototype.polluted).toBeUndefined();
+    expect(getDeep(obj, '__proto__')).toBeUndefined();
+  });
 });
 
 describe('markDirty / clearDirty', () => {

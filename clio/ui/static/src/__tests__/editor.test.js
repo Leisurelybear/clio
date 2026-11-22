@@ -213,3 +213,16 @@ describe('_renderConfigForm - array', () => {
     expect(html).toContain('name');
   });
 });
+
+describe('_renderConfigForm - untrusted YAML keys', () => {
+  it('escapes keys in labels and data-path attributes', () => {
+    const evil = '<img src=x onerror=alert(1)>';
+    const html = _renderConfigForm({ [evil]: 1, 'a"b': true }, 'custom');
+    const div = document.createElement('div');
+    div.innerHTML = html;
+    expect(div.querySelector('img')).toBeNull();
+    expect(div.textContent).toContain(evil);
+    const paths = [...div.querySelectorAll('[data-path]')].map(el => el.dataset.path);
+    expect(paths).toEqual([`custom.${evil}`, 'custom.a"b']);
+  });
+});

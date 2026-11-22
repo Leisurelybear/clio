@@ -103,7 +103,8 @@ export function labelFromPath(path) {
   const leaf = path.split('.').pop();
   const leafKey = `settings.field.${leaf}`;
   if (hasKey(leafKey)) return t(leafKey);
-  return FIELD_LABELS[path] || FIELD_LABELS[leaf] || leaf;
+  // Catalog strings above are trusted HTML; the raw YAML key is not.
+  return escapeHtml(FIELD_LABELS[path] || FIELD_LABELS[leaf] || leaf);
 }
 
 export function pathPickKind(path) {
@@ -149,7 +150,7 @@ export function optionLabel(path, value) {
 
 export function _renderTooltip(path, desc) {
   if (!desc) return '';
-  return `<span class="config-desc-icon" data-desc-path="${path}" tabindex="0">
+  return `<span class="config-desc-icon" data-desc-path="${escapeHtml(path)}" tabindex="0">
     <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><circle cx="8" cy="8" r="7"/><text x="8" y="10" text-anchor="middle" font-size="9" fill="white" font-weight="bold">?</text></svg>
     <span class="config-desc-tooltip">${escapeHtml(desc)}</span>
   </span>`;
@@ -160,6 +161,9 @@ export function _renderConfigForm(obj, path, descriptions = null, layer = 'proje
   if (obj === null || obj === undefined) {
     return `<span class="config-null">${t('settings.empty_value')}</span>`;
   }
+  // Paths are built from YAML keys, which may contain markup: escape them
+  // before they reach attributes.
+  const safePath = escapeHtml(path);
   const tip = _renderTooltip(path, descFromPath(path, descriptions));
   const sf = _schemaField(path, layer);
   if (sf && sf.group === 'hidden') return '';
@@ -167,18 +171,18 @@ export function _renderConfigForm(obj, path, descriptions = null, layer = 'proje
   const advBadge = sf && sf.group === 'advanced' && _isAdvancedVisible()
     ? `<span class="config-adv-badge" title="${t('settings.adv_title')}">ADV</span>` : '';
   if (typeof obj === 'boolean') {
-    return `${advBadge}<label class="config-field config-bool"><span class="config-key">${labelFromPath(path)}${tip}</span> <input type="checkbox" data-path="${path}" ${obj ? 'checked' : ''}></label>`;
+    return `${advBadge}<label class="config-field config-bool"><span class="config-key">${labelFromPath(path)}${tip}</span> <input type="checkbox" data-path="${safePath}" ${obj ? 'checked' : ''}></label>`;
   }
   if (typeof obj === 'number') {
     if (sf && sf.ui === 'select_or_number' && Array.isArray(sf.choices)) {
       const isPreset = sf.choices.includes(obj);
       const opts = sf.choices.map(c => `<option value="${c}"${c === obj ? ' selected' : ''}>${c}</option>`).join('');
-      const customInput = isPreset ? '' : `<input type="number" class="config-custom-num" data-path="${path}" step="any" value="${obj}" style="width:80px;margin-left:4px">`;
+      const customInput = isPreset ? '' : `<input type="number" class="config-custom-num" data-path="${safePath}" step="any" value="${obj}" style="width:80px;margin-left:4px">`;
       const customOpt = `<option value="__custom__"${isPreset ? '' : ' selected'}>${t('settings.custom_option')}</option>`;
-      return `<label class="config-field config-num"><span class="config-key">${labelFromPath(path)}${tip}</span> <select data-path="${path}" data-schema-select="1">${opts}${customOpt}</select>${customInput}</label>`;
+      return `<label class="config-field config-num"><span class="config-key">${labelFromPath(path)}${tip}</span> <select data-path="${safePath}" data-schema-select="1">${opts}${customOpt}</select>${customInput}</label>`;
     }
     const isInt = Number.isInteger(obj);
-    return `${advBadge}<label class="config-field config-num"><span class="config-key">${labelFromPath(path)}${tip}</span> <input type="number" data-path="${path}" step="${isInt ? '1' : 'any'}" value="${obj}"></label>`;
+    return `${advBadge}<label class="config-field config-num"><span class="config-key">${labelFromPath(path)}${tip}</span> <input type="number" data-path="${safePath}" step="${isInt ? '1' : 'any'}" value="${obj}"></label>`;
   }
   if (typeof obj === 'string') {
     if (sf && sf.ui === 'select' && Array.isArray(sf.choices)) {
@@ -191,7 +195,7 @@ export function _renderConfigForm(obj, path, descriptions = null, layer = 'proje
       if (path === 'whisper.engine' && obj && obj !== 'local') {
         selectHint = `<br><span class="hint">${t('settings.hint.whisper_engine')}</span>`;
       }
-      return `<label class="config-field config-str"><span class="config-key">${labelFromPath(path)}${tip}</span> <select data-path="${path}"><option value=""${!sf.choices.includes(obj) ? ' selected' : ''}>${t('settings.select_placeholder')}</option>${opts}</select></label>${selectHint}`;
+      return `<label class="config-field config-str"><span class="config-key">${labelFromPath(path)}${tip}</span> <select data-path="${safePath}"><option value=""${!sf.choices.includes(obj) ? ' selected' : ''}>${t('settings.select_placeholder')}</option>${opts}</select></label>${selectHint}`;
     }
     const multiline = path === 'ai.context' || obj.length > 80 || obj.includes('\n');
     if (multiline) {
@@ -199,7 +203,7 @@ export function _renderConfigForm(obj, path, descriptions = null, layer = 'proje
       if (path === 'ai.context') {
         hint = `<br><span class="hint">${t('settings.hint.ai_context')}</span>`;
       }
-      return `<label class="config-field config-str"><span class="config-key">${labelFromPath(path)}${tip}</span> <textarea data-path="${path}" rows="4">${escapeHtml(obj)}</textarea>${hint}</label>`;
+      return `<label class="config-field config-str"><span class="config-key">${labelFromPath(path)}${tip}</span> <textarea data-path="${safePath}" rows="4">${escapeHtml(obj)}</textarea>${hint}</label>`;
     }
     const isPwd = path.endsWith('api_key');
     let hint = '';
@@ -212,17 +216,17 @@ export function _renderConfigForm(obj, path, descriptions = null, layer = 'proje
     }
     const pickKind = pathPickKind(path);
     const browseBtn = pickKind
-      ? `<button type="button" class="browse-btn" data-desktop-browse data-pick-kind="${pickKind}" data-target-path="${path}">${t('settings.browse')}</button>`
+      ? `<button type="button" class="browse-btn" data-desktop-browse data-pick-kind="${pickKind}" data-target-path="${safePath}">${t('settings.browse')}</button>`
       : '';
     const fieldInput = browseBtn
-      ? `<span class="input-with-browse"><input type="${isPwd ? 'password' : 'text'}" data-path="${path}" value="${escapeHtml(obj)}">${browseBtn}</span>`
-      : `<input type="${isPwd ? 'password' : 'text'}" data-path="${path}" value="${escapeHtml(obj)}">`;
+      ? `<span class="input-with-browse"><input type="${isPwd ? 'password' : 'text'}" data-path="${safePath}" value="${escapeHtml(obj)}">${browseBtn}</span>`
+      : `<input type="${isPwd ? 'password' : 'text'}" data-path="${safePath}" value="${escapeHtml(obj)}">`;
     return `<label class="config-field config-str"><span class="config-key">${labelFromPath(path)}${tip}</span> ${fieldInput}</label>${hint}`;
   }
   if (Array.isArray(obj)) {
     const allStr = obj.every(x => typeof x === 'string');
     if (allStr) {
-      return `<fieldset class="config-fieldset"><legend>${labelFromPath(path)}</legend><label class="config-field config-str"><textarea data-path="${path}" rows="${Math.max(2, obj.length)}">${escapeHtml(obj.join('\n'))}</textarea><span class="hint">${t('settings.one_per_line')}</span></label></fieldset>`;
+      return `<fieldset class="config-fieldset"><legend>${labelFromPath(path)}</legend><label class="config-field config-str"><textarea data-path="${safePath}" rows="${Math.max(2, obj.length)}">${escapeHtml(obj.join('\n'))}</textarea><span class="hint">${t('settings.one_per_line')}</span></label></fieldset>`;
     }
     return `<fieldset class="config-fieldset"><legend>${labelFromPath(path)}</legend>${obj.map((item, i) =>
       `<div class="config-array-item">${_renderConfigForm(item, path + '[' + i + ']', descriptions)}</div>`
@@ -253,7 +257,7 @@ export function getSectionCollapsed(sectionKey, fallback = false) {
 
 function _sectionLabel(key) {
   const i18nKey = `settings.section.${key}`;
-  return hasKey(i18nKey) ? t(i18nKey) : key;
+  return hasKey(i18nKey) ? t(i18nKey) : escapeHtml(key);
 }
 
 function _isSectionCollapsed(key, isGlobal) {
@@ -277,7 +281,7 @@ function _renderSectionCard(key, val, descs, isGlobal) {
     fieldsHtml = _renderConfigForm(val, key, descs, isGlobal ? 'global' : 'project');
   }
   if (!fieldsHtml.trim()) return '';
-  return `<div class="config-card${collapsed ? ' collapsed' : ''}" data-section-key="${sectionKey}">
+  return `<div class="config-card${collapsed ? ' collapsed' : ''}" data-section-key="${escapeHtml(sectionKey)}">
     <div class="config-card-header" tabindex="0" role="button">
       <span class="config-card-arrow">▶</span>
       <span class="config-card-title">${label}</span>
