@@ -11,7 +11,7 @@ import yaml
 
 from clio.i18n import SUPPORTED_LOCALES, t
 from clio.tasks._video_loader import load_selected_videos, save_selected_videos
-from clio.utils import JsonValue, find_videos, write_json_atomic
+from clio.utils import JsonValue, find_videos, safe_basename, validate_within_root, write_json_atomic
 
 _REGISTRY_READ_ERRORS = (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError)
 _YAML_READ_ERRORS = (OSError, UnicodeDecodeError, yaml.YAMLError, TypeError, ValueError)
@@ -151,7 +151,14 @@ def _select_migration_target(
 ) -> tuple[Path, bool]:
     if old_input_path.resolve() == old_dir.resolve() or videos_json.is_file() or abs_output.exists():
         return old_dir, True
-    return (config_path.parent / "projects" / name).resolve(), False
+    projects_root = config_path.parent / "projects"
+    # ``name`` comes from a possibly third-party project.yaml: keep plain names
+    # as-is, sanitize anything that is not a single path component, and never
+    # let the target escape ``projects/``.
+    folder = name
+    if not folder or folder in {".", ".."} or Path(folder).name != folder or Path(folder).is_absolute():
+        folder = safe_basename(folder, max_len=80)
+    return validate_within_root(projects_root / folder, projects_root), False
 
 
 def _write_migrated_yaml(
@@ -281,10 +288,15 @@ def _migrate_one(old_dir: Path, config_path: Path, registry_file: Path) -> tuple
         return False, str(e)
 
     old_input_path = _resolve_legacy_input_path(old_dir, paths_raw)
-    name = old_raw.get("name") or old_dir.name
+    name = str(old_raw.get("name") or old_dir.name)
     old_json = old_dir / "project.json"
     abs_output = _resolve_output_dir(old_dir, paths_raw, old_json)
-    new_dir, in_place = _select_migration_target(old_dir, videos_json, abs_output, config_path, name, old_input_path)
+    try:
+        new_dir, in_place = _select_migration_target(
+            old_dir, videos_json, abs_output, config_path, name, old_input_path
+        )
+    except ValueError as e:
+        return False, t("task.migrate.migrate_error", {"dir": old_dir, "detail": e})
 
     print(
         t("task.migrate.migrating", {"src": old_dir, "dst": new_dir})

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 import yaml
 
 from clio.tasks.migrate import run_migrate
@@ -70,3 +71,44 @@ class TestRegistry:
         assert Path(data["projects"][0]["project_dir"]).resolve() == project.resolve()
         assert data["projects"][1] == {"name": "other", "project_dir": str(other), "color": "red"}
         assert data["last_project"] == {"name": "other", "project_dir": str(other)}
+
+
+def _external_project(tmp_path: Path, name: object) -> Path:
+    media = tmp_path / "media"
+    media.mkdir()
+    (media / "A.mp4").write_bytes(b"a")
+    project = tmp_path / "legacy"
+    project.mkdir()
+    (project / "project.yaml").write_text(
+        yaml.dump({"name": name, "paths": {"input_dir": str(media), "output_dir": str(tmp_path / "no-output")}}),
+        encoding="utf-8",
+    )
+    return project
+
+
+class TestMigrationTarget:
+    @pytest.mark.parametrize("name", ["../../escaped", "/abs/escaped", "..", "a/../../escaped"])
+    def test_name_cannot_escape_projects_dir(self, tmp_path: Path, name: str) -> None:
+        config_dir = tmp_path / "cfg"
+        config_dir.mkdir()
+        config_path = _config(config_dir)
+        project = _external_project(tmp_path, name)
+
+        run_migrate(config_path, from_path=project)
+
+        projects_root = (config_dir / "projects").resolve()
+        assert not (tmp_path / "escaped").exists()
+        assert not (config_dir / "escaped").exists()
+        for created in tmp_path.rglob("project.json"):
+            assert created.resolve().is_relative_to(projects_root)
+
+    def test_non_string_name_is_accepted(self, tmp_path: Path) -> None:
+        config_dir = tmp_path / "cfg"
+        config_dir.mkdir()
+        config_path = _config(config_dir)
+        project = _external_project(tmp_path, 2024)
+
+        updated, errors = run_migrate(config_path, from_path=project)
+
+        assert updated == 1, errors
+        assert (config_dir / "projects" / "2024" / "project.yaml").is_file()
