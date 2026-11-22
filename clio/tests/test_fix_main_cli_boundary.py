@@ -1,0 +1,47 @@
+"""Regression tests for CLI path sanitizing and error boundaries (A-24)."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from unittest.mock import patch
+
+import clio.main as main_mod
+
+
+def test_export_default_out_dir_uses_sanitized_day(tmp_path):
+    args = main_mod._build_arg_parser().parse_args(["export", "--day", "../escape"])
+    config = type(
+        "Cfg",
+        (),
+        {
+            "paths": type("P", (), {"output_dir": tmp_path / "out", "ffprobe": ""})(),
+            "project_dir": None,
+            "texts_dir": tmp_path / "texts",
+            "export": type("E", (), {"canvas_ratio": "16:9"})(),
+            "naming": type("N", (), {"index_width": 3})(),
+        },
+    )()
+
+    with (
+        patch.object(main_mod, "_load_checked_plan", return_value=tmp_path / "plan.json"),
+        patch.object(main_mod, "resolve_binary", return_value="ffprobe"),
+        patch("clio.export.export_plan") as export_plan,
+    ):
+        assert main_mod._run_export_command(args, config) == 0
+
+    out_dir = Path(export_plan.call_args.args[2])
+    assert out_dir.parent == tmp_path / "out" / "export"  # raw "../escape" climbed out of export/
+
+
+def test_unprepared_command_errors_are_reported_not_raised(tmp_path, capsys):
+    with (
+        patch.object(main_mod, "_run_pre_config_command", return_value=None),
+        patch.object(main_mod, "load_config"),
+        patch.object(main_mod, "set_active_locale"),
+        patch.object(main_mod, "_probe_serve_port", return_value=None),
+        patch.object(main_mod, "_setup_runtime_logging"),
+        patch.object(main_mod, "_run_unprepared_command", side_effect=RuntimeError("boom")),
+    ):
+        assert main_mod.main(["--config", str(tmp_path / "config.yaml"), "check"]) == 1
+
+    assert "boom" in capsys.readouterr().err

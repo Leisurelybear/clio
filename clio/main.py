@@ -646,7 +646,7 @@ def _run_export_command(args: argparse.Namespace, config) -> int:
     out_dir = (
         getattr(args, "export_out_dir", None)
         or getattr(args, "output", None)
-        or config.paths.output_dir / "export" / f"{args.day}_{args.format}"
+        or config.paths.output_dir / "export" / f"{plan_day_stem(args.day)}_{args.format}"
     )
     export_plan(
         args.format,
@@ -778,7 +778,11 @@ def main(argv: list[str] | None = None) -> int:
         return result
     _setup_runtime_logging(base_config, serve_t0)
 
-    result = _run_unprepared_command(args, config_path)
+    try:
+        result = _run_unprepared_command(args, config_path)
+    except Exception as e:  # noqa: BLE001 - same CLI boundary as configured commands below
+        print(t("cli.error", {"detail": e}), file=sys.stderr)
+        return 1
     if result is not None:
         return result
 
