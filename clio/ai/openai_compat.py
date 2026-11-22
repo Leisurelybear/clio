@@ -18,6 +18,8 @@ def _usage_count(value: object) -> int:
 
 _DEFAULT_BASE_URL = "https://api.openai.com/v1"
 _OLLAMA_BASE_URL = "http://localhost:11434/v1"
+# Transient client statuses worth retrying (timeout, conflict, too early, rate limit).
+_RETRYABLE_STATUSES = frozenset({408, 409, 425, 429})
 # How long a (model, schema) pair skips response_format after the endpoint rejected it.
 _STRUCTURED_OUTPUT_RETRY_SEC = 600.0
 
@@ -169,12 +171,22 @@ class OpenAICompatProvider:
                     json=retry_payload,
                 )
             sc = response.status_code
-            if sc == 429 or sc >= 500:
+            if sc in _RETRYABLE_STATUSES or sc >= 500:
                 raise httpx.HTTPStatusError(f"status {sc}", request=response.request, response=response)
             if 400 <= sc < 500:
                 body = response.text[:200]
                 raise ValueError(t("ai.api_error_response", {"url": self._base_url, "status": sc, "body": body}))
-            data = response.json()
+            # A proxy login page or gateway HTML can arrive with 200; report it like an API error.
+            try:
+                data = response.json()
+            except ValueError as exc:
+                body = response.text[:200]
+                raise ValueError(
+                    t("ai.api_error_response", {"url": self._base_url, "status": sc, "body": body})
+                ) from exc
+            if not isinstance(data, dict):
+                body = response.text[:200]
+                raise ValueError(t("ai.api_error_response", {"url": self._base_url, "status": sc, "body": body}))
             usage_raw = data.get("usage")
             usage = None
             if usage_raw:
