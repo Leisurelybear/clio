@@ -373,16 +373,24 @@ def mask_if_looks_like_key(value: str) -> str:
 
 
 def _ffmpeg_search_roots() -> list[Path]:
-    local_app = Path(os.environ.get("LOCALAPPDATA", ""))
-    user_home = Path(os.environ.get("USERPROFILE", ""))
-    search_roots = [
-        local_app / "Microsoft/WinGet/Packages",
-        Path("C:/ProgramData/chocolatey/lib/ffmpeg/tools/ffmpeg/bin"),
-        user_home / "scoop/apps/ffmpeg/current/bin",
-        Path("C:/Program Files/ffmpeg/bin"),
-        Path("C:/Tools/ffmpeg/bin"),
-    ]
-    ffmpeg_home = os.environ.get("FFMPEG_HOME")
+    """Well-known Windows install locations, plus ``$FFMPEG_HOME`` everywhere.
+
+    The Windows roots are skipped on other platforms ("C:/..." is a *relative*
+    path on POSIX) and when their environment variable is unset (``Path("")``
+    would be the CWD), so a binary planted in the working directory is never
+    picked up.
+    """
+    search_roots: list[Path] = []
+    if os.name == "nt":
+        local_app = os.environ.get("LOCALAPPDATA", "").strip()
+        user_home = os.environ.get("USERPROFILE", "").strip()
+        if local_app:
+            search_roots.append(Path(local_app) / "Microsoft/WinGet/Packages")
+        search_roots.append(Path("C:/ProgramData/chocolatey/lib/ffmpeg/tools/ffmpeg/bin"))
+        if user_home:
+            search_roots.append(Path(user_home) / "scoop/apps/ffmpeg/current/bin")
+        search_roots.extend([Path("C:/Program Files/ffmpeg/bin"), Path("C:/Tools/ffmpeg/bin")])
+    ffmpeg_home = os.environ.get("FFMPEG_HOME", "").strip()
     if ffmpeg_home:
         search_roots.append(Path(ffmpeg_home))
     return search_roots

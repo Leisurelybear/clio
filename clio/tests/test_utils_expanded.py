@@ -98,9 +98,23 @@ class TestDiscoverFfmpegBin:
     @patch("clio.utils.Path.glob")
     def test_searches_winget_path(self, mock_glob, mock_is_dir, mock_which):
         mock_glob.return_value = [Path("C:/ffmpeg/bin/ffmpeg.exe")]
-        result = discover_ffmpeg_bin("ffmpeg")
+        # FFMPEG_HOME keeps one search root on every platform (Windows roots are nt-only).
+        with patch.dict(os.environ, {"FFMPEG_HOME": "C:/custom_ffmpeg"}, clear=False):
+            result = discover_ffmpeg_bin("ffmpeg")
         assert result is not None
         assert "ffmpeg.exe" in result
+
+    def test_search_roots_never_resolve_against_cwd(self, monkeypatch):
+        from clio.utils import _ffmpeg_search_roots
+
+        for name in ("LOCALAPPDATA", "USERPROFILE", "FFMPEG_HOME"):
+            monkeypatch.delenv(name, raising=False)
+
+        roots = _ffmpeg_search_roots()
+
+        assert all(root.is_absolute() for root in roots)
+        if os.name != "nt":
+            assert roots == []
 
     @patch("clio.utils.shutil.which", return_value=None)
     @patch("clio.utils.Path.is_dir", return_value=True)
