@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
 PROMPT_OVERRIDE_DIR = Path("templates") / "prompts"
 PROMPT_SUFFIXES = (".md", ".txt", "")
-_PLACEHOLDER_RE = re.compile(r"(?<!\{)\{([A-Za-z_][A-Za-z0-9_]*)\}(?!\})")
 _PROMPT_FILE_CACHE: dict[Path, tuple[int, int, str]] = {}
 
 
@@ -62,25 +60,6 @@ def load_prompt(name: str, default: str, project_dir: str | Path | None = None) 
     if override:
         return override.content
     return default
-
-
-def render_prompt_template(name: str, template: str, **values: object) -> str:
-    placeholders = set(_PLACEHOLDER_RE.findall(template))
-    unknown = sorted(placeholders - values.keys())
-    if unknown:
-        raise ValueError(f"Prompt {name} contains unknown placeholder(s): {', '.join(unknown)}")
-
-    def replace(match: re.Match[str]) -> str:
-        key = match.group(1)
-        if key not in values:
-            return match.group(0)
-        return str(values[key])
-
-    return _PLACEHOLDER_RE.sub(replace, template).replace("{{", "{").replace("}}", "}")
-
-
-def render_prompt(name: str, default: str, project_dir: str | Path | None = None, **values: object) -> str:
-    return render_prompt_template(name, load_prompt(name, default, project_dir), **values)
 
 
 ANALYZE_PROMPT = """请仔细分析这段旅行 vlog 原始素材视频，用中文回复。

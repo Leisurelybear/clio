@@ -1,4 +1,4 @@
-"""Logical analyze windows: geometry, time shift, merge, and legacy slice helpers.
+"""Logical analyze windows: geometry, time shift, and merge.
 
 Physical video split is deprecated. Long clips are analyzed as sliding
 windows inside analyze only; see
@@ -7,12 +7,10 @@ docs/superpowers/specs/2026-07-18-remove-physical-split-design.md.
 
 from __future__ import annotations
 
-import contextlib
 import copy
 import json
 import re
 import shutil
-from collections.abc import Callable
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from itertools import pairwise
@@ -22,7 +20,7 @@ from typing import Any
 
 from clio.i18n import t
 from clio.timecode import parse_timestamp
-from clio.utils import get_duration_sec, write_json_atomic
+from clio.utils import write_json_atomic
 
 MAX_ANALYZE_WINDOWS = 1000
 
@@ -603,153 +601,3 @@ def load_window_cache(
 def cleanup_window_cache_dir(cache_dir: Path) -> None:
     """Drop cached windows after the whole clip is committed to texts/."""
     shutil.rmtree(cache_dir, ignore_errors=True)
-
-
-def slice_window_video(
-    *,
-    source: Path,
-    window: AnalyzeWindow,
-    dest_dir: Path,
-    ffmpeg: str,
-    max_bytes: int,
-    ffprobe: str | None = None,
-    run_ffmpeg: Callable[..., Any] | None = None,
-    cancel_event: Any | None = None,
-) -> Path:
-    """Cut a temp slice from an already-compressed file for one analyze window.
-
-    Prefer stream-copy; on failure or empty output, re-encode lightly so
-    keyframe-misaligned cuts still produce a valid Gemini upload. ``max_bytes``
-    is supplied by the caller from the provider upload limit so the slice cap
-    follows configuration instead of a module-level constant.
-    """
-    from clio.utils import run_ffmpeg as _default_run_ffmpeg
-
-    runner = run_ffmpeg or _default_run_ffmpeg
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    start = max(0.0, float(window.start_sec))
-    dur = max(0.01, float(window.duration_sec))
-    out = dest_dir / f"{source.stem}_w{window.index:02d}_{int(start)}-{int(start + dur)}.mp4"
-
-    def _run(args: list[str]) -> None:
-        # run_ffmpeg accepts cancel_event; custom test doubles may not.
-        try:
-            runner(args, ffmpeg, cancel_event=cancel_event)
-        except TypeError:
-            runner(args, ffmpeg)
-
-    if max_bytes <= 0:
-        raise ValueError("max_bytes must be positive")
-
-    def _has_output() -> bool:
-        return out.is_file() and out.stat().st_size > 0
-
-    def _valid_output(*, check_duration: bool) -> bool:
-        if not _has_output() or out.stat().st_size > max_bytes:
-            return False
-        if not check_duration or ffprobe is None:
-            return True
-        try:
-            actual_duration = get_duration_sec(out, ffprobe)
-        except (OSError, RuntimeError, ValueError):
-            return False
-        return abs(actual_duration - dur) <= 0.5
-
-    copy_args = [
-        "-ss",
-        str(start),
-        "-i",
-        str(source),
-        "-t",
-        str(dur),
-        "-c",
-        "copy",
-        "-y",
-        str(out),
-    ]
-    try:
-        _run(copy_args)
-        if _valid_output(check_duration=True):
-            return out
-        # empty or oversized copy → fall through to re-encode / shrink
-        out.unlink(missing_ok=True)
-    except InterruptedError:
-        # User cancel must not fall through to re-encode (C1).
-        out.unlink(missing_ok=True)
-        raise
-    except (OSError, RuntimeError, ValueError):
-        out.unlink(missing_ok=True)
-
-    reencode_args = [
-        "-ss",
-        str(start),
-        "-i",
-        str(source),
-        "-t",
-        str(dur),
-        "-c:v",
-        "libx264",
-        "-preset",
-        "ultrafast",
-        "-crf",
-        "28",
-        "-c:a",
-        "aac",
-        "-ac",
-        "1",
-        "-b:a",
-        "64k",
-        "-y",
-        str(out),
-    ]
-    _run(reencode_args)
-    if not _has_output():
-        raise RuntimeError(t("analyze.window_slice_empty", {"name": out.name}))
-    if out.stat().st_size > max_bytes:
-        out.unlink(missing_ok=True)
-        shrink_args = [
-            "-ss",
-            str(start),
-            "-i",
-            str(source),
-            "-t",
-            str(dur),
-            "-vf",
-            "scale=min(480\\,iw):-2",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "ultrafast",
-            "-crf",
-            "32",
-            "-c:a",
-            "aac",
-            "-ac",
-            "1",
-            "-b:a",
-            "64k",
-            "-y",
-            str(out),
-        ]
-        _run(shrink_args)
-        if not _has_output():
-            raise RuntimeError(t("analyze.window_slice_empty", {"name": out.name}))
-        if out.stat().st_size > max_bytes:
-            raise RuntimeError(
-                t(
-                    "analyze.window_slice_too_large",
-                    {"size": f"{out.stat().st_size / 1024 / 1024:.0f}"},
-                )
-            )
-    if not _valid_output(check_duration=True):
-        out.unlink(missing_ok=True)
-        raise RuntimeError(t("analyze.window_slice_duration", {"name": out.name}))
-    return out
-
-
-def cleanup_analyze_windows_dir(dest_dir: Path) -> None:
-    if not dest_dir.is_dir():
-        return
-    for p in dest_dir.glob("*_w*.mp4"):
-        with contextlib.suppress(OSError):
-            p.unlink(missing_ok=True)

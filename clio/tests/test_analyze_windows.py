@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from itertools import pairwise
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -13,14 +12,12 @@ from clio.analyze_windows import (
     AnalyzeWindow,
     TimelineGap,
     build_analyze_windows,
-    cleanup_analyze_windows_dir,
     measure_timeline_coverage,
     merge_timeline_completion,
     merge_window_analyses,
     select_sparse_retry_gap,
     shift_analysis_times,
     slice_transcript_context,
-    slice_window_video,
     timeline_gaps,
 )
 
@@ -390,153 +387,3 @@ class TestShiftAndMerge:
             (105, "retry moment"),
         ]
         assert base["timeline"][0]["text"] == "before"
-
-
-class TestSliceWindowVideo:
-    def test_slice_window_video_invokes_ffmpeg(self, tmp_path: Path):
-        src = tmp_path / "001_GL.mp4"
-        src.write_bytes(b"\x00" * 10)
-        dest = tmp_path / ".analyze_windows"
-        calls = []
-
-        def fake_run(args, ffmpeg, **kw):
-            calls.append(args)
-            Path(args[-1]).write_bytes(b"x")
-
-        out = slice_window_video(
-            source=src,
-            window=AnalyzeWindow(0, 0, 60),
-            dest_dir=dest,
-            ffmpeg="ffmpeg",
-            max_bytes=10 * 1024 * 1024,
-            run_ffmpeg=fake_run,
-        )
-        assert out.is_file()
-        assert "w00" in out.name
-        assert "-ss" in calls[0]
-        assert "-c" in calls[0]
-
-    def test_slice_falls_back_to_reencode_on_copy_fail(self, tmp_path: Path):
-        src = tmp_path / "001_GL.mp4"
-        src.write_bytes(b"\x00" * 10)
-        dest = tmp_path / ".analyze_windows"
-        calls = []
-
-        def fake_run(args, ffmpeg, **kw):
-            calls.append(list(args))
-            if "-c" in args and args[args.index("-c") + 1] == "copy":
-                raise RuntimeError("copy failed")
-            Path(args[-1]).write_bytes(b"reencoded")
-
-        out = slice_window_video(
-            source=src,
-            window=AnalyzeWindow(1, 100, 160),
-            dest_dir=dest,
-            ffmpeg="ffmpeg",
-            max_bytes=10 * 1024 * 1024,
-            run_ffmpeg=fake_run,
-        )
-        assert out.is_file()
-        assert len(calls) == 2
-        assert "libx264" in calls[1]
-        assert "-an" not in calls[1]
-        assert calls[1][calls[1].index("-c:a") + 1] == "aac"
-        assert calls[1][calls[1].index("-ac") + 1] == "1"
-
-    def test_slice_reencodes_when_copy_duration_drifts(self, monkeypatch, tmp_path: Path):
-        src = tmp_path / "001_GL.mp4"
-        src.write_bytes(b"source")
-        dest = tmp_path / ".analyze_windows"
-        calls = []
-        durations = iter([62.0, 60.0])
-
-        def fake_run(args, ffmpeg, **kw):
-            calls.append(args)
-            Path(args[-1]).write_bytes(b"video")
-
-        monkeypatch.setattr("clio.analyze_windows.get_duration_sec", lambda *args: next(durations))
-
-        out = slice_window_video(
-            source=src,
-            window=AnalyzeWindow(0, 0, 60),
-            dest_dir=dest,
-            ffmpeg="ffmpeg",
-            max_bytes=10 * 1024 * 1024,
-            ffprobe="ffprobe",
-            run_ffmpeg=fake_run,
-        )
-
-        assert out.is_file()
-        assert len(calls) == 2
-        assert "libx264" in calls[1]
-
-    def test_slice_cancel_during_copy_does_not_reencode(self, tmp_path: Path):
-        """InterruptedError on stream-copy must not fall through to re-encode (C1)."""
-        src = tmp_path / "001_GL.mp4"
-        src.write_bytes(b"\x00" * 10)
-        dest = tmp_path / ".analyze_windows"
-        calls: list[list] = []
-
-        def fake_run(args, ffmpeg, **kw):
-            calls.append(list(args))
-            Path(args[-1]).write_bytes(b"partial")
-            if "-c" in args and args[args.index("-c") + 1] == "copy":
-                raise InterruptedError("ffmpeg 被用户取消")
-            # If re-encode is wrongly attempted, leave a marker file content.
-            Path(args[-1]).write_bytes(b"reencoded-after-cancel")
-
-        with pytest.raises(InterruptedError, match="用户取消"):
-            slice_window_video(
-                source=src,
-                window=AnalyzeWindow(0, 0, 60),
-                dest_dir=dest,
-                ffmpeg="ffmpeg",
-                max_bytes=10 * 1024 * 1024,
-                run_ffmpeg=fake_run,
-            )
-
-        assert len(calls) == 1, f"expected only copy call, got {len(calls)}: {calls}"
-        assert not any(dest.glob("*.mp4")), "partial slice must be unlinked on cancel"
-
-    def test_slice_shrinks_when_over_custom_cap(self, tmp_path: Path):
-        src = tmp_path / "001_GL.mp4"
-        src.write_bytes(b"\x00" * 10)
-        dest = tmp_path / ".analyze_windows"
-        calls = []
-
-        def fake_run(args, ffmpeg, **kw):
-            calls.append(list(args))
-            outp = Path(args[-1])
-            # Stay oversized until shrink path (has -vf scale)
-            joined = " ".join(str(a) for a in args)
-            if "-vf" in args or "scale=" in joined:
-                outp.write_bytes(b"small")
-            else:
-                outp.write_bytes(b"x" * 2048)
-
-        out = slice_window_video(
-            source=src,
-            window=AnalyzeWindow(0, 0, 60),
-            dest_dir=dest,
-            ffmpeg="ffmpeg",
-            max_bytes=1024,
-            run_ffmpeg=fake_run,
-        )
-        assert out.is_file()
-        assert out.stat().st_size < 1024
-        assert any("-vf" in c for c in calls)
-        shrink = next(c for c in calls if "-vf" in c)
-        assert "-an" not in shrink
-        assert shrink[shrink.index("-c:a") + 1] == "aac"
-        assert shrink[shrink.index("-ac") + 1] == "1"
-
-    def test_cleanup_removes_window_files(self, tmp_path: Path):
-        dest = tmp_path / ".analyze_windows"
-        dest.mkdir()
-        f = dest / "001_GL_w00_0-60.mp4"
-        f.write_bytes(b"x")
-        other = dest / "keep.txt"
-        other.write_text("y", encoding="utf-8")
-        cleanup_analyze_windows_dir(dest)
-        assert not f.exists()
-        assert other.exists()

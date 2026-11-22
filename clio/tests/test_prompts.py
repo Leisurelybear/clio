@@ -4,8 +4,6 @@ import os
 import time
 from pathlib import Path
 
-import pytest
-
 from clio.prompt_overrides import PROMPT_PLACEHOLDERS, validate_prompt_template
 from clio.prompts import (
     ANALYZE_PROMPT,
@@ -21,7 +19,6 @@ from clio.prompts import (
     SCRIPT_PROMPT,
     TRANSCRIPT_CONTEXT,
     load_prompt,
-    render_prompt_template,
 )
 
 
@@ -75,19 +72,6 @@ def test_load_prompt_caches_override_until_file_changes(tmp_path, monkeypatch):
 
     assert load_prompt("ANALYZE_PROMPT", "default", tmp_path) == "updated prompt"
     assert read_count == 2
-
-
-def test_render_prompt_template_allows_json_braces():
-    template = '返回 JSON: {"index": "{index}", "items": []}'
-
-    result = render_prompt_template("SCRIPT_PROMPT", template, index="001")
-
-    assert result == '返回 JSON: {"index": "001", "items": []}'
-
-
-def test_render_prompt_template_rejects_unknown_placeholder():
-    with pytest.raises(ValueError, match="unknown"):
-        render_prompt_template("SCRIPT_PROMPT", "hello {missing}", index="001")
 
 
 def test_analyze_prompt_requires_high_detail_timeline():
