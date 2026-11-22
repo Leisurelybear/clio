@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import glob
 import hashlib
 import json
 import os
@@ -815,7 +816,7 @@ def handle_get_vmeta(handler: HandlerProtocol, qs: dict[str, Any], stem: str) ->
     proj_out = handler._get_project_output(proj_dir)
     comp_dir = proj_out / "compressed"
 
-    for p in sorted(comp_dir.glob(f"{stem}.*")):
+    for p in sorted(comp_dir.glob(f"{glob.escape(stem)}.*")):
         if p.is_file() and p.suffix.lower() in VIDEO_EXTS:
             try:
                 validate_within_root(p, proj_out)

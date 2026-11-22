@@ -11,7 +11,6 @@ import tempfile
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from urllib.parse import unquote
 
 import yaml
 
@@ -968,7 +967,7 @@ def handle_post_provider(handler: HandlerProtocol, qs: dict[str, Any], obj: dict
 
 @serialized_store_write
 def handle_put_provider(handler: HandlerProtocol, qs: dict[str, Any], obj: dict[str, Any], name: str) -> None:
-    name = unquote(name).strip()
+    name = name.strip()
     raw, error = _read_global_config_raw(handler.config_path)
     if error:
         return handler._send_json({"ok": False, "error": error}, 500)
@@ -1017,7 +1016,7 @@ def handle_put_provider(handler: HandlerProtocol, qs: dict[str, Any], obj: dict[
 
 @serialized_store_write
 def handle_delete_provider(handler: HandlerProtocol, qs: dict[str, Any], name: str) -> None:
-    name = unquote(name).strip()
+    name = name.strip()
     if error := _provider_name_error(name):
         return handler._send_json({"ok": False, "error": error}, 400)
     if name in _DEFAULT_PROVIDERS:
