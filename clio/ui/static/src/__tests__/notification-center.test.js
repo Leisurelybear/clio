@@ -530,7 +530,8 @@ describe('notification center', () => {
     const { initNotificationCenter } = await import('../notification-center.js');
     initNotificationCenter();
     await vi.waitFor(() => expect(eventSource).toBeTruthy());
-    expect(eventSource.url).toContain('token=sekret');
+    expect(eventSource.url).not.toContain('token=');
+    expect(eventSource.url).not.toContain('sekret');
 
     eventSource.onmessage({ data: JSON.stringify({ seq: 2, notification: { id: 'old', seq: 2, message: 'm' } }) });
     expect(state.notifications).toHaveLength(0);

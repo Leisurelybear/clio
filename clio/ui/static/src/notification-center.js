@@ -258,9 +258,8 @@ export async function loadNotifications({ append = false, refresh = false, emitN
 
 function _startStream() {
   if (_stream) return;
-  let url = `/api/notifications/stream?after=${encodeURIComponent(_streamCursor)}`;
-  const token = sessionStorage.getItem('api_token');
-  if (token) url += `&token=${encodeURIComponent(token)}`;
+  // EventSource cannot send headers; the HttpOnly session cookie authenticates it.
+  const url = `/api/notifications/stream?after=${encodeURIComponent(_streamCursor)}`;
   try { _stream = new EventSource(url); } catch { return; }
   _stream.onmessage = event => {
     try {

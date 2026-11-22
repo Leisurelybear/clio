@@ -125,8 +125,7 @@ export function renderTexts() {
       params.set('file', coverName);
       if (state.currentProjectName) params.set('project', state.currentProjectName);
       if (state.currentProjectDir) params.set('project_dir', state.currentProjectDir);
-      const tok = sessionStorage.getItem('api_token');
-      if (tok) params.set('token', tok);
+      // No ?token=: the session cookie authenticates same-origin <img> requests.
       coverUrl = `/api/cover?${params.toString()}`;
     }
     const img = coverUrl

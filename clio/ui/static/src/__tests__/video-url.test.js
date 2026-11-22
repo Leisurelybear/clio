@@ -5,11 +5,11 @@ import { videoUrlFor } from '../video-url.js';
 describe('videoUrlFor', () => {
   beforeEach(() => sessionStorage.clear());
 
-  it('builds a source URL with abs path, project, and token', () => {
+  it('builds a source URL with abs path and project but never the API token', () => {
     sessionStorage.setItem('api_token', 'tok en');
     const url = videoUrlFor({ file: 'a b.mp4', abs_path: '/x/y.mp4' }, 'original', 'Paris');
     expect(url).toBe(
-      '/api/video?file=a%20b.mp4&source=original&abspath=%2Fx%2Fy.mp4&project=Paris&token=tok%20en',
+      '/api/video?file=a%20b.mp4&source=original&abspath=%2Fx%2Fy.mp4&project=Paris',
     );
   });
 

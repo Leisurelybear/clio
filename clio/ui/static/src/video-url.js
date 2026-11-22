@@ -13,8 +13,9 @@
  */
 export function videoUrlFor(v, source, projectName) {
   const projParam = projectName ? ('&project=' + encodeURIComponent(projectName)) : '';
-  const tokenParam = sessionStorage.getItem('api_token');
-  const extraParam = tokenParam ? ('&token=' + encodeURIComponent(tokenParam)) : '';
+  // Auth rides on the HttpOnly clio_session cookie; never put the API token
+  // into media URLs (they leak via DOM, logs and "copy address").
+  const extraParam = '';
   if (source === 'cut') {
     const dayParam = v?.cut_day ? ('&day=' + encodeURIComponent(v.cut_day)) : '';
     const revParam = v?.rev ? ('&rev=' + encodeURIComponent(v.rev)) : '';

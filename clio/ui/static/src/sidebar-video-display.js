@@ -15,8 +15,7 @@ export function videoThumbHtml(v) {
   params.set('file', name);
   if (state.currentProjectName) params.set('project', state.currentProjectName);
   if (state.currentProjectDir) params.set('project_dir', state.currentProjectDir);
-  const tok = sessionStorage.getItem('api_token');
-  if (tok) params.set('token', tok);
+  // No ?token=: the session cookie authenticates same-origin <img> requests.
   const src = `/api/cover?${params.toString()}`;
   // Fallback icon under img; onerror on the img swaps to icon via .cover-error.
   return `<div class="video-thumb has-cover" title="${t('sidebar.ai_cover')}">

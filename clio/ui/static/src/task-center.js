@@ -240,9 +240,8 @@ async function mutateTask(action) {
 
 export function startTaskStream() {
   if (_stream) return;
-  let url = `/api/tasks/stream?after=${encodeURIComponent(_streamCursor)}`;
-  const token = sessionStorage.getItem('api_token');
-  if (token) url += `&token=${encodeURIComponent(token)}`;
+  // EventSource cannot send headers; the HttpOnly session cookie authenticates it.
+  const url = `/api/tasks/stream?after=${encodeURIComponent(_streamCursor)}`;
   try { _stream = new EventSource(url); } catch { return; }
   const stream = _stream;
   stream.onopen = () => { _streamRetryDelay = STREAM_RETRY_MIN_MS; };

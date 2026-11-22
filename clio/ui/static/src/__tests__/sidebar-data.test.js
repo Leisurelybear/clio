@@ -246,7 +246,8 @@ describe('videoThumbHtml', () => {
     expect(html).toContain('/api/cover?');
     expect(html).toContain('file=001_title.jpg');
     expect(html).toContain('project=France');
-    expect(html).toContain('token=tok123');
+    expect(html).not.toContain('token=');
+    expect(html).not.toContain('tok123');
     expect(html).toContain('video-thumb-fallback');
   });
 });

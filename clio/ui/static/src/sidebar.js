@@ -41,10 +41,9 @@ async function selectVideo(file, options = {}) {
 
   const player = $('player');
   const projParam = state.currentProjectName ? `&project=${encodeURIComponent(state.currentProjectName)}` : '';
-  const tokenParam = sessionStorage.getItem('api_token');
-  const extraParam = tokenParam ? `&token=${encodeURIComponent(tokenParam)}` : '';
+  // No ?token=: the session cookie authenticates same-origin media requests.
   const absParam = v.abs_path ? `&abspath=${encodeURIComponent(v.abs_path)}` : '';
-  player.src = `/api/video?file=${encodeURIComponent(file)}&source=${state.source}${absParam}${projParam}${extraParam}`;
+  player.src = `/api/video?file=${encodeURIComponent(file)}&source=${state.source}${absParam}${projParam}`;
   $('player-name').textContent = file;
 
   player.onloadedmetadata = () => {
