@@ -433,6 +433,43 @@ def _validate_no_foreign_fields(obj: dict, layer: str) -> str | None:
     return None
 
 
+def _merge_global_layer(ref_raw: dict, client: dict) -> dict:
+    """Overlay the client's global-layer config onto the on-disk config.yaml.
+
+    ``GET /api/config/global`` hides project-only sections and the non-global
+    keys of split sections, so a client PUT never contains them. Keep those
+    from *ref_raw*; everything the GET exposes is owned by the client (keys it
+    dropped are deleted). On-disk key order is preserved.
+    """
+    merged: dict = {}
+    for section, val in ref_raw.items():
+        client_val = client.get(section)
+        if isinstance(val, dict) and section in _SPLIT_GLOBAL:
+            owned = _SPLIT_GLOBAL.get(section, set())
+            client_sec = client_val if isinstance(client_val, dict) else {}
+            sec: dict = {}
+            for key, sub in val.items():
+                if key not in owned:
+                    sec[key] = sub
+                elif key in client_sec:
+                    sec[key] = client_sec[key]
+            for key, sub in client_sec.items():
+                if key not in sec:
+                    sec[key] = sub
+            if section in client and not isinstance(client_val, dict):
+                merged[section] = client_val
+            elif sec:
+                merged[section] = sec
+        elif isinstance(val, dict) and not _is_global_section(section):
+            merged[section] = client_val if section in client else val
+        elif section in client:
+            merged[section] = client_val
+    for section, client_val in client.items():
+        if section not in merged and section not in ref_raw:
+            merged[section] = client_val
+    return merged
+
+
 def handle_get_config_global(handler: HandlerProtocol, qs: dict[str, Any]) -> None:
     """Handle GET /api/config/global."""
     config_path = handler.config_path
@@ -544,8 +581,11 @@ def handle_put_config_global(handler: HandlerProtocol, qs: dict[str, Any], obj: 
     if error := _validate_provider_bindings(ref_raw, coerced, config_path.parent):
         return handler._send_json({"ok": False, "error": error}, 400)
     _strip_provider_api_keys(coerced)
+    # The GET view omits project-layer fields; writing the client object as the
+    # whole file used to drop them (e.g. after a language switch).
+    merged = _merge_global_layer(ref_raw if isinstance(ref_raw, dict) else {}, coerced)
     try:
-        yml = yaml.dump(coerced, allow_unicode=True, default_flow_style=False, sort_keys=False, indent=2)
+        yml = yaml.dump(merged, allow_unicode=True, default_flow_style=False, sort_keys=False, indent=2)
     except _YAML_WRITE_ERRORS as e:
         return handler._send_json({"ok": False, "error": f"YAML serialization failed: {e}"}, 400)
     tmp_path: Path | None = None
