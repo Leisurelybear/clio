@@ -18,7 +18,7 @@ import {
 } from './sidebar-video-filter.js';
 import { toggleSelectionFor, videoSelectionKey } from './video-selection.js';
 import { selectVideosButtonHtml } from './select-btn.js';
-import { bindVideoInfoHover, clearVideoInfoCache } from './video-info.js';
+import { bindVideoInfoHover, clearVideoInfoCache, hideVideoInfoTip } from './video-info.js';
 import { t, onLocaleChange } from './i18n.js';
 import { confirmDialog } from './confirm.js';
 import { renderFilterChips, renderOfflineSummary, renderStageCountBar } from './sidebar-video-overview.js';
@@ -400,6 +400,8 @@ function scrollActiveVideoIntoView() {
 export function renderVideoList() {
   const ul = $('video-list');
   if (!ul) return;
+  // Rows are rebuilt below; a card anchored to an old row would never close.
+  hideVideoInfoTip();
   hideVideoListLoading();
   ul.innerHTML = '';
   renderOfflineSummary();

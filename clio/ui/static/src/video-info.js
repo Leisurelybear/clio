@@ -7,7 +7,10 @@ import { api } from './api.js';
 import { t } from './i18n.js';
 
 const HOVER_DELAY_MS = 400;
+const CACHE_MAX_ENTRIES = 200;
 const _cache = new Map();
+/** In-flight probes, so hover + modal on the same row share one ffprobe. */
+const _inflight = new Map();
 
 let _tipEl = null;
 let _hoverTimer = null;
@@ -29,6 +32,7 @@ function cacheKey(video, source) {
 
 export function clearVideoInfoCache() {
   _cache.clear();
+  _inflight.clear();
 }
 
 export function formatBytes(bytes) {
@@ -158,13 +162,24 @@ export async function fetchVideoInfo(video, source) {
 async function _loadInfo(video, source) {
   const key = cacheKey(video, source);
   if (_cache.has(key)) return _cache.get(key);
-  try {
-    const info = await fetchVideoInfo(video, source);
-    _cache.set(key, info);
-    return info;
-  } catch (e) {
-    return { ok: false, error: String(e?.message || e) };
-  }
+  if (_inflight.has(key)) return _inflight.get(key);
+  const pending = (async () => {
+    try {
+      const info = await fetchVideoInfo(video, source);
+      if (_inflight.get(key) === pending) {
+        _cache.set(key, info);
+        // Map keeps insertion order: drop the oldest entries past the cap.
+        while (_cache.size > CACHE_MAX_ENTRIES) _cache.delete(_cache.keys().next().value);
+      }
+      return info;
+    } catch (e) {
+      return { ok: false, error: String(e?.message || e) };
+    } finally {
+      if (_inflight.get(key) === pending) _inflight.delete(key);
+    }
+  })();
+  _inflight.set(key, pending);
+  return pending;
 }
 
 function _infoHtml(info) {
@@ -249,8 +264,23 @@ async function _showTip(li, video, source) {
   _positionTip(li, tip);
   const info = await _loadInfo(video, source);
   if (_activeLi !== li) return;
+  if (!li.isConnected) {
+    // The row was re-rendered meanwhile; it will never get a mouseleave.
+    _activeLi = null;
+    _hideTip();
+    return;
+  }
   tip.innerHTML = _infoHtml(info);
   _positionTip(li, tip);
+}
+
+/** Close the hover card and drop pending hover state (rows are being replaced). */
+export function hideVideoInfoTip() {
+  clearTimeout(_hoverTimer);
+  _hoverTimer = null;
+  _cancelHide();
+  _activeLi = null;
+  _hideTip();
 }
 
 /** Wire delayed hover tooltip on one sidebar row. */
@@ -266,6 +296,7 @@ export function bindVideoInfoHover(li, video, source) {
       _hideTip();
     }
     _hoverTimer = setTimeout(() => {
+      if (!li.isConnected) return;
       _activeLi = li;
       _showTip(li, video, source);
     }, HOVER_DELAY_MS);
